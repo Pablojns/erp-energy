@@ -1,0 +1,113 @@
+import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+import { API_BASE_URL, AUTH_COOKIE_NAME } from '@/src/services/api/config';
+import { isAuthDisabled } from '@/src/services/auth/bypass';
+
+function isAllowedPath(path: string): boolean {
+  return (
+    /^products(\/|$)/i.test(path) ||
+    /^stock(\/|$)/i.test(path) ||
+    /^product-categories(\/|$)/i.test(path) ||
+    /^orders(\/|$)/i.test(path) ||
+    /^api\/pedidos(\/|$)/i.test(path) ||
+    /^pedidos(\/|$)/i.test(path)
+  );
+}
+
+/** Aceita `/api/erp/pedidos/*` e encaminha para `api/pedidos/*` no Nest. */
+function resolveUpstreamPath(segments: string[]): string {
+  const path = segments.join('/');
+  if (/^pedidos(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  return path;
+}
+
+async function proxy(request: NextRequest, segments: string[]) {
+  const path = resolveUpstreamPath(segments);
+  if (!path || !isAllowedPath(path)) {
+    return NextResponse.json(
+      { message: 'Rota não permitida.' },
+      { status: 403 },
+    );
+  }
+
+  const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value;
+  if (!token && !isAuthDisabled()) {
+    return NextResponse.json({ message: 'Não autenticado.' }, { status: 401 });
+  }
+
+  const target = `${API_BASE_URL}/${path}${request.nextUrl.search}`;
+  const method = request.method;
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const incomingCt = request.headers.get('content-type');
+  if (incomingCt && method !== 'GET' && method !== 'HEAD') {
+    headers.set('content-type', incomingCt);
+  }
+
+  const init: RequestInit = {
+    method,
+    headers,
+    cache: 'no-store',
+  };
+
+  if (method !== 'GET' && method !== 'HEAD') {
+    const body = await request.text();
+    if (body.length > 0) {
+      init.body = body;
+    }
+  }
+
+  const upstream = await fetch(target, init);
+  const text = await upstream.text();
+  const outHeaders = new Headers();
+  const ct = upstream.headers.get('content-type');
+  if (ct) {
+    outHeaders.set('content-type', ct);
+  }
+
+  return new NextResponse(text, {
+    status: upstream.status,
+    headers: outHeaders,
+  });
+}
+
+type SegmentsCtx = Promise<{ segments: string[] }>;
+
+async function readSegments(params: SegmentsCtx) {
+  const p = await params;
+  return p.segments ?? [];
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: SegmentsCtx },
+) {
+  return proxy(request, await readSegments(context.params));
+}
+
+export async function POST(
+  request: NextRequest,
+  context: { params: SegmentsCtx },
+) {
+  return proxy(request, await readSegments(context.params));
+}
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: SegmentsCtx },
+) {
+  return proxy(request, await readSegments(context.params));
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: SegmentsCtx },
+) {
+  return proxy(request, await readSegments(context.params));
+}

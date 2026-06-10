@@ -1,0 +1,609 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderSource {
+  WEG_MERCADO_ELETRONICO
+  ECOMMERCE
+  SITE
+  MANUAL
+}
+
+enum InvoiceStatus {
+  NOT_FOUND
+  PENDING
+  INVOICED
+  PARTIAL
+  RECEIVED
+  CHARGE_RECEIPT
+}
+
+/** Ciclo expedição WEG / WMS — statuses em português (domínio operacional) */
+enum OrderStatus {
+  NOVO
+  ANALISADO
+  PARCIAL
+  RESERVADO
+  EM_SEPARACAO
+  SEPARADO
+  AGUARDANDO_NF
+  NF_ATRELADA
+  EXPEDIDO
+  FINALIZADO
+  CANCELADO
+}
+
+enum OrderItemStockStatus {
+  COMPLETO
+  PARCIAL
+  SEM_ESTOQUE
+  NAO_ANALISADO
+  SKU_NAO_ENCONTRADO
+}
+
+enum FinancialStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum StockMovementType {
+  INBOUND
+  OUTBOUND
+  ADJUSTMENT
+  TRANSFER
+  RETURN
+  RESERVE
+  RESERVE_CANCEL
+  /// Reserva física (incrementa apenas reservedQty do produto — Expedição)
+  RESERVA
+  /// Baixa ao marcar separado — legado (saída real migrada para SAIDA_EXPEDICAO)
+  BAIXA_EXPEDICAO
+  /// Saída definitiva na finalização da expedição com NF atrelada
+  SAIDA_EXPEDICAO
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum NotificationType {
+  SYSTEM
+  ORDER
+  FINANCIAL
+  TASK
+  CRM
+  CHAT
+}
+
+enum ShipmentStatus {
+  PENDING
+  PICKING
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+model User {
+  id                   String                @id @default(uuid()) @db.Uuid
+  name                 String
+  email                String                @unique
+  passwordHash         String
+  isActive             Boolean               @default(true)
+  userRoles            UserRole[]
+  notifications        Notification[]
+  chatMessages         ChatMessage[]
+  chatRoomParticipants ChatRoomParticipant[]
+  stockMovements       StockMovement[]
+  stockReservationsCreated StockReservation[] @relation("StockReservationCreatedBy")
+  crmInteractions      CrmInteraction[]
+  auditLogs            AuditLog[]
+  createdTasks         Task[]                @relation("TaskCreatedBy")
+  assignedTasks        Task[]                @relation("TaskAssignedTo")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model Role {
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String           @unique
+  description     String?
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([createdAt])
+}
+
+model Permission {
+  id              String           @id @default(uuid()) @db.Uuid
+  code            String           @unique
+  description     String?
+  rolePermissions RolePermission[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([createdAt])
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@index([createdAt])
+}
+
+model RolePermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@index([createdAt])
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  slug      String    @unique
+  color     String?   @db.VarChar(32)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@index([active])
+  @@index([slug])
+}
+
+model Product {
+  id                String           @id @default(uuid()) @db.Uuid
+  internalCode      String           @unique
+  sku               String           @unique
+  name              String
+  description       String           @default("")
+  /// Rótulo legado (produtos criados antes de ProductCategory ou texto livre)
+  category          String?
+  categoryId        String?          @db.Uuid
+  productCategory   ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  price             Decimal          @db.Decimal(12, 2)
+  cost              Decimal?         @db.Decimal(12, 2)
+  minStock          Int              @default(0)
+  /// Quantidade física em estoque (total no endereço)
+  stockQty          Int              @default(0)
+  /// Quantidade comprometida em reservas ativas de pedidos (disponível = stockQty - reservedQty)
+  reservedQty       Int              @default(0)
+  isActive          Boolean          @default(true)
+  orderItems        OrderItem[]
+  stockMovements    StockMovement[]
+  stockReservations StockReservation[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([name])
+  @@index([category])
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model Customer {
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  document        String?
+  orders          Order[]
+  shipments       Shipment[]
+  receivables     AccountReceivable[]
+  crmInteractions CrmInteraction[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([name])
+  @@index([document])
+  @@index([createdAt])
+}
+
+model Supplier {
+  id         String           @id @default(uuid()) @db.Uuid
+  name       String
+  email      String?
+  phone      String?
+  document   String?
+  payables   AccountPayable[]
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([name])
+  @@index([document])
+  @@index([createdAt])
+}
+
+model Order {
+  id                      String              @id @default(uuid()) @db.Uuid
+  source                  OrderSource         @default(MANUAL)
+  /// Sequência interna ERP (PED-000001)
+  code                    String              @unique
+  /// Numero F / pedido cliente (planilha WEG)
+  externalOrderNumber     String?
+  mercadoEletronicoNumber String?
+  customerId              String?             @db.Uuid
+  customerName            String
+  customerDocument        String?
+  /// Legado UI anterior — preferir delivery*
+  customerCity            String?
+  customerState           String?
+  receiverName            String?
+  unloadingPoint          String?
+  deliveryCnpj            String?
+  deliveryCity            String?
+  deliveryState           String?
+  deliveryAddress         String?
+  notes                   String?
+  status                  OrderStatus         @default(NOVO)
+  priority                Int                 @default(3)
+  mercadoEletronicoStatus String?
+  contaAzulStatus         String?
+  invoiceNumber           String?
+  invoiceStatus           InvoiceStatus       @default(NOT_FOUND)
+  orderDate               DateTime?
+  requestedDeliveryDate   DateTime?
+  subtotal                Decimal             @db.Decimal(12, 2)
+  discount                Decimal             @default(0) @db.Decimal(12, 2)
+  total                   Decimal             @db.Decimal(12, 2)
+  totalValue              Decimal             @db.Decimal(12, 2)
+  reservedAt              DateTime?
+  shippedAt               DateTime?
+  invoicedAt              DateTime?
+  customer                Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items                   OrderItem[]
+  stockReservations       StockReservation[]
+  exits                   OrderExit[]
+  shipments               Shipment[]
+  receivables             AccountReceivable[]
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  @@index([code])
+  @@index([source])
+  @@index([externalOrderNumber])
+  @@index([deliveryCnpj])
+  @@index([receiverName])
+  @@index([status])
+  @@index([createdAt])
+  @@index([orderDate])
+  @@index([requestedDeliveryDate])
+  @@index([customerId])
+  @@index([customerId, status])
+  @@index([status, createdAt])
+}
+
+model OrderExit {
+  id            String   @id @default(uuid()) @db.Uuid
+  orderId       String   @unique @db.Uuid
+  invoiceNumber String   @db.VarChar(64)
+  invoiceValue  Decimal  @db.Decimal(12, 2)
+  exitDate      DateTime @default(now())
+  carrierName   String?  @db.VarChar(120)
+  trackingCode  String?  @db.VarChar(120)
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([invoiceNumber])
+  @@index([exitDate])
+  @@index([carrierName])
+}
+
+model OrderItem {
+  id                   String    @id @default(uuid()) @db.Uuid
+  orderId              String    @db.Uuid
+  productId            String?   @db.Uuid
+  /// Seq da planilha WEG / ME (único por pedido)
+  lineNumber           Int
+  sku                  String    @default("")
+  description          String    @default("")
+  /// Solicitado (legado: mesma coluna `quantity`)
+  quantity             Int
+  /// Disponível no momento da análise (por linha)
+  availableAtAnalysis  Int?
+  reservedQuantity     Int       @default(0)
+  missingQty           Int       @default(0)
+  pickedQty            Int       @default(0)
+  invoicedQty          Int       @default(0)
+  stockStatus          OrderItemStockStatus @default(NAO_ANALISADO)
+  unit                 String?   @db.VarChar(32)
+  ncm                  String?   @db.VarChar(16)
+  unitPrice            Decimal   @db.Decimal(12, 2)
+  discount             Decimal   @default(0) @db.Decimal(12, 2)
+  totalPrice           Decimal   @db.Decimal(12, 2)
+  deliveryDeposit      String?
+  supplierMaterialCode String?
+  receiverName         String?
+  unloadingPoint       String?
+  order                Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product              Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  stockReservation     StockReservation?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([orderId, lineNumber])
+  @@index([orderId])
+  @@index([productId])
+  @@index([sku])
+  @@index([createdAt])
+}
+
+/// Reserva física por linha — quantidade pode ser menor que o solicitado (reserva flexível)
+model StockReservation {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @db.Uuid
+  orderItemId String   @unique @db.Uuid
+  productId   String   @db.Uuid
+  sku         String
+  quantity    Int
+  createdAt   DateTime @default(now())
+  createdById String?  @db.Uuid
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  createdBy User?     @relation("StockReservationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model StockMovement {
+  id           String            @id @default(uuid()) @db.Uuid
+  productId    String            @db.Uuid
+  movementType StockMovementType
+  quantity     Int
+  reference    String?
+  /// Número da NF quando a saída for gerada na finalização da expedição
+  invoiceNumber String?   @db.VarChar(64)
+  notes        String?
+  movedById    String?           @db.Uuid
+  movementDate DateTime          @default(now())
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  movedBy      User?             @relation(fields: [movedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([productId])
+  @@index([movementType])
+  @@index([movementDate])
+  @@index([productId, movementDate])
+}
+
+model Shipment {
+  id           String         @id @default(uuid()) @db.Uuid
+  orderId      String         @db.Uuid
+  customerId   String         @db.Uuid
+  status       ShipmentStatus @default(PENDING)
+  trackingCode String?
+  carrier      String?
+  shippedAt    DateTime?
+  deliveredAt  DateTime?
+  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@index([customerId])
+  @@index([shippedAt])
+  @@index([createdAt])
+}
+
+model AccountPayable {
+  id          String          @id @default(uuid()) @db.Uuid
+  supplierId  String          @db.Uuid
+  description String
+  amount      Decimal         @db.Decimal(12, 2)
+  dueDate     DateTime
+  paidAt      DateTime?
+  status      FinancialStatus @default(PENDING)
+  supplier    Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([supplierId])
+  @@index([status, dueDate])
+}
+
+model AccountReceivable {
+  id          String          @id @default(uuid()) @db.Uuid
+  customerId  String          @db.Uuid
+  orderId     String?         @db.Uuid
+  description String
+  amount      Decimal         @db.Decimal(12, 2)
+  dueDate     DateTime
+  receivedAt  DateTime?
+  status      FinancialStatus @default(PENDING)
+  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order       Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status, dueDate])
+}
+
+model CrmInteraction {
+  id              String   @id @default(uuid()) @db.Uuid
+  customerId      String   @db.Uuid
+  userId          String   @db.Uuid
+  interactionDate DateTime @default(now())
+  channel         String?
+  notes           String
+  nextActionAt    DateTime?
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([interactionDate])
+  @@index([createdAt])
+}
+
+model Task {
+  id           String     @id @default(uuid()) @db.Uuid
+  title        String
+  description  String?
+  status       TaskStatus @default(TODO)
+  priority     Int        @default(3)
+  dueDate      DateTime?
+  createdById  String     @db.Uuid
+  assignedToId String?    @db.Uuid
+  createdBy    User       @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo   User?      @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([createdById])
+  @@index([assignedToId])
+  @@index([status, dueDate])
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([type])
+  @@index([createdAt])
+  @@index([userId, isRead])
+}
+
+model ChatRoom {
+  id           String                @id @default(uuid()) @db.Uuid
+  name         String
+  isPrivate    Boolean               @default(false)
+  participants ChatRoomParticipant[]
+  messages     ChatMessage[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([createdAt])
+}
+
+model ChatRoomParticipant {
+  id        String   @id @default(uuid()) @db.Uuid
+  roomId    String   @db.Uuid
+  userId    String   @db.Uuid
+  joinedAt  DateTime @default(now())
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  roomId    String   @db.Uuid
+  senderId  String   @db.Uuid
+  content   String
+  sentAt    DateTime @default(now())
+  editedAt  DateTime?
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([senderId])
+  @@index([createdAt])
+  @@index([roomId, sentAt])
+}
+
+enum OrderImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// Job de importação (ME / planilha / futura API 24h) — dedupe por source + externalHash
+model OrderImportJob {
+  id             String            @id @default(uuid()) @db.Uuid
+  source         OrderSource
+  importStatus   OrderImportStatus @default(PENDING)
+  importedAt     DateTime?
+  externalHash   String?
+  payloadSummary String?
+  errorMessage   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([source])
+  @@index([importStatus])
+  @@index([externalHash])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @db.Uuid
+  action     String
+  entity     String
+  entityId   String
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entity, entityId])
+}

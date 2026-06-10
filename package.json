@@ -1,0 +1,26 @@
+{
+  "name": "erp-energy",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Scalable ERP monorepo foundation",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "prisma"
+    ]
+  },
+  "scripts": {
+    "dev": "corepack pnpm --parallel --filter @erp/web --filter @erp/api dev",
+    "build": "corepack pnpm -r --filter ./apps/* --filter ./packages/* build",
+    "lint": "corepack pnpm -r --filter ./apps/* --filter ./packages/* lint",
+    "db:generate": "corepack pnpm --filter @erp/database db:generate",
+    "db:migrate": "corepack pnpm --filter @erp/database db:migrate",
+    "db:deploy": "corepack pnpm --filter @erp/database db:deploy",
+    "db:studio": "corepack pnpm --filter @erp/database db:studio",
+    "seed:test": "npx ts-node packages/database/prisma/seed-500.ts"
+  },
+  "dependencies": {
+    "form-data": "^4.0.5",
+    "node-fetch": "^3.3.2"
+  }
+}
