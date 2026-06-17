@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -69,4 +70,8 @@ export class UpdateProductDto {
   @IsInt()
   @Min(0)
   minStock?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

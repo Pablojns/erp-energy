@@ -112,6 +112,22 @@ export class AuthService implements OnModuleInit {
     return this.buildAuthResponse(user);
   }
 
+  async listUsers() {
+    const users = await this.prismaService.client.user.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    // Nunca expõe passwordHash — serializa apenas dados públicos.
+    return users.map((user: UserWithRoles) => this.serializeUser(user));
+  }
+
   async me(userId: string) {
     const user = await this.prismaService.client.user.findUnique({
       where: { id: userId },

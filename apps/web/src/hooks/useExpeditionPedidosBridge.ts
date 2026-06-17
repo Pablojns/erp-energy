@@ -175,7 +175,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       if (!numero) {
         await erpFetchJson(`orders/${id}/mark-picked`, { method: 'POST' });
       } else {
-        await erpFetchJson(`pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
           method: 'POST',
         });
       }
@@ -196,13 +196,9 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     if (!nf) return false;
     try {
       if (numero) {
-        await erpFetchJson(`pedidos/${numero}/nf`, {
+        await erpFetchJson(`api/pedidos/${numero}/nf`, {
           method: 'POST',
-          body: JSON.stringify({
-            invoiceNumber: nf,
-            invoiceValue: order?.totalValue ?? '0',
-            exitDate: new Date().toISOString(),
-          }),
+          body: JSON.stringify({ invoiceNumber: nf }),
         });
       } else {
         await erpFetchJson(`orders/${id}/generate-exit`, {
@@ -212,7 +208,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       }
       await refreshAll();
       window.dispatchEvent(new Event('expedition-refresh'));
-      setToast({ variant: 'ok', message: 'NF gerada e saída registrada.' });
+      setToast({ variant: 'ok', message: 'NF-e vinculada com sucesso!' });
       return true;
     } catch (e) {
       setToast({
@@ -228,7 +224,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = order ? numeroPedFromOrder(order) : null;
     try {
       if (numero) {
-        await erpFetchJson(`pedidos/${numero}/separacao/salvar`, {
+        await erpFetchJson(`api/pedidos/${numero}/separacao/salvar`, {
           method: 'PATCH',
         });
       }
@@ -253,7 +249,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = order ? numeroPedFromOrder(order) : null;
     try {
       if (numero) {
-        await erpFetchJson(`pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
           method: 'POST',
         });
       } else {
@@ -317,7 +313,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         const qty = Math.max(0, Math.min(qtyLine, item.quantity));
         const status_item =
           qty === 0 ? 'pendente' : qty >= item.quantity ? 'completo' : 'parcial';
-        await erpFetchJson(`pedidos/${numero}/itens/${item.lineNumber}`, {
+        await erpFetchJson(`api/pedidos/${numero}/itens/${item.lineNumber}`, {
           method: 'PATCH',
           body: JSON.stringify({
             quantidade_separada: qty,
@@ -346,7 +342,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = numeroPedFromOrder(o);
     try {
       if (numero) {
-        await erpFetchJson(`pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
           method: 'POST',
         });
       } else if (o.status === 'EM_SEPARACAO') {

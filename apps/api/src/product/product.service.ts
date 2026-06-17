@@ -322,6 +322,9 @@ export class ProductService {
       if (dto.minStock !== undefined) {
         data.minStock = dto.minStock;
       }
+      if (dto.isActive !== undefined) {
+        data.isActive = dto.isActive;
+      }
 
       const product = await this.prisma.client.product.update({
         where: { id },
@@ -350,6 +353,35 @@ export class ProductService {
       }
       throw err;
     }
+  }
+
+  async reactivate(id: string, userId: string) {
+    const product = await this.prisma.client.product.findUnique({
+      where: { id },
+      include: { productCategory: true } as Prisma.ProductInclude,
+    });
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado.');
+    }
+    if (product.isActive) {
+      return this.serialize(product as ProductWithCategory);
+    }
+
+    const updated = await this.prisma.client.product.update({
+      where: { id },
+      data: { isActive: true },
+      include: { productCategory: true } as Prisma.ProductInclude,
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'PRODUCT_REACTIVATED',
+      entity: 'Product',
+      entityId: id,
+      changes: { isActive: true },
+    });
+
+    return this.serialize(updated as ProductWithCategory);
   }
 
   async softDelete(id: string, userId: string) {

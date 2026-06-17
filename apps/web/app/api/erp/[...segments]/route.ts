@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { API_BASE_URL, AUTH_COOKIE_NAME } from '@/src/services/api/config';
-import { isAuthDisabled } from '@/src/services/auth/bypass';
+import { DEV_MOCK_USER, isAuthDisabled } from '@/src/services/auth/bypass';
 
 function isAllowedPath(path: string): boolean {
   return (
@@ -11,7 +11,9 @@ function isAllowedPath(path: string): boolean {
     /^product-categories(\/|$)/i.test(path) ||
     /^orders(\/|$)/i.test(path) ||
     /^api\/pedidos(\/|$)/i.test(path) ||
-    /^pedidos(\/|$)/i.test(path)
+    /^pedidos(\/|$)/i.test(path) ||
+    /^auth\/me$/i.test(path) ||
+    /^auth\/users$/i.test(path)
   );
 }
 
@@ -36,6 +38,11 @@ async function proxy(request: NextRequest, segments: string[]) {
   const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value;
   if (!token && !isAuthDisabled()) {
     return NextResponse.json({ message: 'Não autenticado.' }, { status: 401 });
+  }
+
+  // Em modo bypass (dev), o Nest rejeitaria auth/me sem token — responde com o usuário mock.
+  if (/^auth\/me$/i.test(path) && !token && isAuthDisabled()) {
+    return NextResponse.json({ user: DEV_MOCK_USER });
   }
 
   const target = `${API_BASE_URL}/${path}${request.nextUrl.search}`;

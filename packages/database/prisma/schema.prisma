@@ -267,6 +267,8 @@ model Order {
   deliveryState           String?
   deliveryAddress         String?
   notes                   String?
+  /// Observação interna da equipe de expedição (não é a observação WEG)
+  obsExpedicao            String?
   status                  OrderStatus         @default(NOVO)
   priority                Int                 @default(3)
   mercadoEletronicoStatus String?

@@ -87,12 +87,19 @@ export class PedidosService {
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
+    const data: Prisma.OrderUpdateInput = {};
+    if (dto.status_me !== undefined) {
+      data.mercadoEletronicoStatus = dto.status_me.trim() || null;
+    }
+    if (dto.status_ca !== undefined) {
+      data.contaAzulStatus = dto.status_ca.trim() || null;
+    }
+    if (dto.obsExpedicao !== undefined) {
+      data.obsExpedicao = dto.obsExpedicao.trim() || null;
+    }
     return this.prisma.client.order.update({
       where: { id: order.id },
-      data: {
-        mercadoEletronicoStatus: dto.status_me?.trim() || undefined,
-        contaAzulStatus: dto.status_ca?.trim() || undefined,
-      },
+      data,
     });
   }
 
@@ -517,6 +524,8 @@ export class PedidosService {
         deliveryState: row.order.deliveryState,
         status: row.order.status,
         totalValue: row.order.totalValue.toString(),
+        notes: row.order.notes,
+        obsExpedicao: row.order.obsExpedicao,
         requestedDeliveryDate: row.order.requestedDeliveryDate?.toISOString() ?? null,
         items: row.order.items.map((it) => ({
           id: it.id,

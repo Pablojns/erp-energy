@@ -33,6 +33,19 @@ export function mapMovementKindToPrisma(kind: MovementKind): StockMovementType {
   return map[kind];
 }
 
+export function mapPrismaToMovementKind(
+  type: StockMovementType,
+): MovementKind | undefined {
+  const map: Partial<Record<StockMovementType, MovementKind>> = {
+    [StockMovementType.INBOUND]: 'entrada',
+    [StockMovementType.OUTBOUND]: 'saida',
+    [StockMovementType.ADJUSTMENT]: 'ajuste',
+    [StockMovementType.RESERVE]: 'reserva',
+    [StockMovementType.RESERVE_CANCEL]: 'cancelamento_reserva',
+  };
+  return map[type];
+}
+
 export class StockMovementQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -63,12 +76,20 @@ export class CreateStockMovementDto {
   @IsUUID('4', { message: 'Informe um produto válido.' })
   productId!: string;
 
+  @IsOptional()
   @IsString()
   @IsIn(MOVEMENT_KIND_VALUES, {
     message:
       'movementKind deve ser: entrada | saida | ajuste | reserva | cancelamento_reserva',
   })
-  movementKind!: MovementKind;
+  movementKind?: MovementKind;
+
+  /** Alternativa ao movementKind, no formato do enum Prisma (ex.: INBOUND). */
+  @IsOptional()
+  @IsEnum(StockMovementType, {
+    message: 'movementType inválido (ex.: INBOUND, OUTBOUND, ADJUSTMENT).',
+  })
+  movementType?: StockMovementType;
 
   @Type(() => Number)
   @IsInt({ message: 'Quantidade deve ser um número inteiro.' })

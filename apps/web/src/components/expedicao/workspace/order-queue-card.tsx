@@ -1,5 +1,6 @@
 'use client';
 
+import type { MouseEvent } from 'react';
 import {
   formatOrderQueueTime,
   getOrderSendState,
@@ -22,8 +23,10 @@ export function OrderQueueCard(props: {
   order: OrderDto;
   selected: boolean;
   onSelect: () => void;
+  checkedForPrint?: boolean;
+  onTogglePrint?: () => void;
 }) {
-  const { order, selected, onSelect } = props;
+  const { order, selected, onSelect, checkedForPrint = false, onTogglePrint } = props;
   const numero = orderDisplayNumber(order);
   const when = formatOrderQueueTime(order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt);
   const visual = getQueueCardVisual(order);
@@ -43,24 +46,41 @@ export function OrderQueueCard(props: {
         : visual.badgeTone;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`exp-queue-card ${selected ? 'exp-queue-card--selected' : ''}`}
+    <div
+      className={`exp-queue-card-wrap ${checkedForPrint ? 'exp-queue-card-wrap--print' : ''}`}
     >
-      <div className="exp-queue-card-head">
-        <span className="exp-queue-card-num">#{numero}</span>
-        <span className={`exp-queue-card-icon exp-queue-card-icon--${visual.tone}`}>
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-      </div>
-      <p className="exp-queue-card-value">{formatCurrency(order.totalValue)}</p>
-      <p className="exp-queue-card-date">{when}</p>
-      <span
-        className={`exp-queue-status-badge exp-queue-status-badge--${statusTone}`}
+      {onTogglePrint ? (
+        <label
+          className="exp-queue-card-check"
+          onClick={(e: MouseEvent) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={checkedForPrint}
+            onChange={() => onTogglePrint()}
+            aria-label={`Selecionar pedido ${numero} para impressão`}
+          />
+        </label>
+      ) : null}
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`exp-queue-card ${selected ? 'exp-queue-card--selected' : ''}`}
       >
-        {statusLabel}
-      </span>
-    </button>
+        <div className="exp-queue-card-head">
+          <span className="exp-queue-card-num">#{numero}</span>
+          <span className={`exp-queue-card-icon exp-queue-card-icon--${visual.tone}`}>
+            <Icon className="h-4 w-4" aria-hidden />
+          </span>
+        </div>
+        <p className="exp-queue-card-value">{formatCurrency(order.totalValue)}</p>
+        <p className="exp-queue-card-date">{when}</p>
+        <span
+          className={`exp-queue-status-badge exp-queue-status-badge--${statusTone}`}
+        >
+          {statusLabel}
+        </span>
+      </button>
+    </div>
   );
 }

@@ -41,6 +41,14 @@ export class ProductController {
     return this.productService.findOne(id);
   }
 
+  @Patch(':id/reactivate')
+  reactivate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productService.reactivate(id, user.id);
+  }
+
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,

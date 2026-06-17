@@ -330,6 +330,77 @@
   color: var(--exp-text-muted);
 }
 
+/* Print toolbar */
+.exp-queue-print-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--exp-border);
+  background: var(--exp-card);
+}
+
+.exp-queue-print-count {
+  font-size: 12px;
+  color: var(--exp-text-muted);
+}
+
+.exp-queue-print-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--exp-border);
+  background: var(--exp-accent);
+  color: #fff;
+  padding: 0.45rem 0.75rem;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.exp-queue-print-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.exp-queue-print-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: var(--exp-inner);
+  color: var(--exp-text-muted);
+}
+
+.exp-queue-card-wrap {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.exp-queue-card-wrap--print .exp-queue-card {
+  border-color: rgba(91, 94, 244, 0.65);
+  box-shadow: 0 0 0 1px rgba(91, 94, 244, 0.25);
+}
+
+.exp-queue-card-check {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.65rem;
+  flex-shrink: 0;
+}
+
+.exp-queue-card-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--exp-accent);
+  cursor: pointer;
+}
+
+.exp-queue-card-wrap .exp-queue-card {
+  flex: 1;
+}
+
 /* Order card */
 .exp-queue-card {
   display: flex;

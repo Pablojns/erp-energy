@@ -5,7 +5,6 @@ import { GlowButton } from '@/src/components/shell/glow-button';
 import { ExpeditionHeader } from '@/src/components/expedicao/expedition/expedition-header';
 import { ExpeditionSearch } from '@/src/components/expedicao/expedition/expedition-search';
 import { ExpeditionOrdersBoard } from '@/src/components/expedicao/expedition-orders-board';
-import { NfStatusBadge } from '@/src/components/expedicao/separation/nf-status-badge';
 import { SEPARATION_FILTERS } from '@/src/components/expedicao/shared/constants';
 import { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
@@ -56,7 +55,6 @@ export function SeparationBoard() {
           <Filter className="h-4 w-4" />
           Filtros
         </button>
-        <NfStatusBadge onToast={data.setToast} onRefetch={data.refreshAll} />
       </div>
 
       <ExpeditionSearch

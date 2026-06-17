@@ -222,6 +222,8 @@ export type OrderExitDto = {
     deliveryState: string | null;
     status: OrderStatus;
     totalValue: string;
+    notes: string | null;
+    obsExpedicao: string | null;
     requestedDeliveryDate: string | null;
     items: OrderExitItemDto[];
   };

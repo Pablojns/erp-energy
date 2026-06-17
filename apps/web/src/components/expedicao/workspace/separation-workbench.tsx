@@ -19,7 +19,7 @@ import {
 } from '@/src/components/expedicao/shared/order-helpers';
 import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-panel';
 import { ConcluirModal } from '@/src/components/expedicao/workspace/concluir-modal';
-import { GerarNfModal } from '@/src/components/expedicao/workspace/gerar-nf-modal';
+import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-modal';
 import { SeparationStepper } from '@/src/components/expedicao/workspace/separation-stepper';
 import { SeparationItemsTable } from '@/src/components/expedicao/workspace/separation-items-table';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
@@ -107,8 +107,6 @@ export function SeparationWorkbench(props: {
     if (order.status === 'EM_SEPARACAO') return 2;
     return 1;
   })();
-  const todayLabel = new Intl.DateTimeFormat('pt-BR').format(new Date());
-
   return (
     <div className="exp-wb-panel">
       <div className="exp-wb-order-head">
@@ -287,23 +285,23 @@ export function SeparationWorkbench(props: {
           }}
         />
       ) : null}
-      {nfModalOpen ? (
-        <GerarNfModal
-          orderNumber={numero}
-          deliveryCnpj={order.deliveryCnpj}
-          totalValueLabel={formatBrlDisplay(order.totalValue)}
-          issueDateLabel={todayLabel}
-          onCancel={() => setNfModalOpen(false)}
-          onQueued={({ posicaoNaFila }) => {
-            setNfModalOpen(false);
-            data.setToast({
-              variant: 'ok',
-              message: `Pedido #${numero} adicionado à fila de emissão (posição ${posicaoNaFila}).`,
-            });
-            onAfterAction?.();
-          }}
-        />
-      ) : null}
+      <NfInputModal
+        isOpen={nfModalOpen}
+        onClose={() => setNfModalOpen(false)}
+        pedidoNumero={numero}
+        onConfirm={async (nfNumber) => {
+          const ok = await data.attachInvoiceOrder(order.id, nfNumber);
+          if (!ok) {
+            throw new Error('Falha ao salvar NF');
+          }
+          setNfModalOpen(false);
+          data.setToast({
+            variant: 'ok',
+            message: 'NF-e vinculada com sucesso!',
+          });
+          onAfterAction?.();
+        }}
+      />
     </div>
   );
 }

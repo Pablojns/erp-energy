@@ -1,0 +1,10 @@
+import { PrismaClient } from '@erp/database';
+const prisma = new PrismaClient();
+await prisma.stockReservation.deleteMany({});
+await prisma.orderItem.deleteMany({});
+await prisma.orderExit.deleteMany({});
+await prisma.order.deleteMany({});
+await prisma.stockMovement.deleteMany({});
+await prisma.product.deleteMany({});
+console.log('Banco limpo!');
+await prisma.$disconnect();

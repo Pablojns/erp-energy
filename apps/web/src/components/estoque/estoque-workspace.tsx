@@ -15,6 +15,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   SlidersHorizontal,
   TrendingUp,
   Undo2,
@@ -126,6 +127,15 @@ type MovementKind =
   | 'reserva'
   | 'cancelamento_reserva';
 
+/** Mapeia o tipo legível para o enum aceito pela API (movementType). */
+const MOVEMENT_KIND_TO_TYPE: Record<MovementKind, string> = {
+  entrada: 'INBOUND',
+  saida: 'OUTBOUND',
+  ajuste: 'ADJUSTMENT',
+  reserva: 'RESERVE',
+  cancelamento_reserva: 'RESERVE_CANCEL',
+};
+
 const MOVE_MODAL_TITLE: Record<MovementKind, string> = {
   entrada: 'Nova entrada de estoque',
   saida: 'Nova saída de estoque',
@@ -155,11 +165,15 @@ const QUICK_ACTION_CLASS: Record<MovementKind, string> = {
     'border border-[#cbd5e1] bg-[#f1f5f9] text-[#64748b] hover:brightness-95 dark:border-transparent dark:bg-[#1e2130] dark:text-[#8b8fa8]',
 };
 
-const PRODUCT_STATUS_FILTER_OPTIONS = [
-  { value: 'active', label: 'Ativos' },
-  { value: 'inactive', label: 'Inativos' },
-  { value: 'all', label: 'Todos' },
-] as const;
+type AuthMeResponse = {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    isActive: boolean;
+    roles: string[];
+  };
+};
 
 function formatBrl(value: string) {
   const n = Number(value);
@@ -318,9 +332,10 @@ export function EstoqueWorkspace() {
   const [productPage, setProductPage] = useState(1);
   const [productSearch, setProductSearch] = useState('');
   const [productSearchDebounced, setProductSearchDebounced] = useState('');
-  const [productStatus, setProductStatus] = useState<'all' | 'active' | 'inactive'>(
-    'active',
-  );
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [productMenuOpenId, setProductMenuOpenId] = useState<string | null>(null);
+  const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
   const [inventoryFilter, setInventoryFilter] = useState<'all' | 'low' | 'out' | 'transit'>('all');
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
@@ -357,6 +372,23 @@ export function EstoqueWorkspace() {
   const [moveSaving, setMoveSaving] = useState(false);
   const [productPicker, setProductPicker] = useState<ProductDto[]>([]);
 
+  // Nome do usuário logado (GET auth/me) para a coluna "Responsável".
+  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void erpFetchJson<{ user?: { name?: string } }>('auth/me')
+      .then((res) => {
+        if (active) setCurrentUserName(res.user?.name ?? null);
+      })
+      .catch(() => {
+        /* coluna exibe fallback "—" */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const closeAllModals = useCallback(() => {
     setProductModalOpen(false);
     setMoveModalOpen(false);
@@ -372,6 +404,30 @@ export function EstoqueWorkspace() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [productModalOpen, moveModalOpen, closeAllModals]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await erpFetchJson<AuthMeResponse>('auth/me');
+        if (!cancelled) {
+          setIsAdmin(res.user.roles.includes('ADMIN'));
+        }
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!productMenuOpenId) return;
+    const onClick = () => setProductMenuOpenId(null);
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [productMenuOpenId]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -428,9 +484,8 @@ export function EstoqueWorkspace() {
           params.set('lowStock', 'true');
           params.set('status', 'active');
         } else {
-          if (productStatus === 'active') params.set('status', 'active');
-          if (productStatus === 'inactive') params.set('status', 'inactive');
-          if (productStatus === 'all') params.set('status', 'all');
+          // Inativos só entram na listagem para ADMIN com o toggle ligado.
+          params.set('status', isAdmin && showInactive ? 'all' : 'active');
         }
         params.set('sortBy', 'name');
         params.set('sortOrder', 'asc');
@@ -445,7 +500,7 @@ export function EstoqueWorkspace() {
         setProductsLoading(false);
       }
     },
-    [productSearchDebounced, productStatus],
+    [productSearchDebounced, isAdmin, showInactive],
   );
 
   useEffect(() => {
@@ -602,11 +657,37 @@ export function EstoqueWorkspace() {
     }
   };
 
-  const openMoveModal = async (kind: MovementKind) => {
+  const toggleProductActive = async (p: ProductDto) => {
+    setProductMenuOpenId(null);
+    setBannerSuccess(null);
+    setBannerError(null);
+    setTogglingProductId(p.id);
+    try {
+      await erpFetchJson(`products/${p.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !p.isActive }),
+      });
+      setBannerSuccess(
+        p.isActive
+          ? `Produto "${p.name}" desativado.`
+          : `Produto "${p.name}" reativado.`,
+      );
+      await loadSummary();
+      await loadProducts({ page: productPage, lowStock: false });
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : 'Erro ao alterar status do produto.',
+      );
+    } finally {
+      setTogglingProductId(null);
+    }
+  };
+
+  const openMoveModal = async (kind: MovementKind, presetProduct?: ProductDto) => {
     setBannerError(null);
     setBannerSuccess(null);
     setMoveForm({
-      productId: '',
+      productId: presetProduct?.id ?? '',
       movementKind: kind,
       quantity: '1',
       notes: '',
@@ -616,9 +697,14 @@ export function EstoqueWorkspace() {
       const res = await erpFetchJson<Paginated<ProductDto>>(
         'products?status=active&pageSize=50&sortBy=name&sortOrder=asc',
       );
-      setProductPicker(res.data);
+      // Garante que o produto pré-selecionado apareça no picker mesmo fora da 1ª página.
+      setProductPicker(
+        presetProduct && !res.data.some((p) => p.id === presetProduct.id)
+          ? [presetProduct, ...res.data]
+          : res.data,
+      );
     } catch {
-      setProductPicker([]);
+      setProductPicker(presetProduct ? [presetProduct] : []);
     }
     setMoveModalOpen(true);
   };
@@ -654,7 +740,7 @@ export function EstoqueWorkspace() {
         method: 'POST',
         body: JSON.stringify({
           productId: moveForm.productId,
-          movementKind: moveForm.movementKind,
+          movementType: MOVEMENT_KIND_TO_TYPE[moveForm.movementKind],
           quantity: qtyRaw,
           notes: moveForm.notes.trim() || undefined,
           reference: moveForm.reference.trim() || undefined,
@@ -664,7 +750,7 @@ export function EstoqueWorkspace() {
       setBannerError(null);
       setBannerSuccess('Movimentação registrada com sucesso.');
       await loadSummary();
-      if (tab === 'movements') await loadMovements();
+      await loadMovements();
       if (tab === 'inventory' || tab === 'dashboard') await loadProducts({ page: productPage });
     } catch (e) {
       setBannerError(
@@ -733,7 +819,10 @@ export function EstoqueWorkspace() {
   const movementItems = useMemo(() => movementsData?.data ?? [], [movementsData]);
 
   const inventoryProducts = useMemo(() => {
-    const base = productsData?.data ?? [];
+    // Usuário comum nunca vê produtos inativos, mesmo que a API os retorne.
+    const base = (productsData?.data ?? []).filter(
+      (p) => p.isActive || isAdmin,
+    );
     if (inventoryFilter === 'all') return base;
     if (inventoryFilter === 'low') return base.filter((p) => p.stockQty > 0 && p.stockQty <= p.minStock);
     if (inventoryFilter === 'out') return base.filter((p) => p.stockQty <= 0);
@@ -745,7 +834,7 @@ export function EstoqueWorkspace() {
           Date.now() - new Date(m.movementDate).getTime() < 1000 * 60 * 60 * 24 * 7,
       ),
     );
-  }, [productsData, inventoryFilter, movementItems]);
+  }, [productsData, isAdmin, inventoryFilter, movementItems]);
 
   useEffect(() => {
     if (inventoryProducts.length === 0) {
@@ -1346,36 +1435,108 @@ export function EstoqueWorkspace() {
               <button type="button" onClick={() => setInventoryFilter('low')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'low' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Baixo Estoque</button>
               <button type="button" onClick={() => setInventoryFilter('out')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'out' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Sem Estoque</button>
               <button type="button" onClick={() => setInventoryFilter('transit')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'transit' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Em Trânsito</button>
+              {isAdmin ? (
+                <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-[var(--border-color)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                  <input
+                    type="checkbox"
+                    checked={showInactive}
+                    onChange={(e) => {
+                      setShowInactive(e.target.checked);
+                      setProductPage(1);
+                    }}
+                    className="h-3.5 w-3.5 accent-[var(--accent)]"
+                  />
+                  Mostrar inativos
+                </label>
+              ) : null}
             </div>
             <div className="erp-scrollbar mt-3 grid flex-1 auto-rows-max grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
               {inventoryProducts.map((p) => (
-                <button
+                <div
                   key={p.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedInventoryId(p.id)}
-                  className={`rounded-xl border p-3 text-left transition ${selectedInventoryId === p.id ? 'border-2 border-[var(--accent)] bg-[var(--accent)]/10' : 'border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--input-bg)]'}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedInventoryId(p.id);
+                    }
+                  }}
+                  className={`relative cursor-pointer rounded-xl border p-3 text-left transition ${selectedInventoryId === p.id ? 'border-2 border-[var(--accent)] bg-[var(--accent)]/10' : 'border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--input-bg)]'}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`text-xs ${selectedInventoryId === p.id ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>#{p.sku}</p>
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)]">
-                      <Package className="h-3.5 w-3.5" />
-                    </span>
+                  <div className={p.isActive ? '' : 'opacity-50'}>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={`text-xs ${selectedInventoryId === p.id ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>#{p.sku}</p>
+                      <div className="flex items-center gap-1">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)]">
+                          <Package className="h-3.5 w-3.5" />
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Configurações de ${p.name}`}
+                          disabled={togglingProductId === p.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProductMenuOpenId((cur) => (cur === p.id ? null : p.id));
+                          }}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                        >
+                          {togglingProductId === p.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Settings className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">{p.name}</p>
+                      {!p.isActive ? (
+                        <span className="shrink-0 rounded-full border border-rose-300 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200">
+                          Inativo
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xl font-bold text-[var(--text-primary)]">{p.stockQty}</p>
+                    <div className="mt-1 flex items-center justify-between text-[11px]">
+                      <span className={`rounded-full border px-2 py-0.5 ${
+                        p.stockQty <= 0
+                          ? 'border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
+                          : p.stockQty <= p.minStock
+                            ? 'border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
+                            : 'border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
+                      }`}>
+                        {p.stockQty <= 0 ? 'Sem Estoque' : p.stockQty <= p.minStock ? 'Baixo Estoque' : 'Em Estoque'}
+                      </span>
+                      <span className="text-[var(--text-secondary)]">Corredor A-23</span>
+                    </div>
                   </div>
-                  <p className="truncate text-sm font-medium text-[var(--text-primary)]">{p.name}</p>
-                  <p className="mt-1 text-xl font-bold text-[var(--text-primary)]">{p.stockQty}</p>
-                  <div className="mt-1 flex items-center justify-between text-[11px]">
-                    <span className={`rounded-full border px-2 py-0.5 ${
-                      p.stockQty <= 0
-                        ? 'border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
-                        : p.stockQty <= p.minStock
-                          ? 'border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
-                          : 'border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
-                    }`}>
-                      {p.stockQty <= 0 ? 'Sem Estoque' : p.stockQty <= p.minStock ? 'Baixo Estoque' : 'Em Estoque'}
-                    </span>
-                    <span className="text-[var(--text-secondary)]">Corredor A-23</span>
-                  </div>
-                </button>
+                  {productMenuOpenId === p.id ? (
+                    <div
+                      className="absolute right-2 top-10 z-20 min-w-[170px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-1 shadow-xl"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void toggleProductActive(p)}
+                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition hover:bg-[var(--input-bg)] ${p.isActive ? 'text-rose-400' : 'text-emerald-400'}`}
+                      >
+                        {p.isActive ? (
+                          <>
+                            <Ban className="h-3.5 w-3.5" />
+                            Desativar produto
+                          </>
+                        ) : (
+                          <>
+                            <Undo2 className="h-3.5 w-3.5" />
+                            Reativar produto
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
             <p className="mt-3 text-xs text-[var(--text-muted)]">Operador 1 | Filial Londrina</p>
@@ -1486,10 +1647,11 @@ export function EstoqueWorkspace() {
                     <table className="w-full min-w-[520px] text-left text-sm">
                       <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
                         <tr>
-                          <th className="px-3 py-2">Data</th>
+                          <th className="px-3 py-2">Data/Hora</th>
                           <th className="px-3 py-2">Tipo de Movimento</th>
                           <th className="px-3 py-2">Quantidade</th>
                           <th className="px-3 py-2">Referência</th>
+                          <th className="px-3 py-2">Responsável</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1511,6 +1673,9 @@ export function EstoqueWorkspace() {
                             </td>
                             <td className="px-3 py-2 text-[var(--text-primary)]">{m.quantity}</td>
                             <td className="px-3 py-2 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
+                            <td className="px-3 py-2 text-[var(--text-primary)]">
+                              {m.movedBy?.name ?? currentUserName ?? '—'}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1520,14 +1685,14 @@ export function EstoqueWorkspace() {
                 <div className="mt-4 flex w-full gap-3">
                   <button
                     type="button"
-                    onClick={() => void openMoveModal('entrada')}
+                    onClick={() => void openMoveModal('entrada', selectedInventoryProduct)}
                     className="inline-flex h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--text-primary)]"
                   >
                     → Entrada de Estoque
                   </button>
                   <button
                     type="button"
-                    onClick={() => void openMoveModal('ajuste')}
+                    onClick={() => void openMoveModal('ajuste', selectedInventoryProduct)}
                     className="inline-flex h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--text-primary)]"
                   >
                     ⇄ Ajuste de Estoque

@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Filter, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Loader2,
+  Plus,
+  Printer,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
 import {
   countExpeditionUiFilters,
@@ -15,6 +24,8 @@ import {
 } from '@/src/components/expedicao/workspace/queue-quick-filters';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
+import { printWaybill } from '@/src/utils/print-waybill';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
@@ -55,6 +66,9 @@ export function OrderQueue(props: {
     statusFilterToQuick(data.statusFilter),
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectedForPrintIds, setSelectedForPrintIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     setQuickFilter(statusFilterToQuick(data.statusFilter));
@@ -84,6 +98,26 @@ export function OrderQueue(props: {
     ? Math.min(data.meta.page * pageSize, data.meta.total)
     : data.orders.length;
   const pageItems = data.meta ? buildPageItems(data.page, data.meta.totalPages) : [];
+  const selectedForPrintCount = selectedForPrintIds.size;
+
+  const togglePrintSelection = (orderId: string) => {
+    setSelectedForPrintIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  const handlePrintWaybill = () => {
+    const pedidos = data.orders
+      .filter((o) => selectedForPrintIds.has(o.id))
+      .map(mapOrderToPedidoParaImpressao);
+    printWaybill(pedidos);
+  };
 
   return (
     <aside className="exp-queue-panel">
@@ -168,6 +202,21 @@ export function OrderQueue(props: {
         />
       </div>
 
+      <div className="exp-queue-print-toolbar">
+        <span className="exp-queue-print-count">
+          {selectedForPrintCount} pedido(s) selecionado(s)
+        </span>
+        <button
+          type="button"
+          className="exp-queue-print-btn"
+          disabled={selectedForPrintCount === 0}
+          onClick={handlePrintWaybill}
+        >
+          <Printer className="h-4 w-4" aria-hidden />
+          Imprimir Romaneio
+        </button>
+      </div>
+
       <div className="exp-queue-panel-list">
         {data.ordersLoading ? (
           <div className="exp-queue-empty">
@@ -183,6 +232,8 @@ export function OrderQueue(props: {
                 key={o.id}
                 order={o}
                 selected={selectedOrderId === o.id}
+                checkedForPrint={selectedForPrintIds.has(o.id)}
+                onTogglePrint={() => togglePrintSelection(o.id)}
                 onSelect={() => {
                   onSelectOrder(o.id);
                   onOrderChosen?.();

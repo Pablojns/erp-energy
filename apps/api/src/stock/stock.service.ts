@@ -20,7 +20,10 @@ import type {
 
 } from './dto/stock-movement.dto';
 
-import { mapMovementKindToPrisma } from './dto/stock-movement.dto';
+import {
+  mapMovementKindToPrisma,
+  mapPrismaToMovementKind,
+} from './dto/stock-movement.dto';
 
 import { AuditService } from '../common/audit.service';
 
@@ -222,7 +225,15 @@ export class StockService {
 
   ) {
 
-    const type = mapMovementKindToPrisma(dto.movementKind);
+    const type =
+      dto.movementType ??
+      (dto.movementKind ? mapMovementKindToPrisma(dto.movementKind) : undefined);
+
+    if (!type) {
+      throw new BadRequestException(
+        'Informe movementKind (ex.: entrada) ou movementType (ex.: INBOUND).',
+      );
+    }
 
 
 
@@ -452,7 +463,8 @@ export class StockService {
 
         movementType: movement.movementType,
 
-        movementKind: dto.movementKind,
+        movementKind:
+          dto.movementKind ?? mapPrismaToMovementKind(movement.movementType),
 
         quantity: movement.quantity,
 
@@ -488,7 +500,8 @@ export class StockService {
 
         productId: dto.productId,
 
-        movementKind: dto.movementKind,
+        movementKind:
+          dto.movementKind ?? mapPrismaToMovementKind(result.movementType),
 
         movementType: result.movementType,
 

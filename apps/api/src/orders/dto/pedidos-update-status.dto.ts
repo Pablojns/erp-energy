@@ -10,5 +10,10 @@ export class PedidosUpdateStatusDto {
   @IsString()
   @MaxLength(120)
   status_ca?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  obsExpedicao?: string;
 }
 

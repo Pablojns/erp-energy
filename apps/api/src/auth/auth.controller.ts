@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -24,5 +31,14 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.authService.me(user.id);
+  }
+
+  @UseGuards(JwtGuard)
+  @Get('users')
+  listUsers(@CurrentUser() user: AuthUser) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Acesso restrito a administradores.');
+    }
+    return this.authService.listUsers();
   }
 }
