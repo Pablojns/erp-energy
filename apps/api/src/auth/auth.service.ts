@@ -22,6 +22,7 @@ type UserWithRoles = {
   name: string;
   email: string;
   isActive: boolean;
+  tokenVersion: number;
   passwordHash: string;
   userRoles: Array<{
     role: {
@@ -108,7 +109,7 @@ export class AuthService implements OnModuleInit {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Email ou senha incorretos.');
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -117,7 +118,7 @@ export class AuthService implements OnModuleInit {
     );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Email ou senha incorretos.');
     }
 
     if (!user.isActive) {
@@ -202,7 +203,14 @@ export class AuthService implements OnModuleInit {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(email !== undefined ? { email } : {}),
-          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          ...(dto.isActive !== undefined
+            ? {
+                isActive: dto.isActive,
+                ...(dto.isActive === false && existing.isActive
+                  ? { tokenVersion: { increment: 1 } }
+                  : {}),
+              }
+            : {}),
         },
         include: {
           userRoles: { include: { role: true } },
@@ -229,6 +237,7 @@ export class AuthService implements OnModuleInit {
       where: { id: existing.id },
       data: {
         passwordHash,
+        tokenVersion: { increment: 1 },
       },
     });
 
@@ -274,6 +283,7 @@ export class AuthService implements OnModuleInit {
       sub: serializedUser.id,
       email: serializedUser.email,
       roles: serializedUser.roles,
+      tokenVersion: user.tokenVersion,
     };
 
     return {

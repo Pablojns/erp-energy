@@ -27,7 +27,7 @@ export function useLogin() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string };
-        setErrorMessage(payload.message ?? 'Credenciais invalidas.');
+        setErrorMessage(payload.message ?? 'Email ou senha incorretos.');
         return;
       }
 

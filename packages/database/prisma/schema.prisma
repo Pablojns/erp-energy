@@ -102,6 +102,7 @@ model User {
   email                String                @unique
   passwordHash         String
   isActive             Boolean               @default(true)
+  tokenVersion         Int                   @default(0)
   userRoles            UserRole[]
   notifications        Notification[]
   chatMessages         ChatMessage[]

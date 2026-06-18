@@ -33,7 +33,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       },
     });
 
-    if (!user || !user.isActive) {
+    if (!user) {
+      throw new UnauthorizedException('Invalid authentication token.');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'Usuário inativo. Contate o administrador.',
+      );
+    }
+
+    const tokenVersion = payload.tokenVersion ?? 0;
+    if (tokenVersion !== user.tokenVersion) {
       throw new UnauthorizedException('Invalid authentication token.');
     }
 
