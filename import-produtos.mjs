@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://174.138.41.33:3001';
 const ESTOQUE_PATH  = 'C:\\Users\\SUNHUB\\Downloads\\CONTROLE DE ESTOQUE.xlsx';
 const PRECOS_PATH   = 'C:\\Users\\SUNHUB\\Downloads\\PREÇO DE VENDA WEG CONTRATO.xlsx';
-const LOGIN_EMAIL   = 'admin2@erp.local';
-const LOGIN_SENHA   = 'admin123';
+const LOGIN_EMAIL   = 'admin@erp.local';
+const LOGIN_SENHA   = 'Admin@123';
 
 function normalizeSku(raw) {
   if (raw === null || raw === undefined) return null;

@@ -98,27 +98,37 @@ function UsersTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
     erpFetchJson<AdminUser[]>('auth/users')
-      .then((data) => {
-        if (!cancelled) setUsers(Array.isArray(data) ? data : []);
-      })
+      .then((data) => setUsers(Array.isArray(data) ? data : []))
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Falha ao buscar usuários.');
-        }
+        setError(err instanceof Error ? err.message : 'Falha ao buscar usuários.');
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   if (loading) return <StateMessage>Carregando usuários...</StateMessage>;
-  if (error) return <StateMessage>{error}</StateMessage>;
+  if (error) {
+    return (
+      <div className="space-y-3 p-8 text-center">
+        <p className="text-sm text-rose-400">{error}</p>
+        <button
+          type="button"
+          onClick={load}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+        >
+          <RefreshCw size={14} />
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
   if (users.length === 0) {
     return <StateMessage>Nenhum usuário cadastrado.</StateMessage>;
   }

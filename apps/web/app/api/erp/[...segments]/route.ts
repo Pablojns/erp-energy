@@ -45,6 +45,10 @@ async function proxy(request: NextRequest, segments: string[]) {
     return NextResponse.json({ user: DEV_MOCK_USER });
   }
 
+  if (/^auth\/users$/i.test(path) && !token && isAuthDisabled()) {
+    return NextResponse.json([DEV_MOCK_USER]);
+  }
+
   const target = `${API_BASE_URL}/${path}${request.nextUrl.search}`;
   const method = request.method;
   const headers = new Headers();

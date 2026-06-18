@@ -1,22 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/erp/api/:path*',
-        destination: 'http://localhost:3001/api/:path*',
-      },
-      {
-        source: '/api/erp/pedidos/:path*',
-        destination: 'http://localhost:3001/api/pedidos/:path*',
-      },
-      {
-        source: '/api/erp/:path*',
-        destination: 'http://localhost:3001/:path*',
-      },
-    ];
-  },
+  // Rotas /api/erp/* são atendidas por app/api/erp/[...segments]/route.ts,
+  // que lê o cookie httpOnly e repassa Authorization ao Nest.
+  // Não usar rewrites aqui — bypassam o proxy e causam 401 em produção.
 };
 
 export default nextConfig;
