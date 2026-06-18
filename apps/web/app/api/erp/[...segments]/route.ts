@@ -14,6 +14,8 @@ function isAllowedPath(path: string): boolean {
     /^pedidos(\/|$)/i.test(path) ||
     /^auth\/me$/i.test(path) ||
     /^auth\/users$/i.test(path) ||
+    /^auth\/users\/[^/]+$/i.test(path) ||
+    /^auth\/users\/[^/]+\/reset-password$/i.test(path) ||
     /^auth\/register$/i.test(path)
   );
 }

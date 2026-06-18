@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,6 +12,8 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetUserPasswordDto } from './dto/reset-user-password.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 import type { AuthUser } from './interfaces/auth-user.interface';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 
@@ -134,6 +138,92 @@ export class AuthService implements OnModuleInit {
 
     // Nunca expõe passwordHash — serializa apenas dados públicos.
     return users.map((user: UserWithRoles) => this.serializeUser(user));
+  }
+
+  async updateUser(id: string, dto: UpdateUserDto, actorId: string) {
+    const existing = await this.prismaService.client.user.findUnique({
+      where: { id },
+      include: {
+        userRoles: { include: { role: true } },
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    if (dto.isActive === false && id === actorId) {
+      throw new BadRequestException('Você não pode inativar sua própria conta.');
+    }
+
+    const email = dto.email?.trim().toLowerCase();
+    if (email && email !== existing.email) {
+      const taken = await this.prismaService.client.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (taken && taken.id !== id) {
+        throw new ConflictException('Email is already in use.');
+      }
+    }
+
+    const roleName =
+      dto.role === undefined
+        ? undefined
+        : dto.role === 'ADMIN'
+          ? 'ADMIN'
+          : 'OPERADOR';
+
+    return this.prismaService.client.$transaction(async (tx) => {
+      if (roleName !== undefined) {
+        const role = await tx.role.upsert({
+          where: { name: roleName },
+          update: {},
+          create: {
+            name: roleName,
+            description:
+              roleName === 'ADMIN'
+                ? 'System administrator role'
+                : 'Operador de expedição e estoque',
+          },
+        });
+        await tx.userRole.deleteMany({ where: { userId: id } });
+        await tx.userRole.create({
+          data: { userId: id, roleId: role.id },
+        });
+      }
+
+      const updated = await tx.user.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(email !== undefined ? { email } : {}),
+          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        },
+        include: {
+          userRoles: { include: { role: true } },
+        },
+      });
+
+      return this.serializeUser(updated as UserWithRoles);
+    });
+  }
+
+  async resetUserPassword(id: string, dto: ResetUserPasswordDto) {
+    const existing = await this.prismaService.client.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    await this.prismaService.client.user.update({
+      where: { id },
+      data: { passwordHash },
+    });
+
+    return { success: true };
   }
 
   async me(userId: string) {
