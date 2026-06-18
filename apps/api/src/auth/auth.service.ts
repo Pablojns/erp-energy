@@ -108,7 +108,7 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    if (!user || !user.isActive) {
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials.');
     }
 
@@ -119,6 +119,12 @@ export class AuthService implements OnModuleInit {
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials.');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'Usuário inativo. Contate o administrador.',
+      );
     }
 
     return this.buildAuthResponse(user);
@@ -217,10 +223,14 @@ export class AuthService implements OnModuleInit {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const plainPassword = dto.password;
+    const passwordHash = await bcrypt.hash(plainPassword, 12);
+
     await this.prismaService.client.user.update({
-      where: { id },
-      data: { passwordHash },
+      where: { id: existing.id },
+      data: {
+        passwordHash,
+      },
     });
 
     return { success: true };
