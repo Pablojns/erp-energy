@@ -128,16 +128,6 @@ export function readPedidosSheet(buffer: Uint8Array): {
     const obs = normalizeText(r.N);
     if ((obs ?? '').toUpperCase().includes('ERRO LEITURA ITENS')) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: observacao`, {
-          numero,
-          dataPedido: null,
-          dataEntrega: null,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
 
@@ -146,72 +136,22 @@ export function readPedidosSheet(buffer: Uint8Array): {
 
     if (!Number.isFinite(numero) || numero <= 0) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: numero`, {
-          numero,
-          dataPedido,
-          dataEntrega,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
     if (!dataPedido || !dataEntrega) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: dataPedido/dataEntrega`, {
-          numero,
-          dataPedido,
-          dataEntrega,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
     if (!Number.isFinite(seq) || seq <= 0) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: seq`, {
-          numero,
-          dataPedido,
-          dataEntrega,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
     if (!produto) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: produto`, {
-          numero,
-          dataPedido,
-          dataEntrega,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
     if (!Number.isFinite(qtd) || qtd <= 0) {
       ignored += 1;
-      if (ignored <= 3) {
-        console.log(`[ignorado linha ${ignored}] campo: qtd`, {
-          numero,
-          dataPedido,
-          dataEntrega,
-          seq,
-          produto,
-          qtd,
-        });
-      }
       continue;
     }
 

@@ -26,7 +26,7 @@ function numeroPedFromExit(exitItem: OrderExitDto): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function DetailRow(props: { label: string; value: string | null | undefined }) {
+function DetailRow(props: { label: string; value: string | null | undefined }) {
   const { label, value } = props;
   const display = value?.trim() ? value.trim() : '—';
   return (
@@ -37,7 +37,7 @@ export function DetailRow(props: { label: string; value: string | null | undefin
   );
 }
 
-export function ItemStatusBadge(props: { item: OrderExitItemDto }) {
+function ItemStatusBadge(props: { item: OrderExitItemDto }) {
   const { item } = props;
   const picked = item.pickedQty ?? 0;
   const ordered = item.quantity ?? 0;

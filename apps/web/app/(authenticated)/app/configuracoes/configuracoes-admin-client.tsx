@@ -43,6 +43,20 @@ function primaryRole(user: AdminUser): UserRole {
   return user.roles.includes('ADMIN') ? 'ADMIN' : 'OPERADOR';
 }
 
+async function resetUserPasswordApi(userId: string, password: string) {
+  return erpFetchJson(`auth/users/${userId}/reset-password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ password }),
+  });
+}
+
+async function patchUserActiveApi(userId: string, isActive: boolean) {
+  return erpFetchJson(`auth/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isActive }),
+  });
+}
+
 type InactiveProduct = {
   id: string;
   internalCode: string;
@@ -181,10 +195,7 @@ function UsersTable() {
 
     setTogglingId(user.id);
     try {
-      await erpFetchJson<AdminUser>(`auth/users/${user.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: next }),
-      });
+      await patchUserActiveApi(user.id, next);
       setToast(next ? 'Usuário ativado.' : 'Usuário inativado.');
       load();
     } catch (err) {
@@ -480,10 +491,7 @@ function ResetPasswordModal(props: {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson(`auth/users/${user.id}/reset-password`, {
-        method: 'PATCH',
-        body: JSON.stringify({ password }),
-      });
+      await resetUserPasswordApi(user.id, password);
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao redefinir senha.');

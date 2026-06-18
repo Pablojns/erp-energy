@@ -14,7 +14,7 @@ export interface PedidoParaImpressao {
   itens: ItemPedido[];
 }
 
-export function generateWaybillHTML(pedidos: PedidoParaImpressao[]): string {
+function generateWaybillHTML(pedidos: PedidoParaImpressao[]): string {
   const dataGeracao = new Date().toLocaleString('pt-BR');
 
   const pedidosHTML = pedidos

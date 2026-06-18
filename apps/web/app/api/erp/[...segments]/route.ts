@@ -4,6 +4,16 @@ import { NextResponse } from 'next/server';
 import { API_BASE_URL, AUTH_COOKIE_NAME } from '@/src/services/api/config';
 import { DEV_MOCK_USER, isAuthDisabled } from '@/src/services/auth/bypass';
 
+function isAuthPath(path: string): boolean {
+  return (
+    /^auth\/me$/i.test(path) ||
+    /^auth\/register$/i.test(path) ||
+    /^auth\/users$/i.test(path) ||
+    /^auth\/users\/[^/]+\/reset-password$/i.test(path) ||
+    /^auth\/users\/[^/]+$/i.test(path)
+  );
+}
+
 function isAllowedPath(path: string): boolean {
   return (
     /^products(\/|$)/i.test(path) ||
@@ -12,11 +22,7 @@ function isAllowedPath(path: string): boolean {
     /^orders(\/|$)/i.test(path) ||
     /^api\/pedidos(\/|$)/i.test(path) ||
     /^pedidos(\/|$)/i.test(path) ||
-    /^auth\/me$/i.test(path) ||
-    /^auth\/users$/i.test(path) ||
-    /^auth\/users\/[^/]+$/i.test(path) ||
-    /^auth\/users\/[^/]+\/reset-password$/i.test(path) ||
-    /^auth\/register$/i.test(path)
+    isAuthPath(path)
   );
 }
 
@@ -74,6 +80,9 @@ async function proxy(request: NextRequest, segments: string[]) {
     const body = await request.text();
     if (body.length > 0) {
       init.body = body;
+      if (!headers.has('content-type')) {
+        headers.set('content-type', 'application/json');
+      }
     }
   }
 

@@ -45,7 +45,6 @@ export class AuthService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await this.ensureAdminRole();
     await this.ensureOperadorRole();
-    await this.ensureDefaultUserRole();
     await this.ensureInitialAdminUser();
   }
 
@@ -303,17 +302,6 @@ export class AuthService implements OnModuleInit {
       create: {
         name: 'OPERADOR',
         description: 'Operador de expedição e estoque',
-      },
-    });
-  }
-
-  private async ensureDefaultUserRole(): Promise<void> {
-    await this.prismaService.client.role.upsert({
-      where: { name: 'USER' },
-      update: {},
-      create: {
-        name: 'USER',
-        description: 'Default ERP user role',
       },
     });
   }

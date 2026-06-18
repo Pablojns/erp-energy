@@ -7,7 +7,6 @@ import {
   Package,
   type LucideIcon,
 } from 'lucide-react';
-import { STATUS_META } from '@/src/components/expedicao/expedition-wms-layout';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export function getOverdueDays(order: OrderDto): number | null {
@@ -66,21 +65,9 @@ export function getItemSeparationStatus(item: OrderItemDto): {
   return { label: 'Pendente', tone: 'pending' };
 }
 
-export function getQueueStatusLabel(order: OrderDto): string {
-  return STATUS_META[order.status]?.label ?? order.status;
-}
-
-export function isOrderToday(order: OrderDto): boolean {
-  const iso = order.orderDate ?? order.createdAt;
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  const today = new Date();
-  return (
-    d.getDate() === today.getDate() &&
-    d.getMonth() === today.getMonth() &&
-    d.getFullYear() === today.getFullYear()
-  );
+export function displayOrDash(value: string | null | undefined): string {
+  const v = value?.trim();
+  return v ? v : '—';
 }
 
 export type QueueBadgeTone =

@@ -29,17 +29,15 @@ export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 
 export const ORDER_STATUS_VALUES = Object.values(ORDER_STATUS);
 
-/** Fluxo principal pós análise/reserva flexível (transições específicas no serviço). */
-export const ORDER_STATUS_CHAIN_AFTER_RESERVE: OrderStatus[] = [
-  ORDER_STATUS.RESERVADO,
-  ORDER_STATUS.PARCIAL,
+/** Cadeia de status após início da separação (transições sequenciais). */
+export const ORDER_STATUS_EXPEDITION_CHAIN = [
   ORDER_STATUS.EM_SEPARACAO,
   ORDER_STATUS.SEPARADO,
   ORDER_STATUS.AGUARDANDO_NF,
   ORDER_STATUS.NF_ATRELADA,
   ORDER_STATUS.EXPEDIDO,
   ORDER_STATUS.FINALIZADO,
-];
+] as const satisfies readonly OrderStatus[];
 
 export const INVOICE_STATUS = {
   NOT_FOUND: 'NOT_FOUND',

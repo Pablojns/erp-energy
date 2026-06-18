@@ -1,6 +1,6 @@
 'use client';
 
-import { displayOrDash } from '@/src/components/expedicao/expedition-order-ux';
+import { displayOrDash } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 
 export function OrderInfoPanel(props: { order: OrderDto }) {

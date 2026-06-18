@@ -22,7 +22,7 @@ import type { AttachInvoiceDto } from './dto/attach-invoice.dto';
 import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
-import { ORDER_STATUS_VALUES } from './order-domain';
+import { ORDER_STATUS_EXPEDITION_CHAIN, ORDER_STATUS_VALUES } from './order-domain';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -1336,14 +1336,7 @@ export class OrderService {
       return;
     }
 
-    const chain: OrderStatus[] = [
-      OrderStatus.EM_SEPARACAO,
-      OrderStatus.SEPARADO,
-      OrderStatus.AGUARDANDO_NF,
-      OrderStatus.NF_ATRELADA,
-      OrderStatus.EXPEDIDO,
-      OrderStatus.FINALIZADO,
-    ];
+    const chain: OrderStatus[] = [...ORDER_STATUS_EXPEDITION_CHAIN];
 
     const fi = chain.indexOf(from);
     const ti = chain.indexOf(to);
@@ -1972,11 +1965,6 @@ export class OrderService {
     );
   }
 
-  private static computeStockReserveBlocked(_row: OrderSerializeSource): boolean {
-    /** Reserva flexível — falta de estoque não bloqueia operação. */
-    return false;
-  }
-
   private serializeOrder(row: OrderSerializeSource) {
     const qtySum = row.items.reduce((a, x) => a + x.quantity, 0);
     const unidadesFaltantes = row.items.reduce(
@@ -1986,7 +1974,7 @@ export class OrderService {
 
     const physicalReservationActive =
       (row.stockReservations?.length ?? 0) > 0;
-    const stockReserveBlocked = OrderService.computeStockReserveBlocked(row);
+    const stockReserveBlocked = false;
     const missingSkuForReserve =
       OrderService.computeMissingSkuForReserve(row);
 

@@ -1,12 +1,21 @@
-import type { ExpeditionOrderStatus } from '@/src/components/expedicao/expedition-order-ux';
-
 export type OrderSource =
   | 'WEG_MERCADO_ELETRONICO'
   | 'ECOMMERCE'
   | 'SITE'
   | 'MANUAL';
 
-export type OrderStatus = ExpeditionOrderStatus;
+export type OrderStatus =
+  | 'NOVO'
+  | 'ANALISADO'
+  | 'PARCIAL'
+  | 'RESERVADO'
+  | 'EM_SEPARACAO'
+  | 'SEPARADO'
+  | 'AGUARDANDO_NF'
+  | 'NF_ATRELADA'
+  | 'EXPEDIDO'
+  | 'FINALIZADO'
+  | 'CANCELADO';
 
 export type InvoiceStatus =
   | 'NOT_FOUND'
@@ -111,17 +120,6 @@ export type ExpeditionSummary = {
   rupturaPedidos?: number;
 };
 
-export type ExpeditionKpiStrip = {
-  pedidosHoje: number;
-  urgentes: number;
-  emSeparacao: number;
-  parciais: number;
-  comFalta: number;
-  aguardandoNf: number;
-  saidasHoje: number;
-  reservados: number;
-};
-
 export type FilterFormState = {
   search: string;
   source: 'all' | OrderSource;
@@ -151,6 +149,11 @@ export type StatusFilterId =
   | 'em_separacao'
   | 'finalizado'
   | 'cancelado';
+
+export type UseExpeditionOrdersOptions = {
+  mode?: 'expedition' | 'separation';
+  initialStatusFilter?: StatusFilterId;
+};
 
 export type BannerState = { variant: 'error' | 'success'; message: string };
 export type ToastState = {

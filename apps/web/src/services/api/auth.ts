@@ -17,11 +17,6 @@ export function formatNestAuthError(payload: unknown): string {
   return 'Não foi possível autenticar.';
 }
 
-export type LoginInput = {
-  email: string;
-  password: string;
-};
-
 export type AuthUser = {
   id: string;
   name: string;
@@ -36,32 +31,6 @@ export type AuthResponse = {
   expiresIn: string;
   user: AuthUser;
 };
-
-export async function requestLogin(input: LoginInput): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email: input.email.trim().toLowerCase(),
-      password: input.password,
-    }),
-  });
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = {};
-  }
-
-  if (!response.ok) {
-    throw new Error(formatNestAuthError(payload));
-  }
-
-  return payload as AuthResponse;
-}
 
 /**
  * Valida sessão contra `/auth/me`.

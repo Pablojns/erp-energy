@@ -252,27 +252,17 @@ export class PedidosController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
   async importar(@UploadedFile() file?: { originalname?: string; buffer?: Buffer }) {
-    try {
-      console.log('[pedidos.importar] arquivo recebido:', {
-        originalname: file?.originalname ?? null,
-        bufferSize: file?.buffer?.length ?? 0,
-      });
-
-      if (!file?.buffer) {
-        throw new BadRequestException('Arquivo obrigatório (campo multipart: file).');
-      }
-      const name = (file.originalname ?? '').toLowerCase();
-      if (!name.endsWith('.xlsx') && !name.endsWith('.csv')) {
-        throw new BadRequestException('Formato inválido. Envie .xlsx ou .csv.');
-      }
-      if (name.endsWith('.csv')) {
-        throw new BadRequestException('CSV ainda não suportado. Envie .xlsx.');
-      }
-      return this.pedidos.importarPlanilha(file.buffer);
-    } catch (error) {
-      console.log('[pedidos.importar] erro completo:', error);
-      throw error;
+    if (!file?.buffer) {
+      throw new BadRequestException('Arquivo obrigatório (campo multipart: file).');
     }
+    const name = (file.originalname ?? '').toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.csv')) {
+      throw new BadRequestException('Formato inválido. Envie .xlsx ou .csv.');
+    }
+    if (name.endsWith('.csv')) {
+      throw new BadRequestException('CSV ainda não suportado. Envie .xlsx.');
+    }
+    return this.pedidos.importarPlanilha(file.buffer);
   }
 }
 

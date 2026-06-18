@@ -9,14 +9,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { INITIAL_FILTERS } from '@/src/components/expedicao/shared/constants';
 import type {
   BannerState,
-  ExpeditionKpiStrip,
   ExpeditionSummary,
   FilterFormState,
   OrderDto,
   OrderStatus,
-  PaginatedOrders,
   StatusFilterId,
   ToastState,
+  UseExpeditionOrdersOptions,
 } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
@@ -27,26 +26,20 @@ import {
 } from '@/src/components/expedicao/workspace/queue-quick-filters';
 import { usePedidoDetalhe } from '@/src/hooks/usePedidoDetalhe';
 import { usePedidos } from '@/src/hooks/usePedidos';
-import type { UseExpeditionOrdersOptions } from '@/src/components/expedicao/shared/use-expedition-orders';
 
 export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}) {
   const mode = opts.mode ?? 'expedition';
   const [statusFilter, setStatusFilter] = useState<StatusFilterId>(
     opts.initialStatusFilter ?? 'all',
   );
-  const [separationSubFilter, setSeparationSubFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [appliedFilters, setAppliedFilters] =
     useState<FilterFormState>(INITIAL_FILTERS);
   const [searchDebounced, setSearchDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [reservingOrderId, setReservingOrderId] = useState<string | null>(null);
-  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [sum, setSum] = useState<ExpeditionSummary | null>(null);
   const [sumLoading, setSumLoading] = useState(true);
-  const [kpiStrip, setKpiStrip] = useState<ExpeditionKpiStrip | null>(null);
-  const [kpiLoading, setKpiLoading] = useState(false);
 
   const quickFilter: QueueQuickFilterId = statusFilterToQuick(statusFilter);
 
@@ -112,31 +105,12 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   }, [loadSummary]);
 
   useEffect(() => {
-    if (!sum) {
-      setKpiStrip(null);
-      return;
-    }
-    setKpiStrip({
-      pedidosHoje: sum.totalPedidos,
-      urgentes: sum.urgentes,
-      emSeparacao: sum.emSeparacao,
-      parciais: 0,
-      comFalta: sum.rupturaPedidos ?? 0,
-      aguardandoNf: sum.aguardandoNf,
-      saidasHoje: 0,
-      reservados: sum.reservados,
-    });
-    setKpiLoading(false);
-  }, [sum]);
-
-  useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), toast.durationMs ?? 4200);
     return () => window.clearTimeout(t);
   }, [toast]);
 
   async function reserveOrder(id: string) {
-    setReservingOrderId(id);
     try {
       await erpFetchJson(`orders/${id}/reserve`, { method: 'POST' });
       await refreshAll();
@@ -149,8 +123,6 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         variant: 'err',
         message: e instanceof Error ? e.message : 'Falha ao reservar.',
       });
-    } finally {
-      setReservingOrderId(null);
     }
   }
 
@@ -410,22 +382,14 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     mode,
     statusFilter,
     setStatusFilter,
-    separationSubFilter,
-    setSeparationSubFilter,
-    expandedOrderId,
-    setExpandedOrderId,
-    kpiStrip,
-    kpiLoading,
     sum,
     sumLoading,
     orders,
     meta,
     ordersLoading,
     banner,
-    setBanner,
     toast,
     setToast,
-    reservingOrderId,
     page,
     setPage,
     appliedFilters,
