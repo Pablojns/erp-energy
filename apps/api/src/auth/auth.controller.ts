@@ -17,8 +17,15 @@ import { JwtGuard } from './jwt.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @UseGuards(JwtGuard)
   @Post('register')
-  register(@Body() registerDto: RegisterDto) {
+  register(
+    @Body() registerDto: RegisterDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Acesso restrito a administradores.');
+    }
     return this.authService.register(registerDto);
   }
 

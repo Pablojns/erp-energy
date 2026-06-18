@@ -13,7 +13,8 @@ function isAllowedPath(path: string): boolean {
     /^api\/pedidos(\/|$)/i.test(path) ||
     /^pedidos(\/|$)/i.test(path) ||
     /^auth\/me$/i.test(path) ||
-    /^auth\/users$/i.test(path)
+    /^auth\/users$/i.test(path) ||
+    /^auth\/register$/i.test(path)
   );
 }
 

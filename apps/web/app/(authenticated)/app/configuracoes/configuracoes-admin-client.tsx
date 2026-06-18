@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Package, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { Package, Plus, RefreshCw, ShieldCheck, UserPlus, Users, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 type AdminUser = {
@@ -10,6 +10,22 @@ type AdminUser = {
   email: string;
   isActive: boolean;
   roles: string[];
+};
+
+type UserRole = 'ADMIN' | 'OPERADOR';
+
+type NewUserForm = {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+};
+
+const EMPTY_USER_FORM: NewUserForm = {
+  name: '',
+  email: '',
+  password: '',
+  role: 'OPERADOR',
 };
 
 type InactiveProduct = {
@@ -97,6 +113,8 @@ function UsersTable() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -113,74 +131,302 @@ function UsersTable() {
     load();
   }, [load]);
 
-  if (loading) return <StateMessage>Carregando usuários...</StateMessage>;
-  if (error) {
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  const handleUserCreated = () => {
+    setModalOpen(false);
+    setToast('Usuário criado com sucesso!');
+    load();
+  };
+
+  if (loading) {
     return (
-      <div className="space-y-3 p-8 text-center">
-        <p className="text-sm text-rose-400">{error}</p>
-        <button
-          type="button"
-          onClick={load}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
-        >
-          <RefreshCw size={14} />
-          Tentar novamente
-        </button>
-      </div>
+      <>
+        <UsersTableToolbar onNew={() => setModalOpen(true)} />
+        <StateMessage>Carregando usuários...</StateMessage>
+        {modalOpen ? (
+          <NewUserModal onClose={() => setModalOpen(false)} onCreated={handleUserCreated} />
+        ) : null}
+      </>
     );
   }
-  if (users.length === 0) {
-    return <StateMessage>Nenhum usuário cadastrado.</StateMessage>;
+
+  if (error) {
+    return (
+      <>
+        <UsersTableToolbar onNew={() => setModalOpen(true)} />
+        <div className="space-y-3 p-8 text-center">
+          <p className="text-sm text-rose-400">{error}</p>
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+          >
+            <RefreshCw size={14} />
+            Tentar novamente
+          </button>
+        </div>
+        {modalOpen ? (
+          <NewUserModal onClose={() => setModalOpen(false)} onCreated={handleUserCreated} />
+        ) : null}
+      </>
+    );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm text-zinc-300">
-        <thead className="bg-white/5 text-xs font-semibold uppercase text-zinc-500">
-          <tr>
-            <th className="px-6 py-4">Nome</th>
-            <th className="px-6 py-4">Email</th>
-            <th className="px-6 py-4">Perfis</th>
-            <th className="px-6 py-4">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {users.map((user) => (
-            <tr key={user.id} className="transition-colors hover:bg-white/5">
-              <td className="px-6 py-4 font-medium text-zinc-100">{user.name}</td>
-              <td className="px-6 py-4">{user.email}</td>
-              <td className="px-6 py-4">
-                <div className="flex flex-wrap gap-1.5">
-                  {user.roles.map((role) => (
+    <>
+      <UsersTableToolbar onNew={() => setModalOpen(true)} />
+      {toast ? (
+        <div
+          role="status"
+          className="mx-4 mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300"
+        >
+          {toast}
+        </div>
+      ) : null}
+      {users.length === 0 ? (
+        <StateMessage>Nenhum usuário cadastrado.</StateMessage>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-zinc-300">
+            <thead className="bg-white/5 text-xs font-semibold uppercase text-zinc-500">
+              <tr>
+                <th className="px-6 py-4">Nome</th>
+                <th className="px-6 py-4">Email</th>
+                <th className="px-6 py-4">Perfis</th>
+                <th className="px-6 py-4">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {users.map((user) => (
+                <tr key={user.id} className="transition-colors hover:bg-white/5">
+                  <td className="px-6 py-4 font-medium text-zinc-100">{user.name}</td>
+                  <td className="px-6 py-4">{user.email}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      {user.roles.map((role) => (
+                        <span
+                          key={role}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            role === 'ADMIN'
+                              ? 'bg-amber-500/15 text-amber-300'
+                              : 'bg-blue-500/15 text-blue-300'
+                          }`}
+                        >
+                          {role === 'ADMIN' ? <ShieldCheck size={12} /> : null}
+                          {role}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
                     <span
-                      key={role}
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        role === 'ADMIN'
-                          ? 'bg-amber-500/15 text-amber-300'
-                          : 'bg-blue-500/15 text-blue-300'
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        user.isActive
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : 'bg-rose-500/15 text-rose-300'
                       }`}
                     >
-                      {role === 'ADMIN' ? <ShieldCheck size={12} /> : null}
-                      {role}
+                      {user.isActive ? 'Ativo' : 'Inativo'}
                     </span>
-                  ))}
-                </div>
-              </td>
-              <td className="px-6 py-4">
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    user.isActive
-                      ? 'bg-emerald-500/15 text-emerald-300'
-                      : 'bg-rose-500/15 text-rose-300'
-                  }`}
-                >
-                  {user.isActive ? 'Ativo' : 'Inativo'}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {modalOpen ? (
+        <NewUserModal onClose={() => setModalOpen(false)} onCreated={handleUserCreated} />
+      ) : null}
+    </>
+  );
+}
+
+function UsersTableToolbar(props: { onNew: () => void }) {
+  return (
+    <div className="flex items-center justify-end border-b border-white/5 px-4 py-3">
+      <button
+        type="button"
+        onClick={props.onNew}
+        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+      >
+        <Plus size={16} />
+        Novo Usuário
+      </button>
+    </div>
+  );
+}
+
+function NewUserModal(props: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { onClose, onCreated } = props;
+  const [form, setForm] = useState<NewUserForm>(EMPTY_USER_FORM);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const validate = (): string | null => {
+    if (!form.name.trim()) return 'Informe o nome.';
+    if (!form.email.trim()) return 'Informe o e-mail.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      return 'E-mail inválido.';
+    }
+    if (form.password.length < 6) return 'Senha deve ter no mínimo 6 caracteres.';
+    return null;
+  };
+
+  const handleSubmit = async () => {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await erpFetchJson('auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          role: form.role,
+        }),
+      });
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao criar usuário.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60"
+        aria-label="Fechar"
+        onClick={onClose}
+        disabled={saving}
+      />
+      <div
+        className="relative w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        role="dialog"
+        aria-labelledby="new-user-title"
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <h2 id="new-user-title" className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
+            <UserPlus size={20} />
+            Novo Usuário
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-5 py-5">
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-zinc-300">
+              Nome <span className="text-rose-400">*</span>
+            </span>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, name: e.target.value }));
+                setError(null);
+              }}
+              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Nome completo"
+              autoFocus
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-zinc-300">
+              Email <span className="text-rose-400">*</span>
+            </span>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, email: e.target.value }));
+                setError(null);
+              }}
+              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="usuario@empresa.com"
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-zinc-300">
+              Senha temporária <span className="text-rose-400">*</span>
+            </span>
+            <input
+              type="text"
+              value={form.password}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, password: e.target.value }));
+                setError(null);
+              }}
+              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Mínimo 6 caracteres"
+              autoComplete="new-password"
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-zinc-300">
+              Perfil <span className="text-rose-400">*</span>
+            </span>
+            <select
+              value={form.role}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, role: e.target.value as UserRole }));
+                setError(null);
+              }}
+              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="OPERADOR">OPERADOR</option>
+              <option value="ADMIN">ADMIN</option>
+            </select>
+          </label>
+
+          {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+        </div>
+
+        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={saving}
+            className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Criando...' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

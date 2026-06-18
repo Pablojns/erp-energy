@@ -40,6 +40,7 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureAdminRole();
+    await this.ensureOperadorRole();
     await this.ensureDefaultUserRole();
     await this.ensureInitialAdminUser();
   }
@@ -55,11 +56,18 @@ export class AuthService implements OnModuleInit {
     }
 
     const passwordHash = await bcrypt.hash(registerDto.password, 12);
+    const roleName = registerDto.role === 'ADMIN' ? 'ADMIN' : 'OPERADOR';
 
-    const userRole = await this.prismaService.client.role.upsert({
-      where: { name: 'USER' },
+    const role = await this.prismaService.client.role.upsert({
+      where: { name: roleName },
       update: {},
-      create: { name: 'USER', description: 'Default ERP user role' },
+      create: {
+        name: roleName,
+        description:
+          roleName === 'ADMIN'
+            ? 'System administrator role'
+            : 'Operador de expedição e estoque',
+      },
     });
 
     const user = await this.prismaService.client.user.create({
@@ -69,7 +77,7 @@ export class AuthService implements OnModuleInit {
         passwordHash,
         userRoles: {
           create: {
-            roleId: userRole.id,
+            roleId: role.id,
           },
         },
       },
@@ -184,6 +192,17 @@ export class AuthService implements OnModuleInit {
       create: {
         name: 'ADMIN',
         description: 'System administrator role',
+      },
+    });
+  }
+
+  private async ensureOperadorRole(): Promise<void> {
+    await this.prismaService.client.role.upsert({
+      where: { name: 'OPERADOR' },
+      update: {},
+      create: {
+        name: 'OPERADOR',
+        description: 'Operador de expedição e estoque',
       },
     });
   }
