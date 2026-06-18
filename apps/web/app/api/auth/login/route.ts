@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
   res.cookies.set(AUTH_COOKIE_NAME, accessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: false, // TODO: mudar para true quando HTTPS estiver configurado
     sameSite: 'lax',
     path: '/',
     maxAge: COOKIE_MAX_AGE_SECONDS,
