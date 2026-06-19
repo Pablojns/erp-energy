@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
 import { SeparationWorkbench } from '@/src/components/expedicao/workspace/separation-workbench';
 import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
@@ -25,6 +26,7 @@ export function ExpeditionWorkspace(props: {
       initialStatusFilter ?? 'all',
   });
 
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'fila' | 'detalhes'>('fila');
 
@@ -84,7 +86,11 @@ export function ExpeditionWorkspace(props: {
             onSelectOrder={setSelectedOrderId}
             onOrderChosen={() => setActiveTab('detalhes')}
             title="Fila de Pedidos p/ Separação"
-            onNewOrder={onNewOrder}
+            onNewOrder={
+              mode === 'orders'
+                ? onNewOrder ?? (() => setNewOrderOpen(true))
+                : onNewOrder
+            }
             onRefresh={() => void data.refreshAll()}
           />
         </div>
@@ -125,6 +131,20 @@ export function ExpeditionWorkspace(props: {
         >
           {data.toast.message}
         </div>
+      ) : null}
+
+      {mode === 'orders' ? (
+        <NewOrderModal
+          isOpen={newOrderOpen}
+          onClose={() => setNewOrderOpen(false)}
+          onCreated={() => {
+            void data.refreshAll();
+            data.setToast({
+              variant: 'ok',
+              message: 'Pedido criado com sucesso e adicionado à fila.',
+            });
+          }}
+        />
       ) : null}
     </div>
   );

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrderService } from './order.service';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
+import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import {
   decimalFromStringOrZero,
@@ -32,6 +33,10 @@ export class PedidosService {
 
   list(query: Parameters<OrderService['findMany']>[0]) {
     return this.orders.findMany(query as never);
+  }
+
+  createManual(userId: string, dto: CreateManualPedidoDto) {
+    return this.orders.createManualPedido(userId, dto);
   }
 
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {

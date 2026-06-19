@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Filter,
   Loader2,
-  Plus,
   Printer,
   RefreshCw,
   Search,
@@ -124,7 +123,7 @@ export function OrderQueue(props: {
       <div className="exp-queue-panel-header">
         <div className="exp-queue-header-row">
           <h2 className="exp-queue-panel-title">{title}</h2>
-          <div className="flex shrink-0 gap-1">
+          <div className="flex shrink-0 items-center gap-2">
             {onRefresh ? (
               <button
                 type="button"
@@ -140,11 +139,14 @@ export function OrderQueue(props: {
             {onNewOrder ? (
               <button
                 type="button"
-                className="exp-queue-icon-btn"
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+                style={{
+                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)',
+                }}
                 onClick={onNewOrder}
-                aria-label="Novo pedido"
               >
-                <Plus className="h-4 w-4" />
+                + Novo Pedido
               </button>
             ) : null}
           </div>

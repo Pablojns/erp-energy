@@ -15,6 +15,7 @@ import {
 } from '@erp/database';
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { CreateOrderDto } from './dto/create-order.dto';
 import type { CreateWegOrderDto } from './dto/create-wego-order.dto';
 import type { OrderQueryDto } from './dto/order-query.dto';
@@ -505,6 +506,173 @@ export class OrderService {
           lines: order.items.length,
           subtotal: totalFixed.toString(),
           status: order.status,
+          reservedAutomatically: false,
+        },
+      });
+
+      return this.serializeOrder(order);
+    });
+  }
+
+  /** Pedido manual pela expedição — status NOVO, sem reserva automática. */
+  async createManualPedido(userId: string, dto: CreateManualPedidoDto) {
+    const externalOrderNumber = dto.externalOrderNumber.trim();
+    if (!externalOrderNumber) {
+      throw new BadRequestException('Número do pedido é obrigatório.');
+    }
+
+    const deliveryRaw = dto.requestedDeliveryDate.trim();
+    const requestedDeliveryDate = new Date(`${deliveryRaw}T12:00:00.000Z`);
+    if (Number.isNaN(requestedDeliveryDate.getTime())) {
+      throw new BadRequestException('Data de entrega prevista inválida.');
+    }
+
+    const duplicate = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Já existe pedido com este número.');
+    }
+
+    const [receiver, unloadingPoint, customer] = await Promise.all([
+      this.prisma.client.receiver.findUnique({
+        where: { id: dto.receiverId },
+      }),
+      this.prisma.client.unloadingPoint.findUnique({
+        where: { id: dto.unloadingPointId },
+      }),
+      this.prisma.client.customer.findUnique({
+        where: { id: dto.customerId },
+      }),
+    ]);
+
+    if (!receiver?.isActive) {
+      throw new BadRequestException('Recebedor inválido ou inativo.');
+    }
+    if (!unloadingPoint?.isActive) {
+      throw new BadRequestException('Ponto de descarga inválido ou inativo.');
+    }
+    if (!customer?.isActive) {
+      throw new BadRequestException('Cliente inválido ou inativo.');
+    }
+
+    const mergedLines = new Map<
+      string,
+      { qty: number; unitPriceHint?: number }
+    >();
+    for (const li of dto.items) {
+      const prev = mergedLines.get(li.productId);
+      if (prev) {
+        mergedLines.set(li.productId, {
+          qty: prev.qty + li.quantity,
+          unitPriceHint: prev.unitPriceHint ?? li.unitPrice,
+        });
+      } else {
+        mergedLines.set(li.productId, {
+          qty: li.quantity,
+          unitPriceHint: li.unitPrice,
+        });
+      }
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const productIds = [...mergedLines.keys()].sort();
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        orderBy: { id: 'asc' },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+
+      for (const pid of productIds) {
+        const p = byId.get(pid);
+        if (!p) {
+          throw new BadRequestException(`Produto ${pid} não encontrado.`);
+        }
+        if (!p.isActive) {
+          throw new BadRequestException(
+            `Produto ${p.name} está inativo e não pode constar em pedidos.`,
+          );
+        }
+      }
+
+      const code = await this.nextOrderCode(tx);
+      let subtotalDec = new Prisma.Decimal(0);
+      let lineNumber = 10;
+
+      const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+
+      for (const pid of productIds) {
+        const p = byId.get(pid)!;
+        const { qty, unitPriceHint } = mergedLines.get(pid)!;
+        const unitPrice =
+          unitPriceHint !== undefined && unitPriceHint !== null
+            ? new Prisma.Decimal(Number(unitPriceHint).toFixed(2))
+            : p.price;
+        const totalLine = unitPrice.mul(qty).toDecimalPlaces(2);
+        subtotalDec = subtotalDec.add(totalLine);
+
+        creates.push({
+          product: { connect: { id: pid } },
+          lineNumber,
+          sku: p.sku,
+          description: p.name,
+          quantity: qty,
+          reservedQuantity: 0,
+          unitPrice: unitPrice.toDecimalPlaces(2),
+          totalPrice: totalLine,
+          discount: new Prisma.Decimal(0),
+          stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+        });
+        lineNumber += 10;
+      }
+
+      const totalFixed = subtotalDec.toDecimalPlaces(2);
+      const customerDocument = customer.document?.trim() || null;
+
+      const order = await tx.order.create({
+        data: {
+          source: OrderSource.MANUAL,
+          code,
+          externalOrderNumber,
+          customerId: customer.id,
+          customerName: customer.name.trim(),
+          customerDocument,
+          deliveryCnpj: customerDocument,
+          deliveryAddress: customer.deliveryAddress?.trim() || null,
+          receiverName: receiver.name.trim(),
+          unloadingPoint: unloadingPoint.name.trim(),
+          notes: dto.notes?.trim() || null,
+          status: OrderStatus.NOVO,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          priority: 3,
+          orderDate: new Date(),
+          requestedDeliveryDate,
+          subtotal: totalFixed,
+          discount: new Prisma.Decimal(0),
+          total: totalFixed,
+          totalValue: totalFixed,
+          items: { create: creates },
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_CREATED',
+        entity: 'Order',
+        entityId: order.id,
+        changes: {
+          code: order.code,
+          externalOrderNumber,
+          lines: order.items.length,
+          subtotal: totalFixed.toString(),
+          status: order.status,
+          source: 'manual_expedicao',
           reservedAutomatically: false,
         },
       });

@@ -23,6 +23,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { JwtGuard } from '../auth/jwt.guard';
 import { OrderQueryDto } from './dto/order-query.dto';
+import { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -50,6 +51,15 @@ export class PedidosController {
     // Para filtros específicos da planilha: use `externalOrderNumber`, `receiverName`, `unloadingPoint`.
     // Controller de "pedidos" é apenas um alias REST.
     return this.pedidos.list(query);
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateManualPedidoDto,
+  ) {
+    return this.pedidos.createManual(user.id, dto);
   }
 
   @Get('fila')

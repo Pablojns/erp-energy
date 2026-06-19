@@ -13,6 +13,18 @@ import {
   X,
 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  CustomerFormFields,
+  customerFormToApiPayload,
+  emptyCustomerFormValues,
+  validateCustomerForm,
+  type CustomerFormValues,
+} from '@/src/components/cadastros/customer-form-fields';
+import { formatCpfCnpj } from '@/src/components/cadastros/document-mask';
+import {
+  formatDeliveryAddressDisplay,
+  parseDeliveryAddress,
+} from '@/src/components/cadastros/delivery-address';
 
 type CadastroTab =
   | 'receivers'
@@ -103,7 +115,7 @@ const TABS: TabConfig[] = [
     entityLabel: 'Cliente',
     columns: [
       { key: 'name', header: 'Nome' },
-      { key: 'cnpj', header: 'CNPJ' },
+      { key: 'cnpj', header: 'CNPJ/CPF' },
       { key: 'deliveryAddress', header: 'Endereço de entrega' },
       { key: 'status', header: 'Status' },
     ],
@@ -167,6 +179,7 @@ function ModalShell({
   confirmLabel,
   saving,
   children,
+  wide,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -175,6 +188,7 @@ function ModalShell({
   confirmLabel: string;
   saving: boolean;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -186,10 +200,12 @@ function ModalShell({
         disabled={saving}
       />
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl ${
+          wide ? 'max-w-lg' : 'max-w-md'
+        }`}
         role="dialog"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
             {icon}
             {title}
@@ -203,8 +219,10 @@ function ModalShell({
             <X size={20} />
           </button>
         </div>
-        <div className="space-y-4 px-5 py-5">{children}</div>
-        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+          {children}
+        </div>
+        <div className="flex shrink-0 gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
           <button
             type="button"
             onClick={onClose}
@@ -234,8 +252,100 @@ function fieldInputClass() {
 type CadastroFormState = {
   name: string;
   cnpj: string;
-  deliveryAddress: string;
 };
+
+function buildCustomerFormValues(row: CustomerCadastro | null): CustomerFormValues {
+  const parsed = parseDeliveryAddress(row?.deliveryAddress);
+  return {
+    name: row?.name ?? '',
+    document: row?.cnpj ? formatCpfCnpj(row.cnpj) : '',
+    address: parsed ?? emptyCustomerFormValues().address,
+    addressLoaded: Boolean(parsed),
+  };
+}
+
+function CustomerCadastroModal({
+  mode,
+  tab,
+  row,
+  onClose,
+  onSaved,
+}: {
+  mode: 'create' | 'edit';
+  tab: TabConfig;
+  row: CustomerCadastro | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<CustomerFormValues>(() =>
+    buildCustomerFormValues(row),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const legacyAddress =
+    row?.deliveryAddress && !parseDeliveryAddress(row.deliveryAddress)
+      ? row.deliveryAddress
+      : null;
+
+  const handleSubmit = async () => {
+    const validationError = validateCustomerForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const body = customerFormToApiPayload(form);
+      if (mode === 'create') {
+        await erpFetchJson(tab.apiPath, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      } else if (row) {
+        await erpFetchJson(`${tab.apiPath}/${row.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            ...body,
+            cnpj: body.cnpj ?? null,
+            deliveryAddress: body.deliveryAddress ?? null,
+          }),
+        });
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const title =
+    mode === 'create' ? `Novo ${tab.entityLabel}` : `Editar ${tab.entityLabel}`;
+
+  return (
+    <ModalShell
+      title={title}
+      icon={mode === 'create' ? <Plus size={20} /> : <Pencil size={20} />}
+      onClose={onClose}
+      onConfirm={() => void handleSubmit()}
+      confirmLabel={saving ? 'Salvando...' : 'Salvar'}
+      saving={saving}
+      wide
+    >
+      <CustomerFormFields
+        values={form}
+        onChange={setForm}
+        disabled={saving}
+        legacyAddress={legacyAddress}
+        error={error}
+        onClearError={() => setError(null)}
+      />
+    </ModalShell>
+  );
+}
 
 function CadastroFormModal({
   mode,
@@ -252,11 +362,7 @@ function CadastroFormModal({
 }) {
   const [form, setForm] = useState<CadastroFormState>(() => ({
     name: row?.name ?? '',
-    cnpj: 'cnpj' in (row ?? {}) ? ((row as SupplierCadastro).cnpj ?? '') : '',
-    deliveryAddress:
-      'deliveryAddress' in (row ?? {})
-        ? ((row as CustomerCadastro).deliveryAddress ?? '')
-        : '',
+    cnpj: 'cnpj' in (row ?? {}) ? formatCpfCnpj((row as SupplierCadastro).cnpj ?? '') : '',
   }));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -273,15 +379,6 @@ function CadastroFormModal({
         ...(form.cnpj.trim() ? { cnpj: form.cnpj.trim() } : {}),
       };
     }
-    if (tab.id === 'customers') {
-      return {
-        name: form.name.trim(),
-        ...(form.cnpj.trim() ? { cnpj: form.cnpj.trim() } : {}),
-        ...(form.deliveryAddress.trim()
-          ? { deliveryAddress: form.deliveryAddress.trim() }
-          : {}),
-      };
-    }
     return { name: form.name.trim() };
   };
 
@@ -290,13 +387,6 @@ function CadastroFormModal({
       return {
         name: form.name.trim(),
         cnpj: form.cnpj.trim() || null,
-      };
-    }
-    if (tab.id === 'customers') {
-      return {
-        name: form.name.trim(),
-        cnpj: form.cnpj.trim() || null,
-        deliveryAddress: form.deliveryAddress.trim() || null,
       };
     }
     return { name: form.name.trim() };
@@ -362,36 +452,20 @@ function CadastroFormModal({
         />
       </label>
 
-      {tab.id === 'suppliers' || tab.id === 'customers' ? (
+      {tab.id === 'suppliers' ? (
         <label className="block text-sm">
           <span className="mb-1.5 block font-medium text-zinc-300">CNPJ</span>
           <input
             type="text"
+            inputMode="numeric"
             value={form.cnpj}
             onChange={(e) => {
-              setForm((f) => ({ ...f, cnpj: e.target.value }));
+              setForm((f) => ({ ...f, cnpj: formatCpfCnpj(e.target.value) }));
               setError(null);
             }}
             className={fieldInputClass()}
             placeholder="00.000.000/0000-00"
-          />
-        </label>
-      ) : null}
-
-      {tab.id === 'customers' ? (
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium text-zinc-300">
-            Endereço de entrega
-          </span>
-          <textarea
-            value={form.deliveryAddress}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, deliveryAddress: e.target.value }));
-              setError(null);
-            }}
-            rows={3}
-            className={fieldInputClass()}
-            placeholder="Rua, número, cidade..."
+            maxLength={18}
           />
         </label>
       ) : null}
@@ -471,9 +545,10 @@ function CadastroTable({
     if (key === 'deliveryAddress') {
       const value =
         'deliveryAddress' in row ? row.deliveryAddress : null;
+      const display = formatDeliveryAddressDisplay(value);
       return (
-        <span className="block max-w-xs truncate text-zinc-300" title={value ?? undefined}>
-          {value || '—'}
+        <span className="block max-w-xs truncate text-zinc-300" title={display}>
+          {display}
         </span>
       );
     }
@@ -585,25 +660,49 @@ function CadastroTable({
       ) : null}
 
       {modalMode ? (
-        <CadastroFormModal
-          mode={modalMode}
-          tab={tab}
-          row={modalMode === 'edit' ? editRow : null}
-          onClose={() => {
-            setModalMode(null);
-            setEditRow(null);
-          }}
-          onSaved={() => {
-            setModalMode(null);
-            setEditRow(null);
-            setToast(
-              modalMode === 'create'
-                ? 'Registro criado com sucesso!'
-                : 'Registro atualizado com sucesso!',
-            );
-            load();
-          }}
-        />
+        tab.id === 'customers' ? (
+          <CustomerCadastroModal
+            mode={modalMode}
+            tab={tab}
+            row={
+              modalMode === 'edit' ? (editRow as CustomerCadastro | null) : null
+            }
+            onClose={() => {
+              setModalMode(null);
+              setEditRow(null);
+            }}
+            onSaved={() => {
+              setModalMode(null);
+              setEditRow(null);
+              setToast(
+                modalMode === 'create'
+                  ? 'Registro criado com sucesso!'
+                  : 'Registro atualizado com sucesso!',
+              );
+              load();
+            }}
+          />
+        ) : (
+          <CadastroFormModal
+            mode={modalMode}
+            tab={tab}
+            row={modalMode === 'edit' ? editRow : null}
+            onClose={() => {
+              setModalMode(null);
+              setEditRow(null);
+            }}
+            onSaved={() => {
+              setModalMode(null);
+              setEditRow(null);
+              setToast(
+                modalMode === 'create'
+                  ? 'Registro criado com sucesso!'
+                  : 'Registro atualizado com sucesso!',
+              );
+              load();
+            }}
+          />
+        )
       ) : null}
     </div>
   );
