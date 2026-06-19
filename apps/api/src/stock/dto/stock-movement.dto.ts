@@ -46,6 +46,34 @@ export function mapPrismaToMovementKind(
   return map[type];
 }
 
+export const MOVEMENT_TYPE_FILTER_VALUES = [
+  'entrada',
+  'saida',
+  'ajuste',
+  'reserva',
+  'cancelamento_reserva',
+] as const;
+
+export type MovementTypeFilter = (typeof MOVEMENT_TYPE_FILTER_VALUES)[number];
+
+export function mapTypeFilterToPrismaTypes(
+  type: MovementTypeFilter,
+): StockMovementType[] {
+  const map: Record<MovementTypeFilter, StockMovementType[]> = {
+    entrada: [StockMovementType.INBOUND],
+    saida: [StockMovementType.OUTBOUND],
+    ajuste: [
+      StockMovementType.ADJUSTMENT,
+      StockMovementType.AJUSTE_QUANTIDADE,
+      StockMovementType.AJUSTE_PRECO_VENDA,
+      StockMovementType.AJUSTE_PRECO_BASE,
+    ],
+    reserva: [StockMovementType.RESERVE],
+    cancelamento_reserva: [StockMovementType.RESERVE_CANCEL],
+  };
+  return map[type];
+}
+
 export class StockMovementQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -64,9 +92,39 @@ export class StockMovementQueryDto {
   @IsUUID('4')
   productId?: string;
 
+  /** Filtro por categoria: entrada | saida | ajuste | reserva | cancelamento_reserva */
+  @IsOptional()
+  @IsString()
+  @IsIn(MOVEMENT_TYPE_FILTER_VALUES, {
+    message:
+      'type deve ser: entrada | saida | ajuste | reserva | cancelamento_reserva',
+  })
+  type?: MovementTypeFilter;
+
   @IsOptional()
   @IsEnum(StockMovementType)
   movementType?: StockMovementType;
+
+  @IsOptional()
+  @IsUUID('4')
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+
+  /** Data inicial inclusiva (YYYY-MM-DD). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  startDate?: string;
+
+  /** Data final inclusiva (YYYY-MM-DD). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  endDate?: string;
 }
 
 /**
@@ -87,7 +145,8 @@ export class CreateStockMovementDto {
   /** Alternativa ao movementKind, no formato do enum Prisma (ex.: INBOUND). */
   @IsOptional()
   @IsEnum(StockMovementType, {
-    message: 'movementType inválido (ex.: INBOUND, OUTBOUND, ADJUSTMENT).',
+    message:
+      'movementType inválido (ex.: INBOUND, OUTBOUND, ADJUSTMENT, AJUSTE_QUANTIDADE).',
   })
   movementType?: StockMovementType;
 

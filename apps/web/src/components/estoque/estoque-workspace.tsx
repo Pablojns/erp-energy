@@ -7,7 +7,9 @@ import {
   BarChart3,
   Ban,
   Bookmark,
+  CircleDollarSign,
   ClipboardList,
+  Download,
   Loader2,
   Package,
   PackageMinus,
@@ -17,11 +19,13 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Trash2,
   TrendingUp,
   Undo2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
@@ -37,6 +41,30 @@ import { useCloseOverlaysOnRouteChange } from '@/src/hooks/use-close-overlays-on
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 type TabId = 'dashboard' | 'inventory' | 'movements';
+
+type MovePeriodPreset = 'today' | 'week' | 'month' | 'custom';
+
+type DashboardPeriodPreset = MovePeriodPreset | 'quarter';
+
+type MovementUserOption = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+type MovementsSummary = {
+  totalInbound: number;
+  totalOutbound: number;
+  netBalance: number;
+};
+
+type MovementTypeFilterValue =
+  | 'all'
+  | 'entrada'
+  | 'saida'
+  | 'ajuste'
+  | 'reserva'
+  | 'cancelamento_reserva';
 
 type ProductCategoryDto = {
   id: string;
@@ -87,6 +115,25 @@ type StockSummary = {
   inactiveProducts: number;
   totalUnitsOnHand: number;
   skusBelowMinStock: number;
+  valorEstoque: number;
+  valorVenda: number;
+  periodInboundCount?: number;
+  periodOutboundCount?: number;
+  dailyFlow?: Array<{ date: string; inbound: number; outbound: number }>;
+  topMoved?: Array<{
+    productId: string;
+    sku: string;
+    name: string;
+    movementCount: number;
+    predominantType: string;
+  }>;
+  stagnantProducts?: Array<{
+    id: string;
+    sku: string;
+    name: string;
+    stockQty: number;
+  }>;
+  stockTrend?: Array<{ date: string; value: number }>;
 };
 
 type MovementRow = {
@@ -110,6 +157,9 @@ const MOVEMENT_LABEL: Record<string, string> = {
   INBOUND: 'Entrada',
   OUTBOUND: 'Saída',
   ADJUSTMENT: 'Ajuste',
+  AJUSTE_QUANTIDADE: 'Ajuste quantidade',
+  AJUSTE_PRECO_VENDA: 'Ajuste preço venda',
+  AJUSTE_PRECO_BASE: 'Ajuste preço base',
   TRANSFER: 'Transferência',
   RETURN: 'Devolução',
   RESERVE: 'Reserva',
@@ -182,6 +232,148 @@ function formatBrl(value: string) {
     style: 'currency',
     currency: 'BRL',
   }).format(n);
+}
+
+function isAjusteMovementType(type: string) {
+  return (
+    type === 'ADJUSTMENT' ||
+    type === 'AJUSTE_QUANTIDADE' ||
+    type === 'AJUSTE_PRECO_VENDA' ||
+    type === 'AJUSTE_PRECO_BASE'
+  );
+}
+
+function toIsoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayIsoDate() {
+  return toIsoDate(new Date());
+}
+
+function resolveMovePeriodRange(
+  period: MovePeriodPreset,
+  customFrom: string,
+  customTo: string,
+): { startDate?: string; endDate?: string } {
+  if (period === 'custom') {
+    return {
+      startDate: customFrom.trim() || undefined,
+      endDate: customTo.trim() || undefined,
+    };
+  }
+  const endDate = todayIsoDate();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (period === 'today') {
+    return { startDate: endDate, endDate };
+  }
+  if (period === 'week') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    return { startDate: toIsoDate(start), endDate };
+  }
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { startDate: toIsoDate(start), endDate };
+}
+
+function resolveDashboardPeriodRange(
+  period: DashboardPeriodPreset,
+  customFrom: string,
+  customTo: string,
+): { startDate: string; endDate: string } {
+  if (period === 'custom') {
+    const endDate = customTo.trim() || todayIsoDate();
+    const startDate = customFrom.trim() || endDate;
+    return { startDate, endDate };
+  }
+  const endDate = todayIsoDate();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (period === 'today') {
+    return { startDate: endDate, endDate };
+  }
+  if (period === 'week') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    return { startDate: toIsoDate(start), endDate };
+  }
+  if (period === 'quarter') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 89);
+    return { startDate: toIsoDate(start), endDate };
+  }
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { startDate: toIsoDate(start), endDate };
+}
+
+function dashboardPeriodLabel(period: DashboardPeriodPreset): string {
+  const labels: Record<DashboardPeriodPreset, string> = {
+    today: 'hoje',
+    week: 'esta semana',
+    month: 'este mês',
+    quarter: 'últimos 3 meses',
+    custom: 'período selecionado',
+  };
+  return labels[period];
+}
+
+function formatPriceChangeReference(from: number, to: number) {
+  return `${from.toFixed(2)}|${to.toFixed(2)}`;
+}
+
+function parsePriceChangeLabel(
+  reference: string | null | undefined,
+  movementType: string,
+): string {
+  if (
+    !reference?.includes('|') ||
+    (movementType !== 'AJUSTE_PRECO_VENDA' &&
+      movementType !== 'AJUSTE_PRECO_BASE')
+  ) {
+    return '—';
+  }
+  const [from, to] = reference.split('|');
+  if (!from || !to) return '—';
+  return `De ${formatBrl(from)} para ${formatBrl(to)}`;
+}
+
+function buildMovementDeleteRevertMessage(m: MovementRow): string {
+  const typeLabel = MOVEMENT_LABEL[m.movementType] ?? m.movementType;
+  const productName = m.product.name;
+  const responsible = m.movedBy?.name ?? '—';
+  const date = formatDateTime(m.movementDate);
+
+  if (
+    m.movementType === 'AJUSTE_PRECO_VENDA' ||
+    m.movementType === 'AJUSTE_PRECO_BASE'
+  ) {
+    const priceChange = parsePriceChangeLabel(m.reference, m.movementType);
+    if (priceChange !== '—') {
+      return `Esta ação irá reverter ${typeLabel}: ${priceChange} do produto ${productName} realizada por ${responsible} em ${date}. Confirma a exclusão?`;
+    }
+  }
+
+  return `Esta ação irá reverter ${typeLabel} de ${m.quantity} unidade(s) do produto ${productName} realizada por ${responsible} em ${date}. Confirma a exclusão?`;
+}
+
+function movementBadgeClass(type: string) {
+  if (type === 'INBOUND') {
+    return 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200';
+  }
+  if (type === 'OUTBOUND') {
+    return 'bg-rose-500/20 text-rose-800 dark:text-rose-200';
+  }
+  if (isAjusteMovementType(type)) {
+    return 'bg-amber-500/20 text-amber-900 dark:text-amber-200';
+  }
+  if (type === 'RESERVE' || type === 'RESERVA') {
+    return 'bg-violet-500/20 text-violet-800 dark:text-violet-200';
+  }
+  if (type === 'RESERVE_CANCEL') {
+    return 'bg-slate-500/20 text-slate-700 dark:text-slate-200';
+  }
+  return 'bg-zinc-500/20 text-zinc-700 dark:text-zinc-200';
 }
 
 function formatDateTime(iso: string) {
@@ -296,11 +488,12 @@ function ProductCategoryCell({
   );
 }
 
-const movementColumns: TableColumn[] = [
+const movementColumnsBase: TableColumn[] = [
   { key: 'date', header: 'Data' },
   { key: 'type', header: 'Tipo' },
   { key: 'product', header: 'Produto' },
   { key: 'qty', header: 'Qtd' },
+  { key: 'priceChange', header: 'Alteração de preço' },
   { key: 'user', header: 'Responsável' },
   { key: 'notes', header: 'Observação' },
 ];
@@ -324,8 +517,15 @@ const emptyForm: ProductFormState = {
 };
 
 export function EstoqueWorkspace() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<TabId>('dashboard');
   const [summary, setSummary] = useState<StockSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [dashboardPeriod, setDashboardPeriod] =
+    useState<DashboardPeriodPreset>('month');
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+  const [dashboardDateTo, setDashboardDateTo] = useState('');
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
 
@@ -348,6 +548,25 @@ export function EstoqueWorkspace() {
   const [movementsData, setMovementsData] = useState<Paginated<MovementRow> | null>(
     null,
   );
+  const [movementsSummary, setMovementsSummary] =
+    useState<MovementsSummary | null>(null);
+  const [moveFilterSearch, setMoveFilterSearch] = useState('');
+  const [moveFilterSearchDebounced, setMoveFilterSearchDebounced] = useState('');
+  const [moveFilterType, setMoveFilterType] =
+    useState<MovementTypeFilterValue>('all');
+  const [moveFilterUserId, setMoveFilterUserId] = useState('');
+  const [moveFilterPeriod, setMoveFilterPeriod] =
+    useState<MovePeriodPreset>('month');
+  const [moveFilterDateFrom, setMoveFilterDateFrom] = useState('');
+  const [moveFilterDateTo, setMoveFilterDateTo] = useState('');
+  const [movementUsers, setMovementUsers] = useState<MovementUserOption[]>([]);
+  const [movementsExporting, setMovementsExporting] = useState(false);
+  const [movementDeleteTarget, setMovementDeleteTarget] =
+    useState<MovementRow | null>(null);
+  const [movementDeleteStep, setMovementDeleteStep] = useState<
+    'idle' | 'confirm1' | 'confirm2'
+  >('idle');
+  const [movementDeleting, setMovementDeleting] = useState(false);
 
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [productModalMode, setProductModalMode] = useState<'create' | 'edit'>(
@@ -362,14 +581,29 @@ export function EstoqueWorkspace() {
   );
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [movePresetProduct, setMovePresetProduct] = useState<ProductDto | null>(null);
   const [moveForm, setMoveForm] = useState({
     productId: '',
     movementKind: 'entrada' as MovementKind,
-    quantity: '1',
+    quantity: '0',
     notes: '',
-    reference: '',
+    cost: '',
+    price: '',
   });
   const [moveSaving, setMoveSaving] = useState(false);
+  const [moveNotesError, setMoveNotesError] = useState<string | null>(null);
+  const [moveConfirmOpen, setMoveConfirmOpen] = useState(false);
+  const [moveConfirmMessages, setMoveConfirmMessages] = useState<string[]>([]);
+  const [pendingPresetAjustePlan, setPendingPresetAjustePlan] = useState<{
+    messages: string[];
+    productPatch: Record<string, number>;
+    movements: Array<{
+      movementType: string;
+      quantity: number;
+      notes: string;
+      reference?: string;
+    }>;
+  } | null>(null);
   const [productPicker, setProductPicker] = useState<ProductDto[]>([]);
 
   // Nome do usuário logado (GET auth/me) para a coluna "Responsável".
@@ -392,18 +626,24 @@ export function EstoqueWorkspace() {
   const closeAllModals = useCallback(() => {
     setProductModalOpen(false);
     setMoveModalOpen(false);
+    setMovePresetProduct(null);
+    setMoveConfirmOpen(false);
+    setMoveConfirmMessages([]);
+    setPendingPresetAjustePlan(null);
+    setMovementDeleteTarget(null);
+    setMovementDeleteStep('idle');
   }, []);
 
   useCloseOverlaysOnRouteChange(closeAllModals);
 
   useEffect(() => {
-    if (!productModalOpen && !moveModalOpen) return;
+    if (!productModalOpen && !moveModalOpen && movementDeleteStep === 'idle') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeAllModals();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [productModalOpen, moveModalOpen, closeAllModals]);
+  }, [productModalOpen, moveModalOpen, movementDeleteStep, closeAllModals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -438,21 +678,49 @@ export function EstoqueWorkspace() {
     }
   }, []);
 
+  const buildSummaryQueryParams = useCallback(() => {
+    const params = new URLSearchParams();
+    const { startDate, endDate } = resolveDashboardPeriodRange(
+      dashboardPeriod,
+      dashboardDateFrom,
+      dashboardDateTo,
+    );
+    params.set('startDate', startDate);
+    params.set('endDate', endDate);
+    return params;
+  }, [dashboardPeriod, dashboardDateFrom, dashboardDateTo]);
+
   const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
     setBannerError(null);
     try {
-      const res = await erpFetchJson<StockSummary>('stock/summary', {
-        method: 'GET',
-      });
+      const params = buildSummaryQueryParams();
+      const res = await erpFetchJson<StockSummary>(
+        `stock/summary?${params.toString()}`,
+      );
       setSummary(res);
     } catch (e) {
       setBannerError(e instanceof Error ? e.message : 'Falha ao carregar resumo.');
+    } finally {
+      setSummaryLoading(false);
     }
-  }, []);
+  }, [buildSummaryQueryParams]);
 
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const skuParam = searchParams.get('sku');
+    if (tabParam === 'inventory') {
+      setTab('inventory');
+    }
+    if (skuParam) {
+      setProductSearch(skuParam);
+      setProductSearchDebounced(skuParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (tab === 'inventory' || tab === 'dashboard' || productModalOpen) {
@@ -509,26 +777,115 @@ export function EstoqueWorkspace() {
     }
   }, [tab, productPage, loadProducts]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setMoveFilterSearchDebounced(moveFilterSearch), 350);
+    return () => clearTimeout(t);
+  }, [moveFilterSearch]);
+
+  useEffect(() => {
+    if (tab !== 'movements') return;
+    setMovePage(1);
+  }, [
+    tab,
+    moveFilterSearchDebounced,
+    moveFilterType,
+    moveFilterUserId,
+    moveFilterPeriod,
+    moveFilterDateFrom,
+    moveFilterDateTo,
+  ]);
+
+  const buildMovementQueryParams = useCallback(
+    (opts?: { page?: number; pageSize?: number }) => {
+      const params = new URLSearchParams();
+      params.set('page', String(opts?.page ?? movePage));
+
+      if (tab === 'movements') {
+        params.set('pageSize', String(opts?.pageSize ?? 25));
+        if (moveFilterSearchDebounced.trim()) {
+          params.set('search', moveFilterSearchDebounced.trim());
+        }
+        if (moveFilterType !== 'all') {
+          params.set('type', moveFilterType);
+        }
+        if (moveFilterUserId) {
+          params.set('userId', moveFilterUserId);
+        }
+        const { startDate, endDate } = resolveMovePeriodRange(
+          moveFilterPeriod,
+          moveFilterDateFrom,
+          moveFilterDateTo,
+        );
+        if (startDate) params.set('startDate', startDate);
+        if (endDate) params.set('endDate', endDate);
+      } else {
+        params.set('pageSize', String(opts?.pageSize ?? 50));
+      }
+
+      return params;
+    },
+    [
+      movePage,
+      tab,
+      moveFilterSearchDebounced,
+      moveFilterType,
+      moveFilterUserId,
+      moveFilterPeriod,
+      moveFilterDateFrom,
+      moveFilterDateTo,
+    ],
+  );
+
+  const loadMovementsSummary = useCallback(async () => {
+    if (tab !== 'movements') return;
+    try {
+      const params = buildMovementQueryParams({ page: 1, pageSize: 1 });
+      const res = await erpFetchJson<MovementsSummary>(
+        `stock/movements/summary?${params.toString()}`,
+      );
+      setMovementsSummary(res);
+    } catch {
+      setMovementsSummary(null);
+    }
+  }, [tab, buildMovementQueryParams]);
+
+  const loadMovementUsers = useCallback(async () => {
+    try {
+      const users = await erpFetchJson<MovementUserOption[]>('auth/users');
+      setMovementUsers(users);
+    } catch {
+      setMovementUsers([]);
+    }
+  }, []);
+
   const loadMovements = useCallback(async () => {
     setMovementsLoading(true);
     setBannerError(null);
     try {
-      const params = new URLSearchParams();
-      params.set('page', String(movePage));
-      params.set('pageSize', tab === 'movements' ? '15' : '50');
+      const params = buildMovementQueryParams();
       const res = await erpFetchJson<Paginated<MovementRow>>(
         `stock/movements?${params.toString()}`,
       );
       setMovementsData(res);
+      if (tab === 'movements') {
+        await loadMovementsSummary();
+      }
     } catch (e) {
       setBannerError(
         e instanceof Error ? e.message : 'Falha ao carregar movimentações.',
       );
       setMovementsData(null);
+      setMovementsSummary(null);
     } finally {
       setMovementsLoading(false);
     }
-  }, [movePage, tab]);
+  }, [buildMovementQueryParams, tab, loadMovementsSummary]);
+
+  useEffect(() => {
+    if (tab === 'movements') {
+      void loadMovementUsers();
+    }
+  }, [tab, loadMovementUsers]);
 
   useEffect(() => {
     if (tab === 'movements' || tab === 'inventory' || tab === 'dashboard') {
@@ -686,38 +1043,220 @@ export function EstoqueWorkspace() {
   const openMoveModal = async (kind: MovementKind, presetProduct?: ProductDto) => {
     setBannerError(null);
     setBannerSuccess(null);
+    setMoveNotesError(null);
+    setMoveConfirmOpen(false);
+    setMoveConfirmMessages([]);
+    setPendingPresetAjustePlan(null);
+    setMovePresetProduct(presetProduct ?? null);
     setMoveForm({
       productId: presetProduct?.id ?? '',
       movementKind: kind,
-      quantity: '1',
+      quantity: presetProduct != null ? String(presetProduct.stockQty) : '0',
       notes: '',
-      reference: '',
+      cost: presetProduct?.cost ?? '',
+      price: presetProduct?.price ?? '',
     });
+    if (presetProduct) {
+      setProductPicker([]);
+      setMoveModalOpen(true);
+      return;
+    }
     try {
       const res = await erpFetchJson<Paginated<ProductDto>>(
         'products?status=active&pageSize=50&sortBy=name&sortOrder=asc',
       );
-      // Garante que o produto pré-selecionado apareça no picker mesmo fora da 1ª página.
-      setProductPicker(
-        presetProduct && !res.data.some((p) => p.id === presetProduct.id)
-          ? [presetProduct, ...res.data]
-          : res.data,
-      );
+      setProductPicker(res.data);
     } catch {
-      setProductPicker(presetProduct ? [presetProduct] : []);
+      setProductPicker([]);
     }
     setMoveModalOpen(true);
+  };
+
+  const buildPresetAjustePlan = () => {
+    if (!movePresetProduct) return null;
+
+    const messages: string[] = [];
+    const productPatch: Record<string, number> = {};
+    const movements: Array<{
+      movementType: string;
+      quantity: number;
+      notes: string;
+      reference?: string;
+    }> = [];
+    const notes = moveForm.notes.trim();
+
+    const qtyTrimmed = moveForm.quantity.trim();
+    if (!/^\d+$/.test(qtyTrimmed)) {
+      throw new Error('Informe uma quantidade válida.');
+    }
+    const newQty = Number.parseInt(qtyTrimmed, 10);
+    const oldQty = movePresetProduct.stockQty;
+    if (newQty !== oldQty) {
+      const delta = newQty - oldQty;
+      messages.push(
+        `Você está alterando a quantidade de ${oldQty} para ${newQty}. Confirma?`,
+      );
+      movements.push({
+        movementType: 'AJUSTE_QUANTIDADE',
+        quantity: delta,
+        notes,
+      });
+    }
+
+    const priceNum = parseMoneyToNumber(moveForm.price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      throw new Error('Informe um preço de venda válido.');
+    }
+    const origPrice = Number(movePresetProduct.price);
+    if (Number(priceNum.toFixed(2)) !== Number(origPrice.toFixed(2))) {
+      productPatch.price = Number(priceNum.toFixed(2));
+      messages.push(
+        `Você está alterando o preço de venda de ${formatBrl(movePresetProduct.price)} para ${formatBrl(String(priceNum))}. Confirma?`,
+      );
+      movements.push({
+        movementType: 'AJUSTE_PRECO_VENDA',
+        quantity: 0,
+        notes,
+        reference: formatPriceChangeReference(origPrice, priceNum),
+      });
+    }
+
+    const costStr = moveForm.cost.trim();
+    if (costStr.length > 0) {
+      const costNum = parseMoneyToNumber(costStr);
+      if (!Number.isFinite(costNum) || costNum < 0) {
+        throw new Error('Informe um preço base válido.');
+      }
+      const origCost =
+        movePresetProduct.cost != null ? Number(movePresetProduct.cost) : null;
+      const origCostLabel =
+        origCost != null ? formatBrl(movePresetProduct.cost!) : '—';
+      if (
+        origCost === null ||
+        Number(costNum.toFixed(2)) !== Number(origCost.toFixed(2))
+      ) {
+        productPatch.cost = Number(costNum.toFixed(2));
+        messages.push(
+          `Você está alterando o preço base de ${origCostLabel} para ${formatBrl(String(costNum))}. Confirma?`,
+        );
+        movements.push({
+          movementType: 'AJUSTE_PRECO_BASE',
+          quantity: 0,
+          notes,
+          reference: formatPriceChangeReference(origCost ?? 0, costNum),
+        });
+      }
+    }
+
+    if (messages.length === 0) {
+      throw new Error('Nenhuma alteração detectada.');
+    }
+
+    return { messages, productPatch, movements };
+  };
+
+  const executePresetAjustePlan = async (
+    plan: NonNullable<typeof pendingPresetAjustePlan>,
+  ) => {
+    if (Object.keys(plan.productPatch).length > 0 && movePresetProduct) {
+      await erpFetchJson(`products/${movePresetProduct.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(plan.productPatch),
+      });
+    }
+
+    for (const movement of plan.movements) {
+      await erpFetchJson('stock/movements', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: moveForm.productId,
+          movementType: movement.movementType,
+          quantity: movement.quantity,
+          notes: movement.notes,
+          reference: movement.reference,
+        }),
+      });
+    }
+  };
+
+  const finalizeMovementSave = async () => {
+    setMoveModalOpen(false);
+    setMoveConfirmOpen(false);
+    setMovePresetProduct(null);
+    setPendingPresetAjustePlan(null);
+    setMoveConfirmMessages([]);
+    setBannerError(null);
+    setBannerSuccess('Movimentação registrada com sucesso.');
+    await loadSummary();
+    await loadMovements();
+    if (tab === 'inventory' || tab === 'dashboard') {
+      await loadProducts({ page: productPage });
+    }
+  };
+
+  const requestSaveMovement = () => {
+    setMoveNotesError(null);
+    setBannerError(null);
+
+    if (!moveForm.notes.trim()) {
+      setMoveNotesError('Informe o motivo do ajuste');
+      return;
+    }
+
+    if (!moveForm.productId) {
+      setBannerError('Selecione um produto.');
+      return;
+    }
+
+    if (movePresetProduct && moveForm.movementKind === 'ajuste') {
+      try {
+        const plan = buildPresetAjustePlan();
+        if (!plan) return;
+        setPendingPresetAjustePlan(plan);
+        setMoveConfirmMessages(plan.messages);
+        setMoveConfirmOpen(true);
+      } catch (e) {
+        setBannerError(
+          e instanceof Error ? e.message : 'Erro ao validar ajuste.',
+        );
+      }
+      return;
+    }
+
+    void saveMovement();
+  };
+
+  const confirmPresetAjusteSave = async () => {
+    if (!pendingPresetAjustePlan) return;
+    setMoveSaving(true);
+    setBannerError(null);
+    try {
+      await executePresetAjustePlan(pendingPresetAjustePlan);
+      await finalizeMovementSave();
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : 'Erro ao registrar movimentação.',
+      );
+    } finally {
+      setMoveSaving(false);
+    }
   };
 
   const saveMovement = async () => {
     setMoveSaving(true);
     setBannerError(null);
     setBannerSuccess(null);
+    setMoveNotesError(null);
     try {
+      if (!moveForm.notes.trim()) {
+        setMoveNotesError('Informe o motivo do ajuste');
+        return;
+      }
+
       const trimmed = moveForm.quantity.trim();
       const qtyRaw = (() => {
         if (!trimmed) return Number.NaN;
-        if (moveForm.movementKind === 'ajuste') {
+        if (moveForm.movementKind === 'ajuste' && !movePresetProduct) {
           if (!/^-?\d+$/.test(trimmed)) return Number.NaN;
           return Number.parseInt(trimmed, 10);
         }
@@ -727,7 +1266,9 @@ export function EstoqueWorkspace() {
       if (
         Number.isNaN(qtyRaw) ||
         (moveForm.movementKind !== 'ajuste' && qtyRaw <= 0) ||
-        (moveForm.movementKind === 'ajuste' && qtyRaw === 0)
+        (moveForm.movementKind === 'ajuste' &&
+          !movePresetProduct &&
+          qtyRaw === 0)
       ) {
         throw new Error('Informe uma quantidade válida.');
       }
@@ -736,22 +1277,52 @@ export function EstoqueWorkspace() {
         throw new Error('Selecione um produto.');
       }
 
+      if (movePresetProduct && moveForm.movementKind === 'entrada') {
+        const priceNum = parseMoneyToNumber(moveForm.price);
+        if (!Number.isFinite(priceNum) || priceNum < 0) {
+          throw new Error('Informe um preço de venda válido.');
+        }
+
+        const patch: Record<string, number> = {};
+        const origPrice = Number(movePresetProduct.price);
+        if (Number(priceNum.toFixed(2)) !== Number(origPrice.toFixed(2))) {
+          patch.price = Number(priceNum.toFixed(2));
+        }
+
+        const costStr = moveForm.cost.trim();
+        if (costStr.length > 0) {
+          const costNum = parseMoneyToNumber(costStr);
+          if (!Number.isFinite(costNum) || costNum < 0) {
+            throw new Error('Informe um preço base válido.');
+          }
+          const origCost =
+            movePresetProduct.cost != null ? Number(movePresetProduct.cost) : null;
+          if (
+            origCost === null ||
+            Number(costNum.toFixed(2)) !== Number(origCost.toFixed(2))
+          ) {
+            patch.cost = Number(costNum.toFixed(2));
+          }
+        }
+
+        if (Object.keys(patch).length > 0) {
+          await erpFetchJson(`products/${movePresetProduct.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+          });
+        }
+      }
+
       await erpFetchJson('stock/movements', {
         method: 'POST',
         body: JSON.stringify({
           productId: moveForm.productId,
           movementType: MOVEMENT_KIND_TO_TYPE[moveForm.movementKind],
           quantity: qtyRaw,
-          notes: moveForm.notes.trim() || undefined,
-          reference: moveForm.reference.trim() || undefined,
+          notes: moveForm.notes.trim(),
         }),
       });
-      setMoveModalOpen(false);
-      setBannerError(null);
-      setBannerSuccess('Movimentação registrada com sucesso.');
-      await loadSummary();
-      await loadMovements();
-      if (tab === 'inventory' || tab === 'dashboard') await loadProducts({ page: productPage });
+      await finalizeMovementSave();
     } catch (e) {
       setBannerError(
         e instanceof Error ? e.message : 'Erro ao registrar movimentação.',
@@ -801,6 +1372,150 @@ export function EstoqueWorkspace() {
     [productsData],
   );
 
+  const clearMovementFilters = () => {
+    setMoveFilterSearch('');
+    setMoveFilterSearchDebounced('');
+    setMoveFilterType('all');
+    setMoveFilterUserId('');
+    setMoveFilterPeriod('month');
+    setMoveFilterDateFrom('');
+    setMoveFilterDateTo('');
+    setMovePage(1);
+  };
+
+  const exportMovementsCsv = async () => {
+    setMovementsExporting(true);
+    setBannerError(null);
+    try {
+      const allRows: MovementRow[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const params = buildMovementQueryParams({ page, pageSize: 100 });
+        const res = await erpFetchJson<Paginated<MovementRow>>(
+          `stock/movements?${params.toString()}`,
+        );
+        allRows.push(...res.data);
+        totalPages = res.meta.totalPages;
+        page += 1;
+      } while (page <= totalPages);
+
+      const header = [
+        'Data',
+        'Tipo',
+        'Produto',
+        'SKU',
+        'Quantidade',
+        'Alteração de preço',
+        'Responsável',
+        'Observação',
+      ];
+      const lines = allRows.map((m) => {
+        const typeLabel = MOVEMENT_LABEL[m.movementType] ?? m.movementType;
+        const priceChange = parsePriceChangeLabel(m.reference, m.movementType);
+        const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+        return [
+          esc(formatDateTime(m.movementDate)),
+          esc(typeLabel),
+          esc(m.product.name),
+          esc(m.product.sku),
+          esc(String(m.quantity)),
+          esc(priceChange),
+          esc(m.movedBy?.name ?? '—'),
+          esc(m.notes ?? '—'),
+        ].join(';');
+      });
+      const csv = `\uFEFF${header.join(';')}\n${lines.join('\n')}`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `movimentacoes-estoque-${todayIsoDate()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : 'Falha ao exportar movimentações.',
+      );
+    } finally {
+      setMovementsExporting(false);
+    }
+  };
+
+  const openMovementDelete = (movement: MovementRow) => {
+    setBannerError(null);
+    setMovementDeleteTarget(movement);
+    setMovementDeleteStep('confirm1');
+  };
+
+  const cancelMovementDelete = () => {
+    setMovementDeleteTarget(null);
+    setMovementDeleteStep('idle');
+  };
+
+  const executeMovementDelete = async () => {
+    if (!movementDeleteTarget) return;
+    setMovementDeleting(true);
+    setBannerError(null);
+    try {
+      await erpFetchJson(`stock/movements/${movementDeleteTarget.id}`, {
+        method: 'DELETE',
+      });
+      cancelMovementDelete();
+      setBannerSuccess('Movimentação excluída com sucesso.');
+      await loadSummary();
+      await loadMovements();
+      if (tab === 'inventory' || tab === 'dashboard') {
+        await loadProducts({ page: productPage });
+      }
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : 'Falha ao excluir movimentação.',
+      );
+    } finally {
+      setMovementDeleting(false);
+    }
+  };
+
+  const renderMovementDeleteButton = (movement: MovementRow) => {
+    if (!isAdmin) return null;
+    return (
+      <button
+        type="button"
+        aria-label="Excluir movimentação"
+        disabled={movementDeleting}
+        onClick={() => openMovementDelete(movement)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-rose-400 transition hover:border-rose-400/30 hover:bg-rose-500/10 disabled:opacity-50"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    );
+  };
+
+  const movementTableColumns: TableColumn[] = useMemo(
+    () =>
+      movementColumnsBase.map((col) => {
+        if (col.key === 'type') {
+          return {
+            ...col,
+            renderCell: ({ value, rowId }) => {
+              const item = movementsData?.data.find((m) => m.id === rowId);
+              const type = item?.movementType ?? '';
+              return (
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${movementBadgeClass(type)}`}
+                >
+                  {value}
+                </span>
+              );
+            },
+          };
+        }
+        return col;
+      }),
+    [movementsData],
+  );
+
   const movementRows: TableRow[] = useMemo(() => {
     if (!movementsData) return [];
     return movementsData.data.map((m) => ({
@@ -810,8 +1525,9 @@ export function EstoqueWorkspace() {
         type: MOVEMENT_LABEL[m.movementType] ?? m.movementType,
         product: `${m.product.name} (${m.product.sku})`,
         qty: String(m.quantity),
+        priceChange: parsePriceChangeLabel(m.reference, m.movementType),
         user: m.movedBy?.name ?? '—',
-        notes: m.notes || m.reference || '—',
+        notes: m.notes ?? '—',
       },
     }));
   }, [movementsData]);
@@ -948,87 +1664,32 @@ export function EstoqueWorkspace() {
   }, [selectedInventoryProduct]);
 
   const dashboardBars = useMemo(() => {
-    const byDay = new Map<string, { in: number; out: number }>();
-    for (let i = 6; i >= 0; i -= 1) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      byDay.set(key, { in: 0, out: 0 });
-    }
-    for (const m of movementItems) {
-      const key = new Date(m.movementDate).toISOString().slice(0, 10);
-      const row = byDay.get(key);
-      if (!row) continue;
-      if (m.movementType === 'INBOUND') row.in += m.quantity;
-      if (m.movementType === 'OUTBOUND') row.out += m.quantity;
-    }
-    return [...byDay.entries()].map(([date, v]) => ({ date: date.slice(5), ...v }));
-  }, [movementItems]);
+    return (summary?.dailyFlow ?? []).map((d) => ({
+      date: d.date.slice(5),
+      in: d.inbound,
+      out: d.outbound,
+    }));
+  }, [summary]);
 
-  const entriesToday = useMemo(() => {
-    const now = new Date();
-    return movementItems.filter((m) => {
-      if (m.movementType !== 'INBOUND') return false;
-      const d = new Date(m.movementDate);
-      return (
-        d.getDate() === now.getDate() &&
-        d.getMonth() === now.getMonth() &&
-        d.getFullYear() === now.getFullYear()
-      );
-    }).length;
-  }, [movementItems]);
+  const entriesInPeriod = summary?.periodInboundCount ?? 0;
 
   const stockTrend30 = useMemo(() => {
-    const points: Array<{ label: string; value: number }> = [];
-    const today = new Date();
-    const byDayDelta = new Map<string, number>();
-    for (const m of movementItems) {
-      const key = new Date(m.movementDate).toISOString().slice(0, 10);
-      const sign =
-        m.movementType === 'INBOUND'
-          ? 1
-          : m.movementType === 'OUTBOUND'
-            ? -1
-            : 0;
-      byDayDelta.set(key, (byDayDelta.get(key) ?? 0) + sign * m.quantity);
-    }
-    let base = summary?.totalUnitsOnHand ?? 0;
-    for (let i = 29; i >= 0; i -= 1) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      const delta = byDayDelta.get(key) ?? 0;
-      base += delta;
-      points.push({ label: key.slice(5), value: Math.max(0, base) });
-    }
-    return points;
-  }, [movementItems, summary]);
+    return (summary?.stockTrend ?? []).map((p) => ({
+      label: p.date.slice(5),
+      value: p.value,
+    }));
+  }, [summary]);
 
   const dashboardTopMoved = useMemo(() => {
-    const map = new Map<
-      string,
-      { sku: string; name: string; n: number; types: Record<string, number> }
-    >();
-    for (const m of movementItems) {
-      const k = m.product.id;
-      const cur = map.get(k) ?? {
-        sku: m.product.sku,
-        name: m.product.name,
-        n: 0,
-        types: {},
-      };
-      cur.n += 1;
-      cur.types[m.movementType] = (cur.types[m.movementType] ?? 0) + 1;
-      map.set(k, cur);
-    }
-    return [...map.values()]
-      .map((x) => ({
-        ...x,
-        predominant: Object.entries(x.types).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'ADJUSTMENT',
-      }))
-      .sort((a, b) => b.n - a.n)
-      .slice(0, 5);
-  }, [movementItems]);
+    return (summary?.topMoved ?? []).map((x) => ({
+      sku: x.sku,
+      name: x.name,
+      n: x.movementCount,
+      predominant: x.predominantType,
+    }));
+  }, [summary]);
+
+  const dashboardStagnant = summary?.stagnantProducts ?? [];
 
   const dashboardCritical = useMemo(() => {
     return (productsData?.data ?? [])
@@ -1067,6 +1728,14 @@ export function EstoqueWorkspace() {
       })),
     [productPicker],
   );
+
+  const openInventoryForSku = (sku: string) => {
+    setTab('inventory');
+    setProductSearch(sku);
+    setProductSearchDebounced(sku);
+    setProductPage(1);
+    router.push(`/app/estoque?tab=inventory&sku=${encodeURIComponent(sku)}`);
+  };
 
   const tabButton = (id: TabId, label: string, icon: ReactNode) => (
     <button
@@ -1125,7 +1794,66 @@ export function EstoqueWorkspace() {
 
       {tab === 'dashboard' ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              Visão geral do estoque — {dashboardPeriodLabel(dashboardPeriod)}
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[180px]">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Período
+                </label>
+                <PremiumSelect
+                  value={dashboardPeriod}
+                  onChange={(v) =>
+                    setDashboardPeriod(v as DashboardPeriodPreset)
+                  }
+                  options={[
+                    { value: 'today', label: 'Hoje' },
+                    { value: 'week', label: 'Esta semana' },
+                    { value: 'month', label: 'Este mês' },
+                    { value: 'quarter', label: 'Últimos 3 meses' },
+                    { value: 'custom', label: 'Personalizado' },
+                  ]}
+                />
+              </div>
+              {dashboardPeriod === 'custom' ? (
+                <>
+                  <div className="min-w-[140px]">
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                      Data início
+                    </label>
+                    <input
+                      type="date"
+                      value={dashboardDateFrom}
+                      onChange={(e) => setDashboardDateFrom(e.target.value)}
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                      Data fim
+                    </label>
+                    <input
+                      type="date"
+                      value={dashboardDateTo}
+                      onChange={(e) => setDashboardDateTo(e.target.value)}
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          {summaryLoading && !summary ? (
+            <GlassCard className="flex items-center gap-2 p-8 text-sm text-zinc-400">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Carregando dashboard...
+            </GlassCard>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">SKUs Ativos</p>
               <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{summary?.activeProducts ?? 0}</p>
@@ -1148,20 +1876,43 @@ export function EstoqueWorkspace() {
               />
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Entradas Hoje</p>
-              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{entriesToday}</p>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                {dashboardPeriod === 'today' ? 'Entradas Hoje' : 'Entradas no período'}
+              </p>
+              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{entriesInPeriod}</p>
               <p className="mt-1 text-xs text-[var(--text-secondary)]">movimentações</p>
               <PackagePlus className="mt-3 h-5 w-5 text-[#22c55e]" />
+            </GlassCard>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Valor em Estoque</p>
+              <p className="mt-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl">
+                {formatBrl(String(summary?.valorEstoque ?? 0))}
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">qtd × preço base</p>
+              <CircleDollarSign className="mt-3 h-5 w-5 text-[#8b5cf6]" />
+            </GlassCard>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Valor a Venda</p>
+              <p className="mt-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl">
+                {formatBrl(String(summary?.valorVenda ?? 0))}
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">qtd × preço venda</p>
+              <CircleDollarSign className="mt-3 h-5 w-5 text-[#22c55e]" />
             </GlassCard>
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 xl:col-span-7">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                Entradas vs Saídas — últimos 7 dias
+                Entradas vs Saídas — {dashboardPeriodLabel(dashboardPeriod)}
               </h3>
               <div className="mt-4 space-y-3">
-                {dashboardBars.map((d) => (
+                {dashboardBars.length === 0 ? (
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Sem movimentações de entrada ou saída no período.
+                  </p>
+                ) : (
+                  dashboardBars.map((d) => (
                   <div key={d.date} className="grid grid-cols-[52px_1fr] items-center gap-3">
                     <p className="text-xs text-[var(--text-secondary)]">{d.date}</p>
                     <div className="space-y-1">
@@ -1187,11 +1938,14 @@ export function EstoqueWorkspace() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  ))
+                )}
               </div>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 xl:col-span-5">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Evolução do estoque (30 dias)</h3>
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                Evolução do estoque — {dashboardPeriodLabel(dashboardPeriod)}
+              </h3>
               <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3">
                 <svg
                   viewBox={`0 0 ${stockTrendChart.width} ${stockTrendChart.height}`}
@@ -1234,44 +1988,75 @@ export function EstoqueWorkspace() {
             </GlassCard>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">🔥 Mais Movimentados</h3>
-              <div className="mt-3 space-y-2">
-                {dashboardTopMoved.length === 0 ? (
-                  <p className="text-sm text-[var(--text-secondary)]">Sem movimentações no período.</p>
-                ) : (
-                  dashboardTopMoved.map((x) => {
-                    const predominantLabel = MOVEMENT_LABEL[x.predominant] ?? x.predominant;
-                    const predominantClass =
-                      x.predominant === 'INBOUND'
-                        ? 'bg-emerald-500/20 text-emerald-200'
-                        : x.predominant === 'OUTBOUND'
-                          ? 'bg-rose-500/20 text-rose-200'
-                          : 'bg-zinc-500/20 text-zinc-200';
-                    return (
+            <div className="space-y-4">
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">🔥 Mais Movimentados</h3>
+                <div className="mt-3 space-y-2">
+                  {dashboardTopMoved.length === 0 ? (
+                    <p className="text-sm text-[var(--text-secondary)]">Sem movimentações no período.</p>
+                  ) : (
+                    dashboardTopMoved.map((x) => {
+                      const predominantLabel = MOVEMENT_LABEL[x.predominant] ?? x.predominant;
+                      const predominantClass =
+                        x.predominant === 'INBOUND'
+                          ? 'bg-emerald-500/20 text-emerald-200'
+                          : x.predominant === 'OUTBOUND'
+                            ? 'bg-rose-500/20 text-rose-200'
+                            : 'bg-zinc-500/20 text-zinc-200';
+                      return (
+                        <div
+                          key={x.sku}
+                          className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm text-[var(--text-primary)]">
+                              {x.sku} — {x.name}
+                            </span>
+                            <span className="text-sm font-semibold text-[var(--text-primary)]">{x.n}</span>
+                          </div>
+                          <div className="mt-1">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${predominantClass}`}
+                            >
+                              {predominantLabel}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </GlassCard>
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Produtos parados</h3>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Sem movimentação em {dashboardPeriodLabel(dashboardPeriod)}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {dashboardStagnant.length === 0 ? (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Todos os produtos tiveram movimentação no período.
+                    </p>
+                  ) : (
+                    dashboardStagnant.map((p) => (
                       <div
-                        key={x.sku}
-                        className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                        key={p.id}
+                        className="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm text-[var(--text-primary)]">
-                            {x.sku} — {x.name}
-                          </span>
-                          <span className="text-sm font-semibold text-[var(--text-primary)]">{x.n}</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-[var(--text-primary)]">
+                            {p.sku} — {p.name}
+                          </p>
                         </div>
-                        <div className="mt-1">
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${predominantClass}`}
-                          >
-                            {predominantLabel}
-                          </span>
-                        </div>
+                        <span className="ml-2 shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                          {p.stockQty} un.
+                        </span>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </GlassCard>
+                    ))
+                  )}
+                </div>
+              </GlassCard>
+            </div>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">⚠ Estoque Crítico</h3>
               <div className="mt-3 space-y-2">
@@ -1283,9 +2068,11 @@ export function EstoqueWorkspace() {
                   dashboardCritical.map((p) => {
                     const isCritical = p.stockQty <= p.minStock;
                     return (
-                      <div
+                      <button
                         key={p.id}
-                        className="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                        type="button"
+                        onClick={() => openInventoryForSku(p.sku)}
+                        className="flex w-full items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--input-bg)]"
                       >
                         <div>
                           <p className="text-sm text-[var(--text-primary)]">
@@ -1304,7 +2091,7 @@ export function EstoqueWorkspace() {
                         >
                           {isCritical ? 'Crítico' : 'OK'}
                         </span>
-                      </div>
+                      </button>
                     );
                   })
                 )}
@@ -1316,6 +2103,178 @@ export function EstoqueWorkspace() {
 
       {tab === 'movements' ? (
         <div className="space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Movimentações de estoque
+              </h2>
+              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
+                Histórico filtrável de entradas, saídas, ajustes e reservas.
+              </p>
+            </div>
+            <GlowButton
+              variant="secondary"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm"
+              disabled={movementsExporting || movementsLoading}
+              onClick={() => void exportMovementsCsv()}
+            >
+              {movementsExporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar CSV
+            </GlowButton>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                Total entradas
+              </p>
+              <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+                {movementsSummary?.totalInbound ?? 0}
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+              <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
+            </GlassCard>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                Total saídas
+              </p>
+              <p className="mt-2 text-3xl font-bold text-rose-600 dark:text-rose-400">
+                {movementsSummary?.totalOutbound ?? 0}
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+              <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
+            </GlassCard>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                Saldo líquido
+              </p>
+              <p
+                className={`mt-2 text-3xl font-bold ${
+                  (movementsSummary?.netBalance ?? 0) >= 0
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {movementsSummary?.netBalance ?? 0}
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                entradas − saídas
+              </p>
+              <ArrowRightLeft className="mt-3 h-5 w-5 text-[var(--accent)]" />
+            </GlassCard>
+          </div>
+
+          <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[200px] flex-1">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Produto (SKU ou nome)
+                </label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                  <input
+                    value={moveFilterSearch}
+                    onChange={(e) => setMoveFilterSearch(e.target.value)}
+                    placeholder="Buscar produto..."
+                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                  />
+                </div>
+              </div>
+              <div className="min-w-[160px]">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Tipo
+                </label>
+                <PremiumSelect
+                  value={moveFilterType}
+                  onChange={(v) =>
+                    setMoveFilterType(v as MovementTypeFilterValue)
+                  }
+                  options={[
+                    { value: 'all', label: 'Todos' },
+                    { value: 'entrada', label: 'Entrada' },
+                    { value: 'saida', label: 'Saída' },
+                    { value: 'ajuste', label: 'Ajuste' },
+                    { value: 'reserva', label: 'Reserva' },
+                    {
+                      value: 'cancelamento_reserva',
+                      label: 'Cancelar reserva',
+                    },
+                  ]}
+                />
+              </div>
+              <div className="min-w-[180px]">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Responsável
+                </label>
+                <PremiumSelect
+                  value={moveFilterUserId || '__all__'}
+                  onChange={(v) =>
+                    setMoveFilterUserId(v === '__all__' ? '' : v)
+                  }
+                  options={[
+                    { value: '__all__', label: 'Todos' },
+                    ...movementUsers.map((u) => ({
+                      value: u.id,
+                      label: u.name,
+                    })),
+                  ]}
+                />
+              </div>
+              <div className="min-w-[160px]">
+                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Período
+                </label>
+                <PremiumSelect
+                  value={moveFilterPeriod}
+                  onChange={(v) => setMoveFilterPeriod(v as MovePeriodPreset)}
+                  options={[
+                    { value: 'today', label: 'Hoje' },
+                    { value: 'week', label: 'Esta semana' },
+                    { value: 'month', label: 'Este mês' },
+                    { value: 'custom', label: 'Intervalo personalizado' },
+                  ]}
+                />
+              </div>
+              {moveFilterPeriod === 'custom' ? (
+                <>
+                  <div className="min-w-[140px]">
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                      Data início
+                    </label>
+                    <input
+                      type="date"
+                      value={moveFilterDateFrom}
+                      onChange={(e) => setMoveFilterDateFrom(e.target.value)}
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                      Data fim
+                    </label>
+                    <input
+                      type="date"
+                      value={moveFilterDateTo}
+                      onChange={(e) => setMoveFilterDateTo(e.target.value)}
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    />
+                  </div>
+                </>
+              ) : null}
+              <GlowButton
+                variant="secondary"
+                className="px-4 py-2 text-sm"
+                onClick={clearMovementFilters}
+              >
+                Limpar filtros
+              </GlowButton>
+            </div>
+          </GlassCard>
+
           <div className="rounded-2xl border border-white/[0.09] bg-gradient-to-br from-white/[0.04] via-transparent to-violet-500/[0.06] p-4 sm:p-5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
               Ações rápidas
@@ -1380,16 +2339,31 @@ export function EstoqueWorkspace() {
             <>
               <DataTablePremium
                 title="Histórico de movimentações"
-                subtitle="Tipos, responsáveis e observações."
-                columns={movementColumns}
+                subtitle={`${movementsData?.meta.total ?? 0} registro(s) — 25 por página`}
+                columns={movementTableColumns}
                 rows={movementRows}
                 showStatusColumn={false}
+                actionsColumn={
+                  isAdmin
+                    ? {
+                        header: '',
+                        columnClassName: 'w-12 min-w-[3rem]',
+                        render: (row) => {
+                          const item = movementsData?.data.find(
+                            (m) => m.id === row.id,
+                          );
+                          return item ? renderMovementDeleteButton(item) : null;
+                        },
+                      }
+                    : undefined
+                }
               />
-              {movementsData && movementsData.meta.totalPages > 1 ? (
-                <div className="flex items-center justify-between text-xs text-zinc-500">
+              {movementsData && movementsData.meta.total > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
                   <span>
                     Página {movementsData.meta.page} de{' '}
-                    {movementsData.meta.totalPages}
+                    {Math.max(1, movementsData.meta.totalPages)} —{' '}
+                    {movementsData.meta.total} registro(s)
                   </span>
                   <div className="flex gap-2">
                     <GlowButton
@@ -1652,6 +2626,9 @@ export function EstoqueWorkspace() {
                           <th className="px-3 py-2">Quantidade</th>
                           <th className="px-3 py-2">Referência</th>
                           <th className="px-3 py-2">Responsável</th>
+                          {isAdmin ? (
+                            <th className="px-3 py-2 text-right">Ações</th>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody>
@@ -1665,7 +2642,7 @@ export function EstoqueWorkspace() {
                               <span className={`rounded-full px-2 py-1 text-xs ${
                                 m.movementType === 'INBOUND' ? 'bg-emerald-500/20 text-[var(--text-primary)]' :
                                 m.movementType === 'OUTBOUND' ? 'bg-rose-500/20 text-[var(--text-primary)]' :
-                                m.movementType === 'ADJUSTMENT' ? 'bg-amber-500/20 text-[var(--text-primary)]' :
+                                isAjusteMovementType(m.movementType) ? 'bg-amber-500/20 text-[var(--text-primary)]' :
                                 'bg-violet-500/20 text-[var(--text-primary)]'
                               }`}>
                                 {MOVEMENT_LABEL[m.movementType] ?? m.movementType}
@@ -1676,6 +2653,11 @@ export function EstoqueWorkspace() {
                             <td className="px-3 py-2 text-[var(--text-primary)]">
                               {m.movedBy?.name ?? currentUserName ?? '—'}
                             </td>
+                            {isAdmin ? (
+                              <td className="px-3 py-2 text-right">
+                                {renderMovementDeleteButton(m)}
+                              </td>
+                            ) : null}
                           </tr>
                         ))}
                       </tbody>
@@ -1850,20 +2832,67 @@ export function EstoqueWorkspace() {
               </button>
             </div>
             <div className="mt-5 space-y-3">
-              <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Produto *
-                <div className="mt-1.5">
-                  <PremiumSelect
-                    value={moveForm.productId}
-                    onChange={(productId) =>
-                      setMoveForm((f) => ({ ...f, productId }))
-                    }
-                    options={productSelectOptions}
-                    placeholder="Selecione um produto…"
-                    placement="above"
-                  />
+              {movePresetProduct ? (
+                <div className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">
+                      {movePresetProduct.name}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                      SKU {movePresetProduct.sku}
+                    </p>
+                  </div>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Preço Base
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={moveForm.cost}
+                      onChange={(e) =>
+                        setMoveForm((f) => ({ ...f, cost: e.target.value }))
+                      }
+                      placeholder="0,00"
+                      className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Preço Venda
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      required
+                      value={moveForm.price}
+                      onChange={(e) =>
+                        setMoveForm((f) => ({ ...f, price: e.target.value }))
+                      }
+                      placeholder="0,00"
+                      className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
+                    />
+                  </label>
                 </div>
-              </label>
+              ) : (
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Produto *
+                  <div className="mt-1.5">
+                    <PremiumSelect
+                      value={moveForm.productId}
+                      onChange={(productId) => {
+                        const picked = productPicker.find((p) => p.id === productId);
+                        setMoveForm((f) => ({
+                          ...f,
+                          productId,
+                          quantity: picked != null ? String(picked.stockQty) : f.quantity,
+                        }));
+                      }}
+                      options={productSelectOptions}
+                      placeholder="Selecione um produto…"
+                      placement="above"
+                    />
+                  </div>
+                </label>
+              )}
               <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Quantidade *
                 <input
@@ -1873,37 +2902,37 @@ export function EstoqueWorkspace() {
                   }
                   placeholder={
                     moveForm.movementKind === 'ajuste'
-                      ? 'Ex.: +10 ou -5'
+                      ? movePresetProduct
+                        ? 'Saldo desejado'
+                        : 'Ex.: +10 ou -5'
                       : 'Inteiro positivo'
                   }
                   className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
                 />
               </label>
               <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Referência / documento
-                <input
-                  value={moveForm.reference}
-                  onChange={(e) =>
-                    setMoveForm((f) => ({ ...f, reference: e.target.value }))
-                  }
-                  className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-white/[0.18]"
-                />
-              </label>
-              <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Observação / motivo
+                Observação / motivo *
                 <textarea
                   value={moveForm.notes}
-                  onChange={(e) =>
-                    setMoveForm((f) => ({ ...f, notes: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setMoveNotesError(null);
+                    setMoveForm((f) => ({ ...f, notes: e.target.value }));
+                  }}
                   rows={3}
-                  className="mt-1.5 w-full resize-none rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-white/[0.18]"
+                  required
+                  className={`mt-1.5 w-full resize-none rounded-xl border bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-white/[0.18] ${
+                    moveNotesError
+                      ? 'border-rose-400/50 focus:border-rose-400/50'
+                      : 'border-[var(--border-color)]'
+                  }`}
                 />
+                {moveNotesError ? (
+                  <p className="mt-1.5 text-xs text-rose-500">{moveNotesError}</p>
+                ) : null}
               </label>
               <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
-                Em <span className="text-zinc-400">ajuste</span>, use quantidade
-                negativa para reduzir o saldo (bloqueado se ficar abaixo de zero).
-                Reserva e saída exigem saldo suficiente.
+                Ajustes de estoque requerem autorização e são registrados com nome,
+                hora e data do responsável.
               </p>
             </div>
             <div className="mt-6 flex justify-end gap-2">
@@ -1916,7 +2945,7 @@ export function EstoqueWorkspace() {
               <GlowButton
                 variant="primary"
                 disabled={moveSaving || !moveForm.productId}
-                onClick={() => void saveMovement()}
+                onClick={requestSaveMovement}
               >
                 {moveSaving ? (
                   <>
@@ -1929,6 +2958,153 @@ export function EstoqueWorkspace() {
               </GlowButton>
             </div>
           </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {movementDeleteStep === 'confirm1' && movementDeleteTarget ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={cancelMovementDelete}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Excluir movimentação
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                Tem certeza que deseja excluir esta movimentação? Esta ação não
+                pode ser desfeita.
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <GlowButton
+                  variant="secondary"
+                  disabled={movementDeleting}
+                  onClick={cancelMovementDelete}
+                >
+                  Cancelar
+                </GlowButton>
+                <GlowButton
+                  variant="primary"
+                  disabled={movementDeleting}
+                  onClick={() => setMovementDeleteStep('confirm2')}
+                >
+                  Continuar
+                </GlowButton>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {movementDeleteStep === 'confirm2' && movementDeleteTarget ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={cancelMovementDelete}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Confirmar reversão
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+                {buildMovementDeleteRevertMessage(movementDeleteTarget)}
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <GlowButton
+                  variant="secondary"
+                  disabled={movementDeleting}
+                  onClick={() => setMovementDeleteStep('confirm1')}
+                >
+                  Voltar
+                </GlowButton>
+                <GlowButton
+                  variant="primary"
+                  disabled={movementDeleting}
+                  onClick={() => void executeMovementDelete()}
+                >
+                  {movementDeleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Excluindo
+                    </>
+                  ) : (
+                    'Confirmar exclusão'
+                  )}
+                </GlowButton>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {moveConfirmOpen ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => {
+            setMoveConfirmOpen(false);
+            setPendingPresetAjustePlan(null);
+            setMoveConfirmMessages([]);
+          }}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Confirmar ajuste
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                Revise as alterações antes de registrar:
+              </p>
+              <ul className="mt-4 space-y-2">
+                {moveConfirmMessages.map((msg) => (
+                  <li
+                    key={msg}
+                    className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                  >
+                    {msg}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-6 flex justify-end gap-2">
+                <GlowButton
+                  variant="secondary"
+                  disabled={moveSaving}
+                  onClick={() => {
+                    setMoveConfirmOpen(false);
+                    setPendingPresetAjustePlan(null);
+                    setMoveConfirmMessages([]);
+                  }}
+                >
+                  Voltar
+                </GlowButton>
+                <GlowButton
+                  variant="primary"
+                  disabled={moveSaving}
+                  onClick={() => void confirmPresetAjusteSave()}
+                >
+                  {moveSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Salvando
+                    </>
+                  ) : (
+                    'Confirmar'
+                  )}
+                </GlowButton>
+              </div>
+            </GlassCard>
           </div>
         </div>
       ) : null}

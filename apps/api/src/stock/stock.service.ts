@@ -16,6 +16,8 @@ import type {
 
   CreateStockMovementDto,
 
+  MovementTypeFilter,
+
   StockMovementQueryDto,
 
 } from './dto/stock-movement.dto';
@@ -23,7 +25,10 @@ import type {
 import {
   mapMovementKindToPrisma,
   mapPrismaToMovementKind,
+  mapTypeFilterToPrismaTypes,
 } from './dto/stock-movement.dto';
+
+import type { StockSummaryQueryDto } from './dto/stock-summary.dto';
 
 import { AuditService } from '../common/audit.service';
 
@@ -45,54 +50,303 @@ export class StockService {
 
 
 
-  async summary() {
-
-    const [activeProducts, inactiveProducts, agg, lowStockRows] =
-
+  async summary(query?: StockSummaryQueryDto) {
+    const [activeProducts, inactiveProducts, agg, lowStockRows, valorRows] =
       await Promise.all([
-
         this.prisma.client.product.count({ where: { isActive: true } }),
-
         this.prisma.client.product.count({ where: { isActive: false } }),
-
         this.prisma.client.product.aggregate({
-
           where: { isActive: true },
-
           _sum: { stockQty: true },
-
         }),
-
         this.prisma.client.$queryRaw<[{ count: bigint }]>`
-
           SELECT COUNT(*)::bigint as count
-
           FROM "Product"
-
           WHERE "isActive" = true AND "stockQty" < "minStock"
-
         `,
-
+        this.prisma.client.$queryRaw<
+          [{ valorEstoque: Prisma.Decimal; valorVenda: Prisma.Decimal }]
+        >`
+          SELECT
+            COALESCE(SUM("stockQty" * COALESCE("cost", 0)), 0) as "valorEstoque",
+            COALESCE(SUM("stockQty" * "price"), 0) as "valorVenda"
+          FROM "Product"
+          WHERE "isActive" = true
+        `,
       ]);
 
-
-
     const belowMin = Number(lowStockRows[0]?.count ?? BigInt(0));
+    const totalUnitsOnHand = agg._sum.stockQty ?? 0;
+    const valorEstoque = Number(valorRows[0]?.valorEstoque ?? 0);
+    const valorVenda = Number(valorRows[0]?.valorVenda ?? 0);
 
-
-
-    return {
-
+    const base = {
       activeProducts,
-
       inactiveProducts,
-
-      totalUnitsOnHand: agg._sum.stockQty ?? 0,
-
+      totalUnitsOnHand,
       skusBelowMinStock: belowMin,
-
+      valorEstoque,
+      valorVenda,
     };
 
+    if (!query?.startDate && !query?.endDate) {
+      return base;
+    }
+
+    const periodStart = query.startDate
+      ? new Date(`${query.startDate}T00:00:00.000`)
+      : new Date(0);
+    const periodEnd = query.endDate
+      ? new Date(`${query.endDate}T23:59:59.999`)
+      : new Date();
+
+    const movements = await this.prisma.client.stockMovement.findMany({
+      where: {
+        movementDate: {
+          gte: periodStart,
+          lte: periodEnd,
+        },
+      },
+      select: {
+        movementDate: true,
+        movementType: true,
+        quantity: true,
+        productId: true,
+        product: {
+          select: { sku: true, name: true },
+        },
+      },
+    });
+
+    let periodInboundCount = 0;
+    let periodOutboundCount = 0;
+    const dailyMap = new Map<string, { inbound: number; outbound: number }>();
+    const productStats = new Map<
+      string,
+      {
+        sku: string;
+        name: string;
+        n: number;
+        types: Record<string, number>;
+      }
+    >();
+
+    for (const day of this.iterateIsoDates(
+      query.startDate ?? this.toIsoDate(periodStart),
+      query.endDate ?? this.toIsoDate(periodEnd),
+    )) {
+      dailyMap.set(day, { inbound: 0, outbound: 0 });
+    }
+
+    for (const m of movements) {
+      const dayKey = this.toIsoDate(m.movementDate);
+      const daily = dailyMap.get(dayKey);
+      if (m.movementType === StockMovementType.INBOUND) {
+        periodInboundCount += 1;
+        if (daily) daily.inbound += m.quantity;
+      } else if (m.movementType === StockMovementType.OUTBOUND) {
+        periodOutboundCount += 1;
+        if (daily) daily.outbound += m.quantity;
+      }
+
+      const cur = productStats.get(m.productId) ?? {
+        sku: m.product.sku,
+        name: m.product.name,
+        n: 0,
+        types: {} as Record<string, number>,
+      };
+      cur.n += 1;
+      cur.types[m.movementType] = (cur.types[m.movementType] ?? 0) + 1;
+      productStats.set(m.productId, cur);
+    }
+
+    const dailyFlow = [...dailyMap.entries()].map(([date, v]) => ({
+      date,
+      inbound: v.inbound,
+      outbound: v.outbound,
+    }));
+
+    const topMoved = [...productStats.entries()]
+      .map(([productId, x]) => ({
+        productId,
+        sku: x.sku,
+        name: x.name,
+        movementCount: x.n,
+        predominantType:
+          Object.entries(x.types).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+          StockMovementType.ADJUSTMENT,
+      }))
+      .sort((a, b) => b.movementCount - a.movementCount)
+      .slice(0, 5);
+
+    const movedInPeriod = await this.prisma.client.stockMovement.groupBy({
+      by: ['productId'],
+      where: {
+        movementDate: {
+          gte: periodStart,
+          lte: periodEnd,
+        },
+      },
+    });
+
+    const movedIds = movedInPeriod.map((r) => r.productId);
+    const stagnantProducts = await this.prisma.client.product.findMany({
+      where: {
+        isActive: true,
+        ...(movedIds.length > 0 ? { id: { notIn: movedIds } } : {}),
+      },
+      orderBy: [{ stockQty: 'desc' }, { name: 'asc' }],
+      take: 5,
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        stockQty: true,
+      },
+    });
+
+    const stockTrend = this.buildStockTrendForPeriod(
+      query.startDate ?? this.toIsoDate(periodStart),
+      query.endDate ?? this.toIsoDate(periodEnd),
+      movements,
+      totalUnitsOnHand,
+    );
+
+    return {
+      ...base,
+      periodInboundCount,
+      periodOutboundCount,
+      dailyFlow,
+      topMoved,
+      stagnantProducts,
+      stockTrend,
+    };
+  }
+
+  private toIsoDate(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  private iterateIsoDates(startDate: string, endDate: string): string[] {
+    const days: string[] = [];
+    const cur = new Date(`${startDate}T00:00:00.000`);
+    const end = new Date(`${endDate}T00:00:00.000`);
+    while (cur <= end) {
+      days.push(this.toIsoDate(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }
+
+  private buildStockTrendForPeriod(
+    startDate: string,
+    endDate: string,
+    movements: Array<{
+      movementDate: Date;
+      movementType: StockMovementType;
+      quantity: number;
+    }>,
+    currentTotal: number,
+  ): Array<{ date: string; value: number }> {
+    const deltas = new Map<string, number>();
+    for (const m of movements) {
+      const key = this.toIsoDate(m.movementDate);
+      const sign =
+        m.movementType === StockMovementType.INBOUND
+          ? 1
+          : m.movementType === StockMovementType.OUTBOUND
+            ? -1
+            : 0;
+      deltas.set(key, (deltas.get(key) ?? 0) + sign * m.quantity);
+    }
+
+    const days = this.iterateIsoDates(startDate, endDate);
+    let stockAtEnd = currentTotal;
+    for (let i = days.length - 1; i >= 0; i -= 1) {
+      const day = days[i];
+      if (!day) continue;
+      stockAtEnd -= deltas.get(day) ?? 0;
+    }
+
+    const points: Array<{ date: string; value: number }> = [];
+    let running = stockAtEnd;
+    for (const day of days) {
+      running += deltas.get(day) ?? 0;
+      points.push({ date: day, value: Math.max(0, running) });
+    }
+    return points;
+  }
+
+  private buildMovementWhere(
+    query: StockMovementQueryDto,
+  ): Prisma.StockMovementWhereInput {
+    const where: Prisma.StockMovementWhereInput = {};
+
+    if (query.productId) {
+      where.productId = query.productId;
+    }
+
+    if (query.type) {
+      where.movementType = {
+        in: mapTypeFilterToPrismaTypes(query.type as MovementTypeFilter),
+      };
+    } else if (query.movementType) {
+      where.movementType = query.movementType;
+    }
+
+    if (query.userId) {
+      where.movedById = query.userId;
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      where.product = {
+        OR: [
+          { sku: { contains: search, mode: 'insensitive' } },
+          { name: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    if (query.startDate || query.endDate) {
+      where.movementDate = {};
+      if (query.startDate) {
+        where.movementDate.gte = new Date(`${query.startDate}T00:00:00.000`);
+      }
+      if (query.endDate) {
+        where.movementDate.lte = new Date(`${query.endDate}T23:59:59.999`);
+      }
+    }
+
+    return where;
+  }
+
+
+
+  async movementsSummary(query: StockMovementQueryDto) {
+    const where = this.buildMovementWhere(query);
+    const grouped = await this.prisma.client.stockMovement.groupBy({
+      by: ['movementType'],
+      where,
+      _sum: { quantity: true },
+    });
+
+    let totalInbound = 0;
+    let totalOutbound = 0;
+    for (const row of grouped) {
+      const sum = row._sum.quantity ?? 0;
+      if (row.movementType === StockMovementType.INBOUND) {
+        totalInbound += sum;
+      } else if (row.movementType === StockMovementType.OUTBOUND) {
+        totalOutbound += sum;
+      }
+    }
+
+    return {
+      totalInbound,
+      totalOutbound,
+      netBalance: totalInbound - totalOutbound,
+    };
   }
 
 
@@ -117,21 +371,7 @@ export class StockService {
 
 
 
-    const where: Prisma.StockMovementWhereInput = {};
-
-    if (query.productId) {
-
-      where.productId = query.productId;
-
-    }
-
-    if (query.movementType) {
-
-      where.movementType = query.movementType;
-
-    }
-
-
+    const where = this.buildMovementWhere(query);
 
     const total = await this.prisma.client.stockMovement.count({ where });
 
@@ -249,18 +489,27 @@ export class StockService {
 
 
 
-    if (type === StockMovementType.ADJUSTMENT) {
+    if (type === StockMovementType.ADJUSTMENT || type === StockMovementType.AJUSTE_QUANTIDADE) {
 
       if (dto.quantity === 0) {
 
         throw new BadRequestException(
 
-          'Em ajustes, informe uma quantidade diferente de zero (positiva para aumentar o saldo ou negativa para reduzir).',
+          'Em ajustes de quantidade, informe uma quantidade diferente de zero (positiva para aumentar o saldo ou negativa para reduzir).',
 
         );
 
       }
 
+    } else if (
+      type === StockMovementType.AJUSTE_PRECO_VENDA ||
+      type === StockMovementType.AJUSTE_PRECO_BASE
+    ) {
+      if (dto.quantity !== 0) {
+        throw new BadRequestException(
+          'Ajustes de preço registram quantidade zero no movimento.',
+        );
+      }
     } else if (dto.quantity <= 0) {
 
       throw new BadRequestException(
@@ -365,7 +614,10 @@ export class StockService {
           'Este tipo de movimentação é gerado apenas pela Expedição.',
         );
 
-      } else if (type === StockMovementType.ADJUSTMENT) {
+      } else if (
+        type === StockMovementType.ADJUSTMENT ||
+        type === StockMovementType.AJUSTE_QUANTIDADE
+      ) {
 
         if (qty > 0) {
 
@@ -401,6 +653,11 @@ export class StockService {
 
         }
 
+      } else if (
+        type === StockMovementType.AJUSTE_PRECO_VENDA ||
+        type === StockMovementType.AJUSTE_PRECO_BASE
+      ) {
+        /* Apenas registro de auditoria — preço é atualizado via PATCH /products. */
       }
 
 
@@ -521,6 +778,171 @@ export class StockService {
 
     return result;
 
+  }
+
+  private readonly nonDeletableMovementTypes = new Set<StockMovementType>([
+    StockMovementType.TRANSFER,
+    StockMovementType.RETURN,
+    StockMovementType.RESERVA,
+    StockMovementType.BAIXA_EXPEDICAO,
+    StockMovementType.SAIDA_EXPEDICAO,
+  ]);
+
+  private parsePriceReferenceFrom(
+    reference: string | null,
+  ): Prisma.Decimal | null {
+    if (!reference?.includes('|')) return null;
+    const [from] = reference.split('|');
+    if (!from) return null;
+    const n = Number(from);
+    if (Number.isNaN(n)) return null;
+    return new Prisma.Decimal(n.toFixed(2));
+  }
+
+  async deleteMovement(adminUserId: string, movementId: string) {
+    const result = await this.prisma.client.$transaction(async (tx) => {
+      const movement = await tx.stockMovement.findUnique({
+        where: { id: movementId },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              stockQty: true,
+            },
+          },
+          movedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      if (!movement) {
+        throw new NotFoundException('Movimentação não encontrada.');
+      }
+
+      if (this.nonDeletableMovementTypes.has(movement.movementType)) {
+        throw new BadRequestException(
+          'Esta movimentação está vinculada à expedição ou a outro fluxo e não pode ser excluída pelo estoque.',
+        );
+      }
+
+      const { movementType: type, quantity: qty, productId } = movement;
+
+      if (type === StockMovementType.INBOUND) {
+        const updated = await tx.product.updateMany({
+          where: { id: productId, stockQty: { gte: qty } },
+          data: { stockQty: { decrement: qty } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException(
+            'Não é possível reverter a entrada: saldo atual ficaria negativo.',
+          );
+        }
+      } else if (
+        type === StockMovementType.OUTBOUND ||
+        type === StockMovementType.RESERVE
+      ) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { stockQty: { increment: qty } },
+        });
+      } else if (type === StockMovementType.RESERVE_CANCEL) {
+        const updated = await tx.product.updateMany({
+          where: { id: productId, stockQty: { gte: qty } },
+          data: { stockQty: { decrement: qty } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException(
+            'Não é possível reverter o cancelamento de reserva: saldo insuficiente.',
+          );
+        }
+      } else if (
+        type === StockMovementType.ADJUSTMENT ||
+        type === StockMovementType.AJUSTE_QUANTIDADE
+      ) {
+        if (qty > 0) {
+          const updated = await tx.product.updateMany({
+            where: { id: productId, stockQty: { gte: qty } },
+            data: { stockQty: { decrement: qty } },
+          });
+          if (updated.count !== 1) {
+            throw new ConflictException(
+              'Não é possível reverter o ajuste: saldo atual ficaria negativo.',
+            );
+          }
+        } else if (qty < 0) {
+          await tx.product.update({
+            where: { id: productId },
+            data: { stockQty: { increment: -qty } },
+          });
+        }
+      } else if (type === StockMovementType.AJUSTE_PRECO_VENDA) {
+        const fromPrice = this.parsePriceReferenceFrom(movement.reference);
+        if (!fromPrice) {
+          throw new BadRequestException(
+            'Referência de preço ausente; não é possível reverter automaticamente.',
+          );
+        }
+        await tx.product.update({
+          where: { id: productId },
+          data: { price: fromPrice },
+        });
+      } else if (type === StockMovementType.AJUSTE_PRECO_BASE) {
+        const fromCost = this.parsePriceReferenceFrom(movement.reference);
+        if (!fromCost) {
+          throw new BadRequestException(
+            'Referência de preço ausente; não é possível reverter automaticamente.',
+          );
+        }
+        await tx.product.update({
+          where: { id: productId },
+          data: { cost: fromCost },
+        });
+      } else {
+        throw new BadRequestException(
+          'Tipo de movimentação não suportado para exclusão.',
+        );
+      }
+
+      await tx.stockMovement.delete({ where: { id: movementId } });
+
+      const updatedProduct = await tx.product.findUnique({
+        where: { id: productId },
+        select: { stockQty: true, price: true, cost: true },
+      });
+
+      return { movement, updatedProduct };
+    });
+
+    const deleter = await this.prisma.client.user.findUnique({
+      where: { id: adminUserId },
+      select: { name: true },
+    });
+
+    const deletedAt = new Date();
+
+    await this.audit.log({
+      userId: adminUserId,
+      action: 'EXCLUSÃO DE MOVIMENTAÇÃO',
+      entity: 'StockMovement',
+      entityId: movementId,
+      changes: {
+        productName: result.movement.product.name,
+        productSku: result.movement.product.sku,
+        movementType: result.movement.movementType,
+        quantityReverted: result.movement.quantity,
+        reference: result.movement.reference,
+        originalMovedBy: result.movement.movedBy?.name ?? null,
+        originalMovementDate: result.movement.movementDate.toISOString(),
+        deletedBy: deleter?.name ?? adminUserId,
+        deletedAt: deletedAt.toISOString(),
+        newStockQty: result.updatedProduct?.stockQty ?? null,
+      },
+    });
+
+    return { ok: true, id: movementId };
   }
 
 }

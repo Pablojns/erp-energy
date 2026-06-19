@@ -1,9 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -15,6 +19,7 @@ import {
   CreateStockMovementDto,
   StockMovementQueryDto,
 } from './dto/stock-movement.dto';
+import { StockSummaryQueryDto } from './dto/stock-summary.dto';
 import { StockService } from './stock.service';
 
 @Controller('stock')
@@ -23,8 +28,13 @@ export class StockController {
   constructor(private readonly stockService: StockService) {}
 
   @Get('summary')
-  summary() {
-    return this.stockService.summary();
+  summary(@Query() query: StockSummaryQueryDto) {
+    return this.stockService.summary(query);
+  }
+
+  @Get('movements/summary')
+  movementsSummary(@Query() query: StockMovementQueryDto) {
+    return this.stockService.movementsSummary(query);
   }
 
   @Get('movements')
@@ -39,5 +49,19 @@ export class StockController {
     @Body() dto: CreateStockMovementDto,
   ) {
     return this.stockService.createMovement(user.id, dto);
+  }
+
+  @Delete('movements/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteMovement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem excluir movimentações.',
+      );
+    }
+    return this.stockService.deleteMovement(user.id, id);
   }
 }
