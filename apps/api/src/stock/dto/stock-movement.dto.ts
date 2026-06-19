@@ -68,10 +68,42 @@ export function mapTypeFilterToPrismaTypes(
       StockMovementType.AJUSTE_PRECO_VENDA,
       StockMovementType.AJUSTE_PRECO_BASE,
     ],
-    reserva: [StockMovementType.RESERVE],
+    reserva: [StockMovementType.RESERVE, StockMovementType.RESERVA],
     cancelamento_reserva: [StockMovementType.RESERVE_CANCEL],
   };
   return map[type];
+}
+
+export const MOVEMENT_CARD_TYPE_FILTER_VALUES = [
+  'entrada',
+  'saida',
+  'ajuste',
+  'reserva',
+] as const;
+
+export type MovementCardTypeFilter =
+  (typeof MOVEMENT_CARD_TYPE_FILTER_VALUES)[number];
+
+export function parseTypesFilterParam(types?: string): MovementTypeFilter[] {
+  if (!types?.trim()) return [];
+  return types
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t): t is MovementTypeFilter =>
+      (MOVEMENT_TYPE_FILTER_VALUES as readonly string[]).includes(t),
+    );
+}
+
+export function mapTypesFiltersToPrismaTypes(
+  filters: MovementTypeFilter[],
+): StockMovementType[] {
+  const set = new Set<StockMovementType>();
+  for (const filter of filters) {
+    for (const type of mapTypeFilterToPrismaTypes(filter)) {
+      set.add(type);
+    }
+  }
+  return [...set];
 }
 
 export class StockMovementQueryDto {
@@ -100,6 +132,12 @@ export class StockMovementQueryDto {
       'type deve ser: entrada | saida | ajuste | reserva | cancelamento_reserva',
   })
   type?: MovementTypeFilter;
+
+  /** Filtros combinados: entrada,saida,reserva,ajuste */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  types?: string;
 
   @IsOptional()
   @IsEnum(StockMovementType)

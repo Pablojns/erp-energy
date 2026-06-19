@@ -24,7 +24,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
 import { GlowButton } from '@/src/components/shell/glow-button';
@@ -42,9 +42,11 @@ import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 type TabId = 'dashboard' | 'inventory' | 'movements';
 
+type InventoryFilter = 'all' | 'out' | 'low' | 'reserva';
+
 type MovePeriodPreset = 'today' | 'week' | 'month' | 'custom';
 
-type DashboardPeriodPreset = MovePeriodPreset | 'quarter';
+type DashboardPeriodPreset = 'today' | 'week' | 'month' | 'quarter';
 
 type MovementUserOption = {
   id: string;
@@ -55,16 +57,12 @@ type MovementUserOption = {
 type MovementsSummary = {
   totalInbound: number;
   totalOutbound: number;
-  netBalance: number;
+  totalReserved: number;
+  totalAdjustments: number;
+  netBalance?: number;
 };
 
-type MovementTypeFilterValue =
-  | 'all'
-  | 'entrada'
-  | 'saida'
-  | 'ajuste'
-  | 'reserva'
-  | 'cancelamento_reserva';
+type MoveTypeCardFilter = 'entrada' | 'saida' | 'reserva' | 'ajuste';
 
 type ProductCategoryDto = {
   id: string;
@@ -100,6 +98,8 @@ type ProductDto = {
   cost: string | null;
   minStock: number;
   stockQty: number;
+  reservedQty?: number;
+  availableQty?: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -124,14 +124,29 @@ type StockSummary = {
     productId: string;
     sku: string;
     name: string;
-    movementCount: number;
-    predominantType: string;
+    totalVolume: number;
   }>;
   stagnantProducts?: Array<{
     id: string;
     sku: string;
     name: string;
     stockQty: number;
+  }>;
+  criticalProducts?: Array<{
+    id: string;
+    sku: string;
+    name: string;
+    stockQty: number;
+    minStock: number;
+    deficit: number;
+  }>;
+  topInboundMovements?: Array<{
+    id: string;
+    movementDate: string;
+    quantity: number;
+    productSku: string;
+    productName: string;
+    movedByName: string | null;
   }>;
   stockTrend?: Array<{ date: string; value: number }>;
 };
@@ -277,12 +292,16 @@ function resolveMovePeriodRange(
   return { startDate: toIsoDate(start), endDate };
 }
 
+function hasDashboardCustomDateRange(customFrom: string, customTo: string) {
+  return customFrom.trim() !== '' || customTo.trim() !== '';
+}
+
 function resolveDashboardPeriodRange(
   period: DashboardPeriodPreset,
   customFrom: string,
   customTo: string,
 ): { startDate: string; endDate: string } {
-  if (period === 'custom') {
+  if (hasDashboardCustomDateRange(customFrom, customTo)) {
     const endDate = customTo.trim() || todayIsoDate();
     const startDate = customFrom.trim() || endDate;
     return { startDate, endDate };
@@ -307,15 +326,42 @@ function resolveDashboardPeriodRange(
   return { startDate: toIsoDate(start), endDate };
 }
 
-function dashboardPeriodLabel(period: DashboardPeriodPreset): string {
+function dashboardSectionPeriodSuffix(
+  period: DashboardPeriodPreset,
+  customFrom: string,
+  customTo: string,
+): string {
+  if (hasDashboardCustomDateRange(customFrom, customTo)) {
+    return '— período selecionado';
+  }
   const labels: Record<DashboardPeriodPreset, string> = {
-    today: 'hoje',
-    week: 'esta semana',
-    month: 'este mês',
-    quarter: 'últimos 3 meses',
-    custom: 'período selecionado',
+    today: '— hoje',
+    week: '— esta semana',
+    month: '— este mês',
+    quarter: '— últimos 3 meses',
   };
   return labels[period];
+}
+
+function dashboardPeriodButtonClass(active: boolean, disabled: boolean) {
+  return `rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+    disabled
+      ? 'pointer-events-none border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] opacity-40'
+      : active
+        ? 'border-transparent bg-[var(--accent)] text-white shadow-sm'
+        : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--accent)]/35 hover:text-[var(--text-primary)]'
+  }`;
+}
+
+const DASHBOARD_LIST_SCROLL =
+  'erp-scrollbar mt-2 max-h-[320px] space-y-2 overflow-y-auto pr-1';
+
+function inventoryFilterButtonClass(active: boolean) {
+  return `rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+    active
+      ? 'border-transparent bg-[var(--accent)] text-white shadow-sm'
+      : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--accent)]/35 hover:text-[var(--text-primary)]'
+  }`;
 }
 
 function formatPriceChangeReference(from: number, to: number) {
@@ -536,7 +582,7 @@ export function EstoqueWorkspace() {
   const [showInactive, setShowInactive] = useState(false);
   const [productMenuOpenId, setProductMenuOpenId] = useState<string | null>(null);
   const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
-  const [inventoryFilter, setInventoryFilter] = useState<'all' | 'low' | 'out' | 'transit'>('all');
+  const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>('all');
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsData, setProductsData] = useState<Paginated<ProductDto> | null>(
@@ -552,8 +598,9 @@ export function EstoqueWorkspace() {
     useState<MovementsSummary | null>(null);
   const [moveFilterSearch, setMoveFilterSearch] = useState('');
   const [moveFilterSearchDebounced, setMoveFilterSearchDebounced] = useState('');
-  const [moveFilterType, setMoveFilterType] =
-    useState<MovementTypeFilterValue>('all');
+  const [moveTypeCardFilters, setMoveTypeCardFilters] = useState<
+    Set<MoveTypeCardFilter>
+  >(() => new Set());
   const [moveFilterUserId, setMoveFilterUserId] = useState('');
   const [moveFilterPeriod, setMoveFilterPeriod] =
     useState<MovePeriodPreset>('month');
@@ -567,6 +614,34 @@ export function EstoqueWorkspace() {
     'idle' | 'confirm1' | 'confirm2'
   >('idle');
   const [movementDeleting, setMovementDeleting] = useState(false);
+
+  const inventoryListScrollRef = useRef<HTMLDivElement>(null);
+  const inventoryListScrollTopRef = useRef(0);
+
+  const syncInventoryListScroll = useCallback(() => {
+    if (inventoryListScrollRef.current) {
+      inventoryListScrollTopRef.current =
+        inventoryListScrollRef.current.scrollTop;
+    }
+  }, []);
+
+  const restoreInventoryListScroll = useCallback(() => {
+    const top = inventoryListScrollTopRef.current;
+    requestAnimationFrame(() => {
+      const el = inventoryListScrollRef.current;
+      if (el) {
+        el.scrollTop = top;
+      }
+    });
+  }, []);
+
+  const selectInventoryProduct = useCallback(
+    (id: string) => {
+      syncInventoryListScroll();
+      setSelectedInventoryId(id);
+    },
+    [syncInventoryListScroll],
+  );
 
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [productModalMode, setProductModalMode] = useState<'create' | 'edit'>(
@@ -622,6 +697,27 @@ export function EstoqueWorkspace() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    inventoryListScrollTopRef.current = 0;
+    if (inventoryListScrollRef.current) {
+      inventoryListScrollRef.current.scrollTop = 0;
+    }
+  }, [productSearchDebounced, inventoryFilter, showInactive]);
+
+  useEffect(() => {
+    if (tab !== 'inventory' || productsLoading) return;
+    if (moveModalOpen || productModalOpen || moveConfirmOpen) return;
+    restoreInventoryListScroll();
+  }, [
+    tab,
+    productsLoading,
+    moveModalOpen,
+    productModalOpen,
+    moveConfirmOpen,
+    productsData,
+    restoreInventoryListScroll,
+  ]);
 
   const closeAllModals = useCallback(() => {
     setProductModalOpen(false);
@@ -738,29 +834,56 @@ export function EstoqueWorkspace() {
   }, [productSearchDebounced]);
 
   const loadProducts = useCallback(
-    async (opts: { page: number; lowStock?: boolean }) => {
+    async (opts: { page: number; lowStock?: boolean; allPages?: boolean }) => {
       setProductsLoading(true);
       setBannerError(null);
       try {
-        const params = new URLSearchParams();
-        params.set('page', String(opts.page));
-        params.set('pageSize', '12');
-        if (productSearchDebounced.trim()) {
-          params.set('search', productSearchDebounced.trim());
-        }
-        if (opts.lowStock) {
-          params.set('lowStock', 'true');
-          params.set('status', 'active');
+        const buildParams = (page: number, pageSize: number) => {
+          const params = new URLSearchParams();
+          params.set('page', String(page));
+          params.set('pageSize', String(pageSize));
+          if (productSearchDebounced.trim()) {
+            params.set('search', productSearchDebounced.trim());
+          }
+          if (opts.lowStock) {
+            params.set('lowStock', 'true');
+            params.set('status', 'active');
+          } else {
+            params.set('status', isAdmin && showInactive ? 'all' : 'active');
+          }
+          params.set('sortBy', 'name');
+          params.set('sortOrder', 'asc');
+          return params;
+        };
+
+        if (opts.allPages) {
+          const allRows: ProductDto[] = [];
+          let page = 1;
+          let totalPages = 1;
+          do {
+            const res = await erpFetchJson<Paginated<ProductDto>>(
+              `products?${buildParams(page, 100).toString()}`,
+            );
+            allRows.push(...res.data);
+            totalPages = res.meta.totalPages;
+            page += 1;
+          } while (page <= totalPages);
+
+          setProductsData({
+            data: allRows,
+            meta: {
+              page: 1,
+              pageSize: allRows.length,
+              total: allRows.length,
+              totalPages: 1,
+            },
+          });
         } else {
-          // Inativos só entram na listagem para ADMIN com o toggle ligado.
-          params.set('status', isAdmin && showInactive ? 'all' : 'active');
+          const res = await erpFetchJson<Paginated<ProductDto>>(
+            `products?${buildParams(opts.page, 12).toString()}`,
+          );
+          setProductsData(res);
         }
-        params.set('sortBy', 'name');
-        params.set('sortOrder', 'asc');
-        const res = await erpFetchJson<Paginated<ProductDto>>(
-          `products?${params.toString()}`,
-        );
-        setProductsData(res);
       } catch (e) {
         setBannerError(e instanceof Error ? e.message : 'Falha ao carregar produtos.');
         setProductsData(null);
@@ -771,8 +894,18 @@ export function EstoqueWorkspace() {
     [productSearchDebounced, isAdmin, showInactive],
   );
 
+  const reloadProductsForTab = useCallback(async () => {
+    if (tab === 'inventory') {
+      await loadProducts({ page: 1, lowStock: false, allPages: true });
+      return;
+    }
+    await loadProducts({ page: productPage, lowStock: false });
+  }, [tab, productPage, loadProducts]);
+
   useEffect(() => {
-    if (tab === 'inventory' || tab === 'dashboard') {
+    if (tab === 'inventory') {
+      void loadProducts({ page: 1, lowStock: false, allPages: true });
+    } else if (tab === 'dashboard') {
       void loadProducts({ page: productPage, lowStock: false });
     }
   }, [tab, productPage, loadProducts]);
@@ -782,13 +915,22 @@ export function EstoqueWorkspace() {
     return () => clearTimeout(t);
   }, [moveFilterSearch]);
 
+  const toggleMoveTypeCardFilter = useCallback((key: MoveTypeCardFilter) => {
+    setMoveTypeCardFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (tab !== 'movements') return;
     setMovePage(1);
   }, [
     tab,
     moveFilterSearchDebounced,
-    moveFilterType,
+    moveTypeCardFilters,
     moveFilterUserId,
     moveFilterPeriod,
     moveFilterDateFrom,
@@ -796,7 +938,11 @@ export function EstoqueWorkspace() {
   ]);
 
   const buildMovementQueryParams = useCallback(
-    (opts?: { page?: number; pageSize?: number }) => {
+    (opts?: {
+      page?: number;
+      pageSize?: number;
+      includeTypeFilters?: boolean;
+    }) => {
       const params = new URLSearchParams();
       params.set('page', String(opts?.page ?? movePage));
 
@@ -805,8 +951,11 @@ export function EstoqueWorkspace() {
         if (moveFilterSearchDebounced.trim()) {
           params.set('search', moveFilterSearchDebounced.trim());
         }
-        if (moveFilterType !== 'all') {
-          params.set('type', moveFilterType);
+        if (opts?.includeTypeFilters !== false && moveTypeCardFilters.size > 0) {
+          params.set(
+            'types',
+            [...moveTypeCardFilters].sort().join(','),
+          );
         }
         if (moveFilterUserId) {
           params.set('userId', moveFilterUserId);
@@ -828,7 +977,7 @@ export function EstoqueWorkspace() {
       movePage,
       tab,
       moveFilterSearchDebounced,
-      moveFilterType,
+      moveTypeCardFilters,
       moveFilterUserId,
       moveFilterPeriod,
       moveFilterDateFrom,
@@ -839,7 +988,11 @@ export function EstoqueWorkspace() {
   const loadMovementsSummary = useCallback(async () => {
     if (tab !== 'movements') return;
     try {
-      const params = buildMovementQueryParams({ page: 1, pageSize: 1 });
+      const params = buildMovementQueryParams({
+        page: 1,
+        pageSize: 1,
+        includeTypeFilters: false,
+      });
       const res = await erpFetchJson<MovementsSummary>(
         `stock/movements/summary?${params.toString()}`,
       );
@@ -894,6 +1047,7 @@ export function EstoqueWorkspace() {
   }, [tab, loadMovements]);
 
   const openCreateProduct = () => {
+    syncInventoryListScroll();
     setBannerSuccess(null);
     setProductModalMode('create');
     setEditingProduct(null);
@@ -902,6 +1056,7 @@ export function EstoqueWorkspace() {
   };
 
   const openEditProduct = (p: ProductDto) => {
+    syncInventoryListScroll();
     setBannerSuccess(null);
     setProductModalMode('edit');
     setEditingProduct(p);
@@ -990,7 +1145,7 @@ export function EstoqueWorkspace() {
 
       setProductModalOpen(false);
       await loadSummary();
-      if (tab === 'inventory' || tab === 'dashboard') await loadProducts({ page: productPage });
+      if (tab === 'inventory' || tab === 'dashboard') await reloadProductsForTab();
     } catch (e) {
       setBannerError(e instanceof Error ? e.message : 'Erro ao salvar produto.');
     } finally {
@@ -1005,10 +1160,7 @@ export function EstoqueWorkspace() {
     try {
       await erpFetchJson(`products/${p.id}`, { method: 'DELETE' });
       await loadSummary();
-      await loadProducts({
-        page: productPage,
-        lowStock: false,
-      });
+      await reloadProductsForTab();
     } catch (e) {
       setBannerError(e instanceof Error ? e.message : 'Erro ao inativar.');
     }
@@ -1030,7 +1182,7 @@ export function EstoqueWorkspace() {
           : `Produto "${p.name}" reativado.`,
       );
       await loadSummary();
-      await loadProducts({ page: productPage, lowStock: false });
+      await reloadProductsForTab();
     } catch (e) {
       setBannerError(
         e instanceof Error ? e.message : 'Erro ao alterar status do produto.',
@@ -1041,6 +1193,7 @@ export function EstoqueWorkspace() {
   };
 
   const openMoveModal = async (kind: MovementKind, presetProduct?: ProductDto) => {
+    syncInventoryListScroll();
     setBannerError(null);
     setBannerSuccess(null);
     setMoveNotesError(null);
@@ -1190,7 +1343,7 @@ export function EstoqueWorkspace() {
     await loadSummary();
     await loadMovements();
     if (tab === 'inventory' || tab === 'dashboard') {
-      await loadProducts({ page: productPage });
+      await reloadProductsForTab();
     }
   };
 
@@ -1214,6 +1367,7 @@ export function EstoqueWorkspace() {
         if (!plan) return;
         setPendingPresetAjustePlan(plan);
         setMoveConfirmMessages(plan.messages);
+        syncInventoryListScroll();
         setMoveConfirmOpen(true);
       } catch (e) {
         setBannerError(
@@ -1375,7 +1529,7 @@ export function EstoqueWorkspace() {
   const clearMovementFilters = () => {
     setMoveFilterSearch('');
     setMoveFilterSearchDebounced('');
-    setMoveFilterType('all');
+    setMoveTypeCardFilters(new Set());
     setMoveFilterUserId('');
     setMoveFilterPeriod('month');
     setMoveFilterDateFrom('');
@@ -1466,7 +1620,7 @@ export function EstoqueWorkspace() {
       await loadSummary();
       await loadMovements();
       if (tab === 'inventory' || tab === 'dashboard') {
-        await loadProducts({ page: productPage });
+        await reloadProductsForTab();
       }
     } catch (e) {
       setBannerError(
@@ -1540,15 +1694,18 @@ export function EstoqueWorkspace() {
       (p) => p.isActive || isAdmin,
     );
     if (inventoryFilter === 'all') return base;
-    if (inventoryFilter === 'low') return base.filter((p) => p.stockQty > 0 && p.stockQty <= p.minStock);
     if (inventoryFilter === 'out') return base.filter((p) => p.stockQty <= 0);
-    return base.filter((p) =>
-      movementItems.some(
-        (m) =>
-          m.product.id === p.id &&
-          (m.movementType === 'TRANSFER' || m.movementType === 'INBOUND') &&
-          Date.now() - new Date(m.movementDate).getTime() < 1000 * 60 * 60 * 24 * 7,
-      ),
+    if (inventoryFilter === 'low') {
+      return base.filter((p) => p.stockQty > 0 && p.stockQty <= p.minStock);
+    }
+    return base.filter(
+      (p) =>
+        (p.reservedQty ?? 0) > 0 ||
+        movementItems.some(
+          (m) =>
+            m.product.id === p.id &&
+            (m.movementType === 'RESERVE' || m.movementType === 'RESERVA'),
+        ),
     );
   }, [productsData, isAdmin, inventoryFilter, movementItems]);
 
@@ -1680,23 +1837,29 @@ export function EstoqueWorkspace() {
     }));
   }, [summary]);
 
-  const dashboardTopMoved = useMemo(() => {
-    return (summary?.topMoved ?? []).map((x) => ({
-      sku: x.sku,
-      name: x.name,
-      n: x.movementCount,
-      predominant: x.predominantType,
-    }));
-  }, [summary]);
+  const dashboardTopMoved = summary?.topMoved ?? [];
 
   const dashboardStagnant = summary?.stagnantProducts ?? [];
 
-  const dashboardCritical = useMemo(() => {
-    return (productsData?.data ?? [])
-      .filter((p) => p.stockQty <= p.minStock)
-      .sort((a, b) => a.stockQty - b.stockQty)
-      .slice(0, 5);
-  }, [productsData]);
+  const dashboardCritical = summary?.criticalProducts ?? [];
+
+  const dashboardTopInbound = summary?.topInboundMovements ?? [];
+
+  const dashboardPeriodSuffix = dashboardSectionPeriodSuffix(
+    dashboardPeriod,
+    dashboardDateFrom,
+    dashboardDateTo,
+  );
+  const dashboardCustomDateActive = hasDashboardCustomDateRange(
+    dashboardDateFrom,
+    dashboardDateTo,
+  );
+
+  const clearDashboardFilters = () => {
+    setDashboardPeriod('month');
+    setDashboardDateFrom('');
+    setDashboardDateTo('');
+  };
 
   const dashboardBarMax = useMemo(
     () => Math.max(1, ...dashboardBars.map((d) => Math.max(d.in, d.out))),
@@ -1705,7 +1868,7 @@ export function EstoqueWorkspace() {
 
   const stockTrendChart = useMemo(() => {
     const width = 640;
-    const height = 220;
+    const height = 160;
     const min = Math.min(...stockTrend30.map((p) => p.value), summary?.totalUnitsOnHand ?? 0);
     const max = Math.max(...stockTrend30.map((p) => p.value), summary?.totalUnitsOnHand ?? 0, min + 1);
     const pad = 18;
@@ -1728,6 +1891,10 @@ export function EstoqueWorkspace() {
       })),
     [productPicker],
   );
+
+  const toggleInventoryFilter = useCallback((filter: Exclude<InventoryFilter, 'all'>) => {
+    setInventoryFilter((current) => (current === filter ? 'all' : filter));
+  }, []);
 
   const openInventoryForSku = (sku: string) => {
     setTab('inventory');
@@ -1760,7 +1927,11 @@ export function EstoqueWorkspace() {
   );
 
   return (
-    <div className="scroll-mt-8 space-y-9 pt-2 sm:space-y-10 sm:pt-6">
+    <div
+      className={`scroll-mt-8 pt-2 sm:pt-6 ${
+        tab === 'inventory' ? 'space-y-4' : 'space-y-9 sm:space-y-10'
+      }`}
+    >
 
       {bannerError ? (
         <GlassCard className="border border-rose-500/30 bg-rose-500/[0.08] px-4 py-3 text-sm text-rose-100">
@@ -1793,165 +1964,160 @@ export function EstoqueWorkspace() {
       </GlassCard>
 
       {tab === 'dashboard' ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex max-h-[calc(100dvh-10.5rem)] flex-col gap-3 overflow-hidden">
+          <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
-              Visão geral do estoque — {dashboardPeriodLabel(dashboardPeriod)}
+              Visão geral do estoque {dashboardPeriodSuffix}
             </p>
             <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[180px]">
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                  Período
-                </label>
-                <PremiumSelect
-                  value={dashboardPeriod}
-                  onChange={(v) =>
-                    setDashboardPeriod(v as DashboardPeriodPreset)
-                  }
-                  options={[
-                    { value: 'today', label: 'Hoje' },
-                    { value: 'week', label: 'Esta semana' },
-                    { value: 'month', label: 'Este mês' },
-                    { value: 'quarter', label: 'Últimos 3 meses' },
-                    { value: 'custom', label: 'Personalizado' },
-                  ]}
-                />
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { value: 'today' as const, label: 'Hoje' },
+                    { value: 'week' as const, label: 'Esta semana' },
+                    { value: 'month' as const, label: 'Este mês' },
+                    { value: 'quarter' as const, label: '3 meses' },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={dashboardCustomDateActive}
+                    onClick={() => setDashboardPeriod(option.value)}
+                    className={dashboardPeriodButtonClass(
+                      dashboardPeriod === option.value,
+                      dashboardCustomDateActive,
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
-              {dashboardPeriod === 'custom' ? (
-                <>
-                  <div className="min-w-[140px]">
-                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                      Data início
-                    </label>
-                    <input
-                      type="date"
-                      value={dashboardDateFrom}
-                      onChange={(e) => setDashboardDateFrom(e.target.value)}
-                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                    />
-                  </div>
-                  <div className="min-w-[140px]">
-                    <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                      Data fim
-                    </label>
-                    <input
-                      type="date"
-                      value={dashboardDateTo}
-                      onChange={(e) => setDashboardDateTo(e.target.value)}
-                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                    />
-                  </div>
-                </>
-              ) : null}
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[140px]">
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    De:
+                  </label>
+                  <input
+                    type="date"
+                    value={dashboardDateFrom}
+                    onChange={(e) => setDashboardDateFrom(e.target.value)}
+                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                  />
+                </div>
+                <div className="min-w-[140px]">
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Até:
+                  </label>
+                  <input
+                    type="date"
+                    value={dashboardDateTo}
+                    onChange={(e) => setDashboardDateTo(e.target.value)}
+                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                  />
+                </div>
+              </div>
+              <GlowButton
+                variant="secondary"
+                className="px-4 py-2 text-sm"
+                onClick={clearDashboardFilters}
+              >
+                Limpar filtros
+              </GlowButton>
             </div>
           </div>
 
           {summaryLoading && !summary ? (
-            <GlassCard className="flex items-center gap-2 p-8 text-sm text-zinc-400">
+            <GlassCard className="flex shrink-0 items-center gap-2 p-6 text-sm text-zinc-400">
               <Loader2 className="h-5 w-5 animate-spin" />
               Carregando dashboard...
             </GlassCard>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">SKUs Ativos</p>
-              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{summary?.activeProducts ?? 0}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">produtos ativos</p>
-              <Package className="mt-3 h-5 w-5 text-[#5b5ef4]" />
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">SKUs Ativos</p>
+              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.activeProducts ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Total em Estoque</p>
-              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{summary?.totalUnitsOnHand ?? 0}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">unidades totais</p>
-              <TrendingUp className="mt-3 h-5 w-5 text-[#3b82f6]" />
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">Total em Estoque</p>
+              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.totalUnitsOnHand ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Crítico</p>
-              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{summary?.skusBelowMinStock ?? 0}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">abaixo do mínimo</p>
-              <AlertTriangle
-                className="mt-3 h-5 w-5"
-                style={{ color: (summary?.skusBelowMinStock ?? 0) > 0 ? '#ef4444' : '#9ca3af' }}
-              />
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">Crítico</p>
+              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.skusBelowMinStock ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                {dashboardPeriod === 'today' ? 'Entradas Hoje' : 'Entradas no período'}
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                {dashboardPeriod === 'today' ? 'Entradas hoje' : 'Entradas no período'}
               </p>
-              <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{entriesInPeriod}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">movimentações</p>
-              <PackagePlus className="mt-3 h-5 w-5 text-[#22c55e]" />
+              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{entriesInPeriod}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Valor em Estoque</p>
-              <p className="mt-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor em Estoque</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] xl:text-xl">
                 {formatBrl(String(summary?.valorEstoque ?? 0))}
               </p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">qtd × preço base</p>
-              <CircleDollarSign className="mt-3 h-5 w-5 text-[#8b5cf6]" />
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Valor a Venda</p>
-              <p className="mt-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor a Venda</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] xl:text-xl">
                 {formatBrl(String(summary?.valorVenda ?? 0))}
               </p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">qtd × preço venda</p>
-              <CircleDollarSign className="mt-3 h-5 w-5 text-[#22c55e]" />
             </GlassCard>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 xl:col-span-7">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                Entradas vs Saídas — {dashboardPeriodLabel(dashboardPeriod)}
+          <div className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-12">
+            <GlassCard className="flex h-[220px] flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3 xl:col-span-7">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Entradas vs Saídas {dashboardPeriodSuffix}
               </h3>
-              <div className="mt-4 space-y-3">
+              <div className={`${DASHBOARD_LIST_SCROLL} flex-1`}>
                 {dashboardBars.length === 0 ? (
                   <p className="text-sm text-[var(--text-secondary)]">
                     Sem movimentações de entrada ou saída no período.
                   </p>
                 ) : (
                   dashboardBars.map((d) => (
-                  <div key={d.date} className="grid grid-cols-[52px_1fr] items-center gap-3">
-                    <p className="text-xs text-[var(--text-secondary)]">{d.date}</p>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="w-14 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Entrada</span>
-                        <div className="h-2 flex-1 rounded bg-[var(--input-bg)]">
-                          <div
-                            className="h-2 rounded bg-[#22c55e]"
-                            style={{ width: `${(d.in / dashboardBarMax) * 100}%` }}
-                          />
+                    <div key={d.date} className="grid grid-cols-[52px_1fr] items-center gap-3">
+                      <p className="text-xs text-[var(--text-secondary)]">{d.date}</p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-14 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Entrada</span>
+                          <div className="h-2 flex-1 rounded bg-[var(--input-bg)]">
+                            <div
+                              className="h-2 rounded bg-[#22c55e]"
+                              style={{ width: `${(d.in / dashboardBarMax) * 100}%` }}
+                            />
+                          </div>
+                          <span className="w-8 text-right text-xs text-[var(--text-primary)]">{d.in}</span>
                         </div>
-                        <span className="w-8 text-right text-xs text-[var(--text-primary)]">{d.in}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-14 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Saída</span>
-                        <div className="h-2 flex-1 rounded bg-[var(--input-bg)]">
-                          <div
-                            className="h-2 rounded bg-[#ef4444]"
-                            style={{ width: `${(d.out / dashboardBarMax) * 100}%` }}
-                          />
+                        <div className="flex items-center gap-2">
+                          <span className="w-14 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Saída</span>
+                          <div className="h-2 flex-1 rounded bg-[var(--input-bg)]">
+                            <div
+                              className="h-2 rounded bg-[#ef4444]"
+                              style={{ width: `${(d.out / dashboardBarMax) * 100}%` }}
+                            />
+                          </div>
+                          <span className="w-8 text-right text-xs text-[var(--text-primary)]">{d.out}</span>
                         </div>
-                        <span className="w-8 text-right text-xs text-[var(--text-primary)]">{d.out}</span>
                       </div>
                     </div>
-                  </div>
                   ))
                 )}
               </div>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 xl:col-span-5">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                Evolução do estoque — {dashboardPeriodLabel(dashboardPeriod)}
+            <GlassCard className="flex h-[220px] flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3 xl:col-span-5">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Evolução do estoque {dashboardPeriodSuffix}
               </h3>
-              <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+              <div className="mt-2 min-h-0 flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-2">
                 <svg
                   viewBox={`0 0 ${stockTrendChart.width} ${stockTrendChart.height}`}
-                  className="h-44 w-full"
+                  className="h-full w-full"
                   role="img"
-                  aria-label="Evolução do estoque nos últimos 30 dias"
+                  aria-label={`Evolução do estoque ${dashboardPeriodSuffix}`}
                 >
                   <line
                     x1={stockTrendChart.pad}
@@ -1977,123 +2143,126 @@ export function EstoqueWorkspace() {
                     strokeLinecap="round"
                   />
                 </svg>
-                <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-                  <span>{stockTrend30[0]?.label ?? '—'}</span>
-                  <span>
-                    min {stockTrendChart.min} · max {stockTrendChart.max}
-                  </span>
-                  <span>{stockTrend30[stockTrend30.length - 1]?.label ?? '—'}</span>
-                </div>
               </div>
             </GlassCard>
           </div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="space-y-4">
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">🔥 Mais Movimentados</h3>
-                <div className="mt-3 space-y-2">
-                  {dashboardTopMoved.length === 0 ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Sem movimentações no período.</p>
-                  ) : (
-                    dashboardTopMoved.map((x) => {
-                      const predominantLabel = MOVEMENT_LABEL[x.predominant] ?? x.predominant;
-                      const predominantClass =
-                        x.predominant === 'INBOUND'
-                          ? 'bg-emerald-500/20 text-emerald-200'
-                          : x.predominant === 'OUTBOUND'
-                            ? 'bg-rose-500/20 text-rose-200'
-                            : 'bg-zinc-500/20 text-zinc-200';
-                      return (
-                        <div
-                          key={x.sku}
-                          className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm text-[var(--text-primary)]">
-                              {x.sku} — {x.name}
-                            </span>
-                            <span className="text-sm font-semibold text-[var(--text-primary)]">{x.n}</span>
-                          </div>
-                          <div className="mt-1">
-                            <span
-                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${predominantClass}`}
-                            >
-                              {predominantLabel}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </GlassCard>
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Produtos parados</h3>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  Sem movimentação em {dashboardPeriodLabel(dashboardPeriod)}
-                </p>
-                <div className="mt-3 space-y-2">
-                  {dashboardStagnant.length === 0 ? (
-                    <p className="text-sm text-[var(--text-secondary)]">
-                      Todos os produtos tiveram movimentação no período.
-                    </p>
-                  ) : (
-                    dashboardStagnant.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-[var(--text-primary)]">
-                            {p.sku} — {p.name}
-                          </p>
-                        </div>
-                        <span className="ml-2 shrink-0 text-sm font-semibold text-[var(--text-primary)]">
-                          {p.stockQty} un.
+
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2">
+            <GlassCard className="flex min-h-0 flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Top 10 Mais Movimentados {dashboardPeriodSuffix}
+              </h3>
+              <div className={DASHBOARD_LIST_SCROLL}>
+                {dashboardTopMoved.length === 0 ? (
+                  <p className="text-sm text-[var(--text-secondary)]">Sem movimentações no período.</p>
+                ) : (
+                  dashboardTopMoved.map((x) => (
+                    <div
+                      key={x.productId}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate text-sm text-[var(--text-primary)]">
+                        {x.sku} — {x.name}
+                      </span>
+                      <span className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                        {x.totalVolume} un.
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="flex min-h-0 flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Top 10 Maiores Entradas {dashboardPeriodSuffix}
+              </h3>
+              <div className={DASHBOARD_LIST_SCROLL}>
+                {dashboardTopInbound.length === 0 ? (
+                  <p className="text-sm text-[var(--text-secondary)]">Sem entradas no período.</p>
+                ) : (
+                  dashboardTopInbound.map((m) => (
+                    <div
+                      key={m.id}
+                      className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-[var(--text-secondary)]">
+                          {formatDateTime(m.movementDate)}
+                        </span>
+                        <span className="text-sm font-semibold text-emerald-400">
+                          +{m.quantity} un.
                         </span>
                       </div>
-                    ))
-                  )}
-                </div>
-              </GlassCard>
-            </div>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">⚠ Estoque Crítico</h3>
-              <div className="mt-3 space-y-2">
+                      <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
+                        {m.productSku} — {m.productName}
+                      </p>
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        {m.movedByName ?? '—'}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="flex min-h-0 flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Top 10 Produtos Parados {dashboardPeriodSuffix}
+              </h3>
+              <div className={DASHBOARD_LIST_SCROLL}>
+                {dashboardStagnant.length === 0 ? (
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Todos os produtos tiveram movimentação no período.
+                  </p>
+                ) : (
+                  dashboardStagnant.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2"
+                    >
+                      <p className="min-w-0 truncate text-sm text-[var(--text-primary)]">
+                        {p.sku} — {p.name}
+                      </p>
+                      <span className="ml-2 shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                        {p.stockQty} un.
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="flex min-h-0 flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+              <h3 className="shrink-0 text-sm font-semibold text-[var(--text-primary)]">
+                Top 10 Estoque Crítico
+              </h3>
+              <div className={DASHBOARD_LIST_SCROLL}>
                 {dashboardCritical.length === 0 ? (
                   <p className="text-sm font-medium text-emerald-300">
                     Nenhum SKU em estado crítico ✓
                   </p>
                 ) : (
-                  dashboardCritical.map((p) => {
-                    const isCritical = p.stockQty <= p.minStock;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => openInventoryForSku(p.sku)}
-                        className="flex w-full items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--input-bg)]"
-                      >
-                        <div>
-                          <p className="text-sm text-[var(--text-primary)]">
-                            {p.sku} — {p.name}
-                          </p>
-                          <p className="text-xs text-[var(--text-secondary)]">
-                            Atual: {p.stockQty} | Mínimo: {p.minStock}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
-                            isCritical
-                              ? 'bg-rose-500/20 text-rose-200'
-                              : 'bg-emerald-500/20 text-emerald-200'
-                          }`}
-                        >
-                          {isCritical ? 'Crítico' : 'OK'}
-                        </span>
-                      </button>
-                    );
-                  })
+                  dashboardCritical.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => openInventoryForSku(p.sku)}
+                      className="flex w-full items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--input-bg)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-[var(--text-primary)]">
+                          {p.sku} — {p.name}
+                        </p>
+                        <p className="text-xs text-[var(--text-secondary)]">
+                          Atual: {p.stockQty} | Mínimo: {p.minStock} | Déficit: {p.deficit}
+                        </p>
+                      </div>
+                      <span className="ml-2 shrink-0 rounded-full bg-rose-500/20 px-2 py-1 text-[10px] font-semibold text-rose-200">
+                        Crítico
+                      </span>
+                    </button>
+                  ))
                 )}
               </div>
             </GlassCard>
@@ -2127,45 +2296,97 @@ export function EstoqueWorkspace() {
             </GlowButton>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Total entradas
-              </p>
-              <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                {movementsSummary?.totalInbound ?? 0}
-              </p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-              <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
-            </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Total saídas
-              </p>
-              <p className="mt-2 text-3xl font-bold text-rose-600 dark:text-rose-400">
-                {movementsSummary?.totalOutbound ?? 0}
-              </p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-              <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
-            </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Saldo líquido
-              </p>
-              <p
-                className={`mt-2 text-3xl font-bold ${
-                  (movementsSummary?.netBalance ?? 0) >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('entrada')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('entrada')
+                  ? 'ring-2 ring-emerald-500/60 border-2 border-emerald-500/40'
+                  : 'hover:ring-1 hover:ring-emerald-500/30'
+              }`}
+            >
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+                <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                  Total entradas
+                </p>
+                <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {movementsSummary?.totalInbound ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+                <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('saida')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('saida')
+                  ? 'ring-2 ring-rose-500/60 border-2 border-rose-500/40'
+                  : 'hover:ring-1 hover:ring-rose-500/30'
+              }`}
+            >
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+                <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                  Total saídas
+                </p>
+                <p className="mt-2 text-3xl font-bold text-rose-600 dark:text-rose-400">
+                  {movementsSummary?.totalOutbound ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+                <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('reserva')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('reserva')
+                  ? 'ring-2 ring-violet-500/60 border-2 border-violet-500/40'
+                  : 'hover:ring-1 hover:ring-violet-500/30'
+              }`}
+            >
+              <GlassCard
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm"
+                style={{ boxShadow: 'var(--shadow-card)' }}
               >
-                {movementsSummary?.netBalance ?? 0}
-              </p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                entradas − saídas
-              </p>
-              <ArrowRightLeft className="mt-3 h-5 w-5 text-[var(--accent)]" />
-            </GlassCard>
+                <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                  Reservados
+                </p>
+                <p className="mt-2 text-3xl font-bold text-violet-600 dark:text-violet-400">
+                  {movementsSummary?.totalReserved ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  unidades (RESERVE / RESERVA) no período
+                </p>
+                <Bookmark className="mt-3 h-5 w-5 text-violet-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('ajuste')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('ajuste')
+                  ? 'ring-2 ring-amber-500/60 border-2 border-amber-500/40'
+                  : 'hover:ring-1 hover:ring-amber-500/30'
+              }`}
+            >
+              <GlassCard
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm"
+                style={{ boxShadow: 'var(--shadow-card)' }}
+              >
+                <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                  Ajustes
+                </p>
+                <p className="mt-2 text-3xl font-bold text-amber-600 dark:text-amber-400">
+                  {movementsSummary?.totalAdjustments ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  movimentações de ajuste no período
+                </p>
+                <SlidersHorizontal className="mt-3 h-5 w-5 text-amber-500" />
+              </GlassCard>
+            </button>
           </div>
 
           <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
@@ -2183,28 +2404,6 @@ export function EstoqueWorkspace() {
                     className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   />
                 </div>
-              </div>
-              <div className="min-w-[160px]">
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                  Tipo
-                </label>
-                <PremiumSelect
-                  value={moveFilterType}
-                  onChange={(v) =>
-                    setMoveFilterType(v as MovementTypeFilterValue)
-                  }
-                  options={[
-                    { value: 'all', label: 'Todos' },
-                    { value: 'entrada', label: 'Entrada' },
-                    { value: 'saida', label: 'Saída' },
-                    { value: 'ajuste', label: 'Ajuste' },
-                    { value: 'reserva', label: 'Reserva' },
-                    {
-                      value: 'cancelamento_reserva',
-                      label: 'Cancelar reserva',
-                    },
-                  ]}
-                />
               </div>
               <div className="min-w-[180px]">
                 <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
@@ -2393,10 +2592,10 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'inventory' ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[38fr_62fr]">
-          <GlassCard className="flex min-h-[620px] flex-col border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-            <h3 className="text-xl font-semibold text-[var(--text-primary)]">Visão Geral do Estoque - Lista de SKUs</h3>
-            <div className="relative mt-3">
+        <div className="grid h-[calc(100dvh-10.5rem)] min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[38fr_62fr]">
+          <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+            <h3 className="shrink-0 text-xl font-semibold text-[var(--text-primary)]">Visão Geral do Estoque - Lista de SKUs</h3>
+            <div className="relative mt-3 shrink-0">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
               <input
                 value={productSearch}
@@ -2405,10 +2604,35 @@ export function EstoqueWorkspace() {
                 className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-base text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
               />
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setInventoryFilter('low')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'low' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Baixo Estoque</button>
-              <button type="button" onClick={() => setInventoryFilter('out')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'out' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Sem Estoque</button>
-              <button type="button" onClick={() => setInventoryFilter('transit')} className={`rounded-full border px-3 py-1 text-xs font-semibold ${inventoryFilter === 'transit' ? 'border-transparent bg-[var(--accent)] text-white' : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)]'}`}>Em Trânsito</button>
+            <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setInventoryFilter('all')}
+                className={inventoryFilterButtonClass(inventoryFilter === 'all')}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleInventoryFilter('out')}
+                className={inventoryFilterButtonClass(inventoryFilter === 'out')}
+              >
+                Sem Estoque
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleInventoryFilter('low')}
+                className={inventoryFilterButtonClass(inventoryFilter === 'low')}
+              >
+                Baixo Estoque
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleInventoryFilter('reserva')}
+                className={inventoryFilterButtonClass(inventoryFilter === 'reserva')}
+              >
+                Reserva
+              </button>
               {isAdmin ? (
                 <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-[var(--border-color)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
                   <input
@@ -2424,17 +2648,28 @@ export function EstoqueWorkspace() {
                 </label>
               ) : null}
             </div>
-            <div className="erp-scrollbar mt-3 grid flex-1 auto-rows-max grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+            {productsLoading ? (
+              <div className="mt-3 flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Carregando produtos...
+              </div>
+            ) : (
+              <div
+                ref={inventoryListScrollRef}
+                onScroll={syncInventoryListScroll}
+                className="erp-scrollbar mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+              >
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {inventoryProducts.map((p) => (
                 <div
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedInventoryId(p.id)}
+                  onClick={() => selectInventoryProduct(p.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      setSelectedInventoryId(p.id);
+                      selectInventoryProduct(p.id);
                     }
                   }}
                   className={`relative cursor-pointer rounded-xl border p-3 text-left transition ${selectedInventoryId === p.id ? 'border-2 border-[var(--accent)] bg-[var(--accent)]/10' : 'border-[var(--border-color)] bg-[var(--bg-card)] hover:bg-[var(--input-bg)]'}`}
@@ -2512,11 +2747,15 @@ export function EstoqueWorkspace() {
                   ) : null}
                 </div>
               ))}
-            </div>
-            <p className="mt-3 text-xs text-[var(--text-muted)]">Operador 1 | Filial Londrina</p>
+                </div>
+              </div>
+            )}
+            <p className="mt-2 shrink-0 text-xs text-[var(--text-muted)]">
+              {inventoryProducts.length} produto(s) · Operador 1 | Filial Londrina
+            </p>
           </GlassCard>
 
-          <GlassCard className="min-h-[620px] p-4">
+          <GlassCard className="h-full min-h-0 overflow-y-auto p-4">
             {selectedInventoryProduct ? (
               <>
                 <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">

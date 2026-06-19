@@ -26,6 +26,8 @@ import {
   mapMovementKindToPrisma,
   mapPrismaToMovementKind,
   mapTypeFilterToPrismaTypes,
+  mapTypesFiltersToPrismaTypes,
+  parseTypesFilterParam,
 } from './dto/stock-movement.dto';
 
 import type { StockSummaryQueryDto } from './dto/stock-summary.dto';
@@ -121,13 +123,12 @@ export class StockService {
     let periodInboundCount = 0;
     let periodOutboundCount = 0;
     const dailyMap = new Map<string, { inbound: number; outbound: number }>();
-    const productStats = new Map<
+    const productVolume = new Map<
       string,
       {
         sku: string;
         name: string;
-        n: number;
-        types: Record<string, number>;
+        totalVolume: number;
       }
     >();
 
@@ -144,20 +145,24 @@ export class StockService {
       if (m.movementType === StockMovementType.INBOUND) {
         periodInboundCount += 1;
         if (daily) daily.inbound += m.quantity;
+        const cur = productVolume.get(m.productId) ?? {
+          sku: m.product.sku,
+          name: m.product.name,
+          totalVolume: 0,
+        };
+        cur.totalVolume += m.quantity;
+        productVolume.set(m.productId, cur);
       } else if (m.movementType === StockMovementType.OUTBOUND) {
         periodOutboundCount += 1;
         if (daily) daily.outbound += m.quantity;
+        const cur = productVolume.get(m.productId) ?? {
+          sku: m.product.sku,
+          name: m.product.name,
+          totalVolume: 0,
+        };
+        cur.totalVolume += m.quantity;
+        productVolume.set(m.productId, cur);
       }
-
-      const cur = productStats.get(m.productId) ?? {
-        sku: m.product.sku,
-        name: m.product.name,
-        n: 0,
-        types: {} as Record<string, number>,
-      };
-      cur.n += 1;
-      cur.types[m.movementType] = (cur.types[m.movementType] ?? 0) + 1;
-      productStats.set(m.productId, cur);
     }
 
     const dailyFlow = [...dailyMap.entries()].map(([date, v]) => ({
@@ -166,18 +171,15 @@ export class StockService {
       outbound: v.outbound,
     }));
 
-    const topMoved = [...productStats.entries()]
+    const topMoved = [...productVolume.entries()]
       .map(([productId, x]) => ({
         productId,
         sku: x.sku,
         name: x.name,
-        movementCount: x.n,
-        predominantType:
-          Object.entries(x.types).sort((a, b) => b[1] - a[1])[0]?.[0] ??
-          StockMovementType.ADJUSTMENT,
+        totalVolume: x.totalVolume,
       }))
-      .sort((a, b) => b.movementCount - a.movementCount)
-      .slice(0, 5);
+      .sort((a, b) => b.totalVolume - a.totalVolume)
+      .slice(0, 10);
 
     const movedInPeriod = await this.prisma.client.stockMovement.groupBy({
       by: ['productId'],
@@ -196,12 +198,58 @@ export class StockService {
         ...(movedIds.length > 0 ? { id: { notIn: movedIds } } : {}),
       },
       orderBy: [{ stockQty: 'desc' }, { name: 'asc' }],
-      take: 5,
+      take: 10,
       select: {
         id: true,
         sku: true,
         name: true,
         stockQty: true,
+      },
+    });
+
+    const criticalRows = await this.prisma.client.$queryRaw<
+      Array<{
+        id: string;
+        sku: string;
+        name: string;
+        stockQty: number;
+        minStock: number;
+        deficit: number;
+      }>
+    >`
+      SELECT
+        id,
+        sku,
+        name,
+        "stockQty",
+        "minStock",
+        ("minStock" - "stockQty")::int AS deficit
+      FROM "Product"
+      WHERE "isActive" = true AND "stockQty" < "minStock"
+      ORDER BY ("minStock" - "stockQty") DESC
+      LIMIT 10
+    `;
+
+    const topInboundMovements = await this.prisma.client.stockMovement.findMany({
+      where: {
+        movementType: StockMovementType.INBOUND,
+        movementDate: {
+          gte: periodStart,
+          lte: periodEnd,
+        },
+      },
+      orderBy: { quantity: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        movementDate: true,
+        quantity: true,
+        product: {
+          select: { sku: true, name: true },
+        },
+        movedBy: {
+          select: { name: true },
+        },
       },
     });
 
@@ -219,6 +267,22 @@ export class StockService {
       dailyFlow,
       topMoved,
       stagnantProducts,
+      criticalProducts: criticalRows.map((r) => ({
+        id: r.id,
+        sku: r.sku,
+        name: r.name,
+        stockQty: Number(r.stockQty),
+        minStock: Number(r.minStock),
+        deficit: Number(r.deficit),
+      })),
+      topInboundMovements: topInboundMovements.map((m) => ({
+        id: m.id,
+        movementDate: m.movementDate.toISOString(),
+        quantity: m.quantity,
+        productSku: m.product.sku,
+        productName: m.product.name,
+        movedByName: m.movedBy?.name ?? null,
+      })),
       stockTrend,
     };
   }
@@ -286,7 +350,14 @@ export class StockService {
       where.productId = query.productId;
     }
 
-    if (query.type) {
+    const parsedTypes = query.types
+      ? parseTypesFilterParam(query.types)
+      : [];
+    if (parsedTypes.length > 0) {
+      where.movementType = {
+        in: mapTypesFiltersToPrismaTypes(parsedTypes),
+      };
+    } else if (query.type) {
       where.movementType = {
         in: mapTypeFilterToPrismaTypes(query.type as MovementTypeFilter),
       };
@@ -324,27 +395,57 @@ export class StockService {
 
 
   async movementsSummary(query: StockMovementQueryDto) {
-    const where = this.buildMovementWhere(query);
-    const grouped = await this.prisma.client.stockMovement.groupBy({
-      by: ['movementType'],
-      where,
-      _sum: { quantity: true },
-    });
+    const baseQuery = {
+      ...query,
+      type: undefined,
+      types: undefined,
+      movementType: undefined,
+    };
+    const baseWhere = this.buildMovementWhere(baseQuery);
+    const ajusteTypes = mapTypeFilterToPrismaTypes('ajuste');
 
-    let totalInbound = 0;
-    let totalOutbound = 0;
-    for (const row of grouped) {
-      const sum = row._sum.quantity ?? 0;
-      if (row.movementType === StockMovementType.INBOUND) {
-        totalInbound += sum;
-      } else if (row.movementType === StockMovementType.OUTBOUND) {
-        totalOutbound += sum;
-      }
-    }
+    const [inboundAgg, outboundAgg, reservedAgg, totalAdjustments] =
+      await Promise.all([
+        this.prisma.client.stockMovement.aggregate({
+          where: {
+            ...baseWhere,
+            movementType: StockMovementType.INBOUND,
+          },
+          _sum: { quantity: true },
+        }),
+        this.prisma.client.stockMovement.aggregate({
+          where: {
+            ...baseWhere,
+            movementType: StockMovementType.OUTBOUND,
+          },
+          _sum: { quantity: true },
+        }),
+        this.prisma.client.stockMovement.aggregate({
+          where: {
+            ...baseWhere,
+            movementType: {
+              in: [StockMovementType.RESERVE, StockMovementType.RESERVA],
+            },
+          },
+          _sum: { quantity: true },
+        }),
+        this.prisma.client.stockMovement.count({
+          where: {
+            ...baseWhere,
+            movementType: { in: ajusteTypes },
+          },
+        }),
+      ]);
+
+    const totalInbound = inboundAgg._sum.quantity ?? 0;
+    const totalOutbound = outboundAgg._sum.quantity ?? 0;
+    const totalReserved = reservedAgg._sum.quantity ?? 0;
 
     return {
       totalInbound,
       totalOutbound,
+      totalReserved,
+      totalAdjustments,
       netBalance: totalInbound - totalOutbound,
     };
   }
