@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { CadastrosModule } from './cadastros/cadastros.module';
 import { OrderModule } from './orders/order.module';
 import { ProductModule } from './product/product.module';
 import { StockModule } from './stock/stock.module';
@@ -21,6 +22,7 @@ import { StockModule } from './stock/stock.module';
     ProductModule,
     StockModule,
     OrderModule,
+    CadastrosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

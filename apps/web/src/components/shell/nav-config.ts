@@ -4,6 +4,7 @@ export type NavIconName =
   | 'package'
   | 'users'
   | 'wallet'
+  | 'clipboardList'
   | 'messageSquare'
   | 'settings'
   | 'shield';
@@ -22,5 +23,6 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { href: '/app/financeiro', label: 'Financeiro', iconName: 'wallet' },
   { href: '/app/chat', label: 'Chat', iconName: 'messageSquare' },
   { href: '/app/configuracoes', label: 'Configurações', iconName: 'settings' },
+  { href: '/app/cadastros', label: 'Cadastros', iconName: 'clipboardList' },
   { href: '/app/auditoria', label: 'Auditoria', iconName: 'shield' },
 ];

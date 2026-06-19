@@ -223,6 +223,8 @@ model Customer {
   email           String?
   phone           String?
   document        String?
+  deliveryAddress String?
+  isActive        Boolean          @default(true)
   orders          Order[]
   shipments       Shipment[]
   receivables     AccountReceivable[]
@@ -232,6 +234,7 @@ model Customer {
 
   @@index([name])
   @@index([document])
+  @@index([isActive])
   @@index([createdAt])
 }
 
@@ -241,12 +244,14 @@ model Supplier {
   email      String?
   phone      String?
   document   String?
+  isActive   Boolean          @default(true)
   payables   AccountPayable[]
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
   @@index([name])
   @@index([document])
+  @@index([isActive])
   @@index([createdAt])
 }
 
@@ -612,4 +617,37 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@index([entity, entityId])
+}
+
+model Receiver {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([name])
+}
+
+model UnloadingPoint {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([name])
+}
+
+model Carrier {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([name])
 }

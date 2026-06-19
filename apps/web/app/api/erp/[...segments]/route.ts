@@ -19,6 +19,7 @@ function isAllowedPath(path: string): boolean {
     /^products(\/|$)/i.test(path) ||
     /^stock(\/|$)/i.test(path) ||
     /^product-categories(\/|$)/i.test(path) ||
+    /^cadastros(\/|$)/i.test(path) ||
     /^orders(\/|$)/i.test(path) ||
     /^api\/pedidos(\/|$)/i.test(path) ||
     /^pedidos(\/|$)/i.test(path) ||
