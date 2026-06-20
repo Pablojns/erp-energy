@@ -1,16 +1,12 @@
 import {
-
   BadRequestException,
-
   ConflictException,
-
   Injectable,
-
+  Logger,
   NotFoundException,
-
+  OnModuleInit,
 } from '@nestjs/common';
-
-import { Prisma, StockMovementType } from '@erp/database';
+import { OrderStatus, Prisma, StockMovementType } from '@erp/database';
 
 import type {
 
@@ -38,17 +34,36 @@ import { PrismaService } from '../prisma/prisma.service';
 
 
 
-@Injectable()
+type StockTx = Omit<
+  Prisma.TransactionClient,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>;
 
-export class StockService {
+@Injectable()
+export class StockService implements OnModuleInit {
+  private readonly logger = new Logger(StockService.name);
 
   constructor(
-
     private readonly prisma: PrismaService,
-
     private readonly audit: AuditService,
-
   ) {}
+
+  async onModuleInit() {
+    try {
+      const removed = await this.cleanOrphanStockMovements();
+      if (removed > 0) {
+        this.logger.log(
+          `Removidas ${removed} movimentação(ões) órfãs de pedidos excluídos.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao limpar movimentações órfãs na inicialização: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
 
 
@@ -453,6 +468,7 @@ export class StockService {
 
 
   async listMovements(query: StockMovementQueryDto) {
+    await this.cleanOrphanStockMovements();
 
     const page =
 
@@ -881,14 +897,6 @@ export class StockService {
 
   }
 
-  private readonly nonDeletableMovementTypes = new Set<StockMovementType>([
-    StockMovementType.TRANSFER,
-    StockMovementType.RETURN,
-    StockMovementType.RESERVA,
-    StockMovementType.BAIXA_EXPEDICAO,
-    StockMovementType.SAIDA_EXPEDICAO,
-  ]);
-
   private parsePriceReferenceFrom(
     reference: string | null,
   ): Prisma.Decimal | null {
@@ -923,94 +931,24 @@ export class StockService {
         throw new NotFoundException('Movimentação não encontrada.');
       }
 
-      if (this.nonDeletableMovementTypes.has(movement.movementType)) {
-        throw new BadRequestException(
-          'Esta movimentação está vinculada à expedição ou a outro fluxo e não pode ser excluída pelo estoque.',
-        );
-      }
+      const expeditionSnapshot = {
+        reference: movement.reference,
+        invoiceNumber: movement.invoiceNumber,
+        notes: movement.notes,
+        movementType: movement.movementType,
+      };
 
-      const { movementType: type, quantity: qty, productId } = movement;
-
-      if (type === StockMovementType.INBOUND) {
-        const updated = await tx.product.updateMany({
-          where: { id: productId, stockQty: { gte: qty } },
-          data: { stockQty: { decrement: qty } },
-        });
-        if (updated.count !== 1) {
-          throw new ConflictException(
-            'Não é possível reverter a entrada: saldo atual ficaria negativo.',
-          );
-        }
-      } else if (
-        type === StockMovementType.OUTBOUND ||
-        type === StockMovementType.RESERVE
-      ) {
-        await tx.product.update({
-          where: { id: productId },
-          data: { stockQty: { increment: qty } },
-        });
-      } else if (type === StockMovementType.RESERVE_CANCEL) {
-        const updated = await tx.product.updateMany({
-          where: { id: productId, stockQty: { gte: qty } },
-          data: { stockQty: { decrement: qty } },
-        });
-        if (updated.count !== 1) {
-          throw new ConflictException(
-            'Não é possível reverter o cancelamento de reserva: saldo insuficiente.',
-          );
-        }
-      } else if (
-        type === StockMovementType.ADJUSTMENT ||
-        type === StockMovementType.AJUSTE_QUANTIDADE
-      ) {
-        if (qty > 0) {
-          const updated = await tx.product.updateMany({
-            where: { id: productId, stockQty: { gte: qty } },
-            data: { stockQty: { decrement: qty } },
-          });
-          if (updated.count !== 1) {
-            throw new ConflictException(
-              'Não é possível reverter o ajuste: saldo atual ficaria negativo.',
-            );
-          }
-        } else if (qty < 0) {
-          await tx.product.update({
-            where: { id: productId },
-            data: { stockQty: { increment: -qty } },
-          });
-        }
-      } else if (type === StockMovementType.AJUSTE_PRECO_VENDA) {
-        const fromPrice = this.parsePriceReferenceFrom(movement.reference);
-        if (!fromPrice) {
-          throw new BadRequestException(
-            'Referência de preço ausente; não é possível reverter automaticamente.',
-          );
-        }
-        await tx.product.update({
-          where: { id: productId },
-          data: { price: fromPrice },
-        });
-      } else if (type === StockMovementType.AJUSTE_PRECO_BASE) {
-        const fromCost = this.parsePriceReferenceFrom(movement.reference);
-        if (!fromCost) {
-          throw new BadRequestException(
-            'Referência de preço ausente; não é possível reverter automaticamente.',
-          );
-        }
-        await tx.product.update({
-          where: { id: productId },
-          data: { cost: fromCost },
-        });
-      } else {
-        throw new BadRequestException(
-          'Tipo de movimentação não suportado para exclusão.',
-        );
-      }
+      await this.revertMovementForOrderDelete(tx, movement);
 
       await tx.stockMovement.delete({ where: { id: movementId } });
 
+      await this.syncOrderExitAfterExpeditionMovementRemoved(
+        tx,
+        expeditionSnapshot,
+      );
+
       const updatedProduct = await tx.product.findUnique({
-        where: { id: productId },
+        where: { id: movement.productId },
         select: { stockQty: true, price: true, cost: true },
       });
 
@@ -1044,6 +982,430 @@ export class StockService {
     });
 
     return { ok: true, id: movementId };
+  }
+
+  /** Referências usadas pela expedição em `StockMovement.reference` / `notes`. */
+  static buildOrderStockMovementWhere(
+    order: {
+      code: string;
+      externalOrderNumber: string | null;
+      invoiceNumber: string | null;
+    },
+  ): Prisma.StockMovementWhereInput {
+    const refs = new Set<string>([order.code]);
+    const ext = order.externalOrderNumber?.trim();
+    if (ext) refs.add(ext);
+    const inv = order.invoiceNumber?.trim();
+    if (inv) refs.add(inv);
+
+    const or: Prisma.StockMovementWhereInput[] = [
+      { reference: { in: [...refs] } },
+      { notes: { contains: order.code, mode: 'insensitive' } },
+    ];
+    if (ext) {
+      or.push({ notes: { contains: ext, mode: 'insensitive' } });
+    }
+    if (inv) {
+      or.push({ invoiceNumber: inv });
+    }
+    return { OR: or };
+  }
+
+  private async safeDecrementReservedQty(
+    tx: StockTx,
+    productId: string,
+    qty: number,
+  ): Promise<void> {
+    if (qty <= 0) return;
+    const product = await tx.product.findUnique({
+      where: { id: productId },
+      select: { reservedQty: true },
+    });
+    const dec = Math.min(qty, product?.reservedQty ?? 0);
+    if (dec <= 0) return;
+    await tx.product.update({
+      where: { id: productId },
+      data: { reservedQty: { decrement: dec } },
+    });
+  }
+
+  private async revertMovementForOrderDelete(
+    tx: StockTx,
+    movement: {
+      productId: string;
+      movementType: StockMovementType;
+      quantity: number;
+      notes: string | null;
+      reference: string | null;
+    },
+  ): Promise<void> {
+    const type = movement.movementType;
+    const qty = movement.quantity;
+    const { productId } = movement;
+
+    if (type === StockMovementType.INBOUND) {
+      const updated = await tx.product.updateMany({
+        where: { id: productId, stockQty: { gte: qty } },
+        data: { stockQty: { decrement: qty } },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException(
+          'Não é possível reverter entrada do pedido: saldo atual ficaria negativo.',
+        );
+      }
+    } else if (
+      type === StockMovementType.OUTBOUND ||
+      type === StockMovementType.RESERVE
+    ) {
+      await tx.product.update({
+        where: { id: productId },
+        data: { stockQty: { increment: qty } },
+      });
+    } else if (type === StockMovementType.RESERVE_CANCEL) {
+      const physical = movement.notes?.includes('física') ?? false;
+      if (physical) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { reservedQty: { increment: qty } },
+        });
+      } else {
+        const updated = await tx.product.updateMany({
+          where: { id: productId, stockQty: { gte: qty } },
+          data: { stockQty: { decrement: qty } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException(
+            'Não é possível reverter liberação de reserva do pedido: saldo insuficiente.',
+          );
+        }
+      }
+    } else if (type === StockMovementType.RESERVA) {
+      await this.safeDecrementReservedQty(tx, productId, qty);
+    } else if (
+      type === StockMovementType.SAIDA_EXPEDICAO ||
+      type === StockMovementType.BAIXA_EXPEDICAO
+    ) {
+      await tx.product.update({
+        where: { id: productId },
+        data: { stockQty: { increment: qty } },
+      });
+    } else if (
+      type === StockMovementType.ADJUSTMENT ||
+      type === StockMovementType.AJUSTE_QUANTIDADE
+    ) {
+      if (qty > 0) {
+        const updated = await tx.product.updateMany({
+          where: { id: productId, stockQty: { gte: qty } },
+          data: { stockQty: { decrement: qty } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException(
+            'Não é possível reverter ajuste do pedido: saldo ficaria negativo.',
+          );
+        }
+      } else if (qty < 0) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { stockQty: { increment: -qty } },
+        });
+      }
+    } else if (
+      type === StockMovementType.AJUSTE_PRECO_VENDA ||
+      type === StockMovementType.AJUSTE_PRECO_BASE
+    ) {
+      const fromPrice = this.parsePriceReferenceFrom(movement.reference);
+      if (!fromPrice) return;
+      await tx.product.update({
+        where: { id: productId },
+        data:
+          type === StockMovementType.AJUSTE_PRECO_VENDA
+            ? { price: fromPrice }
+            : { cost: fromPrice },
+      });
+    }
+  }
+
+  /**
+   * Remove dados de estoque/expedição vinculados ao pedido, na ordem correta de FKs.
+   * Não exclui o registro `Order` — o chamador deve deletá-lo ao final.
+   */
+  async purgeOrderRelatedData(
+    tx: StockTx,
+    order: {
+      id: string;
+      code: string;
+      externalOrderNumber: string | null;
+      invoiceNumber: string | null;
+    },
+  ): Promise<{
+    deletedReservations: number;
+    deletedMovements: number;
+    deletedExits: number;
+    deletedItems: number;
+  }> {
+    const reservations = await tx.stockReservation.findMany({
+      where: { orderId: order.id },
+      orderBy: { productId: 'asc' },
+    });
+
+    for (const r of reservations) {
+      await this.safeDecrementReservedQty(tx, r.productId, r.quantity);
+    }
+    const delRes = await tx.stockReservation.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    const movementWhere = StockService.buildOrderStockMovementWhere(order);
+    const movements = await tx.stockMovement.findMany({
+      where: movementWhere,
+      orderBy: { movementDate: 'desc' },
+    });
+
+    for (const m of movements) {
+      await this.revertMovementForOrderDelete(tx, m);
+    }
+    const delMov =
+      movements.length > 0
+        ? await tx.stockMovement.deleteMany({
+            where: { id: { in: movements.map((m) => m.id) } },
+          })
+        : { count: 0 };
+
+    const delExit = await tx.orderExit.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    const delItems = await tx.orderItem.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    return {
+      deletedReservations: delRes.count,
+      deletedMovements: delMov.count,
+      deletedExits: delExit.count,
+      deletedItems: delItems.count,
+    };
+  }
+
+  private isOrderLinkedMovement(movement: {
+    movementType: StockMovementType;
+    reference: string | null;
+    notes: string | null;
+  }): boolean {
+    if (
+      movement.movementType === StockMovementType.RESERVA ||
+      movement.movementType === StockMovementType.SAIDA_EXPEDICAO ||
+      movement.movementType === StockMovementType.BAIXA_EXPEDICAO ||
+      movement.movementType === StockMovementType.RESERVE_CANCEL
+    ) {
+      return true;
+    }
+    if (movement.reference?.startsWith('PED-')) return true;
+    if (movement.notes?.toLowerCase().includes('pedido')) return true;
+    return false;
+  }
+
+  private async findOrderByMovementReference(
+    tx: StockTx | PrismaService['client'],
+    movement: {
+      reference: string | null;
+      invoiceNumber: string | null;
+      notes: string | null;
+    },
+  ) {
+    const candidates = new Set<string>();
+    if (movement.reference?.trim()) candidates.add(movement.reference.trim());
+    if (movement.invoiceNumber?.trim()) {
+      candidates.add(movement.invoiceNumber.trim());
+    }
+    const codeFromNotes = movement.notes?.match(/PED-\d+/i)?.[0];
+    if (codeFromNotes) candidates.add(codeFromNotes);
+
+    if (candidates.size === 0) return null;
+
+    const refs = [...candidates];
+    return tx.order.findFirst({
+      where: {
+        OR: [
+          { code: { in: refs } },
+          { externalOrderNumber: { in: refs } },
+          { invoiceNumber: { in: refs } },
+        ],
+      },
+      select: {
+        id: true,
+        code: true,
+        externalOrderNumber: true,
+        invoiceNumber: true,
+        status: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Remove movimentações cujo pedido referenciado não existe mais. */
+  async cleanOrphanStockMovements(): Promise<number> {
+    const candidates = await this.prisma.client.stockMovement.findMany({
+      where: {
+        OR: [
+          {
+            movementType: {
+              in: [
+                StockMovementType.RESERVA,
+                StockMovementType.SAIDA_EXPEDICAO,
+                StockMovementType.BAIXA_EXPEDICAO,
+                StockMovementType.RESERVE_CANCEL,
+              ],
+            },
+          },
+          { reference: { startsWith: 'PED-' } },
+          { notes: { contains: 'pedido', mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        reference: true,
+        invoiceNumber: true,
+        notes: true,
+        movementType: true,
+      },
+    });
+
+    const orphanIds: string[] = [];
+    for (const m of candidates) {
+      if (!this.isOrderLinkedMovement(m)) continue;
+      const order = await this.findOrderByMovementReference(
+        this.prisma.client,
+        m,
+      );
+      if (!order) orphanIds.push(m.id);
+    }
+
+    if (orphanIds.length === 0) return 0;
+
+    const deleted = await this.prisma.client.stockMovement.deleteMany({
+      where: { id: { in: orphanIds } },
+    });
+    return deleted.count;
+  }
+
+  private async syncOrderExitAfterExpeditionMovementRemoved(
+    tx: StockTx,
+    movement: {
+      reference: string | null;
+      invoiceNumber: string | null;
+      notes: string | null;
+      movementType: StockMovementType;
+    },
+  ): Promise<void> {
+    if (
+      movement.movementType !== StockMovementType.SAIDA_EXPEDICAO &&
+      movement.movementType !== StockMovementType.BAIXA_EXPEDICAO
+    ) {
+      return;
+    }
+
+    const order = await this.findOrderByMovementReference(tx, movement);
+    if (!order) return;
+
+    const remaining = await tx.stockMovement.count({
+      where: {
+        AND: [
+          StockService.buildOrderStockMovementWhere(order),
+          {
+            movementType: {
+              in: [
+                StockMovementType.SAIDA_EXPEDICAO,
+                StockMovementType.BAIXA_EXPEDICAO,
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    if (remaining > 0) return;
+
+    await tx.orderExit.deleteMany({ where: { orderId: order.id } });
+
+    if (order.status === OrderStatus.FINALIZADO) {
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: OrderStatus.AGUARDANDO_NF,
+          shippedAt: null,
+        },
+      });
+    }
+  }
+
+  /**
+   * Remove saída de expedição e movimentações de estoque vinculadas, revertendo saldo.
+   */
+  async purgeExitRelatedData(
+    tx: StockTx,
+    input: {
+      exitId: string;
+      invoiceNumber: string;
+      order: {
+        id: string;
+        code: string;
+        externalOrderNumber: string | null;
+        invoiceNumber: string | null;
+      };
+    },
+  ): Promise<{ deletedMovements: number }> {
+    const inv = input.invoiceNumber.trim();
+    const movementWhere: Prisma.StockMovementWhereInput = {
+      AND: [
+        StockService.buildOrderStockMovementWhere(input.order),
+        {
+          movementType: {
+            in: [
+              StockMovementType.SAIDA_EXPEDICAO,
+              StockMovementType.BAIXA_EXPEDICAO,
+            ],
+          },
+        },
+        {
+          OR: [{ invoiceNumber: inv }, { reference: inv }],
+        },
+      ],
+    };
+
+    const movements = await tx.stockMovement.findMany({
+      where: movementWhere,
+      orderBy: { movementDate: 'desc' },
+    });
+
+    for (const m of movements) {
+      await this.revertMovementForOrderDelete(tx, m);
+    }
+
+    const delMov =
+      movements.length > 0
+        ? await tx.stockMovement.deleteMany({
+            where: { id: { in: movements.map((m) => m.id) } },
+          })
+        : { count: 0 };
+
+    await tx.orderExit.delete({ where: { id: input.exitId } });
+
+    const order = await tx.order.findUnique({
+      where: { id: input.order.id },
+      select: { status: true },
+    });
+    if (order?.status === OrderStatus.FINALIZADO) {
+      await tx.order.update({
+        where: { id: input.order.id },
+        data: {
+          status: OrderStatus.AGUARDANDO_NF,
+          shippedAt: null,
+        },
+      });
+    }
+
+    return { deletedMovements: delMov.count };
   }
 
 }

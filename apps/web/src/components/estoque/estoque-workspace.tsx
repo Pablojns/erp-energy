@@ -27,6 +27,10 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
+import {
+  ErpFilterBar,
+  type FilterBadgeItem,
+} from '@/src/components/shared/erp-filter-bar';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -54,6 +58,12 @@ type MovementUserOption = {
   email: string;
 };
 
+type CadastroOption = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
 type MovementsSummary = {
   totalInbound: number;
   totalOutbound: number;
@@ -63,6 +73,44 @@ type MovementsSummary = {
 };
 
 type MoveTypeCardFilter = 'entrada' | 'saida' | 'reserva' | 'ajuste';
+
+const INVENTORY_FILTER_KEY = 'erp.filters.estoque.inventario';
+const MOVEMENTS_FILTER_KEY = 'erp.filters.estoque.movimentacoes';
+
+const INVENTORY_FILTER_LABEL: Record<Exclude<InventoryFilter, 'all'>, string> = {
+  out: 'Sem estoque',
+  low: 'Baixo estoque',
+  reserva: 'Reserva',
+};
+
+const MOVE_TYPE_LABEL: Record<MoveTypeCardFilter, string> = {
+  entrada: 'Entradas',
+  saida: 'Saídas',
+  reserva: 'Reservas',
+  ajuste: 'Ajustes',
+};
+
+const MOVE_PERIOD_LABEL: Record<MovePeriodPreset, string> = {
+  today: 'Hoje',
+  week: 'Esta semana',
+  month: 'Este mês',
+  custom: 'Intervalo personalizado',
+};
+
+type InventoryFilterPreset = {
+  inventoryFilter: InventoryFilter;
+  showInactive: boolean;
+  search: string;
+};
+
+type MovementFilterPreset = {
+  search: string;
+  types: MoveTypeCardFilter[];
+  userId: string;
+  period: MovePeriodPreset;
+  dateFrom: string;
+  dateTo: string;
+};
 
 type ProductCategoryDto = {
   id: string;
@@ -611,9 +659,27 @@ export function EstoqueWorkspace() {
   const [movementDeleteTarget, setMovementDeleteTarget] =
     useState<MovementRow | null>(null);
   const [movementDeleteStep, setMovementDeleteStep] = useState<
-    'idle' | 'confirm1' | 'confirm2'
+    'idle' | 'confirm'
   >('idle');
   const [movementDeleting, setMovementDeleting] = useState(false);
+  const [productDeleteTarget, setProductDeleteTarget] =
+    useState<ProductDto | null>(null);
+  const [productDeleting, setProductDeleting] = useState(false);
+  const [cancelingReserveId, setCancelingReserveId] = useState<string | null>(
+    null,
+  );
+  const [reserveOpen, setReserveOpen] = useState(false);
+  const [reserveStep, setReserveStep] = useState<'form' | 'confirm'>('form');
+  const [reserveReceivers, setReserveReceivers] = useState<CadastroOption[]>(
+    [],
+  );
+  const [reserveForm, setReserveForm] = useState({
+    receiverId: '',
+    quantity: '',
+    notes: '',
+  });
+  const [reserveSaving, setReserveSaving] = useState(false);
+  const [reserveError, setReserveError] = useState<string | null>(null);
 
   const inventoryListScrollRef = useRef<HTMLDivElement>(null);
   const inventoryListScrollTopRef = useRef(0);
@@ -728,18 +794,28 @@ export function EstoqueWorkspace() {
     setPendingPresetAjustePlan(null);
     setMovementDeleteTarget(null);
     setMovementDeleteStep('idle');
+    setProductDeleteTarget(null);
+    setReserveOpen(false);
+    setReserveStep('form');
   }, []);
 
   useCloseOverlaysOnRouteChange(closeAllModals);
 
   useEffect(() => {
-    if (!productModalOpen && !moveModalOpen && movementDeleteStep === 'idle') return;
+    if (
+      !productModalOpen &&
+      !moveModalOpen &&
+      movementDeleteStep === 'idle' &&
+      !productDeleteTarget &&
+      !reserveOpen
+    )
+      return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeAllModals();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [productModalOpen, moveModalOpen, movementDeleteStep, closeAllModals]);
+  }, [productModalOpen, moveModalOpen, movementDeleteStep, productDeleteTarget, reserveOpen, closeAllModals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1154,15 +1230,38 @@ export function EstoqueWorkspace() {
   };
 
   const inactivateProduct = async (p: ProductDto) => {
-    if (!window.confirm(`Inativar ${p.name}?`)) return;
-    setBannerSuccess(null);
+    setProductDeleteTarget(p);
+  };
+
+  const cancelProductDelete = () => {
+    if (productDeleting) return;
+    setProductDeleteTarget(null);
+  };
+
+  const executeProductDelete = async () => {
+    if (!productDeleteTarget) return;
+    setProductDeleting(true);
     setBannerError(null);
     try {
-      await erpFetchJson(`products/${p.id}`, { method: 'DELETE' });
+      await erpFetchJson(`products/${productDeleteTarget.id}`, {
+        method: 'DELETE',
+      });
+      if (selectedInventoryId === productDeleteTarget.id) {
+        setSelectedInventoryId(null);
+      }
+      setProductMenuOpenId(null);
+      cancelProductDelete();
+      setBannerSuccess(
+        `Produto "${productDeleteTarget.name}" excluído com sucesso.`,
+      );
       await loadSummary();
       await reloadProductsForTab();
     } catch (e) {
-      setBannerError(e instanceof Error ? e.message : 'Erro ao inativar.');
+      setBannerError(
+        e instanceof Error ? e.message : 'Falha ao excluir produto.',
+      );
+    } finally {
+      setProductDeleting(false);
     }
   };
 
@@ -1351,7 +1450,7 @@ export function EstoqueWorkspace() {
     setMoveNotesError(null);
     setBannerError(null);
 
-    if (!moveForm.notes.trim()) {
+    if (moveForm.movementKind === 'ajuste' && !moveForm.notes.trim()) {
       setMoveNotesError('Informe o motivo do ajuste');
       return;
     }
@@ -1361,7 +1460,12 @@ export function EstoqueWorkspace() {
       return;
     }
 
-    if (movePresetProduct && moveForm.movementKind === 'ajuste') {
+    if (moveForm.movementKind !== 'ajuste') {
+      void saveMovement();
+      return;
+    }
+
+    if (movePresetProduct) {
       try {
         const plan = buildPresetAjustePlan();
         if (!plan) return;
@@ -1402,7 +1506,7 @@ export function EstoqueWorkspace() {
     setBannerSuccess(null);
     setMoveNotesError(null);
     try {
-      if (!moveForm.notes.trim()) {
+      if (moveForm.movementKind === 'ajuste' && !moveForm.notes.trim()) {
         setMoveNotesError('Informe o motivo do ajuste');
         return;
       }
@@ -1473,7 +1577,9 @@ export function EstoqueWorkspace() {
           productId: moveForm.productId,
           movementType: MOVEMENT_KIND_TO_TYPE[moveForm.movementKind],
           quantity: qtyRaw,
-          notes: moveForm.notes.trim(),
+          ...(moveForm.notes.trim()
+            ? { notes: moveForm.notes.trim() }
+            : {}),
         }),
       });
       await finalizeMovementSave();
@@ -1599,7 +1705,7 @@ export function EstoqueWorkspace() {
   const openMovementDelete = (movement: MovementRow) => {
     setBannerError(null);
     setMovementDeleteTarget(movement);
-    setMovementDeleteStep('confirm1');
+    setMovementDeleteStep('confirm');
   };
 
   const cancelMovementDelete = () => {
@@ -1644,6 +1750,145 @@ export function EstoqueWorkspace() {
         <Trash2 className="h-4 w-4" />
       </button>
     );
+  };
+
+  const cancelReserveFromRow = async (movement: MovementRow) => {
+    setCancelingReserveId(movement.id);
+    setBannerError(null);
+    try {
+      await erpFetchJson('stock/movements', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: movement.product.id,
+          movementType: 'RESERVE_CANCEL',
+          quantity: movement.quantity,
+          ...(movement.reference?.trim()
+            ? { reference: movement.reference.trim() }
+            : {}),
+          notes: `Cancelamento de reserva (${movement.product.sku})`,
+        }),
+      });
+      setBannerSuccess('Reserva cancelada com sucesso.');
+      await loadSummary();
+      await loadMovements();
+      if (tab === 'inventory' || tab === 'dashboard') {
+        await reloadProductsForTab();
+      }
+    } catch (e) {
+      setBannerError(
+        e instanceof Error ? e.message : 'Falha ao cancelar reserva.',
+      );
+    } finally {
+      setCancelingReserveId(null);
+    }
+  };
+
+  const renderMovementRowActions = (movement: MovementRow) => (
+    <div className="flex items-center justify-end gap-1">
+      {movement.movementType === 'RESERVE' ? (
+        <button
+          type="button"
+          disabled={cancelingReserveId === movement.id}
+          onClick={() => void cancelReserveFromRow(movement)}
+          className="inline-flex items-center gap-1 rounded-lg border border-violet-400/30 px-2 py-1 text-[11px] font-semibold text-violet-300 transition hover:bg-violet-500/10 disabled:opacity-50"
+        >
+          {cancelingReserveId === movement.id ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Undo2 className="h-3 w-3" />
+          )}
+          Cancelar reserva
+        </button>
+      ) : null}
+      {renderMovementDeleteButton(movement)}
+    </div>
+  );
+
+  const openReserveModal = async () => {
+    if (!selectedInventoryProduct) return;
+    setReserveError(null);
+    setReserveStep('form');
+    setReserveForm({ receiverId: '', quantity: '', notes: '' });
+    try {
+      const rows = await erpFetchJson<CadastroOption[]>('cadastros/receivers');
+      setReserveReceivers(rows.filter((r) => r.isActive));
+    } catch {
+      setReserveReceivers([]);
+    }
+    setReserveOpen(true);
+  };
+
+  const closeReserveModal = () => {
+    if (reserveSaving) return;
+    setReserveOpen(false);
+    setReserveStep('form');
+    setReserveError(null);
+  };
+
+  const requestReserveConfirm = () => {
+    setReserveError(null);
+    if (!selectedInventoryProduct) {
+      setReserveError('Selecione um produto.');
+      return;
+    }
+    if (!reserveForm.receiverId.trim()) {
+      setReserveError('Selecione o recebedor.');
+      return;
+    }
+    const qty = Number.parseInt(reserveForm.quantity.trim(), 10);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setReserveError('Informe uma quantidade válida.');
+      return;
+    }
+    setReserveStep('confirm');
+  };
+
+  const executeReserveSave = async () => {
+    if (!selectedInventoryProduct) return;
+    const receiver = reserveReceivers.find((r) => r.id === reserveForm.receiverId);
+    if (!receiver) {
+      setReserveError('Recebedor inválido.');
+      setReserveStep('form');
+      return;
+    }
+    const qty = Number.parseInt(reserveForm.quantity.trim(), 10);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setReserveError('Informe uma quantidade válida.');
+      setReserveStep('form');
+      return;
+    }
+
+    setReserveSaving(true);
+    setReserveError(null);
+    try {
+      const notesParts = [
+        `Reserva para ${receiver.name}`,
+        reserveForm.notes.trim(),
+      ].filter(Boolean);
+
+      await erpFetchJson('stock/movements', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: selectedInventoryProduct.id,
+          movementType: 'RESERVE',
+          quantity: qty,
+          reference: receiver.name,
+          notes: notesParts.join(' — '),
+        }),
+      });
+      closeReserveModal();
+      setBannerSuccess('Reserva registrada com sucesso.');
+      await loadSummary();
+      await loadMovements();
+      await reloadProductsForTab();
+    } catch (e) {
+      setReserveError(
+        e instanceof Error ? e.message : 'Falha ao registrar reserva.',
+      );
+      setReserveStep('form');
+    } finally {
+      setReserveSaving(false);
+    }
   };
 
   const movementTableColumns: TableColumn[] = useMemo(
@@ -1708,6 +1953,143 @@ export function EstoqueWorkspace() {
         ),
     );
   }, [productsData, isAdmin, inventoryFilter, movementItems]);
+
+  const inventoryFilterBadges = useMemo((): FilterBadgeItem[] => {
+    const badges: FilterBadgeItem[] = [];
+    if (inventoryFilter !== 'all') {
+      badges.push({
+        key: `stock:${inventoryFilter}`,
+        label: INVENTORY_FILTER_LABEL[inventoryFilter as Exclude<InventoryFilter, 'all'>],
+      });
+    }
+    if (showInactive) {
+      badges.push({ key: 'inactive', label: 'Inativos' });
+    }
+    const q = productSearchDebounced.trim();
+    if (q) badges.push({ key: 'search', label: `Busca: ${q}` });
+    return badges;
+  }, [inventoryFilter, showInactive, productSearchDebounced]);
+
+  const inventoryFilterPreset = useMemo(
+    (): InventoryFilterPreset => ({
+      inventoryFilter,
+      showInactive,
+      search: productSearch,
+    }),
+    [inventoryFilter, showInactive, productSearch],
+  );
+
+  const movementFilterBadges = useMemo((): FilterBadgeItem[] => {
+    const badges: FilterBadgeItem[] = [];
+    for (const type of [...moveTypeCardFilters].sort()) {
+      badges.push({ key: `type:${type}`, label: MOVE_TYPE_LABEL[type] });
+    }
+    if (moveFilterUserId) {
+      const user = movementUsers.find((u) => u.id === moveFilterUserId);
+      badges.push({
+        key: 'user',
+        label: `Responsável: ${user?.name ?? moveFilterUserId}`,
+      });
+    }
+    if (moveFilterPeriod !== 'month') {
+      badges.push({
+        key: 'period',
+        label: MOVE_PERIOD_LABEL[moveFilterPeriod],
+      });
+    }
+    if (moveFilterPeriod === 'custom') {
+      if (moveFilterDateFrom) {
+        badges.push({ key: 'dateFrom', label: `De: ${moveFilterDateFrom}` });
+      }
+      if (moveFilterDateTo) {
+        badges.push({ key: 'dateTo', label: `Até: ${moveFilterDateTo}` });
+      }
+    }
+    const q = moveFilterSearchDebounced.trim();
+    if (q) badges.push({ key: 'search', label: `Busca: ${q}` });
+    return badges;
+  }, [
+    moveTypeCardFilters,
+    moveFilterUserId,
+    movementUsers,
+    moveFilterPeriod,
+    moveFilterDateFrom,
+    moveFilterDateTo,
+    moveFilterSearchDebounced,
+  ]);
+
+  const movementFilterPreset = useMemo(
+    (): MovementFilterPreset => ({
+      search: moveFilterSearch,
+      types: [...moveTypeCardFilters],
+      userId: moveFilterUserId,
+      period: moveFilterPeriod,
+      dateFrom: moveFilterDateFrom,
+      dateTo: moveFilterDateTo,
+    }),
+    [
+      moveFilterSearch,
+      moveTypeCardFilters,
+      moveFilterUserId,
+      moveFilterPeriod,
+      moveFilterDateFrom,
+      moveFilterDateTo,
+    ],
+  );
+
+  const hasInventoryFilters =
+    inventoryFilter !== 'all' || showInactive || productSearchDebounced.trim().length > 0;
+
+  const hasMovementFilters =
+    moveTypeCardFilters.size > 0 ||
+    moveFilterUserId !== '' ||
+    moveFilterPeriod !== 'month' ||
+    moveFilterDateFrom !== '' ||
+    moveFilterDateTo !== '' ||
+    moveFilterSearchDebounced.trim().length > 0;
+
+  const removeInventoryFilterBadge = (key: string) => {
+    if (key.startsWith('stock:')) {
+      setInventoryFilter('all');
+      return;
+    }
+    if (key === 'inactive') {
+      setShowInactive(false);
+      setProductPage(1);
+      return;
+    }
+    if (key === 'search') setProductSearch('');
+  };
+
+  const clearInventoryFilters = () => {
+    setInventoryFilter('all');
+    setShowInactive(false);
+    setProductSearch('');
+    setProductPage(1);
+  };
+
+  const removeMovementFilterBadge = (key: string) => {
+    if (key.startsWith('type:')) {
+      const type = key.replace('type:', '') as MoveTypeCardFilter;
+      setMoveTypeCardFilters((prev) => {
+        const next = new Set(prev);
+        next.delete(type);
+        return next;
+      });
+      return;
+    }
+    if (key === 'user') {
+      setMoveFilterUserId('');
+      return;
+    }
+    if (key === 'period') {
+      setMoveFilterPeriod('month');
+      return;
+    }
+    if (key === 'dateFrom') setMoveFilterDateFrom('');
+    if (key === 'dateTo') setMoveFilterDateTo('');
+    if (key === 'search') setMoveFilterSearch('');
+  };
 
   useEffect(() => {
     if (inventoryProducts.length === 0) {
@@ -1891,10 +2273,6 @@ export function EstoqueWorkspace() {
       })),
     [productPicker],
   );
-
-  const toggleInventoryFilter = useCallback((filter: Exclude<InventoryFilter, 'all'>) => {
-    setInventoryFilter((current) => (current === filter ? 'all' : filter));
-  }, []);
 
   const openInventoryForSku = (sku: string) => {
     setTab('inventory');
@@ -2390,12 +2768,24 @@ export function EstoqueWorkspace() {
           </div>
 
           <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[200px] flex-1">
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                  Produto (SKU ou nome)
-                </label>
-                <div className="relative">
+            <ErpFilterBar<MovementFilterPreset>
+              storageKey={MOVEMENTS_FILTER_KEY}
+              badges={movementFilterBadges}
+              hasActiveFilters={hasMovementFilters}
+              onRemoveBadge={removeMovementFilterBadge}
+              onClearAll={clearMovementFilters}
+              presetValue={movementFilterPreset}
+              onApplyPreset={(preset) => {
+                setMoveFilterSearch(preset.search);
+                setMoveTypeCardFilters(new Set(preset.types));
+                setMoveFilterUserId(preset.userId);
+                setMoveFilterPeriod(preset.period);
+                setMoveFilterDateFrom(preset.dateFrom);
+                setMoveFilterDateTo(preset.dateTo);
+                setMovePage(1);
+              }}
+              searchSlot={
+                <div className="relative erp-filter-search-slot">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
                   <input
                     value={moveFilterSearch}
@@ -2404,43 +2794,60 @@ export function EstoqueWorkspace() {
                     className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   />
                 </div>
+              }
+            >
+              <div className="erp-filter-option-grid">
+                {(Object.keys(MOVE_TYPE_LABEL) as MoveTypeCardFilter[]).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => toggleMoveTypeCardFilter(type)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                      moveTypeCardFilters.has(type)
+                        ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                        : 'border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {MOVE_TYPE_LABEL[type]}
+                  </button>
+                ))}
               </div>
-              <div className="min-w-[180px]">
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                  Responsável
-                </label>
-                <PremiumSelect
-                  value={moveFilterUserId || '__all__'}
-                  onChange={(v) =>
-                    setMoveFilterUserId(v === '__all__' ? '' : v)
-                  }
-                  options={[
-                    { value: '__all__', label: 'Todos' },
-                    ...movementUsers.map((u) => ({
-                      value: u.id,
-                      label: u.name,
-                    })),
-                  ]}
-                />
-              </div>
-              <div className="min-w-[160px]">
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                  Período
-                </label>
-                <PremiumSelect
-                  value={moveFilterPeriod}
-                  onChange={(v) => setMoveFilterPeriod(v as MovePeriodPreset)}
-                  options={[
-                    { value: 'today', label: 'Hoje' },
-                    { value: 'week', label: 'Esta semana' },
-                    { value: 'month', label: 'Este mês' },
-                    { value: 'custom', label: 'Intervalo personalizado' },
-                  ]}
-                />
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Responsável
+                  </label>
+                  <PremiumSelect
+                    value={moveFilterUserId || '__all__'}
+                    onChange={(v) => setMoveFilterUserId(v === '__all__' ? '' : v)}
+                    options={[
+                      { value: '__all__', label: 'Todos' },
+                      ...movementUsers.map((u) => ({
+                        value: u.id,
+                        label: u.name,
+                      })),
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Período
+                  </label>
+                  <PremiumSelect
+                    value={moveFilterPeriod}
+                    onChange={(v) => setMoveFilterPeriod(v as MovePeriodPreset)}
+                    options={[
+                      { value: 'today', label: 'Hoje' },
+                      { value: 'week', label: 'Esta semana' },
+                      { value: 'month', label: 'Este mês' },
+                      { value: 'custom', label: 'Intervalo personalizado' },
+                    ]}
+                  />
+                </div>
               </div>
               {moveFilterPeriod === 'custom' ? (
-                <>
-                  <div className="min-w-[140px]">
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
                     <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
                       Data início
                     </label>
@@ -2451,7 +2858,7 @@ export function EstoqueWorkspace() {
                       className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
                     />
                   </div>
-                  <div className="min-w-[140px]">
+                  <div>
                     <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
                       Data fim
                     </label>
@@ -2462,67 +2869,18 @@ export function EstoqueWorkspace() {
                       className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
                     />
                   </div>
-                </>
+                </div>
               ) : null}
-              <GlowButton
-                variant="secondary"
-                className="px-4 py-2 text-sm"
-                onClick={clearMovementFilters}
-              >
-                Limpar filtros
-              </GlowButton>
-            </div>
+            </ErpFilterBar>
           </GlassCard>
 
           <div className="rounded-2xl border border-white/[0.09] bg-gradient-to-br from-white/[0.04] via-transparent to-violet-500/[0.06] p-4 sm:p-5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Ações rápidas
+              Histórico
             </p>
             <p className="mt-1 text-xs text-zinc-400">
-              Escolha o tipo — o formulário abre já configurado (produto, quantidade e motivo).
+              Consulta e filtros — registre movimentações pelo Inventário.
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void openMoveModal('entrada')}
-                className={`inline-flex min-h-[42px] min-w-[128px] flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold tracking-tight transition ${QUICK_ACTION_CLASS.entrada}`}
-              >
-                <PackagePlus className="h-4 w-4 shrink-0 opacity-90" />
-                Entrada
-              </button>
-              <button
-                type="button"
-                onClick={() => void openMoveModal('saida')}
-                className={`inline-flex min-h-[42px] min-w-[128px] flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold tracking-tight transition ${QUICK_ACTION_CLASS.saida}`}
-              >
-                <PackageMinus className="h-4 w-4 shrink-0 opacity-90" />
-                Saída
-              </button>
-              <button
-                type="button"
-                onClick={() => void openMoveModal('ajuste')}
-                className={`inline-flex min-h-[42px] min-w-[128px] flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold tracking-tight transition ${QUICK_ACTION_CLASS.ajuste}`}
-              >
-                <SlidersHorizontal className="h-4 w-4 shrink-0 opacity-90" />
-                Ajuste
-              </button>
-              <button
-                type="button"
-                onClick={() => void openMoveModal('reserva')}
-                className={`inline-flex min-h-[42px] min-w-[128px] flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold tracking-tight transition ${QUICK_ACTION_CLASS.reserva}`}
-              >
-                <Bookmark className="h-4 w-4 shrink-0 opacity-90" />
-                Reserva
-              </button>
-              <button
-                type="button"
-                onClick={() => void openMoveModal('cancelamento_reserva')}
-                className={`inline-flex min-h-[42px] min-w-[128px] flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold tracking-tight transition ${QUICK_ACTION_CLASS.cancelamento_reserva}`}
-              >
-                <Undo2 className="h-4 w-4 shrink-0 opacity-90" />
-                Cancelar reserva
-              </button>
-            </div>
           </div>
           {movementsLoading ? (
             <GlassCard className="flex items-center gap-2 p-8 text-sm text-zinc-400">
@@ -2532,7 +2890,7 @@ export function EstoqueWorkspace() {
           ) : movementsData && movementsData.data.length === 0 ? (
             <EmptyState
               title="Sem movimentações"
-              description="Registre entradas, saídas, ajustes ou reservas para alimentar o histórico."
+              description="O histórico será preenchido conforme entradas, ajustes e reservas forem registrados no Inventário."
             />
           ) : (
             <>
@@ -2543,15 +2901,17 @@ export function EstoqueWorkspace() {
                 rows={movementRows}
                 showStatusColumn={false}
                 actionsColumn={
-                  isAdmin
+                  isAdmin ||
+                  (movementsData?.data.some((m) => m.movementType === 'RESERVE') ??
+                    false)
                     ? {
-                        header: '',
-                        columnClassName: 'w-12 min-w-[3rem]',
+                        header: 'Ações',
+                        columnClassName: 'w-36 min-w-[9rem]',
                         render: (row) => {
                           const item = movementsData?.data.find(
                             (m) => m.id === row.id,
                           );
-                          return item ? renderMovementDeleteButton(item) : null;
+                          return item ? renderMovementRowActions(item) : null;
                         },
                       }
                     : undefined
@@ -2595,59 +2955,78 @@ export function EstoqueWorkspace() {
         <div className="grid h-[calc(100dvh-10.5rem)] min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[38fr_62fr]">
           <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-4">
             <h3 className="shrink-0 text-xl font-semibold text-[var(--text-primary)]">Visão Geral do Estoque - Lista de SKUs</h3>
-            <div className="relative mt-3 shrink-0">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-              <input
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                placeholder="Buscar SKU ou nome do produto..."
-                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-base text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-              />
-            </div>
-            <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setInventoryFilter('all')}
-                className={inventoryFilterButtonClass(inventoryFilter === 'all')}
-              >
-                Todos
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleInventoryFilter('out')}
-                className={inventoryFilterButtonClass(inventoryFilter === 'out')}
-              >
-                Sem Estoque
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleInventoryFilter('low')}
-                className={inventoryFilterButtonClass(inventoryFilter === 'low')}
-              >
-                Baixo Estoque
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleInventoryFilter('reserva')}
-                className={inventoryFilterButtonClass(inventoryFilter === 'reserva')}
-              >
-                Reserva
-              </button>
-              {isAdmin ? (
-                <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-[var(--border-color)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+            <ErpFilterBar<InventoryFilterPreset>
+              storageKey={INVENTORY_FILTER_KEY}
+              badges={inventoryFilterBadges}
+              hasActiveFilters={hasInventoryFilters}
+              onRemoveBadge={removeInventoryFilterBadge}
+              onClearAll={clearInventoryFilters}
+              presetValue={inventoryFilterPreset}
+              onApplyPreset={(preset) => {
+                setInventoryFilter(preset.inventoryFilter);
+                setShowInactive(preset.showInactive);
+                setProductSearch(preset.search);
+                setProductPage(1);
+              }}
+              searchSlot={
+                <div className="relative erp-filter-search-slot">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
                   <input
-                    type="checkbox"
-                    checked={showInactive}
-                    onChange={(e) => {
-                      setShowInactive(e.target.checked);
-                      setProductPage(1);
-                    }}
-                    className="h-3.5 w-3.5 accent-[var(--accent)]"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Buscar SKU ou nome do produto..."
+                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-base text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   />
-                  Mostrar inativos
-                </label>
-              ) : null}
-            </div>
+                </div>
+              }
+            >
+              <div className="erp-filter-option-grid">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryFilter('out');
+                    setProductPage(1);
+                  }}
+                  className={inventoryFilterButtonClass(inventoryFilter === 'out')}
+                >
+                  Sem estoque
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryFilter('low');
+                    setProductPage(1);
+                  }}
+                  className={inventoryFilterButtonClass(inventoryFilter === 'low')}
+                >
+                  Baixo estoque
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryFilter('reserva');
+                    setProductPage(1);
+                  }}
+                  className={inventoryFilterButtonClass(inventoryFilter === 'reserva')}
+                >
+                  Reserva
+                </button>
+                {isAdmin ? (
+                  <label className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => {
+                        setShowInactive(e.target.checked);
+                        setProductPage(1);
+                      }}
+                      className="h-3.5 w-3.5 accent-[var(--accent)]"
+                    />
+                    Mostrar inativos
+                  </label>
+                ) : null}
+              </div>
+            </ErpFilterBar>
             {productsLoading ? (
               <div className="mt-3 flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -2729,7 +3108,7 @@ export function EstoqueWorkspace() {
                       <button
                         type="button"
                         onClick={() => void toggleProductActive(p)}
-                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition hover:bg-[var(--input-bg)] ${p.isActive ? 'text-rose-400' : 'text-emerald-400'}`}
+                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition hover:bg-[var(--input-bg)] ${p.isActive ? 'text-amber-400' : 'text-emerald-400'}`}
                       >
                         {p.isActive ? (
                           <>
@@ -2743,6 +3122,19 @@ export function EstoqueWorkspace() {
                           </>
                         )}
                       </button>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProductMenuOpenId(null);
+                            inactivateProduct(p);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-rose-400 transition hover:bg-[var(--input-bg)]"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir produto
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -2763,7 +3155,7 @@ export function EstoqueWorkspace() {
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#1e2130]">
                       <Package className="h-7 w-7 text-[#5b5ef4]" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-base font-semibold text-[var(--text-primary)]">
                         SKU #{selectedInventoryProduct.sku} — {selectedInventoryProduct.name}
                       </p>
@@ -2775,6 +3167,17 @@ export function EstoqueWorkspace() {
                         <span className="text-[var(--text-primary)]">MAT</span>
                       </p>
                     </div>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        aria-label={`Excluir produto ${selectedInventoryProduct.name}`}
+                        disabled={productDeleting}
+                        onClick={() => inactivateProduct(selectedInventoryProduct)}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-rose-400 transition hover:border-rose-400/30 hover:bg-rose-500/10 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3 text-sm">
@@ -2833,14 +3236,28 @@ export function EstoqueWorkspace() {
                       Qtd Disponível
                     </p>
                     <div className="mt-3 flex items-end justify-between gap-2">
-                      <p className="text-2xl font-bold text-[var(--text-primary)]">{selectedInventoryProduct.stockQty}</p>
+                      <p className="text-2xl font-bold text-[var(--text-primary)]">
+                        {Math.max(
+                          0,
+                          selectedInventoryProduct.stockQty -
+                            (selectedInventoryProduct.reservedQty ?? 0),
+                        )}
+                      </p>
                       <MiniGauge
-                        value={selectedInventoryProduct.stockQty}
+                        value={Math.max(
+                          0,
+                          selectedInventoryProduct.stockQty -
+                            (selectedInventoryProduct.reservedQty ?? 0),
+                        )}
                         max={selectedGaugeMax.availableMax}
                         color="#3b82f6"
                       />
                     </div>
-                    <p className="text-xs text-[var(--text-muted)]">disponível</p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {(selectedInventoryProduct.reservedQty ?? 0) > 0
+                        ? `${selectedInventoryProduct.reservedQty} reservada(s) · ${selectedInventoryProduct.stockQty} em estoque`
+                        : 'disponível'}
+                    </p>
                   </div>
                   <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
                     <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
@@ -2865,7 +3282,8 @@ export function EstoqueWorkspace() {
                           <th className="px-3 py-2">Quantidade</th>
                           <th className="px-3 py-2">Referência</th>
                           <th className="px-3 py-2">Responsável</th>
-                          {isAdmin ? (
+                          {isAdmin ||
+                          selectedMovements.some((m) => m.movementType === 'RESERVE') ? (
                             <th className="px-3 py-2 text-right">Ações</th>
                           ) : null}
                         </tr>
@@ -2892,9 +3310,9 @@ export function EstoqueWorkspace() {
                             <td className="px-3 py-2 text-[var(--text-primary)]">
                               {m.movedBy?.name ?? currentUserName ?? '—'}
                             </td>
-                            {isAdmin ? (
+                            {isAdmin || m.movementType === 'RESERVE' ? (
                               <td className="px-3 py-2 text-right">
-                                {renderMovementDeleteButton(m)}
+                                {renderMovementRowActions(m)}
                               </td>
                             ) : null}
                           </tr>
@@ -2903,25 +3321,33 @@ export function EstoqueWorkspace() {
                     </table>
                   </div>
                 </div>
-                <div className="mt-4 flex w-full gap-3">
+                <div className="mt-4 flex w-full flex-wrap gap-3">
                   <button
                     type="button"
                     onClick={() => void openMoveModal('entrada', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--text-primary)]"
                   >
                     → Entrada de Estoque
                   </button>
                   <button
                     type="button"
                     onClick={() => void openMoveModal('ajuste', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--text-primary)]"
                   >
                     ⇄ Ajuste de Estoque
                   </button>
                   <button
                     type="button"
+                    onClick={() => void openReserveModal()}
+                    className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/15 px-4 text-sm font-semibold text-violet-200"
+                  >
+                    <Bookmark className="h-4 w-4" />
+                    Reservar
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setTab('movements')}
-                    className="inline-flex h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--text-primary)]"
                   >
                     📋 Histórico Completo
                   </button>
@@ -3150,7 +3576,8 @@ export function EstoqueWorkspace() {
                 />
               </label>
               <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Observação / motivo *
+                Observação / motivo
+                {moveForm.movementKind === 'ajuste' ? ' *' : ' (opcional)'}
                 <textarea
                   value={moveForm.notes}
                   onChange={(e) => {
@@ -3158,7 +3585,7 @@ export function EstoqueWorkspace() {
                     setMoveForm((f) => ({ ...f, notes: e.target.value }));
                   }}
                   rows={3}
-                  required
+                  required={moveForm.movementKind === 'ajuste'}
                   className={`mt-1.5 w-full resize-none rounded-xl border bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-white/[0.18] ${
                     moveNotesError
                       ? 'border-rose-400/50 focus:border-rose-400/50'
@@ -3169,10 +3596,12 @@ export function EstoqueWorkspace() {
                   <p className="mt-1.5 text-xs text-rose-500">{moveNotesError}</p>
                 ) : null}
               </label>
-              <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
-                Ajustes de estoque requerem autorização e são registrados com nome,
-                hora e data do responsável.
-              </p>
+              {moveForm.movementKind === 'ajuste' ? (
+                <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
+                  Ajustes de estoque requerem autorização e são registrados com nome,
+                  hora e data do responsável.
+                </p>
+              ) : null}
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <GlowButton
@@ -3201,7 +3630,7 @@ export function EstoqueWorkspace() {
         </div>
       ) : null}
 
-      {movementDeleteStep === 'confirm1' && movementDeleteTarget ? (
+      {movementDeleteStep === 'confirm' && movementDeleteTarget ? (
         <div
           role="presentation"
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
@@ -3215,9 +3644,8 @@ export function EstoqueWorkspace() {
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Excluir movimentação
               </h2>
-              <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                Tem certeza que deseja excluir esta movimentação? Esta ação não
-                pode ser desfeita.
+              <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+                {buildMovementDeleteRevertMessage(movementDeleteTarget)}
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <GlowButton
@@ -3226,44 +3654,6 @@ export function EstoqueWorkspace() {
                   onClick={cancelMovementDelete}
                 >
                   Cancelar
-                </GlowButton>
-                <GlowButton
-                  variant="primary"
-                  disabled={movementDeleting}
-                  onClick={() => setMovementDeleteStep('confirm2')}
-                >
-                  Continuar
-                </GlowButton>
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-      ) : null}
-
-      {movementDeleteStep === 'confirm2' && movementDeleteTarget ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={cancelMovementDelete}
-        >
-          <div
-            className="h-auto w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                Confirmar reversão
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-                {buildMovementDeleteRevertMessage(movementDeleteTarget)}
-              </p>
-              <div className="mt-6 flex justify-end gap-2">
-                <GlowButton
-                  variant="secondary"
-                  disabled={movementDeleting}
-                  onClick={() => setMovementDeleteStep('confirm1')}
-                >
-                  Voltar
                 </GlowButton>
                 <GlowButton
                   variant="primary"
@@ -3280,6 +3670,191 @@ export function EstoqueWorkspace() {
                   )}
                 </GlowButton>
               </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {productDeleteTarget ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={cancelProductDelete}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Excluir produto
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                Você está excluindo o produto{' '}
+                <span className="font-semibold text-[var(--text-primary)]">
+                  {productDeleteTarget.name}
+                </span>{' '}
+                (SKU {productDeleteTarget.sku}). Esta ação não pode ser desfeita.
+                Confirmar?
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <GlowButton
+                  variant="secondary"
+                  disabled={productDeleting}
+                  onClick={cancelProductDelete}
+                >
+                  Cancelar
+                </GlowButton>
+                <GlowButton
+                  variant="primary"
+                  disabled={productDeleting}
+                  onClick={() => void executeProductDelete()}
+                >
+                  {productDeleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Excluindo
+                    </>
+                  ) : (
+                    'Confirmar'
+                  )}
+                </GlowButton>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {reserveOpen && selectedInventoryProduct ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={closeReserveModal}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+              {reserveStep === 'form' ? (
+                <>
+                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                    Reservar estoque
+                  </h2>
+                  <div className="mt-3 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5">
+                    <p className="text-xs text-[var(--text-secondary)]">Produto</p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">
+                      {selectedInventoryProduct.name}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      SKU {selectedInventoryProduct.sku}
+                    </p>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Recebedor *
+                      <div className="mt-1.5">
+                        <PremiumSelect
+                          value={reserveForm.receiverId}
+                          onChange={(receiverId) =>
+                            setReserveForm((f) => ({ ...f, receiverId }))
+                          }
+                          options={reserveReceivers.map((r) => ({
+                            value: r.id,
+                            label: r.name,
+                          }))}
+                          placeholder="Selecione o recebedor…"
+                        />
+                      </div>
+                    </label>
+                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Quantidade *
+                      <input
+                        type="number"
+                        min={1}
+                        value={reserveForm.quantity}
+                        onChange={(e) =>
+                          setReserveForm((f) => ({
+                            ...f,
+                            quantity: e.target.value,
+                          }))
+                        }
+                        className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Observação (opcional)
+                      <textarea
+                        value={reserveForm.notes}
+                        onChange={(e) =>
+                          setReserveForm((f) => ({ ...f, notes: e.target.value }))
+                        }
+                        rows={2}
+                        className="mt-1.5 w-full resize-none rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none"
+                      />
+                    </label>
+                  </div>
+                  {reserveError ? (
+                    <p className="mt-3 text-sm text-rose-500">{reserveError}</p>
+                  ) : null}
+                  <div className="mt-6 flex justify-end gap-2">
+                    <GlowButton variant="secondary" onClick={closeReserveModal}>
+                      Cancelar
+                    </GlowButton>
+                    <GlowButton variant="primary" onClick={requestReserveConfirm}>
+                      Continuar
+                    </GlowButton>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                    Confirmar reserva
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+                    Você está reservando{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {reserveForm.quantity.trim()}
+                    </span>{' '}
+                    unidade(s) de{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {selectedInventoryProduct.name}
+                    </span>{' '}
+                    para{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {reserveReceivers.find((r) => r.id === reserveForm.receiverId)
+                        ?.name ?? '—'}
+                    </span>
+                    . Confirmar?
+                  </p>
+                  {reserveError ? (
+                    <p className="mt-3 text-sm text-rose-500">{reserveError}</p>
+                  ) : null}
+                  <div className="mt-6 flex justify-end gap-2">
+                    <GlowButton
+                      variant="secondary"
+                      disabled={reserveSaving}
+                      onClick={() => setReserveStep('form')}
+                    >
+                      Voltar
+                    </GlowButton>
+                    <GlowButton
+                      variant="primary"
+                      disabled={reserveSaving}
+                      onClick={() => void executeReserveSave()}
+                    >
+                      {reserveSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Salvando
+                        </>
+                      ) : (
+                        'Confirmar'
+                      )}
+                    </GlowButton>
+                  </div>
+                </>
+              )}
             </GlassCard>
           </div>
         </div>

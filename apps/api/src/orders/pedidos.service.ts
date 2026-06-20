@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, OrderItemStockStatus, OrderSource, OrderStatus, Prisma } from '@erp/database';
+import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
+import { CarrierResolverService } from './carrier-resolver.service';
 import { OrderService } from './order.service';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
+import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import {
   decimalFromStringOrZero,
   groupByNumeroPed,
@@ -23,12 +27,16 @@ function mapStatusItemToStockStatus(v: StatusItemValue): OrderItemStockStatus {
 }
 
 const NEXT_CODE_ADVISORY_LOCK = 94821002;
+const EXPEDITION_STOCK_LOCK = 94821001;
 
 @Injectable()
 export class PedidosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orders: OrderService,
+    private readonly stock: StockService,
+    private readonly audit: AuditService,
+    private readonly carrierResolver: CarrierResolverService,
   ) {}
 
   list(query: Parameters<OrderService['findMany']>[0]) {
@@ -37,6 +45,53 @@ export class PedidosService {
 
   createManual(userId: string, dto: CreateManualPedidoDto) {
     return this.orders.createManualPedido(userId, dto);
+  }
+
+  updateManual(userId: string, numeroPed: number, dto: CreateManualPedidoDto) {
+    return this.orders.updateManualPedido(userId, numeroPed, dto);
+  }
+
+  async deleteManual(userId: string, numeroPed: number) {
+    const numeroStr = String(numeroPed);
+    const order = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: numeroStr },
+      include: { items: true, exits: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) {
+      throw new NotFoundException('Pedido não encontrado.');
+    }
+
+    let purgeSummary: Awaited<ReturnType<StockService['purgeOrderRelatedData']>>;
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${EXPEDITION_STOCK_LOCK})`,
+      );
+      purgeSummary = await this.stock.purgeOrderRelatedData(tx, {
+        id: order.id,
+        code: order.code,
+        externalOrderNumber: order.externalOrderNumber,
+        invoiceNumber: order.invoiceNumber,
+      });
+      await tx.order.delete({ where: { id: order.id } });
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_DELETED',
+      entity: 'Order',
+      entityId: order.id,
+      changes: {
+        code: order.code,
+        externalOrderNumber: numeroStr,
+        source: order.source,
+        status: order.status,
+        stockCleanup: purgeSummary!,
+      },
+    });
+
+    return { ok: true };
   }
 
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {
@@ -92,6 +147,13 @@ export class PedidosService {
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    if (dto.status !== undefined && dto.status.trim()) {
+      return this.orders.updateStatusManual(order.id, userId, {
+        status: dto.status.trim(),
+      });
+    }
+
     const data: Prisma.OrderUpdateInput = {};
     if (dto.status_me !== undefined) {
       data.mercadoEletronicoStatus = dto.status_me.trim() || null;
@@ -106,6 +168,20 @@ export class PedidosService {
       where: { id: order.id },
       data,
     });
+  }
+
+  async updatePriority(
+    numeroPed: number,
+    dto: UpdateOrderPriorityDto,
+    userId: string,
+  ) {
+    const order = await this.findByNumeroPed(numeroPed);
+    return this.orders.updatePriority(order.id, userId, dto);
+  }
+
+  async updateCarrier(numeroPed: number, carrierId: string | null, userId: string) {
+    const order = await this.findByNumeroPed(numeroPed);
+    return this.orders.updateOrderCarrier(order.id, userId, carrierId);
   }
 
   async attachNf(numeroPed: number, dto: PedidosAttachNfDto, userId: string) {
@@ -241,6 +317,7 @@ export class PedidosService {
       include: {
         order: {
           include: {
+            carrier: { select: { id: true, name: true } },
             items: { orderBy: { lineNumber: 'asc' } },
           },
         },
@@ -263,12 +340,56 @@ export class PedidosService {
       where: { id },
       include: {
         order: {
-          include: { items: { orderBy: { lineNumber: 'asc' } } },
+          include: {
+            carrier: { select: { id: true, name: true } },
+            items: { orderBy: { lineNumber: 'asc' } },
+          },
         },
       },
     });
     if (!row) throw new NotFoundException('Saída não encontrada.');
     return this.serializeOrderExit(row);
+  }
+
+  async deleteSaida(userId: string, exitId: string) {
+    const exit = await this.prisma.client.orderExit.findUnique({
+      where: { id: exitId },
+      include: { order: true },
+    });
+    if (!exit) throw new NotFoundException('Saída não encontrada.');
+
+    let cleanup: Awaited<ReturnType<StockService['purgeExitRelatedData']>>;
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${EXPEDITION_STOCK_LOCK})`,
+      );
+      cleanup = await this.stock.purgeExitRelatedData(tx, {
+        exitId: exit.id,
+        invoiceNumber: exit.invoiceNumber,
+        order: {
+          id: exit.order.id,
+          code: exit.order.code,
+          externalOrderNumber: exit.order.externalOrderNumber,
+          invoiceNumber: exit.order.invoiceNumber,
+        },
+      });
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_EXIT_DELETED',
+      entity: 'OrderExit',
+      entityId: exit.id,
+      changes: {
+        invoiceNumber: exit.invoiceNumber,
+        orderId: exit.orderId,
+        orderCode: exit.order.code,
+        stockCleanup: cleanup!,
+      },
+    });
+
+    return { ok: true };
   }
 
   async updateItem(numeroPed: number, seq: number, dto: PedidosUpdateItemDto) {
@@ -396,6 +517,12 @@ export class PedidosService {
           });
           const bySku = new Map(products.map((p) => [p.sku, p.price]));
 
+          const carrierId = await this.carrierResolver.resolveCarrierId(
+            orderData.deliveryCnpj,
+            tx,
+          );
+          (orderData as Prisma.OrderUncheckedCreateInput).carrierId = carrierId;
+
           if (!existing) {
             // Gera code (mesma regra do ERP)
             const code = await this.nextOrderCode(tx);
@@ -449,6 +576,7 @@ export class PedidosService {
               subtotal: orderData.subtotal,
               total: orderData.total,
               totalValue: orderData.totalValue,
+              carrierId,
             },
           });
           summary.atualizados += 1;
@@ -496,20 +624,26 @@ export class PedidosService {
 
   private serializeOrderExit(row: Prisma.OrderExitGetPayload<{
     include: {
-      order: { include: { items: true } };
+      order: {
+        include: {
+          carrier: { select: { id: true; name: true } };
+          items: true;
+        };
+      };
     };
   }>) {
     const requested = row.order.requestedDeliveryDate;
     const diffDays = requested
       ? Math.ceil((row.exitDate.getTime() - requested.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
+    const orderCarrierName = row.order.carrier?.name ?? null;
     return {
       id: row.id,
       orderId: row.orderId,
       invoiceNumber: row.invoiceNumber,
       invoiceValue: row.invoiceValue.toString(),
       exitDate: row.exitDate.toISOString(),
-      carrierName: row.carrierName,
+      carrierName: row.carrierName ?? orderCarrierName,
       trackingCode: row.trackingCode,
       punctuality: diffDays > 0 ? 'LATE' : 'ON_TIME',
       delayedDays: diffDays > 0 ? diffDays : 0,
@@ -532,6 +666,8 @@ export class PedidosService {
         notes: row.order.notes,
         obsExpedicao: row.order.obsExpedicao,
         requestedDeliveryDate: row.order.requestedDeliveryDate?.toISOString() ?? null,
+        carrierId: row.order.carrierId,
+        carrierName: orderCarrierName,
         items: row.order.items.map((it) => ({
           id: it.id,
           lineNumber: it.lineNumber,

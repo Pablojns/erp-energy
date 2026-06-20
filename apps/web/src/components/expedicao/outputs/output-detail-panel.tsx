@@ -145,7 +145,10 @@ export function OutputDetailPanel(props: {
           }
         />
         <DetailRow label="NF" value={exit.invoiceNumber} />
-        <DetailRow label="Transportadora" value={exit.carrierName} />
+        <DetailRow
+          label="Transportadora"
+          value={exit.carrierName ?? exit.order.carrierName}
+        />
         <DetailRow label="Data" value={formatDayDisplay(exit.exitDate)} />
         {exit.order.notes?.trim() ? (
           <DetailRow label="Obs. WEG" value={exit.order.notes} />

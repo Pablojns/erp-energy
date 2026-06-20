@@ -1,5 +1,14 @@
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 
+function normalizeDeliveryAddress(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'string') return raw.trim() || null;
+  if (typeof raw === 'object') {
+    return JSON.stringify(raw);
+  }
+  return String(raw);
+}
+
 /** Resposta serializada (GET /api/pedidos) ou registro bruto da fila (Prisma JSON). */
 export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
   const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
@@ -25,10 +34,12 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     receiverName: raw.receiverName ? String(raw.receiverName) : null,
     unloadingPoint: raw.unloadingPoint ? String(raw.unloadingPoint) : null,
     deliveryCnpj: raw.deliveryCnpj ? String(raw.deliveryCnpj) : null,
-    deliveryAddress: raw.deliveryAddress ? String(raw.deliveryAddress) : null,
+    deliveryAddress: normalizeDeliveryAddress(raw.deliveryAddress),
     deliveryCity: raw.deliveryCity ? String(raw.deliveryCity) : null,
     deliveryState: raw.deliveryState ? String(raw.deliveryState) : null,
     notes: raw.notes ? String(raw.notes) : null,
+    carrierId: raw.carrierId ? String(raw.carrierId) : null,
+    carrierName: raw.carrierName ? String(raw.carrierName) : null,
     status: (raw.status as OrderDto['status']) ?? 'NOVO',
     priority: Number(raw.priority ?? 3),
     mercadoEletronicoStatus: raw.mercadoEletronicoStatus

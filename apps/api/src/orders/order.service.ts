@@ -24,6 +24,7 @@ import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dt
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { ORDER_STATUS_EXPEDITION_CHAIN, ORDER_STATUS_VALUES } from './order-domain';
+import { CarrierResolverService } from './carrier-resolver.service';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -115,6 +116,8 @@ type OrderSerializeSource = {
   reservedAt: Date | null;
   shippedAt: Date | null;
   invoicedAt: Date | null;
+  carrierId: string | null;
+  carrier?: { id: string; name: string } | null;
   createdAt: Date;
   updatedAt: Date;
   items: OrderItemSerializeSource[];
@@ -128,6 +131,7 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly carrierResolver: CarrierResolverService,
   ) {}
 
   /** KPIs da expedição — respeita os mesmos filtros da listagem (exceto paginação). */
@@ -471,13 +475,18 @@ export class OrderService {
 
       const priority = dto.priority ?? 3;
       const totalFixed = subtotalDec.toDecimalPlaces(2);
+      const customerDocument = dto.customerDocument?.trim() || null;
+      const carrierId = await this.carrierResolver.resolveCarrierId(
+        customerDocument,
+        tx,
+      );
 
       const order = await tx.order.create({
         data: {
           source: OrderSource.MANUAL,
           code,
           customerName: dto.customerName.trim(),
-          customerDocument: dto.customerDocument?.trim() || null,
+          customerDocument,
           customerCity: dto.customerCity?.trim() || null,
           customerState: dto.customerState?.trim()?.toUpperCase() || null,
           deliveryCity: dto.customerCity?.trim() || null,
@@ -491,6 +500,7 @@ export class OrderService {
           discount: new Prisma.Decimal(0),
           total: totalFixed,
           totalValue: totalFixed,
+          carrierId,
           items: { create: creates },
         },
         include: OrderService.orderInclude(),
@@ -633,6 +643,10 @@ export class OrderService {
 
       const totalFixed = subtotalDec.toDecimalPlaces(2);
       const customerDocument = customer.document?.trim() || null;
+      const carrierId = await this.carrierResolver.resolveCarrierId(
+        customerDocument,
+        tx,
+      );
 
       const order = await tx.order.create({
         data: {
@@ -656,6 +670,7 @@ export class OrderService {
           discount: new Prisma.Decimal(0),
           total: totalFixed,
           totalValue: totalFixed,
+          carrierId,
           items: { create: creates },
         },
         include: OrderService.orderInclude(),
@@ -679,6 +694,246 @@ export class OrderService {
 
       return this.serializeOrder(order);
     });
+  }
+
+  private assertManualOrderMutable(order: {
+    status: OrderStatus;
+    items: Array<{ pickedQty: number | null }>;
+    exits?: Array<unknown>;
+  }) {
+    if (order.status !== OrderStatus.NOVO && order.status !== OrderStatus.ANALISADO) {
+      throw new BadRequestException(
+        'Somente pedidos manuais em NOVO ou ANALISADO podem ser alterados.',
+      );
+    }
+    if (order.items.some((it) => (it.pickedQty ?? 0) > 0)) {
+      throw new BadRequestException(
+        'Pedido com itens já separados não pode ser alterado.',
+      );
+    }
+    if ((order.exits?.length ?? 0) > 0) {
+      throw new BadRequestException(
+        'Pedido com saída registrada não pode ser alterado.',
+      );
+    }
+  }
+
+  async updateManualPedido(
+    userId: string,
+    numeroPed: number,
+    dto: CreateManualPedidoDto,
+  ) {
+    const numeroStr = String(numeroPed);
+    const order = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: numeroStr, source: OrderSource.MANUAL },
+      include: { items: true, exits: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) {
+      throw new NotFoundException('Pedido manual não encontrado.');
+    }
+    this.assertManualOrderMutable(order);
+
+    const externalOrderNumber = dto.externalOrderNumber.trim();
+    if (!externalOrderNumber) {
+      throw new BadRequestException('Número do pedido é obrigatório.');
+    }
+    if (externalOrderNumber !== numeroStr) {
+      const duplicate = await this.prisma.client.order.findFirst({
+        where: {
+          externalOrderNumber,
+          id: { not: order.id },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ConflictException('Já existe pedido com este número.');
+      }
+    }
+
+    const deliveryRaw = dto.requestedDeliveryDate.trim();
+    const requestedDeliveryDate = new Date(`${deliveryRaw}T12:00:00.000Z`);
+    if (Number.isNaN(requestedDeliveryDate.getTime())) {
+      throw new BadRequestException('Data de entrega prevista inválida.');
+    }
+
+    const [receiver, unloadingPoint, customer] = await Promise.all([
+      this.prisma.client.receiver.findUnique({ where: { id: dto.receiverId } }),
+      this.prisma.client.unloadingPoint.findUnique({
+        where: { id: dto.unloadingPointId },
+      }),
+      this.prisma.client.customer.findUnique({ where: { id: dto.customerId } }),
+    ]);
+
+    if (!receiver?.isActive) {
+      throw new BadRequestException('Recebedor inválido ou inativo.');
+    }
+    if (!unloadingPoint?.isActive) {
+      throw new BadRequestException('Ponto de descarga inválido ou inativo.');
+    }
+    if (!customer?.isActive) {
+      throw new BadRequestException('Cliente inválido ou inativo.');
+    }
+
+    const mergedLines = new Map<
+      string,
+      { qty: number; unitPriceHint?: number }
+    >();
+    for (const li of dto.items) {
+      const prev = mergedLines.get(li.productId);
+      if (prev) {
+        mergedLines.set(li.productId, {
+          qty: prev.qty + li.quantity,
+          unitPriceHint: prev.unitPriceHint ?? li.unitPrice,
+        });
+      } else {
+        mergedLines.set(li.productId, {
+          qty: li.quantity,
+          unitPriceHint: li.unitPrice,
+        });
+      }
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const productIds = [...mergedLines.keys()].sort();
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        orderBy: { id: 'asc' },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+
+      for (const pid of productIds) {
+        const p = byId.get(pid);
+        if (!p) {
+          throw new BadRequestException(`Produto ${pid} não encontrado.`);
+        }
+        if (!p.isActive) {
+          throw new BadRequestException(
+            `Produto ${p.name} está inativo e não pode constar em pedidos.`,
+          );
+        }
+      }
+
+      let subtotalDec = new Prisma.Decimal(0);
+      let lineNumber = 10;
+      const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+
+      for (const pid of productIds) {
+        const p = byId.get(pid)!;
+        const { qty, unitPriceHint } = mergedLines.get(pid)!;
+        const unitPrice =
+          unitPriceHint !== undefined && unitPriceHint !== null
+            ? new Prisma.Decimal(Number(unitPriceHint).toFixed(2))
+            : p.price;
+        const totalLine = unitPrice.mul(qty).toDecimalPlaces(2);
+        subtotalDec = subtotalDec.add(totalLine);
+
+        creates.push({
+          product: { connect: { id: pid } },
+          lineNumber,
+          sku: p.sku,
+          description: p.name,
+          quantity: qty,
+          reservedQuantity: 0,
+          unitPrice: unitPrice.toDecimalPlaces(2),
+          totalPrice: totalLine,
+          discount: new Prisma.Decimal(0),
+          stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+        });
+        lineNumber += 10;
+      }
+
+      const totalFixed = subtotalDec.toDecimalPlaces(2);
+      const customerDocument = customer.document?.trim() || null;
+      const carrierId = await this.carrierResolver.resolveCarrierId(
+        customerDocument,
+        tx,
+      );
+
+      await tx.orderItem.deleteMany({ where: { orderId: order.id } });
+
+      const updated = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          externalOrderNumber,
+          customerId: customer.id,
+          customerName: customer.name.trim(),
+          customerDocument,
+          deliveryCnpj: customerDocument,
+          deliveryAddress: customer.deliveryAddress?.trim() || null,
+          receiverName: receiver.name.trim(),
+          unloadingPoint: unloadingPoint.name.trim(),
+          notes: dto.notes?.trim() || null,
+          requestedDeliveryDate,
+          subtotal: totalFixed,
+          total: totalFixed,
+          totalValue: totalFixed,
+          carrierId,
+          items: { create: creates },
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_UPDATED',
+        entity: 'Order',
+        entityId: updated.id,
+        changes: {
+          externalOrderNumber,
+          lines: updated.items.length,
+          subtotal: totalFixed.toString(),
+          source: 'manual_expedicao',
+        },
+      });
+
+      return this.serializeOrder(updated);
+    });
+  }
+
+  async updateOrderCarrier(
+    orderId: string,
+    userId: string,
+    carrierId: string | null,
+  ) {
+    const order = await this.prisma.client.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, carrierId: true },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    if (carrierId) {
+      const carrier = await this.prisma.client.carrier.findUnique({
+        where: { id: carrierId },
+        select: { id: true, isActive: true },
+      });
+      if (!carrier?.isActive) {
+        throw new BadRequestException('Transportadora inválida ou inativa.');
+      }
+    }
+
+    const updated = await this.prisma.client.order.update({
+      where: { id: orderId },
+      data: { carrierId },
+      include: OrderService.orderInclude(),
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_CARRIER_UPDATED',
+      entity: 'Order',
+      entityId: orderId,
+      changes: {
+        from: order.carrierId,
+        to: carrierId,
+      },
+    });
+
+    return this.serializeOrder(updated);
   }
 
   /** Pedido WEG teste — linhas WEG preservadas em `lineNumber`; sem reserva automática. */
@@ -724,6 +979,11 @@ export class OrderService {
       const requestedDeliveryDate = dto.requestedDeliveryDate
         ? OrderService.safeParseDate(dto.requestedDeliveryDate)
         : null;
+      const deliveryCnpj = dto.deliveryCnpj?.trim() || null;
+      const carrierId = await this.carrierResolver.resolveCarrierId(
+        deliveryCnpj ?? dto.customerDocument,
+        tx,
+      );
 
       const order = await tx.order.create({
         data: {
@@ -735,7 +995,7 @@ export class OrderService {
           customerDocument: dto.customerDocument?.trim() || null,
           receiverName: dto.receiverName?.trim() || null,
           unloadingPoint: dto.unloadingPoint?.trim() || null,
-          deliveryCnpj: dto.deliveryCnpj?.trim() || null,
+          deliveryCnpj,
           deliveryCity: dto.deliveryCity?.trim() || null,
           deliveryState: dto.deliveryState?.trim()?.toUpperCase() || null,
           deliveryAddress: dto.deliveryAddress?.trim() || null,
@@ -754,6 +1014,7 @@ export class OrderService {
           discount: new Prisma.Decimal(0),
           total: totalFixed,
           totalValue: totalFixed,
+          carrierId,
           items: { create: creates },
         },
         include: OrderService.orderInclude(),
@@ -1128,7 +1389,7 @@ export class OrderService {
 
       const before = await tx.order.findUnique({
         where: { id: orderId },
-        include: { items: true },
+        include: { items: true, carrier: { select: { name: true } } },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
 
@@ -1229,7 +1490,7 @@ export class OrderService {
           invoiceNumber: inv,
           invoiceValue: updated.totalValue,
           exitDate: new Date(),
-          carrierName: null,
+          carrierName: before.carrier?.name ?? null,
           trackingCode: null,
         },
       });
@@ -1472,6 +1733,68 @@ export class OrderService {
         entity: 'Order',
         entityId: orderId,
         changes: { from: expectFrom, to, code: before.code },
+      });
+
+      return this.serializeOrder(updated);
+    });
+  }
+
+  /** Alteração manual de status (operação) — sem validação de cadeia de transição. */
+  async updateStatusManual(
+    id: string,
+    userId: string,
+    dto: UpdateOrderStatusDto,
+  ) {
+    return this.prisma.client.$transaction(async (tx) => {
+      const before = await tx.order.findUnique({
+        where: { id },
+        include: {
+          items: {
+            select: {
+              id: true,
+              reservedQuantity: true,
+              productId: true,
+            },
+          },
+        },
+      });
+      if (!before) throw new NotFoundException('Pedido não encontrado.');
+
+      const from = before.status as OrderStatus;
+      const to = dto.status as OrderStatus;
+      if (from === to) {
+        const full = await this.loadOrderFull(tx, id);
+        return this.serializeOrder(full);
+      }
+
+      if (to === OrderStatus.CANCELADO) {
+        await this.releaseReservations(
+          tx,
+          userId,
+          before.code,
+          before.id,
+          before.items,
+        );
+      }
+
+      const data = OrderService.patchDataForStatus(to, {
+        shippedAt: before.shippedAt,
+        invoicedAt: before.invoicedAt,
+        invoiceStatus: before.invoiceStatus,
+      });
+
+      const updated = await tx.order.update({
+        where: { id },
+        data,
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_STATUS_MANUAL',
+        entity: 'Order',
+        entityId: id,
+        changes: { from, to, code: before.code },
       });
 
       return this.serializeOrder(updated);
@@ -1802,6 +2125,9 @@ export class OrderService {
 
   private static orderInclude(): Prisma.OrderInclude {
     return {
+      carrier: {
+        select: { id: true, name: true },
+      },
       stockReservations: {
         select: { id: true },
         take: 1,
@@ -2164,6 +2490,8 @@ export class OrderService {
       deliveryState: row.deliveryState,
       deliveryAddress: row.deliveryAddress,
       notes: row.notes,
+      carrierId: row.carrierId,
+      carrierName: row.carrier?.name ?? null,
       status: row.status,
       priority: row.priority,
       mercadoEletronicoStatus: row.mercadoEletronicoStatus,

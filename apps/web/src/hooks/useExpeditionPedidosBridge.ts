@@ -19,13 +19,16 @@ import type {
 } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
-import {
-  quickFilterToStatus,
-  statusFilterToQuick,
-  type QueueQuickFilterId,
-} from '@/src/components/expedicao/workspace/queue-quick-filters';
 import { usePedidoDetalhe } from '@/src/hooks/usePedidoDetalhe';
 import { usePedidos } from '@/src/hooks/usePedidos';
+
+function isAguardandoNfSeparationStatus(status: string): boolean {
+  return (
+    status === 'SEPARADO' ||
+    status === 'AGUARDANDO_NF' ||
+    status === 'NF_ATRELADA'
+  );
+}
 
 export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}) {
   const mode = opts.mode ?? 'expedition';
@@ -41,8 +44,6 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [sum, setSum] = useState<ExpeditionSummary | null>(null);
   const [sumLoading, setSumLoading] = useState(true);
 
-  const quickFilter: QueueQuickFilterId = statusFilterToQuick(statusFilter);
-
   const {
     pedidos: fetchedOrders,
     loading: ordersLoading,
@@ -51,23 +52,21 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     refetch: refetchPedidos,
   } = usePedidos({
     statusFilter,
-    quickFilter,
     search: searchDebounced,
     appliedFilters,
     page,
     pageSize: 25,
+    mode,
   });
 
   const orders = useMemo(() => {
     if (mode === 'separation') {
-      return fetchedOrders.filter((o) =>
-        o.status === 'EM_SEPARACAO' ||
-        o.status === 'SEPARADO' ||
-        o.status === 'AGUARDANDO_NF' ||
-        o.status === 'NF_ATRELADA',
+      return fetchedOrders.filter(
+        (o) =>
+          o.status === 'EM_SEPARACAO' || isAguardandoNfSeparationStatus(o.status),
       );
     }
-    return fetchedOrders.filter((o) => o.status !== 'EM_SEPARACAO');
+    return fetchedOrders;
   }, [fetchedOrders, mode]);
 
   useEffect(() => {
@@ -255,7 +254,11 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   async function toggleOrderUrgent(order: OrderDto) {
     try {
       const next = order.priority <= 2 ? 4 : 2;
-      await erpFetchJson(`orders/${order.id}/priority`, {
+      const numero = numeroPedFromOrder(order);
+      const path = numero
+        ? `api/pedidos/${numero}/priority`
+        : `orders/${order.id}/priority`;
+      await erpFetchJson(path, {
         method: 'PATCH',
         body: JSON.stringify({ priority: next }),
       });
@@ -339,6 +342,39 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     }
   }
 
+  async function removeOrdersFromSeparation(targetOrders: OrderDto[]) {
+    if (targetOrders.length === 0) return false;
+    try {
+      for (const order of targetOrders) {
+        const numero = numeroPedFromOrder(order);
+        if (numero) {
+          await erpFetchJson(`api/pedidos/${numero}/status`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'NOVO' }),
+          });
+        } else {
+          await erpFetchJson(`orders/${order.id}/status`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'NOVO' }),
+          });
+        }
+      }
+      await refreshAll();
+      setToast({
+        variant: 'ok',
+        message: `${targetOrders.length} pedido(s) removido(s) da separação.`,
+      });
+      return true;
+    } catch (e) {
+      setToast({
+        variant: 'err',
+        message:
+          e instanceof Error ? e.message : 'Falha ao remover da separação.',
+      });
+      return false;
+    }
+  }
+
   async function patchOrderStatus(id: string, status: OrderStatus) {
     try {
       await erpFetchJson(`orders/${id}/status`, {
@@ -350,6 +386,34 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       setToast({
         variant: 'err',
         message: e instanceof Error ? e.message : 'Falha ao atualizar status.',
+      });
+    }
+  }
+
+  async function patchOrderCarrier(order: OrderDto, carrierId: string | null) {
+    const numero = order.externalOrderNumber?.trim();
+    if (!numero) {
+      setToast({
+        variant: 'err',
+        message: 'Pedido sem número para atualizar transportadora.',
+      });
+      return;
+    }
+    try {
+      await erpFetchJson(`api/pedidos/${numero}/carrier`, {
+        method: 'PATCH',
+        body: JSON.stringify({ carrierId }),
+      });
+      setToast({
+        variant: 'ok',
+        message: 'Transportadora atualizada.',
+      });
+      await refreshAll();
+    } catch (e) {
+      setToast({
+        variant: 'err',
+        message:
+          e instanceof Error ? e.message : 'Falha ao atualizar transportadora.',
       });
     }
   }
@@ -407,6 +471,8 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     saveSeparationProgress,
     concludeSeparation,
     patchOrderStatus,
+    patchOrderCarrier,
+    removeOrdersFromSeparation,
     confirmCancelOrder,
   };
 }

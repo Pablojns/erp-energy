@@ -6,15 +6,15 @@ export function applyStatusFilter(
   mode: 'expedition' | 'separation' = 'expedition',
 ) {
   if (mode === 'separation') {
-    params.set('status', 'EM_SEPARACAO');
+    params.set('workspace', 'separation');
     return;
   }
+
   switch (filter) {
     case 'all':
-      params.set('status', 'active');
       break;
-    case 'cotacao':
-      params.set('status', 'active');
+    case 'novo':
+      params.set('status', 'NOVO');
       break;
     case 'urgente':
       params.set('status', 'urgent');
@@ -101,7 +101,7 @@ export function clientRefineOrders<
   isOverdue?: (o: T) => boolean,
 ): T[] {
   let list = orders;
-  if (statusFilter === 'cotacao') {
+  if (statusFilter === 'novo') {
     list = list.filter((o) => o.status === 'NOVO' || o.status === 'ANALISADO');
   }
   if (statusFilter === 'atrasado' && isOverdue) {

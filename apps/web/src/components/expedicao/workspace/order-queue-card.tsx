@@ -1,12 +1,16 @@
 'use client';
 
-import type { MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 import {
   formatOrderQueueTime,
-  getOrderSendState,
-  getQueueCardVisual,
+  getOrderQueueCardStatusBadge,
   orderDisplayNumber,
 } from '@/src/components/expedicao/shared/order-helpers';
+import {
+  orderWorkflowCardBadgeStyle,
+  URGENT_BADGE_STYLE,
+} from '@/src/components/expedicao/shared/pedidos-status-styles';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 
 const brl = new Intl.NumberFormat('pt-BR', {
@@ -25,62 +29,130 @@ export function OrderQueueCard(props: {
   onSelect: () => void;
   checkedForPrint?: boolean;
   onTogglePrint?: () => void;
+  checkedForRemoval?: boolean;
+  onToggleRemoval?: () => void;
+  showAdminActions?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
-  const { order, selected, onSelect, checkedForPrint = false, onTogglePrint } = props;
+  const {
+    order,
+    selected,
+    onSelect,
+    checkedForPrint = false,
+    onTogglePrint,
+    checkedForRemoval = false,
+    onToggleRemoval,
+    showAdminActions = false,
+    onEdit,
+    onDelete,
+  } = props;
   const numero = orderDisplayNumber(order);
-  const when = formatOrderQueueTime(order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt);
-  const visual = getQueueCardVisual(order);
-  const Icon = visual.icon;
-  const sendState = getOrderSendState(order);
-  const statusLabel =
-    sendState === 'complete'
-      ? 'COMPLETO'
-      : sendState === 'partial'
-        ? 'PARCIAL'
-        : visual.badgeLabel;
-  const statusTone =
-    sendState === 'complete'
-      ? 'finished'
-      : sendState === 'partial'
-        ? 'partial'
-        : visual.badgeTone;
+  const when = formatOrderQueueTime(
+    order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt,
+  );
+  const statusBadge = getOrderQueueCardStatusBadge(order);
+  const isUrgent = order.priority <= 2;
+  const isMarked =
+    (onTogglePrint && checkedForPrint) || (onToggleRemoval && checkedForRemoval);
+
+  const handleCardKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect();
+    }
+  };
 
   return (
     <div
-      className={`exp-queue-card-wrap ${checkedForPrint ? 'exp-queue-card-wrap--print' : ''}`}
+      className={`exp-queue-card-wrap ${isMarked ? 'exp-queue-card-wrap--print' : ''} ${selected ? 'exp-queue-card-wrap--selected' : ''}`}
     >
-      {onTogglePrint ? (
-        <label
-          className="exp-queue-card-check"
-          onClick={(e: MouseEvent) => e.stopPropagation()}
+      <div className="exp-queue-card-body">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onSelect}
+          onKeyDown={handleCardKeyDown}
+          className={`exp-queue-card ${selected ? 'exp-queue-card--selected' : ''}`}
         >
-          <input
-            type="checkbox"
-            checked={checkedForPrint}
-            onChange={() => onTogglePrint()}
-            aria-label={`Selecionar pedido ${numero} para impressão`}
-          />
-        </label>
-      ) : null}
-      <button
-        type="button"
-        onClick={onSelect}
-        className={`exp-queue-card ${selected ? 'exp-queue-card--selected' : ''}`}
-      >
-        <div className="exp-queue-card-head">
-          <span className="exp-queue-card-num">#{numero}</span>
-          <span className={`exp-queue-card-icon exp-queue-card-icon--${visual.tone}`}>
-            <Icon className="h-4 w-4" aria-hidden />
+          <div className="exp-queue-card-head">
+            <div className="exp-queue-card-head-left">
+              {onTogglePrint ? (
+                <label
+                  className="exp-queue-card-check"
+                  onClick={(e: MouseEvent) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedForPrint}
+                    onChange={() => onTogglePrint()}
+                    aria-label={`Selecionar pedido ${numero} para PDF`}
+                  />
+                </label>
+              ) : null}
+              {onToggleRemoval ? (
+                <label
+                  className="exp-queue-card-check"
+                  onClick={(e: MouseEvent) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedForRemoval}
+                    onChange={() => onToggleRemoval()}
+                    aria-label={`Selecionar pedido ${numero} para remover da separação`}
+                  />
+                </label>
+              ) : null}
+              <span className="exp-queue-card-num">#{numero}</span>
+              {isUrgent ? (
+                <span
+                  className="exp-queue-urgent-badge exp-queue-urgent-badge--pulse"
+                  style={URGENT_BADGE_STYLE}
+                >
+                  URGENTE
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <p className="exp-queue-card-value">{formatCurrency(order.totalValue)}</p>
+          <p className="exp-queue-card-date">{when}</p>
+          <span className="exp-queue-status-badge" style={orderWorkflowCardBadgeStyle(statusBadge.color)}>
+            {statusBadge.label}
           </span>
         </div>
-        <p className="exp-queue-card-value">{formatCurrency(order.totalValue)}</p>
-        <p className="exp-queue-card-date">{when}</p>
-        <span
-          className={`exp-queue-status-badge exp-queue-status-badge--${statusTone}`}
-        >
-          {statusLabel}
-        </span>
-      </button>
+        {showAdminActions ? (
+          <div className="exp-queue-card-admin-actions">
+            {onEdit ? (
+              <button
+                type="button"
+                className="exp-queue-card-admin-icon-btn"
+                aria-label={`Editar pedido ${numero}`}
+                title="Editar pedido"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            {onDelete ? (
+              <button
+                type="button"
+                className="exp-queue-card-admin-icon-btn exp-queue-card-admin-icon-btn--danger"
+                aria-label={`Excluir pedido ${numero}`}
+                title="Excluir pedido"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

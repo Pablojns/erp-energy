@@ -4,9 +4,10 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
+import { DeleteOrderModal } from '@/src/components/expedicao/workspace/delete-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
 import { SeparationWorkbench } from '@/src/components/expedicao/workspace/separation-workbench';
-import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
+import type { OrderDto, StatusFilterId } from '@/src/components/expedicao/shared/types';
 import {
   useExpeditionPedidosBridge,
   useExpeditionSelectedPedido,
@@ -18,8 +19,9 @@ export function ExpeditionWorkspace(props: {
   mode: ExpeditionWorkspaceMode;
   initialStatusFilter?: StatusFilterId;
   onNewOrder?: () => void;
+  isAdmin?: boolean;
 }) {
-  const { mode, initialStatusFilter, onNewOrder } = props;
+  const { mode, initialStatusFilter, onNewOrder, isAdmin = false } = props;
   const data = useExpeditionPedidosBridge({
     mode: mode === 'separation' ? 'separation' : 'expedition',
     initialStatusFilter:
@@ -27,6 +29,8 @@ export function ExpeditionWorkspace(props: {
   });
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
+  const [deleteOrder, setDeleteOrder] = useState<OrderDto | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'fila' | 'detalhes'>('fila');
 
@@ -85,13 +89,30 @@ export function ExpeditionWorkspace(props: {
             selectedOrderId={selectedOrderId}
             onSelectOrder={setSelectedOrderId}
             onOrderChosen={() => setActiveTab('detalhes')}
-            title="Fila de Pedidos p/ Separação"
+            title={mode === 'orders' ? 'Pedidos' : 'Fila de Pedidos p/ Separação'}
             onNewOrder={
               mode === 'orders'
-                ? onNewOrder ?? (() => setNewOrderOpen(true))
+                ? onNewOrder ??
+                  (() => {
+                    setEditOrder(null);
+                    setNewOrderOpen(true);
+                  })
                 : onNewOrder
             }
             onRefresh={() => void data.refreshAll()}
+            isAdmin={isAdmin}
+            onEditOrder={
+              mode === 'orders'
+                ? (order) => {
+                    setEditOrder(order);
+                    setNewOrderOpen(true);
+                  }
+                : undefined
+            }
+            onDeleteOrder={
+              mode === 'orders' ? (order) => setDeleteOrder(order) : undefined
+            }
+            queueMode={mode}
           />
         </div>
         <div className={`exp-page-col-workbench w-full ${activeTab === 'detalhes' ? 'block' : 'hidden'} lg:block`}>
@@ -134,17 +155,39 @@ export function ExpeditionWorkspace(props: {
       ) : null}
 
       {mode === 'orders' ? (
-        <NewOrderModal
-          isOpen={newOrderOpen}
-          onClose={() => setNewOrderOpen(false)}
-          onCreated={() => {
-            void data.refreshAll();
-            data.setToast({
-              variant: 'ok',
-              message: 'Pedido criado com sucesso e adicionado à fila.',
-            });
-          }}
-        />
+        <>
+          <NewOrderModal
+            isOpen={newOrderOpen}
+            editOrder={editOrder}
+            onClose={() => {
+              setNewOrderOpen(false);
+              setEditOrder(null);
+            }}
+            onCreated={() => {
+              void data.refreshAll();
+              data.setToast({
+                variant: 'ok',
+                message: editOrder
+                  ? 'Pedido atualizado com sucesso.'
+                  : 'Pedido criado com sucesso e adicionado à fila.',
+              });
+              setEditOrder(null);
+            }}
+          />
+          <DeleteOrderModal
+            order={deleteOrder}
+            isOpen={Boolean(deleteOrder)}
+            onClose={() => setDeleteOrder(null)}
+            onDeleted={() => {
+              void data.refreshAll();
+              setSelectedOrderId(null);
+              data.setToast({
+                variant: 'ok',
+                message: 'Pedido excluído com sucesso.',
+              });
+            }}
+          />
+        </>
       ) : null}
     </div>
   );

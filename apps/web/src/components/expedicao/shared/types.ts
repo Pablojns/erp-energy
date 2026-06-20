@@ -75,6 +75,8 @@ export type OrderDto = {
   deliveryCity?: string | null;
   deliveryState?: string | null;
   notes: string | null;
+  carrierId: string | null;
+  carrierName: string | null;
   status: OrderStatus;
   priority: number;
   mercadoEletronicoStatus: string | null;
@@ -139,7 +141,7 @@ export type FilterFormState = {
 
 export type StatusFilterId =
   | 'all'
-  | 'cotacao'
+  | 'novo'
   | 'urgente'
   | 'atrasado'
   | 'aguardando_nf'
@@ -180,6 +182,10 @@ export type OrderActions = {
   finalizeExpeditionOrder: (id: string) => void | Promise<void>;
   confirmCancelOrder: (order: OrderDto) => void;
   patchOrderStatus: (id: string, status: OrderStatus) => void | Promise<void>;
+  patchOrderCarrier: (
+    order: OrderDto,
+    carrierId: string | null,
+  ) => void | Promise<void>;
   toggleOrderUrgent: (order: OrderDto) => void | Promise<void>;
   markLineSeparated: (
     orderId: string,
@@ -228,6 +234,8 @@ export type OrderExitDto = {
     notes: string | null;
     obsExpedicao: string | null;
     requestedDeliveryDate: string | null;
+    carrierId: string | null;
+    carrierName: string | null;
     items: OrderExitItemDto[];
   };
 };

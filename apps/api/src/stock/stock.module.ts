@@ -9,5 +9,6 @@ import { StockService } from './stock.service';
   imports: [PrismaModule, AuthModule],
   controllers: [StockController],
   providers: [StockService, AuditService],
+  exports: [StockService],
 })
 export class StockModule {}

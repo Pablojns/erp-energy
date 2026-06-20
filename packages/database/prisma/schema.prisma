@@ -293,7 +293,9 @@ model Order {
   reservedAt              DateTime?
   shippedAt               DateTime?
   invoicedAt              DateTime?
+  carrierId               String?             @db.Uuid
   customer                Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  carrier                 Carrier?            @relation(fields: [carrierId], references: [id], onDelete: SetNull)
   items                   OrderItem[]
   stockReservations       StockReservation[]
   exits                   OrderExit[]
@@ -312,6 +314,7 @@ model Order {
   @@index([orderDate])
   @@index([requestedDeliveryDate])
   @@index([customerId])
+  @@index([carrierId])
   @@index([customerId, status])
   @@index([status, createdAt])
 }
@@ -642,12 +645,26 @@ model UnloadingPoint {
 }
 
 model Carrier {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String            @id @default(uuid()) @db.Uuid
+  name      String            @unique
+  isActive  Boolean           @default(true)
+  documents CarrierDocument[]
+  orders    Order[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   @@index([isActive])
   @@index([name])
+}
+
+/// CNPJ vinculado à transportadora para identificação automática em pedidos
+model CarrierDocument {
+  id        String   @id @default(uuid()) @db.Uuid
+  carrierId String   @db.Uuid
+  /// CNPJ normalizado (somente dígitos)
+  document  String   @unique
+  carrier   Carrier  @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([carrierId])
 }

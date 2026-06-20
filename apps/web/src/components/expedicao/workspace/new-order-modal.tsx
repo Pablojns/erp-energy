@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
+import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 type CadastroOption = {
@@ -95,6 +96,135 @@ function formatCustomerLabel(c: CadastroOption) {
 
 function lineNumberForIndex(index: number) {
   return (index + 1) * 10;
+}
+
+type OrderFormSnapshot = {
+  externalOrderNumber: string;
+  requestedDeliveryDate: string;
+  receiverId: string;
+  customerId: string;
+  unloadingPointId: string;
+  notes: string;
+  items: Array<{ productId: string; quantity: string }>;
+};
+
+type FieldChange = {
+  label: string;
+  from: string;
+  to: string;
+};
+
+function snapshotFromForm(
+  externalOrderNumber: string,
+  requestedDeliveryDate: string,
+  receiverId: string,
+  customerId: string,
+  unloadingPointId: string,
+  notes: string,
+  items: OrderItemForm[],
+): OrderFormSnapshot {
+  return {
+    externalOrderNumber: externalOrderNumber.trim(),
+    requestedDeliveryDate: requestedDeliveryDate.trim(),
+    receiverId,
+    customerId,
+    unloadingPointId,
+    notes: notes.trim(),
+    items: items.map((row) => ({
+      productId: row.productId,
+      quantity: row.quantity.trim(),
+    })),
+  };
+}
+
+function formatDateBr(iso: string) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+function optionLabel(id: string, list: CadastroOption[], formatter?: (o: CadastroOption) => string) {
+  const row = list.find((o) => o.id === id);
+  if (!row) return '—';
+  return formatter ? formatter(row) : row.name;
+}
+
+function itemsSummary(
+  rows: Array<{ productId: string; quantity: string }>,
+  products: ProductOption[],
+) {
+  if (rows.length === 0) return '—';
+  return rows
+    .map((row) => {
+      const product = products.find((p) => p.id === row.productId);
+      const sku = product?.sku ?? row.productId;
+      return `${sku} × ${row.quantity || '0'}`;
+    })
+    .join('; ');
+}
+
+function computeOrderFormChanges(
+  before: OrderFormSnapshot,
+  after: OrderFormSnapshot,
+  receivers: CadastroOption[],
+  customers: CadastroOption[],
+  unloadingPoints: CadastroOption[],
+  products: ProductOption[],
+): FieldChange[] {
+  const changes: FieldChange[] = [];
+
+  if (before.externalOrderNumber !== after.externalOrderNumber) {
+    changes.push({
+      label: 'número do pedido',
+      from: before.externalOrderNumber || '—',
+      to: after.externalOrderNumber || '—',
+    });
+  }
+  if (before.requestedDeliveryDate !== after.requestedDeliveryDate) {
+    changes.push({
+      label: 'data de entrega',
+      from: formatDateBr(before.requestedDeliveryDate),
+      to: formatDateBr(after.requestedDeliveryDate),
+    });
+  }
+  if (before.receiverId !== after.receiverId) {
+    changes.push({
+      label: 'recebedor',
+      from: optionLabel(before.receiverId, receivers),
+      to: optionLabel(after.receiverId, receivers),
+    });
+  }
+  if (before.customerId !== after.customerId) {
+    changes.push({
+      label: 'CNPJ de entrega',
+      from: optionLabel(before.customerId, customers, formatCustomerLabel),
+      to: optionLabel(after.customerId, customers, formatCustomerLabel),
+    });
+  }
+  if (before.unloadingPointId !== after.unloadingPointId) {
+    changes.push({
+      label: 'ponto de descarga',
+      from: optionLabel(before.unloadingPointId, unloadingPoints),
+      to: optionLabel(after.unloadingPointId, unloadingPoints),
+    });
+  }
+  if (before.notes !== after.notes) {
+    changes.push({
+      label: 'observação',
+      from: before.notes || '—',
+      to: after.notes || '—',
+    });
+  }
+  if (JSON.stringify(before.items) !== JSON.stringify(after.items)) {
+    changes.push({
+      label: 'itens do pedido',
+      from: itemsSummary(before.items, products),
+      to: itemsSummary(after.items, products),
+    });
+  }
+
+  return changes;
 }
 
 function buildFieldErrors(
@@ -249,8 +379,10 @@ export function NewOrderModal(props: {
   isOpen: boolean;
   onClose: () => void;
   onCreated: () => void;
+  editOrder?: OrderDto | null;
 }) {
-  const { isOpen, onClose, onCreated } = props;
+  const { isOpen, onClose, onCreated, editOrder = null } = props;
+  const isEdit = Boolean(editOrder);
 
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [receivers, setReceivers] = useState<CadastroOption[]>([]);
@@ -269,6 +401,9 @@ export function NewOrderModal(props: {
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<'form' | 'confirm'>('form');
+  const [initialSnapshot, setInitialSnapshot] = useState<OrderFormSnapshot | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<FieldChange[]>([]);
 
   const productById = useCallback(
     (id: string) => products.find((p) => p.id === id),
@@ -320,7 +455,64 @@ export function NewOrderModal(props: {
     setFieldErrors({});
     setSubmitError(null);
     setSaving(false);
+    setStep('form');
+    setInitialSnapshot(null);
+    setPendingChanges([]);
   }, []);
+
+  const populateFromOrder = useCallback(
+    (
+      order: OrderDto,
+      r: CadastroOption[],
+      c: CadastroOption[],
+      u: CadastroOption[],
+    ) => {
+      const receiverMatch =
+        r.find((row) => row.name.trim() === (order.receiverName ?? '').trim())?.id ?? '';
+      const customerMatch =
+        c.find(
+          (row) =>
+            row.name.trim() === order.customerName.trim() ||
+            (order.customerDocument &&
+              row.cnpj?.trim() === order.customerDocument.trim()),
+        )?.id ?? '';
+      const unloadingMatch =
+        u.find((row) => row.name.trim() === (order.unloadingPoint ?? '').trim())?.id ?? '';
+      const deliveryDate =
+        order.requestedDeliveryDate?.slice(0, 10) ??
+        order.orderDate?.slice(0, 10) ??
+        '';
+
+      setExternalOrderNumber(order.externalOrderNumber ?? '');
+      setRequestedDeliveryDate(deliveryDate);
+      setReceiverId(receiverMatch);
+      setCustomerId(customerMatch);
+      setUnloadingPointId(unloadingMatch);
+      setNotes(order.notes ?? '');
+      const nextItems =
+        order.items.length > 0
+          ? order.items.map((item) => ({
+              key: crypto.randomUUID(),
+              productId: item.productId ?? '',
+              quantity: String(item.quantity),
+            }))
+          : [newItemRow()];
+      setItems(nextItems);
+
+      setInitialSnapshot(
+        snapshotFromForm(
+          order.externalOrderNumber ?? '',
+          deliveryDate,
+          receiverMatch,
+          customerMatch,
+          unloadingMatch,
+          order.notes ?? '',
+          nextItems,
+        ),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -337,6 +529,9 @@ export function NewOrderModal(props: {
         setCustomers(c);
         setUnloadingPoints(u);
         setProducts(p);
+        if (editOrder) {
+          populateFromOrder(editOrder, r, c, u);
+        }
       })
       .catch((err: unknown) => {
         setSubmitError(
@@ -346,7 +541,40 @@ export function NewOrderModal(props: {
         );
       })
       .finally(() => setLoadingOptions(false));
-  }, [isOpen, resetForm]);
+  }, [isOpen, resetForm, editOrder, populateFromOrder]);
+
+  const persistOrder = async () => {
+    const payload = {
+      externalOrderNumber: externalOrderNumber.trim(),
+      requestedDeliveryDate: requestedDeliveryDate.trim(),
+      receiverId,
+      customerId,
+      unloadingPointId,
+      notes: notes.trim() || undefined,
+      items: items.map((row) => ({
+        productId: row.productId,
+        quantity: Number(row.quantity),
+      })),
+    };
+
+    if (isEdit && editOrder) {
+      const numeroPed = Number(editOrder.externalOrderNumber);
+      if (!Number.isFinite(numeroPed) || numeroPed <= 0) {
+        throw new Error('Número do pedido inválido para edição.');
+      }
+      await erpFetchJson(`api/pedidos/${numeroPed}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await erpFetchJson('api/pedidos', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+    onCreated();
+    onClose();
+  };
 
   const handleSubmit = async () => {
     const errors = buildFieldErrors(
@@ -370,29 +598,47 @@ export function NewOrderModal(props: {
       return;
     }
 
+    if (isEdit && initialSnapshot && step === 'form') {
+      const current = snapshotFromForm(
+        externalOrderNumber,
+        requestedDeliveryDate,
+        receiverId,
+        customerId,
+        unloadingPointId,
+        notes,
+        items,
+      );
+      const changes = computeOrderFormChanges(
+        initialSnapshot,
+        current,
+        receivers,
+        customers,
+        unloadingPoints,
+        products,
+      );
+      if (changes.length === 0) {
+        setSubmitError('Nenhuma alteração foi feita.');
+        return;
+      }
+      setPendingChanges(changes);
+      setStep('confirm');
+      setSubmitError(null);
+      return;
+    }
+
     setSaving(true);
     setSubmitError(null);
     setFieldErrors({});
     try {
-      await erpFetchJson('api/pedidos', {
-        method: 'POST',
-        body: JSON.stringify({
-          externalOrderNumber: externalOrderNumber.trim(),
-          requestedDeliveryDate: requestedDeliveryDate.trim(),
-          receiverId,
-          customerId,
-          unloadingPointId,
-          notes: notes.trim() || undefined,
-          items: items.map((row) => ({
-            productId: row.productId,
-            quantity: Number(row.quantity),
-          })),
-        }),
-      });
-      onCreated();
-      onClose();
+      await persistOrder();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Falha ao criar pedido.');
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : isEdit
+            ? 'Falha ao atualizar pedido.'
+            : 'Falha ao criar pedido.',
+      );
     } finally {
       setSaving(false);
     }
@@ -420,7 +666,7 @@ export function NewOrderModal(props: {
             id="new-order-title"
             className="text-lg font-semibold text-[var(--text-primary)]"
           >
-            Novo Pedido Manual
+            {isEdit ? 'Editar Pedido Manual' : 'Novo Pedido Manual'}
           </h2>
           <button
             type="button"
@@ -433,6 +679,27 @@ export function NewOrderModal(props: {
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+          {step === 'confirm' ? (
+            <div className="space-y-4">
+              <p className="text-sm font-medium text-[var(--text-primary)]">
+                Revise as alterações antes de confirmar:
+              </p>
+              <ul className="space-y-3">
+                {pendingChanges.map((change) => (
+                  <li
+                    key={`${change.label}-${change.from}-${change.to}`}
+                    className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-secondary)]"
+                  >
+                    Você alterou <strong>{change.label}</strong> de{' '}
+                    <span className="text-[var(--text-primary)]">{change.from}</span> para{' '}
+                    <span className="text-[var(--text-primary)]">{change.to}</span>. Confirmar?
+                  </li>
+                ))}
+              </ul>
+              {submitError ? <p className="text-sm text-rose-400">{submitError}</p> : null}
+            </div>
+          ) : (
+            <>
           {loadingOptions ? (
             <div className="flex items-center gap-2 py-6 text-sm text-[var(--text-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -720,9 +987,36 @@ export function NewOrderModal(props: {
           </div>
 
           {submitError ? <p className="text-sm text-rose-400">{submitError}</p> : null}
+            </>
+          )}
         </div>
 
         <div className="flex shrink-0 gap-3 border-t border-[var(--border-color)] bg-[var(--input-bg)]/30 px-5 py-4">
+          {step === 'confirm' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('form');
+                  setPendingChanges([]);
+                  setSubmitError(null);
+                }}
+                disabled={saving}
+                className="flex-1 rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-[var(--input-bg)]"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={saving}
+                className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? 'Salvando…' : 'Confirmar'}
+              </button>
+            </>
+          ) : (
+            <>
           <button
             type="button"
             onClick={onClose}
@@ -737,8 +1031,10 @@ export function NewOrderModal(props: {
             disabled={saving || loadingOptions}
             className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? 'Salvando…' : 'Criar pedido'}
+            {saving ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Criar pedido'}
           </button>
+            </>
+          )}
         </div>
       </div>
     </div>

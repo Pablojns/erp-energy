@@ -48,12 +48,12 @@ export const expeditionStatusFilters: ExpeditionStatusFilterConfig[] = [
     hint: 'Pedidos ativos no fluxo operacional.',
   },
   {
-    key: 'cotacao',
-    label: 'Aguardando cotação',
+    key: 'novo',
+    label: 'Novo',
     color: 'sky',
     icon: Clock,
     enabled: true,
-    hint: 'Novos e analisados aguardando triagem.',
+    hint: 'Pedidos novos aguardando triagem.',
   },
   {
     key: 'urgente',

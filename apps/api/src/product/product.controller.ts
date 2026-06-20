@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -63,6 +64,11 @@ export class ProductController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem excluir produtos.',
+      );
+    }
     return this.productService.softDelete(id, user.id);
   }
 }

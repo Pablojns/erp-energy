@@ -1,34 +1,60 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   Filter,
   Loader2,
-  Printer,
   RefreshCw,
   Search,
 } from 'lucide-react';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
 import {
-  countExpeditionUiFilters,
-  OrderStatusFilters,
-} from '@/src/components/expedicao/workspace/order-status-filters';
+  PedidosOrderStatusFilters,
+  pedidosStatusFilterLabel,
+  pedidosStatusFilterTone,
+} from '@/src/components/expedicao/workspace/pedidos-order-status-filters';
 import {
-  QueueQuickFilters,
-  quickFilterToStatus,
-  statusFilterToQuick,
-  type QueueQuickFilterId,
-} from '@/src/components/expedicao/workspace/queue-quick-filters';
+  PedidosNewFilterModal,
+  type ExpeditionPedidosPreset,
+} from '@/src/components/expedicao/workspace/pedidos-new-filter-modal';
+import { PedidosPeriodFilter } from '@/src/components/expedicao/workspace/pedidos-period-filter';
+import { RemoveFromSeparationModal } from '@/src/components/expedicao/workspace/remove-from-separation-modal';
+import { pedidosStatusBadgeStyle } from '@/src/components/expedicao/shared/pedidos-status-styles';
+import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
-import { printWaybill } from '@/src/utils/print-waybill';
+import { downloadWaybillPdf } from '@/src/utils/download-waybill-pdf';
+import {
+  ErpFilterBar,
+  type FilterBadgeItem,
+} from '@/src/components/shared/erp-filter-bar';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
 type PageItem = number | '...';
+
+const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
+  'all',
+  'novo',
+  'em_separacao',
+  'aguardando_nf',
+  'finalizado',
+  'cancelado',
+  'parcial',
+];
+
+const EXPEDITION_PEDIDOS_FILTER_KEY = 'erp.filters.expedicao.pedidos';
+
+function normalizePedidosStatusFilter(id: string): StatusFilterId {
+  if (id === 'cotacao') return 'all';
+  return PEDIDOS_STATUS_FILTERS.includes(id as StatusFilterId)
+    ? (id as StatusFilterId)
+    : 'all';
+}
 
 function buildPageItems(current: number, total: number): PageItem[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -42,6 +68,27 @@ function buildPageItems(current: number, total: number): PageItem[] {
   return out;
 }
 
+function applyPedidosPreset(
+  preset: ExpeditionPedidosPreset,
+  data: OrdersData,
+) {
+  data.setPage(1);
+  data.setStatusFilter(normalizePedidosStatusFilter(preset.statusFilter));
+}
+
+function isAguardandoNfStatus(status: string): boolean {
+  return (
+    status === 'SEPARADO' ||
+    status === 'AGUARDANDO_NF' ||
+    status === 'NF_ATRELADA'
+  );
+}
+
+const SEPARATION_SECTIONS = [
+  { id: 'em_separacao' as const, label: 'Em Separação' },
+  { id: 'aguardando_nf' as const, label: 'Aguardando NF' },
+] as const;
+
 export function OrderQueue(props: {
   data: OrdersData;
   selectedOrderId: string | null;
@@ -50,6 +97,10 @@ export function OrderQueue(props: {
   title?: string;
   onNewOrder?: () => void;
   onRefresh?: () => void;
+  isAdmin?: boolean;
+  onEditOrder?: (order: OrderDto) => void;
+  onDeleteOrder?: (order: OrderDto) => void;
+  queueMode?: 'orders' | 'separation';
 }) {
   const {
     data,
@@ -59,36 +110,101 @@ export function OrderQueue(props: {
     title = 'Fila de Pedidos p/ Separação',
     onNewOrder,
     onRefresh,
+    isAdmin = false,
+    onEditOrder,
+    onDeleteOrder,
+    queueMode = 'orders',
   } = props;
 
-  const [quickFilter, setQuickFilter] = useState<QueueQuickFilterId>(() =>
-    statusFilterToQuick(data.statusFilter),
+  const isPedidosMode = queueMode === 'orders';
+
+  const [selectedForRemovalIds, setSelectedForRemovalIds] = useState<Set<string>>(
+    () => new Set(),
   );
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [removeModalOpen, setRemoveModalOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [selectedForPrintIds, setSelectedForPrintIds] = useState<Set<string>>(
     () => new Set(),
   );
-
-  useEffect(() => {
-    setQuickFilter(statusFilterToQuick(data.statusFilter));
-  }, [data.statusFilter]);
-
-  const handleQuickChange = (id: QueueQuickFilterId) => {
-    setQuickFilter(id);
-    data.setPage(1);
-    data.setStatusFilter(quickFilterToStatus(id));
-  };
-
-  const activeFilterCount = countExpeditionUiFilters(
-    data.statusFilter,
-    data.appliedFilters.search,
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [newFilterOpen, setNewFilterOpen] = useState(false);
+  const [savedFiltersVersion, setSavedFiltersVersion] = useState(0);
+  const [activeCustomFilterId, setActiveCustomFilterId] = useState<string | null>(
+    null,
   );
 
-  const quickCounts = {
-    all: data.filterCounts?.all ?? data.sum?.totalPedidos,
-    atrasado: data.sum?.atrasados,
-    urgente: data.filterCounts?.urgente ?? data.sum?.urgentes,
-    em_separacao: data.filterCounts?.em_separacao ?? data.sum?.emSeparacao,
+  const filterBadges = useMemo((): FilterBadgeItem[] => {
+    const badges: FilterBadgeItem[] = [];
+    if (data.statusFilter !== 'all') {
+      badges.push({
+        key: `status:${data.statusFilter}`,
+        label: isPedidosMode
+          ? pedidosStatusFilterLabel(data.statusFilter)
+          : data.statusFilter,
+        tone: isPedidosMode ? pedidosStatusFilterTone(data.statusFilter) : undefined,
+        style: isPedidosMode
+          ? pedidosStatusBadgeStyle(data.statusFilter, true)
+          : undefined,
+      });
+    }
+    const q = data.appliedFilters.search.trim();
+    if (q) {
+      badges.push({ key: 'search', label: `Busca: ${q}` });
+    }
+    if (data.appliedFilters.orderDateFrom.trim()) {
+      badges.push({
+        key: 'dateFrom',
+        label: `De: ${data.appliedFilters.orderDateFrom}`,
+      });
+    }
+    if (data.appliedFilters.orderDateTo.trim()) {
+      badges.push({
+        key: 'dateTo',
+        label: `Até: ${data.appliedFilters.orderDateTo}`,
+      });
+    }
+    return badges;
+  }, [data.statusFilter, data.appliedFilters, isPedidosMode]);
+
+  const hasActiveFilters = filterBadges.length > 0;
+
+  const presetValue = useMemo(
+    (): ExpeditionPedidosPreset => ({
+      statusFilter: data.statusFilter,
+    }),
+    [data.statusFilter],
+  );
+
+  const handleRemoveBadge = (key: string) => {
+    data.setPage(1);
+    if (key.startsWith('status:')) {
+      setActiveCustomFilterId(null);
+      data.setStatusFilter('all');
+      return;
+    }
+    if (key === 'search') {
+      data.setAppliedFilters((f) => ({ ...f, search: '' }));
+      return;
+    }
+    if (key === 'dateFrom') {
+      data.setAppliedFilters((f) => ({ ...f, orderDateFrom: '' }));
+      return;
+    }
+    if (key === 'dateTo') {
+      data.setAppliedFilters((f) => ({ ...f, orderDateTo: '' }));
+    }
+  };
+
+  const handleClearAll = () => {
+    data.setPage(1);
+    setActiveCustomFilterId(null);
+    data.setStatusFilter('all');
+    data.setAppliedFilters((f) => ({
+      ...f,
+      search: '',
+      orderDateFrom: '',
+      orderDateTo: '',
+    }));
   };
 
   const pageSize = data.meta?.pageSize ?? 20;
@@ -98,6 +214,7 @@ export function OrderQueue(props: {
     : data.orders.length;
   const pageItems = data.meta ? buildPageItems(data.page, data.meta.totalPages) : [];
   const selectedForPrintCount = selectedForPrintIds.size;
+  const selectedForRemovalCount = selectedForRemovalIds.size;
 
   const togglePrintSelection = (orderId: string) => {
     setSelectedForPrintIds((prev) => {
@@ -111,23 +228,92 @@ export function OrderQueue(props: {
     });
   };
 
-  const handlePrintWaybill = () => {
+  const toggleRemovalSelection = (orderId: string) => {
+    setSelectedForRemovalIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  const handleConfirmRemoveFromSeparation = async () => {
+    const targets = data.orders.filter((o) => selectedForRemovalIds.has(o.id));
+    if (targets.length === 0) return;
+    setRemoving(true);
+    const ok = await data.removeOrdersFromSeparation(targets);
+    setRemoving(false);
+    if (ok) {
+      setRemoveModalOpen(false);
+      setSelectedForRemovalIds(new Set());
+    }
+  };
+
+  const handleSavePdf = () => {
     const pedidos = data.orders
       .filter((o) => selectedForPrintIds.has(o.id))
       .map(mapOrderToPedidoParaImpressao);
-    printWaybill(pedidos);
+    downloadWaybillPdf(pedidos);
   };
+
+  const separationSections = useMemo(() => {
+    if (isPedidosMode) return null;
+    return SEPARATION_SECTIONS.map((section) => ({
+      ...section,
+      orders: data.orders.filter((o) =>
+        section.id === 'em_separacao'
+          ? o.status === 'EM_SEPARACAO'
+          : isAguardandoNfStatus(o.status),
+      ),
+    }));
+  }, [data.orders, isPedidosMode]);
+
+  const renderOrderCard = (o: OrderDto) => (
+    <OrderQueueCard
+      key={o.id}
+      order={o}
+      selected={selectedOrderId === o.id}
+      checkedForPrint={isPedidosMode ? selectedForPrintIds.has(o.id) : undefined}
+      onTogglePrint={isPedidosMode ? () => togglePrintSelection(o.id) : undefined}
+      checkedForRemoval={!isPedidosMode ? selectedForRemovalIds.has(o.id) : undefined}
+      onToggleRemoval={!isPedidosMode ? () => toggleRemovalSelection(o.id) : undefined}
+      onSelect={() => {
+        onSelectOrder(o.id);
+        onOrderChosen?.();
+      }}
+      showAdminActions={isAdmin}
+      onEdit={onEditOrder ? () => onEditOrder(o) : undefined}
+      onDelete={onDeleteOrder ? () => onDeleteOrder(o) : undefined}
+    />
+  );
 
   return (
     <aside className="exp-queue-panel">
       <div className="exp-queue-panel-header">
         <div className="exp-queue-header-row">
           <h2 className="exp-queue-panel-title">{title}</h2>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="exp-queue-header-actions">
+            {isPedidosMode ? (
+              <PedidosPeriodFilter
+                dateFrom={data.appliedFilters.orderDateFrom}
+                dateTo={data.appliedFilters.orderDateTo}
+                onChange={(from, to) => {
+                  data.setPage(1);
+                  data.setAppliedFilters((f) => ({
+                    ...f,
+                    orderDateFrom: from,
+                    orderDateTo: to,
+                  }));
+                }}
+              />
+            ) : null}
             {onRefresh ? (
               <button
                 type="button"
-                className="exp-queue-icon-btn"
+                className="exp-queue-header-btn exp-queue-header-btn--icon"
                 onClick={onRefresh}
                 aria-label="Atualizar fila"
               >
@@ -136,14 +322,23 @@ export function OrderQueue(props: {
                 />
               </button>
             ) : null}
+            {isPedidosMode ? (
+              <button
+                type="button"
+                className={`exp-queue-header-btn ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
+                onClick={() => setFiltersOpen((v) => !v)}
+              >
+                <Filter className="h-4 w-4" aria-hidden />
+                Filtros
+                {filterBadges.length > 0 ? (
+                  <span className="exp-queue-header-btn-count">{filterBadges.length}</span>
+                ) : null}
+              </button>
+            ) : null}
             {onNewOrder ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
-                style={{
-                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)',
-                }}
+                className="exp-queue-header-btn exp-queue-header-btn--primary"
                 onClick={onNewOrder}
               >
                 + Novo Pedido
@@ -152,72 +347,132 @@ export function OrderQueue(props: {
           </div>
         </div>
 
-        <div className="exp-queue-search-row">
-          <div className="exp-queue-search-wrap">
-            <Search className="exp-queue-search-icon" aria-hidden />
-            <input
-              type="search"
-              value={data.appliedFilters.search}
-              onChange={(e) => {
-                data.setPage(1);
-                data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
-              }}
-              placeholder="Buscar pedido, SKU, cliente, recebedor..."
-              className="exp-queue-search"
-            />
-          </div>
-          <div className="exp-queue-filters-btn-wrap">
-            <button
-              type="button"
-              className={`exp-queue-filters-btn ${filtersOpen ? 'exp-queue-filters-btn--open' : ''}`}
-              onClick={() => setFiltersOpen((v) => !v)}
-            >
-              <Filter className="h-4 w-4" aria-hidden />
-              Filtros
-              {activeFilterCount > 0 ? (
-                <span className="exp-queue-filters-badge">{activeFilterCount}</span>
-              ) : null}
-            </button>
-            {filtersOpen ? (
-              <div className="exp-queue-filters-dropdown">
-                <OrderStatusFilters
-                  active={data.statusFilter}
-                  onChange={(id) => {
+        {isPedidosMode ? (
+          <ErpFilterBar<ExpeditionPedidosPreset>
+            storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
+            badges={filterBadges}
+            hasActiveFilters={hasActiveFilters}
+            onRemoveBadge={handleRemoveBadge}
+            onClearAll={handleClearAll}
+            presetValue={presetValue}
+            hideFilterButton
+            hideSavedPresetsList
+            open={filtersOpen}
+            onOpenChange={setFiltersOpen}
+            savedFiltersVersion={savedFiltersVersion}
+            createFilterLabel="+ Novo Filtro"
+            onCreateFilter={() => {
+              setNewFilterOpen(true);
+              setFiltersOpen(false);
+            }}
+            onApplyPreset={(preset) => {
+              setActiveCustomFilterId(null);
+              applyPedidosPreset(preset, data);
+            }}
+            searchSlot={
+              <div className="exp-queue-search-wrap erp-filter-search-slot">
+                <Search className="exp-queue-search-icon" aria-hidden />
+                <input
+                  type="search"
+                  value={data.appliedFilters.search}
+                  onChange={(e) => {
                     data.setPage(1);
-                    data.setStatusFilter(id);
-                    setQuickFilter(statusFilterToQuick(id));
-                    setFiltersOpen(false);
+                    data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
                   }}
-                  counts={data.filterCounts}
+                  placeholder="Buscar pedido, SKU, cliente, recebedor..."
+                  className="exp-queue-search"
                 />
               </div>
-            ) : null}
-          </div>
-        </div>
+            }
+          >
+            <PedidosOrderStatusFilters
+              active={data.statusFilter}
+              activeCustomFilterId={activeCustomFilterId}
+              storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
+              savedFiltersVersion={savedFiltersVersion}
+              onSavedFiltersChange={() => {
+                setSavedFiltersVersion((v) => v + 1);
+                if (activeCustomFilterId) {
+                  setActiveCustomFilterId(null);
+                }
+              }}
+              onChange={(id) => {
+                data.setPage(1);
+                setActiveCustomFilterId(null);
+                data.setStatusFilter(id);
+              }}
+              onApplyCustomFilter={(preset, filterId) => {
+                setActiveCustomFilterId(filterId);
+                applyPedidosPreset(
+                  { statusFilter: preset.statusFilter ?? 'all' },
+                  data,
+                );
+                setFiltersOpen(false);
+              }}
+            />
+          </ErpFilterBar>
+        ) : null}
       </div>
 
-      <div className="exp-queue-panel-filters">
-        <QueueQuickFilters
-          active={quickFilter}
-          onChange={handleQuickChange}
-          counts={quickCounts}
+      {isPedidosMode ? (
+        <PedidosNewFilterModal
+          isOpen={newFilterOpen}
+          storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
+          onClose={() => setNewFilterOpen(false)}
+          onSaved={() => {
+            setSavedFiltersVersion((v) => v + 1);
+            setFiltersOpen(true);
+          }}
         />
-      </div>
+      ) : null}
 
-      <div className="exp-queue-print-toolbar">
-        <span className="exp-queue-print-count">
-          {selectedForPrintCount} pedido(s) selecionado(s)
-        </span>
-        <button
-          type="button"
-          className="exp-queue-print-btn"
-          disabled={selectedForPrintCount === 0}
-          onClick={handlePrintWaybill}
-        >
-          <Printer className="h-4 w-4" aria-hidden />
-          Imprimir Romaneio
-        </button>
-      </div>
+      {isPedidosMode ? (
+        <div className="exp-queue-print-toolbar">
+          {selectedForPrintCount > 0 ? (
+            <span className="exp-queue-print-count">
+              {selectedForPrintCount} pedido(s) selecionado(s)
+            </span>
+          ) : (
+            <span className="exp-queue-print-count exp-queue-print-count--empty" />
+          )}
+          <button
+            type="button"
+            className="exp-queue-print-btn"
+            disabled={selectedForPrintCount === 0}
+            onClick={handleSavePdf}
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            Salvar PDF
+          </button>
+        </div>
+      ) : (
+        <div className="exp-queue-print-toolbar">
+          {selectedForRemovalCount > 0 ? (
+            <span className="exp-queue-print-count">
+              {selectedForRemovalCount} pedido(s) selecionado(s)
+            </span>
+          ) : (
+            <span className="exp-queue-print-count exp-queue-print-count--empty" />
+          )}
+          <button
+            type="button"
+            className="exp-queue-remove-sep-btn"
+            disabled={selectedForRemovalCount === 0}
+            onClick={() => setRemoveModalOpen(true)}
+          >
+            Remover da Separação
+          </button>
+        </div>
+      )}
+
+      {removeModalOpen ? (
+        <RemoveFromSeparationModal
+          count={selectedForRemovalCount}
+          loading={removing}
+          onCancel={() => setRemoveModalOpen(false)}
+          onConfirm={() => void handleConfirmRemoveFromSeparation()}
+        />
+      ) : null}
 
       <div className="exp-queue-panel-list">
         {data.ordersLoading ? (
@@ -227,71 +482,68 @@ export function OrderQueue(props: {
           </div>
         ) : data.orders.length === 0 ? (
           <p className="exp-queue-empty">Nenhum pedido neste filtro.</p>
-        ) : (
-          <div className="exp-queue-grid">
-            {data.orders.map((o: OrderDto) => (
-              <OrderQueueCard
-                key={o.id}
-                order={o}
-                selected={selectedOrderId === o.id}
-                checkedForPrint={selectedForPrintIds.has(o.id)}
-                onTogglePrint={() => togglePrintSelection(o.id)}
-                onSelect={() => {
-                  onSelectOrder(o.id);
-                  onOrderChosen?.();
-                }}
-              />
+        ) : isPedidosMode ? (
+          <div className="exp-queue-grid">{data.orders.map(renderOrderCard)}</div>
+        ) : separationSections ? (
+          <div className="exp-queue-sections">
+            {separationSections.map((section) => (
+              <section key={section.id} className="exp-queue-section">
+                <h3 className="exp-queue-section-title">{section.label}</h3>
+                {section.orders.length === 0 ? (
+                  <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
+                ) : (
+                  <div className="exp-queue-grid">{section.orders.map(renderOrderCard)}</div>
+                )}
+              </section>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {data.meta ? (
+      {data.meta && !data.ordersLoading && isPedidosMode ? (
         <div className="exp-queue-panel-footer">
           <p className="exp-queue-footer-text">
             Mostrando {showingFrom}-{showingTo} de {data.meta.total} pedidos
           </p>
-          {data.meta.totalPages > 1 ? (
-            <div className="exp-queue-pagination">
-              <button
-                type="button"
-                className="exp-queue-page-btn"
-                disabled={data.page <= 1}
-                onClick={() => data.setPage((p) => Math.max(1, p - 1))}
-                aria-label="Página anterior"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {pageItems.map((item, idx) => {
-                if (item === '...') {
-                  return (
-                    <span key={`ellipsis-${idx}`} className="exp-queue-page-ellipsis">
-                      ...
-                    </span>
-                  );
-                }
+          <div className="exp-queue-pagination">
+            <button
+              type="button"
+              className="exp-queue-page-btn"
+              disabled={data.page <= 1}
+              onClick={() => data.setPage((p) => Math.max(1, p - 1))}
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            {pageItems.map((item, idx) => {
+              if (item === '...') {
                 return (
-                  <button
-                    key={item}
-                    type="button"
-                    className={`exp-queue-page-btn ${data.page === item ? 'exp-queue-page-btn--active' : ''}`}
-                    onClick={() => data.setPage(item)}
-                  >
-                    {item}
-                  </button>
+                  <span key={`ellipsis-${idx}`} className="exp-queue-page-ellipsis">
+                    ...
+                  </span>
                 );
-              })}
-              <button
-                type="button"
-                className="exp-queue-page-btn"
-                disabled={data.page >= data.meta.totalPages}
-                onClick={() => data.setPage((p) => p + 1)}
-                aria-label="Próxima página"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          ) : null}
+              }
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className={`exp-queue-page-btn ${data.page === item ? 'exp-queue-page-btn--active' : ''}`}
+                  onClick={() => data.setPage(item)}
+                >
+                  {item}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="exp-queue-page-btn"
+              disabled={data.page >= data.meta.totalPages}
+              onClick={() => data.setPage((p) => p + 1)}
+              aria-label="Próxima página"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       ) : null}
     </aside>

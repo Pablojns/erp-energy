@@ -1,14 +1,13 @@
 'use client';
 
 const STEPS = [
-  { id: 1, label: 'Em sep.' },
+  { id: 1, label: 'Em separação' },
   { id: 2, label: 'Separando' },
-  { id: 3, label: 'Concluído' },
-  { id: 4, label: 'NF-e' },
-  { id: 5, label: 'Saída' },
+  { id: 3, label: 'NF-e' },
+  { id: 4, label: 'Saída' },
 ] as const;
 
-export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 | 5 }) {
+export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
   const { currentStep } = props;
 
   return (
@@ -40,4 +39,3 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 | 5 }) {
     </div>
   );
 }
-

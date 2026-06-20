@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -27,6 +29,8 @@ import { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
+import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
+import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
@@ -62,6 +66,34 @@ export class PedidosController {
     return this.pedidos.createManual(user.id, dto);
   }
 
+  @Patch(':numeroPed')
+  updateManual(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateManualPedidoDto,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem editar pedidos.',
+      );
+    }
+    return this.pedidos.updateManual(user.id, numeroPed, dto);
+  }
+
+  @Delete(':numeroPed')
+  @HttpCode(HttpStatus.OK)
+  deleteManual(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem excluir pedidos.',
+      );
+    }
+    return this.pedidos.deleteManual(user.id, numeroPed);
+  }
+
   @Get('fila')
   fila() {
     return this.pedidos.filaSeparacao();
@@ -87,6 +119,20 @@ export class PedidosController {
     return this.pedidos.findSaidaById(id);
   }
 
+  @Delete('saidas/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteSaida(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem excluir saídas.',
+      );
+    }
+    return this.pedidos.deleteSaida(user.id, id);
+  }
+
   @Get('transportadoras')
   async getTransportadoras() {
     return this.nfAutomaticoService.listarTransportadoras();
@@ -99,6 +145,28 @@ export class PedidosController {
     @Body() dto: PedidosUpdateStatusDto,
   ) {
     return this.pedidos.updateStatuses(numeroPed, dto, user.id);
+  }
+
+  @Patch(':numeroPed/priority')
+  updatePriority(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateOrderPriorityDto,
+  ) {
+    return this.pedidos.updatePriority(numeroPed, dto, user.id);
+  }
+
+  @Patch(':numeroPed/carrier')
+  updateCarrier(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateOrderCarrierDto,
+  ) {
+    return this.pedidos.updateCarrier(
+      numeroPed,
+      dto.carrierId ?? null,
+      user.id,
+    );
   }
 
   @Post(':numeroPed/nf')

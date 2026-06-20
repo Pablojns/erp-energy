@@ -133,7 +133,7 @@ export function getQueueCardVisual(order: OrderDto): {
       icon: Clock,
       tone: 'wait',
       badgeTone: 'quote',
-      badgeLabel: 'AG. COTAÇÃO',
+      badgeLabel: 'NOVO',
     };
   }
   if (order.status === 'RESERVADO') {
@@ -197,4 +197,75 @@ export function getOrderSendState(order: OrderDto): 'none' | 'partial' | 'comple
   if (completeCount === items.length) return 'complete';
   if (anyPicked) return 'partial';
   return 'none';
+}
+
+export type OrderWorkflowStatusColor =
+  | 'novo'
+  | 'em_separacao'
+  | 'aguardando_nf'
+  | 'finalizado'
+  | 'parcial'
+  | 'cancelado';
+
+/** Badge de workflow (Novo, Em Separação, etc.) com cor padronizada. */
+export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
+  label: string;
+  color: OrderWorkflowStatusColor;
+} {
+  if (order.status === 'CANCELADO') {
+    return { label: 'CANCELADO', color: 'cancelado' };
+  }
+  if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') {
+    return { label: 'FINALIZADO', color: 'finalizado' };
+  }
+  if (order.status === 'PARCIAL') {
+    return { label: 'PARCIAL', color: 'parcial' };
+  }
+  if (
+    order.status === 'AGUARDANDO_NF' ||
+    order.status === 'NF_ATRELADA' ||
+    order.status === 'SEPARADO'
+  ) {
+    return { label: 'AGUARDANDO NF', color: 'aguardando_nf' };
+  }
+  if (order.status === 'EM_SEPARACAO') {
+    return { label: 'EM SEPARAÇÃO', color: 'em_separacao' };
+  }
+  if (
+    order.status === 'NOVO' ||
+    order.status === 'ANALISADO' ||
+    order.status === 'RESERVADO' ||
+    order.status === 'PENDENTE'
+  ) {
+    return { label: 'NOVO', color: 'novo' };
+  }
+  const send = getOrderSendState(order);
+  if (send === 'partial') return { label: 'PARCIAL', color: 'parcial' };
+  return { label: 'NOVO', color: 'novo' };
+}
+
+/** Badge de status exibido nos cards da fila de pedidos. */
+export function getOrderQueueCardStatusBadge(order: OrderDto): {
+  label: string;
+  color: OrderWorkflowStatusColor;
+} {
+  return resolveOrderWorkflowStatusBadge(order);
+}
+
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  NOVO: 'Novo',
+  ANALISADO: 'Novo',
+  PARCIAL: 'Parcial',
+  RESERVADO: 'Reservado',
+  EM_SEPARACAO: 'Em Separação',
+  SEPARADO: 'Separado',
+  AGUARDANDO_NF: 'Aguardando NF',
+  NF_ATRELADA: 'NF atrelada',
+  EXPEDIDO: 'Expedido',
+  FINALIZADO: 'Finalizado',
+  CANCELADO: 'Cancelado',
+};
+
+export function formatOrderStatusLabel(status: string): string {
+  return ORDER_STATUS_LABELS[status] ?? status;
 }

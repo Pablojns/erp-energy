@@ -44,12 +44,26 @@ export function serializeDeliveryAddress(form: DeliveryAddressForm): string {
 }
 
 export function parseDeliveryAddress(
-  raw: string | null | undefined,
+  raw: string | Record<string, unknown> | null | undefined,
 ): DeliveryAddressForm | null {
-  if (!raw?.trim()) return null;
+  if (!raw) return null;
+  if (typeof raw === 'object') {
+    const parsed = raw as Partial<StoredDeliveryAddress>;
+    if (parsed.v !== 1 && !parsed.logradouro && !parsed.cep) return null;
+    return {
+      cep: parsed.cep ?? '',
+      logradouro: parsed.logradouro ?? '',
+      bairro: parsed.bairro ?? '',
+      cidade: parsed.cidade ?? '',
+      uf: parsed.uf ?? '',
+      numero: parsed.numero ?? '',
+      complemento: parsed.complemento ?? '',
+    };
+  }
+  if (!raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<StoredDeliveryAddress>;
-    if (parsed.v !== 1) return null;
+    if (parsed.v !== 1 && !parsed.logradouro && !parsed.cep) return null;
     return {
       cep: parsed.cep ?? '',
       logradouro: parsed.logradouro ?? '',
@@ -64,10 +78,15 @@ export function parseDeliveryAddress(
   }
 }
 
-export function formatDeliveryAddressDisplay(raw: string | null | undefined) {
-  if (!raw?.trim()) return '—';
+export function formatDeliveryAddressDisplay(
+  raw: string | Record<string, unknown> | null | undefined,
+) {
+  if (!raw) return '—';
   const parsed = parseDeliveryAddress(raw);
-  if (!parsed) return raw;
+  if (!parsed) {
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    return '—';
+  }
   const parts = [
     `${parsed.logradouro}, ${parsed.numero}`,
     parsed.complemento || null,
@@ -75,7 +94,7 @@ export function formatDeliveryAddressDisplay(raw: string | null | undefined) {
     `${parsed.cidade}/${parsed.uf}`,
     `CEP ${formatCep(parsed.cep)}`,
   ].filter(Boolean);
-  return parts.join(' - ');
+  return parts.join(' — ');
 }
 
 export type ViaCepResponse = {
