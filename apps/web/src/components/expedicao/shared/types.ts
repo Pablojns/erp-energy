@@ -75,6 +75,8 @@ export type OrderDto = {
   deliveryCity?: string | null;
   deliveryState?: string | null;
   notes: string | null;
+  notaRemessa: string | null;
+  volumes: number | null;
   carrierId: string | null;
   carrierName: string | null;
   status: OrderStatus;
@@ -233,6 +235,8 @@ export type OrderExitDto = {
     totalValue: string;
     notes: string | null;
     obsExpedicao: string | null;
+    notaRemessa: string | null;
+    volumes: number | null;
     requestedDeliveryDate: string | null;
     carrierId: string | null;
     carrierName: string | null;

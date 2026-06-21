@@ -144,10 +144,19 @@ export function OutputDetailPanel(props: {
               : exit.order.customerName
           }
         />
-        <DetailRow label="NF" value={exit.invoiceNumber} />
+        <DetailRow label="Nota de Venda" value={exit.invoiceNumber} />
+        <DetailRow label="Nota de Remessa" value={exit.order.notaRemessa} />
         <DetailRow
           label="Transportadora"
           value={exit.carrierName ?? exit.order.carrierName}
+        />
+        <DetailRow
+          label="Volumes"
+          value={
+            exit.order.volumes != null && exit.order.volumes >= 1
+              ? String(exit.order.volumes)
+              : null
+          }
         />
         <DetailRow label="Data" value={formatDayDisplay(exit.exitDate)} />
         {exit.order.notes?.trim() ? (

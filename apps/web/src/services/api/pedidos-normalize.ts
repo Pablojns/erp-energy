@@ -38,6 +38,11 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     deliveryCity: raw.deliveryCity ? String(raw.deliveryCity) : null,
     deliveryState: raw.deliveryState ? String(raw.deliveryState) : null,
     notes: raw.notes ? String(raw.notes) : null,
+    notaRemessa: raw.notaRemessa ? String(raw.notaRemessa) : null,
+    volumes:
+      raw.volumes !== null && raw.volumes !== undefined && raw.volumes !== ''
+        ? Number(raw.volumes)
+        : null,
     carrierId: raw.carrierId ? String(raw.carrierId) : null,
     carrierName: raw.carrierName ? String(raw.carrierName) : null,
     status: (raw.status as OrderDto['status']) ?? 'NOVO',

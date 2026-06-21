@@ -1,24 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { CheckCircle2, FileText, PackageOpen } from 'lucide-react';
+import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import {
-  CalendarDays,
-  CheckCircle2,
-  FileText,
-  PackageOpen,
-} from 'lucide-react';
-import {
-  formatBrlDisplay,
-  formatDayDisplay,
-} from '@/src/components/expedicao/expedition-wms-layout';
-import {
-  formatOverdueLabel,
-  getOverdueDays,
-  orderDisplayNumber,
-} from '@/src/components/expedicao/shared/order-helpers';
-import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/order-clickable-status-badge';
-import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-panel';
+  OrderInfoPanel,
+  type OrderInfoPanelHandle,
+} from '@/src/components/expedicao/workspace/order-info-panel';
 import { ConcluirModal } from '@/src/components/expedicao/workspace/concluir-modal';
 import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-modal';
 import { SeparationStepper } from '@/src/components/expedicao/workspace/separation-stepper';
@@ -35,11 +24,19 @@ export function SeparationWorkbench(props: {
   onAfterAction?: () => void;
 }) {
   const { order, data, mode = 'orders', onAfterAction } = props;
+  const orderInfoRef = useRef<OrderInfoPanelHandle>(null);
   const [nfModalOpen, setNfModalOpen] = useState(false);
   const [concluirModalOpen, setConcluirModalOpen] = useState(false);
   const [concluding, setConcluding] = useState(false);
   const [exitGenerated, setExitGenerated] = useState(false);
   const [carrierSaving, setCarrierSaving] = useState(false);
+  const [volumesValid, setVolumesValid] = useState(
+    order != null && order.volumes != null && order.volumes >= 1,
+  );
+
+  useEffect(() => {
+    setVolumesValid(order != null && order.volumes != null && order.volumes >= 1);
+  }, [order?.id, order?.volumes]);
 
   if (!order) {
     return (
@@ -54,8 +51,6 @@ export function SeparationWorkbench(props: {
   }
 
   const numero = orderDisplayNumber(order);
-  const overdue = getOverdueDays(order);
-  const urgent = order.priority <= 2;
   const itemCounts = order.items.reduce(
     (acc, it) => {
       const picked = it.pickedQty ?? 0;
@@ -77,7 +72,7 @@ export function SeparationWorkbench(props: {
   const hasAnySeparatedQty = order.items.some((it) => (it.pickedQty ?? 0) > 0);
   const canFinalizeSeparation = allItemsConfirmed;
 
-  const handleFinalizeSeparation = () => {
+  const handleFinalizeSeparation = async () => {
     if (!hasAnySeparatedQty) {
       data.setToast({
         variant: 'err',
@@ -89,6 +84,14 @@ export function SeparationWorkbench(props: {
       data.setToast({
         variant: 'err',
         message: 'Confirme todos os itens antes de finalizar a separação.',
+      });
+      return;
+    }
+    const saved = await orderInfoRef.current?.ensureVolumesSaved();
+    if (!saved) {
+      data.setToast({
+        variant: 'err',
+        message: 'Informe quantos volumes serão enviados (mínimo 1) antes de finalizar.',
       });
       return;
     }
@@ -117,51 +120,14 @@ export function SeparationWorkbench(props: {
     if (order.status === 'EM_SEPARACAO') return 2;
     return 1;
   })();
+
   return (
     <div className="exp-wb-panel">
-      <div className="exp-wb-order-head">
-        <p className="exp-wb-order-number">#{numero}</p>
-        <p className="exp-wb-order-value">{formatBrlDisplay(order.totalValue)}</p>
-        <OrderClickableStatusBadge
-          order={order}
-          onStatusChanged={() => {
-            void data.refreshAll();
-            onAfterAction?.();
-          }}
-        />
-        <button
-          type="button"
-          className={`exp-wb-urgency-toggle${urgent ? ' exp-wb-urgency-toggle--active' : ''}`}
-          onClick={() =>
-            void data.toggleOrderUrgent(order).then(() => onAfterAction?.())
-          }
-        >
-          {urgent ? 'Remover urgência' : 'Marcar como urgente'}
-        </button>
-      </div>
-
-      <div className="exp-wb-deadline-card">
-        <div className="exp-wb-deadline-left">
-          <div className="exp-wb-deadline-icon">
-            <CalendarDays className="h-5 w-5" aria-hidden />
-          </div>
-          <div>
-            <p className="exp-wb-deadline-text">
-              <span className="exp-wb-inline-label">Entrega:</span>{' '}
-              <span className="exp-wb-inline-value">
-                {order.requestedDeliveryDate ? formatDayDisplay(order.requestedDeliveryDate) : 'não informada'}
-              </span>
-            </p>
-            {overdue !== null ? (
-              <span className="exp-wb-late-badge">{formatOverdueLabel(overdue)}</span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
       <OrderInfoPanel
+        ref={orderInfoRef}
         order={order}
         carrierSaving={carrierSaving}
+        showFinalizeVolumesHint={shouldShowConcludeAction}
         onCarrierChange={async (carrierId) => {
           setCarrierSaving(true);
           try {
@@ -171,9 +137,20 @@ export function SeparationWorkbench(props: {
             setCarrierSaving(false);
           }
         }}
+        onNotaRemessaSaved={() => onAfterAction?.()}
+        onVolumesSaved={() => {
+          setVolumesValid(true);
+          onAfterAction?.();
+        }}
+        onVolumesValidityChange={setVolumesValid}
+        onStatusChanged={() => {
+          void data.refreshAll();
+          onAfterAction?.();
+        }}
+        onToggleUrgent={() => data.toggleOrderUrgent(order).then(() => onAfterAction?.())}
       />
 
-      <SeparationStepper currentStep={currentStep} />
+      {mode === 'orders' ? <SeparationStepper currentStep={currentStep} /> : null}
 
       <SeparationItemsTable
         order={order}
@@ -208,13 +185,15 @@ export function SeparationWorkbench(props: {
               <button
                 type="button"
                 className="exp-wb-btn exp-wb-btn--success exp-wb-footer-main disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={concluding}
+                disabled={concluding || !canFinalizeSeparation || !volumesValid}
                 title={
-                  canFinalizeSeparation
-                    ? undefined
-                    : 'Confirme todos os itens antes de finalizar'
+                  !volumesValid
+                    ? 'Informe quantos volumes serão enviados'
+                    : canFinalizeSeparation
+                      ? undefined
+                      : 'Confirme todos os itens antes de finalizar'
                 }
-                onClick={handleFinalizeSeparation}
+                onClick={() => void handleFinalizeSeparation()}
               >
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
                 Finalizar Separação

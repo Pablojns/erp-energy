@@ -278,6 +278,10 @@ model Order {
   notes                   String?
   /// Observação interna da equipe de expedição (não é a observação WEG)
   obsExpedicao            String?
+  /// Número da nota de remessa (opcional, preenchido manualmente)
+  notaRemessa             String?
+  /// Quantidade de volumes para expedição (preenchido na separação)
+  volumes                 Int?
   status                  OrderStatus         @default(NOVO)
   priority                Int                 @default(3)
   mercadoEletronicoStatus String?

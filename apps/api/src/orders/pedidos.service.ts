@@ -164,6 +164,12 @@ export class PedidosService {
     if (dto.obsExpedicao !== undefined) {
       data.obsExpedicao = dto.obsExpedicao.trim() || null;
     }
+    if (dto.notaRemessa !== undefined) {
+      data.notaRemessa = dto.notaRemessa.trim() || null;
+    }
+    if (dto.volumes !== undefined) {
+      (data as Prisma.OrderUpdateInput & { volumes?: number }).volumes = dto.volumes;
+    }
     return this.prisma.client.order.update({
       where: { id: order.id },
       data,
@@ -665,6 +671,8 @@ export class PedidosService {
         totalValue: row.order.totalValue.toString(),
         notes: row.order.notes,
         obsExpedicao: row.order.obsExpedicao,
+        notaRemessa: row.order.notaRemessa,
+        volumes: (row.order as { volumes?: number | null }).volumes ?? null,
         requestedDeliveryDate: row.order.requestedDeliveryDate?.toISOString() ?? null,
         carrierId: row.order.carrierId,
         carrierName: orderCarrierName,

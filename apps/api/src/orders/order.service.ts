@@ -101,6 +101,8 @@ type OrderSerializeSource = {
   deliveryState: string | null;
   deliveryAddress: string | null;
   notes: string | null;
+  notaRemessa: string | null;
+  volumes?: number | null;
   status: OrderStatus;
   priority: number;
   mercadoEletronicoStatus: string | null;
@@ -2490,6 +2492,8 @@ export class OrderService {
       deliveryState: row.deliveryState,
       deliveryAddress: row.deliveryAddress,
       notes: row.notes,
+      notaRemessa: row.notaRemessa,
+      volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
       status: row.status,

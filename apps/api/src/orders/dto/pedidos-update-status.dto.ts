@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { ORDER_STATUS_VALUES } from '../order-domain';
 
 export class PedidosUpdateStatusDto {
@@ -20,5 +20,15 @@ export class PedidosUpdateStatusDto {
   @IsString()
   @MaxLength(2000)
   obsExpedicao?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  notaRemessa?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  volumes?: number;
 }
 
