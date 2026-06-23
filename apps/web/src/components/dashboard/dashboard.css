@@ -1,0 +1,202 @@
+.erp-dashboard {
+  --dash-bg: #f8f9fa;
+  --dash-card: #ffffff;
+  --dash-text: #1a1a2e;
+  --dash-text-muted: #64748b;
+  --dash-border: rgba(26, 26, 46, 0.08);
+  --dash-shadow: 0 1px 3px rgba(26, 26, 46, 0.06), 0 4px 12px rgba(26, 26, 46, 0.04);
+  --dash-accent: #2563eb;
+  --dash-success: #16a34a;
+  --dash-warning: #d97706;
+  --dash-danger: #dc2626;
+  --dash-chart-grid: rgba(26, 26, 46, 0.08);
+}
+
+[data-theme='dark'] .erp-dashboard {
+  --dash-bg: #0f0f1a;
+  --dash-card: #1a1a2e;
+  --dash-text: #e8e8f0;
+  --dash-text-muted: #94a3b8;
+  --dash-border: rgba(232, 232, 240, 0.1);
+  --dash-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --dash-chart-grid: rgba(232, 232, 240, 0.08);
+}
+
+.erp-dashboard {
+  margin: -1rem;
+  padding: 1.5rem;
+  min-height: 100%;
+  background: var(--dash-bg);
+  color: var(--dash-text);
+}
+
+@media (min-width: 640px) {
+  .erp-dashboard {
+    margin: -1.5rem;
+    padding: 2rem;
+  }
+}
+
+.dash-card {
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  border-radius: 12px;
+  box-shadow: var(--dash-shadow);
+}
+
+.dash-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--dash-accent);
+  border: 1px solid rgba(37, 99, 235, 0.85);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dash-btn-primary:hover {
+  background: #1d4ed8;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.dash-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dash-text);
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dash-btn-secondary:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow: var(--dash-shadow);
+}
+
+.dash-period-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--dash-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.dash-period-btn:hover {
+  color: var(--dash-text);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.dash-period-btn--active {
+  color: var(--dash-accent);
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.25);
+}
+
+.dash-metallic-icon {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+}
+
+.dash-metallic-icon svg {
+  stroke: url(#dash-metallic-gradient);
+}
+
+.dash-metric-value--danger {
+  color: var(--dash-danger);
+}
+
+.dash-metric-value--warning {
+  color: var(--dash-warning);
+}
+
+.dash-metric-value--success {
+  color: var(--dash-success);
+}
+
+.dash-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 0%,
+    rgba(148, 163, 184, 0.22) 50%,
+    rgba(148, 163, 184, 0.12) 100%
+  );
+  background-size: 200% 100%;
+  animation: dash-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes dash-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.dash-alert-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--dash-border);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  text-decoration: none;
+  color: inherit;
+}
+
+.dash-alert-link:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.dash-table th {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dash-text-muted);
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--dash-border);
+}
+
+.dash-table td {
+  font-size: 0.8125rem;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--dash-border);
+}
+
+.dash-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dash-activity-item {
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--dash-border);
+}
+
+.dash-activity-item:last-child {
+  border-bottom: none;
+}
+
+.dash-error-banner {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--dash-danger);
+  font-size: 0.875rem;
+}

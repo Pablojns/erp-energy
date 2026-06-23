@@ -23,6 +23,8 @@ function isAllowedPath(path: string): boolean {
     /^orders(\/|$)/i.test(path) ||
     /^api\/pedidos(\/|$)/i.test(path) ||
     /^pedidos(\/|$)/i.test(path) ||
+    /^dashboard(\/|$)/i.test(path) ||
+    /^api\/erp\/dashboard(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -32,6 +34,9 @@ function resolveUpstreamPath(segments: string[]): string {
   const path = segments.join('/');
   if (/^pedidos(\/|$)/i.test(path)) {
     return `api/${path}`;
+  }
+  if (/^dashboard(\/|$)/i.test(path)) {
+    return `api/erp/${path}`;
   }
   return path;
 }
