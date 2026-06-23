@@ -77,6 +77,7 @@ export type OrderDto = {
   deliveryCity?: string | null;
   deliveryState?: string | null;
   notes: string | null;
+  obsExpedicao?: string | null;
   notaRemessa: string | null;
   notaRemessaConfirmada: boolean;
   volumes: number | null;
@@ -92,6 +93,7 @@ export type OrderDto = {
   requestedDeliveryDate: string | null;
   totalValue: string;
   createdAt: string;
+  updatedAt?: string | null;
   itemCount: number;
   quantitySum: number;
   physicalReservationActive?: boolean;
