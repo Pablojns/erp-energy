@@ -64,9 +64,9 @@ export async function POST(request: Request) {
 
   res.cookies.set(AUTH_COOKIE_NAME, accessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: false,
     sameSite: 'lax',
-    maxAge: COOKIE_MAX_AGE_SECONDS, // 1 dia
+    maxAge: COOKIE_MAX_AGE_SECONDS,
     path: '/',
   });
 
