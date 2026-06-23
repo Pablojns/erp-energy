@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 type CadastroOption = {
@@ -83,7 +84,7 @@ async function loadActiveProducts(): Promise<ProductOption[]> {
 
 function newItemRow(): OrderItemForm {
   return {
-    key: crypto.randomUUID(),
+    key: generateUUID(),
     productId: '',
     quantity: '1',
   };
@@ -492,7 +493,7 @@ export function NewOrderModal(props: {
       const nextItems =
         order.items.length > 0
           ? order.items.map((item) => ({
-              key: crypto.randomUUID(),
+              key: generateUUID(),
               productId: item.productId ?? '',
               quantity: String(item.quantity),
             }))

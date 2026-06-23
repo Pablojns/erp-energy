@@ -1,11 +1,9 @@
 /** Extrai texto útil das respostas de erro do NestJS (validation pipe pode retornar `message` como string[]). */
+import { generateUUID } from '@/src/lib/uuid';
 import { clientLogger } from '@/src/services/observability/client-logger';
 
 function createRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return generateUUID();
 }
 
 function nestErrorMessage(payload: unknown, fallbackStatus: number): string {

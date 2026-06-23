@@ -1,3 +1,5 @@
+import { generateUUID } from '@/src/lib/uuid';
+
 export type SavedFilterPreset<T> = {
   id: string;
   name: string;
@@ -44,7 +46,7 @@ export function saveNamedFilter<T>(
     throw new Error('Informe um nome para o filtro.');
   }
   const preset: SavedFilterPreset<T> = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: trimmed,
     value,
     createdAt: new Date().toISOString(),
