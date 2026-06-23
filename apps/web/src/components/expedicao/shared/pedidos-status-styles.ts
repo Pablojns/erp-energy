@@ -30,11 +30,12 @@ export function pedidosStatusBadgeStyle(
   if (!bg) return undefined;
   return {
     background: bg,
-    color: 'white',
+    color: 'var(--color-text-inverse)',
     border: 'none',
     ...(active
       ? {
-          boxShadow: '0 0 0 2px #ffffff, 0 0 0 4px rgba(255, 255, 255, 0.35)',
+          boxShadow:
+            '0 0 0 2px var(--bg-card), 0 0 0 4px color-mix(in srgb, var(--bg-card) 35%, transparent)',
         }
       : {}),
   };
@@ -42,7 +43,7 @@ export function pedidosStatusBadgeStyle(
 
 export const URGENT_BADGE_STYLE: CSSProperties = {
   background: '#dc2626',
-  color: 'white',
+  color: 'var(--color-text-inverse)',
 };
 
 export function orderStatusToWorkflowColor(
@@ -86,11 +87,12 @@ export function orderWorkflowCardBadgeStyle(
 ): CSSProperties {
   return {
     background: WORKFLOW_TO_BG[color],
-    color: 'white',
+    color: 'var(--color-text-inverse)',
     border: 'none',
     ...(active
       ? {
-          boxShadow: '0 0 0 2px #ffffff, 0 0 0 4px rgba(255, 255, 255, 0.35)',
+          boxShadow:
+            '0 0 0 2px var(--bg-card), 0 0 0 4px color-mix(in srgb, var(--bg-card) 35%, transparent)',
         }
       : {}),
   };

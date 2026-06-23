@@ -24,6 +24,8 @@ export type UsePedidosOptions = {
   pageSize?: number;
   enabled?: boolean;
   mode?: 'expedition' | 'separation';
+  /** Acumula páginas para scroll infinito (substitui na página 1). */
+  infinite?: boolean;
 };
 
 export function usePedidos(opts: UsePedidosOptions = {}) {
@@ -35,69 +37,113 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
     pageSize = 25,
     enabled = true,
     mode = 'expedition',
+    infinite = false,
   } = opts;
 
   const [pedidos, setPedidos] = useState<OrderDto[]>([]);
   const [meta, setMeta] = useState<PaginatedOrders['meta'] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchPedidos = useCallback(async () => {
-    if (!enabled) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const searchDebounced = search.trim();
-      const params = buildFilterParams({
-        appliedFilters,
-        searchDebounced,
-        statusFilter,
-        mode,
-      });
-      params.set('page', String(page));
-      params.set('pageSize', String(pageSize));
+  const fetchPedidos = useCallback(
+    async (override?: { page?: number }) => {
+      if (!enabled) return;
+      const effectivePage = override?.page ?? page;
+      const appendPage = infinite && effectivePage > 1 && override === undefined;
 
-      const res = await erpFetchJson<PaginatedOrders>(
-        `api/pedidos?${params.toString()}`,
-      );
-      const list = res.data.map((row) =>
-        normalizePedidoFromApi(row as unknown as Record<string, unknown>),
-      );
-      setMeta(res.meta);
+      if (appendPage) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const searchDebounced = search.trim();
+        const params = buildFilterParams({
+          appliedFilters,
+          searchDebounced,
+          statusFilter,
+          mode,
+        });
+        params.set('page', String(effectivePage));
+        params.set('pageSize', String(pageSize));
 
-      const refined = clientRefineOrders(
-        list,
-        statusFilter,
-        undefined,
-        isOrderOverdue,
-      );
-      setPedidos(refined);
-    } catch (e) {
-      setPedidos([]);
-      setMeta(null);
-      setError(e instanceof Error ? e.message : 'Falha ao carregar pedidos.');
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    enabled,
-    search,
-    statusFilter,
-    appliedFilters,
-    page,
-    pageSize,
-    mode,
-  ]);
+        const res = await erpFetchJson<PaginatedOrders>(
+          `api/pedidos?${params.toString()}`,
+        );
+        const list = res.data.map((row) =>
+          normalizePedidoFromApi(row as unknown as Record<string, unknown>),
+        );
+        setMeta(res.meta);
+
+        const refined = clientRefineOrders(
+          list,
+          statusFilter,
+          undefined,
+          isOrderOverdue,
+        );
+
+        if (appendPage) {
+          setPedidos((prev) => {
+            const seen = new Set(prev.map((o) => o.id));
+            const merged = [...prev];
+            for (const order of refined) {
+              if (!seen.has(order.id)) merged.push(order);
+            }
+            return merged;
+          });
+        } else {
+          setPedidos(refined);
+        }
+      } catch (e) {
+        if (!appendPage) {
+          setPedidos([]);
+          setMeta(null);
+        }
+        setError(e instanceof Error ? e.message : 'Falha ao carregar pedidos.');
+      } finally {
+        if (appendPage) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      enabled,
+      search,
+      statusFilter,
+      appliedFilters,
+      page,
+      pageSize,
+      mode,
+      infinite,
+    ],
+  );
 
   useEffect(() => {
     void fetchPedidos();
   }, [fetchPedidos]);
 
+  const refetch = useCallback(async () => {
+    if (infinite) {
+      await fetchPedidos({ page: 1 });
+      return;
+    }
+    await fetchPedidos();
+  }, [fetchPedidos, infinite]);
+
+  const hasMore =
+    infinite && meta != null ? meta.page < meta.totalPages : false;
+
   return {
     pedidos,
     loading,
+    loadingMore,
+    hasMore,
     error,
     meta,
-    refetch: fetchPedidos,
+    refetch,
   };
 }

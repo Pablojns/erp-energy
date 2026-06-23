@@ -3,7 +3,8 @@
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import {
-  formatOrderQueueTime,
+  displayOrDash,
+  formatOrderQueueDate,
   getOrderQueueCardStatusBadge,
   orderDisplayNumber,
 } from '@/src/components/expedicao/shared/order-helpers';
@@ -48,9 +49,8 @@ export function OrderQueueCard(props: {
     onDelete,
   } = props;
   const numero = orderDisplayNumber(order);
-  const when = formatOrderQueueTime(
-    order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt,
-  );
+  const comprador = displayOrDash(order.deliveryCnpj ?? order.customerDocument);
+  const when = formatOrderQueueDate(order.orderDate ?? order.createdAt);
   const statusBadge = getOrderQueueCardStatusBadge(order);
   const isUrgent = order.priority <= 2;
   const isMarked =
@@ -103,7 +103,12 @@ export function OrderQueueCard(props: {
                   />
                 </label>
               ) : null}
-              <span className="exp-queue-card-num">#{numero}</span>
+              <div className="exp-queue-card-title-block">
+                <span className="exp-queue-card-num">#{numero}</span>
+                <span className="exp-queue-card-customer" title={`Comprador: ${comprador}`}>
+                  {comprador}
+                </span>
+              </div>
               {isUrgent ? (
                 <span
                   className="exp-queue-urgent-badge exp-queue-urgent-badge--pulse"

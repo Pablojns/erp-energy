@@ -10,6 +10,9 @@ import {
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export function getOverdueDays(order: OrderDto): number | null {
+  if (order.status === 'FINALIZADO' || order.status === 'CANCELADO') {
+    return null;
+  }
   if (!order.requestedDeliveryDate) return null;
   const due = new Date(order.requestedDeliveryDate);
   if (Number.isNaN(due.getTime())) return null;
@@ -44,6 +47,58 @@ export function formatOrderQueueTime(iso: string | null): string {
     minute: '2-digit',
   });
   return `${date} · ${time}`;
+}
+
+/** Data do pedido (sem hora) para cards da fila. */
+export function formatOrderQueueDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+export type ItemReceiptStatusTone = 'recebido' | 'em_falta' | 'unknown';
+
+/** Badge visual do status da linha na planilha WEG (Recebido / Em falta). */
+export function getItemReceiptStatusVisual(status: string | null | undefined): {
+  label: string;
+  tone: ItemReceiptStatusTone;
+} {
+  const raw = (status ?? '').trim();
+  if (!raw) return { label: '—', tone: 'unknown' };
+
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+
+  if (normalized.includes('recebido')) {
+    return { label: 'Recebido', tone: 'recebido' };
+  }
+  if (normalized.includes('falta')) {
+    return { label: 'Em falta', tone: 'em_falta' };
+  }
+
+  return { label: raw, tone: 'unknown' };
+}
+
+export function summarizeItemReceiptStatus(items: OrderItemDto[]): {
+  recebidos: number;
+  emFalta: number;
+  total: number;
+} {
+  let recebidos = 0;
+  let emFalta = 0;
+  for (const item of items) {
+    const tone = getItemReceiptStatusVisual(item.mercadoEletronicoItemStatus).tone;
+    if (tone === 'recebido') recebidos += 1;
+    else if (tone === 'em_falta') emFalta += 1;
+  }
+  return { recebidos, emFalta, total: items.length };
 }
 
 export function getItemSeparationStatus(item: OrderItemDto): {

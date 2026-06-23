@@ -5,7 +5,9 @@ import {
   OrderItemOrderedQtyCell,
   OrderItemStockQtyCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
+import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
+import { summarizeItemReceiptStatus } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
@@ -20,11 +22,23 @@ export function SeparationItemsTable(props: {
   const { order, data, mode = 'separation', onAfterAction } = props;
   const isOrdersMode = mode === 'orders';
   const stockByItemId = useOrderItemsStock(order.items);
+  const receiptSummary = summarizeItemReceiptStatus(order.items);
 
   return (
     <div className="exp-wb-table-wrap">
       <div className="exp-wb-table-head">
         <h3>{isOrdersMode ? 'Itens do pedido (leitura)' : 'Itens para separação'}</h3>
+        {isOrdersMode && receiptSummary.recebidos + receiptSummary.emFalta > 0 ? (
+          <p className="exp-wb-item-receipt-summary">
+            <span className="exp-wb-item-receipt-summary__recebido">
+              {receiptSummary.recebidos} recebido(s)
+            </span>
+            {' · '}
+            <span className="exp-wb-item-receipt-summary__falta">
+              {receiptSummary.emFalta} em falta
+            </span>
+          </p>
+        ) : null}
       </div>
       <div className="exp-wb-table-scroll">
         <table
@@ -36,6 +50,7 @@ export function SeparationItemsTable(props: {
             <col className="exp-wb-col-item" />
             <col className="exp-wb-col-qtd-pedida" />
             <col className="exp-wb-col-qtd-estoque" />
+            {isOrdersMode ? <col className="exp-wb-col-item-status" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-sep-qty" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-status" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-action" /> : null}
@@ -47,6 +62,7 @@ export function SeparationItemsTable(props: {
               <th>Item</th>
               <th className="text-center">Qtd</th>
               <th className="text-center">Qtd Estoque</th>
+              {isOrdersMode ? <th className="text-center">Status item</th> : null}
               {!isOrdersMode ? <th className="text-center">Qtd. separada</th> : null}
               {!isOrdersMode ? <th className="text-center">Status</th> : null}
               {!isOrdersMode ? <th className="text-center">Ação</th> : null}
@@ -83,6 +99,11 @@ export function SeparationItemsTable(props: {
                   </td>
                   <td className="text-center">
                     <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
+                  </td>
+                  <td className="text-center">
+                    <OrderItemReceiptStatusBadge
+                      status={it.mercadoEletronicoItemStatus}
+                    />
                   </td>
                 </tr>
               );

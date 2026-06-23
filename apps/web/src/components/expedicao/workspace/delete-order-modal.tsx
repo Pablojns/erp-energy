@@ -69,7 +69,7 @@ export function DeleteOrderModal(props: {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-[var(--color-overlay)]"
         aria-label="Fechar"
         onClick={handleClose}
         disabled={deleting}
@@ -101,7 +101,7 @@ export function DeleteOrderModal(props: {
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
             onClick={() => void handleDelete()}
             disabled={deleting || !canSubmit}
           >

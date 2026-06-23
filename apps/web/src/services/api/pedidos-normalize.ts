@@ -39,6 +39,7 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     deliveryState: raw.deliveryState ? String(raw.deliveryState) : null,
     notes: raw.notes ? String(raw.notes) : null,
     notaRemessa: raw.notaRemessa ? String(raw.notaRemessa) : null,
+    notaRemessaConfirmada: Boolean(raw.notaRemessaConfirmada),
     volumes:
       raw.volumes !== null && raw.volumes !== undefined && raw.volumes !== ''
         ? Number(raw.volumes)
@@ -68,7 +69,8 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
   };
 }
 
-function normalizeItemFromApi(it: Record<string, unknown>): OrderItemDto {
+/** Item serializado (GET /api/pedidos/:id/itens ou em `items` do pedido). */
+export function normalizeItemFromApi(it: Record<string, unknown>): OrderItemDto {
   const pq = it.product && typeof it.product === 'object'
     ? (it.product as Record<string, unknown>).stockQty
     : it.stockQtyOnHand;
@@ -94,6 +96,9 @@ function normalizeItemFromApi(it: Record<string, unknown>): OrderItemDto {
       it.availableAtAnalysis !== undefined && it.availableAtAnalysis !== null
         ? Number(it.availableAtAnalysis)
         : null,
+    mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus
+      ? String(it.mercadoEletronicoItemStatus)
+      : null,
     stockStatus: it.stockStatus ? String(it.stockStatus) : undefined,
     unit: it.unit ? String(it.unit) : null,
     ncm: it.ncm ? String(it.ncm) : null,

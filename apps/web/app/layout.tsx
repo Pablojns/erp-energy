@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/src/components/theme/theme-provider";
 import { ThemeScript } from "@/src/components/theme/theme-script";
+import { ClientObservabilityBootstrap } from "@/src/components/observability/client-observability-bootstrap";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -37,6 +38,7 @@ export default function RootLayout({
         className="min-h-screen-safe flex w-full flex-col"
         suppressHydrationWarning={true}
       >
+        <ClientObservabilityBootstrap />
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

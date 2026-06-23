@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { AdminOrderEditModal } from '@/src/components/expedicao/workspace/admin-order-edit-modal';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
 import { DeleteOrderModal } from '@/src/components/expedicao/workspace/delete-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
@@ -29,6 +30,7 @@ export function ExpeditionWorkspace(props: {
   });
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [adminEditOrder, setAdminEditOrder] = useState<OrderDto | null>(null);
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<OrderDto | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -63,9 +65,18 @@ export function ExpeditionWorkspace(props: {
     return () => window.removeEventListener('expedition-refresh', onRefresh);
   }, [data.refreshAll]);
 
+  const openOrderEdit = (order: OrderDto) => {
+    if (order.source === 'WEG_MERCADO_ELETRONICO') {
+      setAdminEditOrder(order);
+      return;
+    }
+    setEditOrder(order);
+    setNewOrderOpen(true);
+  };
+
   return (
-    <div className="flex h-full w-full flex-col gap-4 px-4 pt-4">
-      <div className="exp-mobile-tabs flex lg:hidden">
+    <div className="flex min-h-0 w-full flex-col gap-3 overflow-hidden px-4 pt-2 pb-2">
+      <div className="exp-mobile-tabs flex shrink-0 lg:hidden">
         <button
           type="button"
           onClick={() => setActiveTab('fila')}
@@ -82,7 +93,7 @@ export function ExpeditionWorkspace(props: {
         </button>
       </div>
 
-      <div className="grid h-full w-full grid-cols-1 gap-4 lg:grid-cols-[42fr_58fr]">
+      <div className="exp-page-layout min-h-0 flex-1">
         <div className={`exp-page-col-queue w-full ${activeTab === 'fila' ? 'block' : 'hidden'} lg:block`}>
           <OrderQueue
             data={data}
@@ -102,11 +113,8 @@ export function ExpeditionWorkspace(props: {
             onRefresh={() => void data.refreshAll()}
             isAdmin={isAdmin}
             onEditOrder={
-              mode === 'orders'
-                ? (order) => {
-                    setEditOrder(order);
-                    setNewOrderOpen(true);
-                  }
+              mode === 'orders' && isAdmin
+                ? (order) => openOrderEdit(order)
                 : undefined
             }
             onDeleteOrder={
@@ -130,6 +138,8 @@ export function ExpeditionWorkspace(props: {
               order={displayOrder}
               data={data}
               mode={mode}
+              isAdmin={isAdmin}
+              onEditOrder={mode === 'orders' && isAdmin ? openOrderEdit : undefined}
               onAfterAction={() => void refetchDetail()}
             />
           )}
@@ -172,6 +182,20 @@ export function ExpeditionWorkspace(props: {
                   : 'Pedido criado com sucesso e adicionado à fila.',
               });
               setEditOrder(null);
+            }}
+          />
+          <AdminOrderEditModal
+            isOpen={Boolean(adminEditOrder)}
+            order={adminEditOrder}
+            onClose={() => setAdminEditOrder(null)}
+            onSaved={() => {
+              void data.refreshAll();
+              void refetchDetail();
+              data.setToast({
+                variant: 'ok',
+                message: 'Pedido atualizado (registrado nos logs).',
+              });
+              setAdminEditOrder(null);
             }}
           />
           <DeleteOrderModal

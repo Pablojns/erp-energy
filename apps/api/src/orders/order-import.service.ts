@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderImportStatus, OrderSource } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { PedidosService } from './pedidos.service';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { AppLogger } from '../common/logger/app-logger';
 
 const PLANILHA_PATH =
   process.env.PLANILHA_PATH ??
@@ -12,7 +13,7 @@ const PLANILHA_PATH =
 
 @Injectable()
 export class OrderImportService {
-  private readonly logger = new Logger(OrderImportService.name);
+  private readonly logger = new AppLogger(OrderImportService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -21,7 +22,10 @@ export class OrderImportService {
 
   @Cron(CronExpression.EVERY_DAY_AT_6AM)
   async importarPlanilhaAutomatico() {
-    this.logger.log('Iniciando importação automática da planilha...');
+    this.logger.info('Starting scheduled spreadsheet import', {
+      source: OrderSource.WEG_MERCADO_ELETRONICO,
+      planilhaPath: path.basename(PLANILHA_PATH),
+    });
 
     const job = await this.prisma.client.orderImportJob.create({
       data: {
@@ -44,10 +48,14 @@ export class OrderImportService {
         },
       });
 
-      this.logger.log(
-        `Importação concluída: ${result.importados} importados, ${result.atualizados} atualizados, ${result.ignorados} ignorados`,
-      );
-    } catch (e) {
+      this.logger.info('Spreadsheet import finished', {
+        jobId: job.id,
+        importados: result.importados,
+        atualizados: result.atualizados,
+        ignorados: result.ignorados,
+        erros: result.erros.length,
+      });
+    } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'erro desconhecido';
       await this.prisma.client.orderImportJob.update({
         where: { id: job.id },
@@ -56,7 +64,9 @@ export class OrderImportService {
           errorMessage: msg,
         },
       });
-      this.logger.error(`Importação falhou: ${msg}`);
+      this.logger.error('Spreadsheet import failed', e, {
+        jobId: job.id,
+      });
     }
   }
 

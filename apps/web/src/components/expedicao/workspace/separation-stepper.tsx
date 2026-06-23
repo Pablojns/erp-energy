@@ -17,9 +17,9 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
           const done = step.id < currentStep;
           const active = step.id === currentStep;
           const cls = done
-            ? 'border-transparent bg-[#22c55e] text-white'
+            ? 'border-transparent bg-[var(--success)] text-[var(--color-text-inverse)]'
             : active
-              ? 'border-transparent bg-[var(--accent)] text-white'
+              ? 'border-transparent bg-[var(--accent)] text-[var(--color-text-inverse)]'
               : 'border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-muted)]';
           return (
             <div key={step.id} className="flex items-center gap-2">

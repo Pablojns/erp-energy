@@ -44,9 +44,13 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [sum, setSum] = useState<ExpeditionSummary | null>(null);
   const [sumLoading, setSumLoading] = useState(true);
 
+  const infiniteScroll = mode === 'expedition';
+
   const {
     pedidos: fetchedOrders,
     loading: ordersLoading,
+    loadingMore: ordersLoadingMore,
+    hasMore: ordersHasMore,
     error: pedidosError,
     meta,
     refetch: refetchPedidos,
@@ -57,7 +61,20 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     page,
     pageSize: 25,
     mode,
+    infinite: infiniteScroll,
   });
+
+  const loadMoreOrders = useCallback(() => {
+    if (!infiniteScroll || ordersLoading || ordersLoadingMore) return;
+    if (!meta || page >= meta.totalPages) return;
+    setPage((p) => p + 1);
+  }, [
+    infiniteScroll,
+    ordersLoading,
+    ordersLoadingMore,
+    meta,
+    page,
+  ]);
 
   const orders = useMemo(() => {
     if (mode === 'separation') {
@@ -451,6 +468,9 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     orders,
     meta,
     ordersLoading,
+    ordersLoadingMore,
+    ordersHasMore,
+    loadMoreOrders,
     banner,
     toast,
     setToast,
@@ -477,6 +497,27 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   };
 }
 
+/** Mescla campos de workflow da fila (sempre atualizada) sobre o cache de detalhe. */
+function mergeListOrderIntoDetail(pedido: OrderDto, fromList: OrderDto): OrderDto {
+  return {
+    ...pedido,
+    status: fromList.status,
+    priority: fromList.priority,
+    volumes: fromList.volumes,
+    notaRemessa: fromList.notaRemessa,
+    notaRemessaConfirmada: fromList.notaRemessaConfirmada,
+    carrierId: fromList.carrierId,
+    carrierName: fromList.carrierName,
+    invoiceNumber: fromList.invoiceNumber,
+    invoiceStatus: fromList.invoiceStatus,
+    mercadoEletronicoStatus: fromList.mercadoEletronicoStatus,
+    contaAzulStatus: fromList.contaAzulStatus,
+    physicalReservationActive: fromList.physicalReservationActive,
+    stockReserveBlocked: fromList.stockReserveBlocked,
+    updatedAt: fromList.updatedAt,
+  };
+}
+
 /** Detalhe do pedido selecionado (por número externo). */
 export function useExpeditionSelectedPedido(
   selectedOrder: OrderDto | null,
@@ -485,7 +526,11 @@ export function useExpeditionSelectedPedido(
   const numero = selectedOrder?.externalOrderNumber ?? null;
   const { pedido, loading, error, refetch } = usePedidoDetalhe(numero);
 
-  const displayOrder = pedido ?? selectedOrder;
+  const displayOrder = useMemo(() => {
+    if (!pedido) return selectedOrder;
+    if (!selectedOrder) return pedido;
+    return mergeListOrderIntoDetail(pedido, selectedOrder);
+  }, [pedido, selectedOrder]);
 
   const refetchAll = useCallback(async () => {
     await Promise.all([onRefetchList(), refetch()]);

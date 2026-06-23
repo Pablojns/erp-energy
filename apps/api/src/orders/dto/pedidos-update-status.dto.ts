@@ -27,6 +27,9 @@ export class PedidosUpdateStatusDto {
   notaRemessa?: string;
 
   @IsOptional()
+  notaRemessaConfirmada?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   volumes?: number;

@@ -1,9 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
   Download,
   Filter,
   Loader2,
@@ -35,8 +33,6 @@ import {
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
-type PageItem = number | '...';
-
 const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
   'all',
   'novo',
@@ -54,18 +50,6 @@ function normalizePedidosStatusFilter(id: string): StatusFilterId {
   return PEDIDOS_STATUS_FILTERS.includes(id as StatusFilterId)
     ? (id as StatusFilterId)
     : 'all';
-}
-
-function buildPageItems(current: number, total: number): PageItem[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const out: PageItem[] = [1];
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  if (start > 2) out.push('...');
-  for (let n = start; n <= end; n += 1) out.push(n);
-  if (end < total - 1) out.push('...');
-  out.push(total);
-  return out;
 }
 
 function applyPedidosPreset(
@@ -132,6 +116,8 @@ export function OrderQueue(props: {
   const [activeCustomFilterId, setActiveCustomFilterId] = useState<string | null>(
     null,
   );
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   const filterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
@@ -207,14 +193,34 @@ export function OrderQueue(props: {
     }));
   };
 
-  const pageSize = data.meta?.pageSize ?? 20;
-  const showingFrom = data.meta ? (data.meta.page - 1) * pageSize + 1 : 0;
-  const showingTo = data.meta
-    ? Math.min(data.meta.page * pageSize, data.meta.total)
-    : data.orders.length;
-  const pageItems = data.meta ? buildPageItems(data.page, data.meta.totalPages) : [];
   const selectedForPrintCount = selectedForPrintIds.size;
   const selectedForRemovalCount = selectedForRemovalIds.size;
+
+  useEffect(() => {
+    if (!isPedidosMode || !data.ordersHasMore) return;
+    const sentinel = loadMoreSentinelRef.current;
+    const root = listScrollRef.current;
+    if (!sentinel || !root) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          data.loadMoreOrders();
+        }
+      },
+      { root, rootMargin: '160px', threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    isPedidosMode,
+    data.ordersHasMore,
+    data.loadMoreOrders,
+    data.orders.length,
+    data.ordersLoading,
+    data.ordersLoadingMore,
+  ]);
 
   const togglePrintSelection = (orderId: string) => {
     setSelectedForPrintIds((prev) => {
@@ -474,8 +480,8 @@ export function OrderQueue(props: {
         />
       ) : null}
 
-      <div className="exp-queue-panel-list">
-        {data.ordersLoading ? (
+      <div ref={listScrollRef} className="exp-queue-panel-list erp-scrollbar">
+        {data.ordersLoading && data.orders.length === 0 ? (
           <div className="exp-queue-empty">
             <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
             <p>Carregando pedidos…</p>
@@ -483,7 +489,18 @@ export function OrderQueue(props: {
         ) : data.orders.length === 0 ? (
           <p className="exp-queue-empty">Nenhum pedido neste filtro.</p>
         ) : isPedidosMode ? (
-          <div className="exp-queue-grid">{data.orders.map(renderOrderCard)}</div>
+          <>
+            <div className="exp-queue-grid">{data.orders.map(renderOrderCard)}</div>
+            {data.ordersHasMore ? (
+              <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
+            ) : null}
+            {data.ordersLoadingMore ? (
+              <div className="exp-queue-load-more">
+                <Loader2 className="h-5 w-5 animate-spin text-[var(--accent)]" />
+                <span>Carregando mais pedidos…</span>
+              </div>
+            ) : null}
+          </>
         ) : separationSections ? (
           <div className="exp-queue-sections">
             {separationSections.map((section) => (
@@ -503,47 +520,8 @@ export function OrderQueue(props: {
       {data.meta && !data.ordersLoading && isPedidosMode ? (
         <div className="exp-queue-panel-footer">
           <p className="exp-queue-footer-text">
-            Mostrando {showingFrom}-{showingTo} de {data.meta.total} pedidos
+            {data.orders.length} de {data.meta.total} pedido(s)
           </p>
-          <div className="exp-queue-pagination">
-            <button
-              type="button"
-              className="exp-queue-page-btn"
-              disabled={data.page <= 1}
-              onClick={() => data.setPage((p) => Math.max(1, p - 1))}
-              aria-label="Página anterior"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            {pageItems.map((item, idx) => {
-              if (item === '...') {
-                return (
-                  <span key={`ellipsis-${idx}`} className="exp-queue-page-ellipsis">
-                    ...
-                  </span>
-                );
-              }
-              return (
-                <button
-                  key={item}
-                  type="button"
-                  className={`exp-queue-page-btn ${data.page === item ? 'exp-queue-page-btn--active' : ''}`}
-                  onClick={() => data.setPage(item)}
-                >
-                  {item}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              className="exp-queue-page-btn"
-              disabled={data.page >= data.meta.totalPages}
-              onClick={() => data.setPage((p) => p + 1)}
-              aria-label="Próxima página"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
         </div>
       ) : null}
     </aside>

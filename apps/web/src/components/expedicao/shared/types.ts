@@ -36,6 +36,8 @@ export type OrderItemDto = {
   pickedQty?: number;
   invoicedQty?: number;
   availableAtAnalysis?: number | null;
+  /** Status da linha na planilha WEG (Recebido, Em falta, etc.) */
+  mercadoEletronicoItemStatus?: string | null;
   stockStatus?: string;
   unit: string | null;
   ncm: string | null;
@@ -76,6 +78,7 @@ export type OrderDto = {
   deliveryState?: string | null;
   notes: string | null;
   notaRemessa: string | null;
+  notaRemessaConfirmada: boolean;
   volumes: number | null;
   carrierId: string | null;
   carrierName: string | null;

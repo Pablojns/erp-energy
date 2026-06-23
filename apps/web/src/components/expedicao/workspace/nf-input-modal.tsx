@@ -47,7 +47,7 @@ export function NfInputModal(props: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-[var(--color-overlay)]"
         aria-label="Fechar modal"
         onClick={onClose}
         disabled={isLoading}
@@ -131,7 +131,7 @@ export function NfInputModal(props: {
             type="button"
             onClick={() => void handleConfirm()}
             disabled={isLoading || !nfNumber}
-            className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 font-medium text-[var(--color-text-inverse)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? 'Salvando...' : 'Confirmar'}
           </button>

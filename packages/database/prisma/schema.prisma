@@ -280,6 +280,8 @@ model Order {
   obsExpedicao            String?
   /// Número da nota de remessa (opcional, preenchido manualmente)
   notaRemessa             String?
+  /// Confirmação explícita da nota de remessa pela expedição
+  notaRemessaConfirmada   Boolean             @default(false)
   /// Quantidade de volumes para expedição (preenchido na separação)
   volumes                 Int?
   status                  OrderStatus         @default(NOVO)
@@ -356,6 +358,8 @@ model OrderItem {
   missingQty           Int       @default(0)
   pickedQty            Int       @default(0)
   invoicedQty          Int       @default(0)
+  /// Status da linha na planilha WEG (coluna "Status Item": Recebido, Em falta, etc.)
+  mercadoEletronicoItemStatus String?
   stockStatus          OrderItemStockStatus @default(NAO_ANALISADO)
   unit                 String?   @db.VarChar(32)
   ncm                  String?   @db.VarChar(16)

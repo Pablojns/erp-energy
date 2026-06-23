@@ -63,7 +63,7 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-[var(--color-overlay)]"
         aria-label="Fechar"
         onClick={handleClose}
         disabled={saving}
@@ -140,7 +140,7 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Salvar filtro

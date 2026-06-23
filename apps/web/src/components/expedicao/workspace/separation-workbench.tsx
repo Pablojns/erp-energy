@@ -22,8 +22,10 @@ export function SeparationWorkbench(props: {
   data: OrdersData;
   mode?: 'orders' | 'separation';
   onAfterAction?: () => void;
+  isAdmin?: boolean;
+  onEditOrder?: (order: OrderDto) => void;
 }) {
-  const { order, data, mode = 'orders', onAfterAction } = props;
+  const { order, data, mode = 'orders', onAfterAction, isAdmin = false, onEditOrder } = props;
   const orderInfoRef = useRef<OrderInfoPanelHandle>(null);
   const [nfModalOpen, setNfModalOpen] = useState(false);
   const [concluirModalOpen, setConcluirModalOpen] = useState(false);
@@ -126,6 +128,9 @@ export function SeparationWorkbench(props: {
       <OrderInfoPanel
         ref={orderInfoRef}
         order={order}
+        panelMode={mode}
+        isAdmin={isAdmin}
+        onEditOrder={onEditOrder ? () => onEditOrder(order) : undefined}
         carrierSaving={carrierSaving}
         showFinalizeVolumesHint={shouldShowConcludeAction}
         onCarrierChange={async (carrierId) => {
@@ -164,8 +169,9 @@ export function SeparationWorkbench(props: {
           <button
             type="button"
             className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full"
-            onClick={() => {
-              void data.patchOrderStatus(order.id, 'EM_SEPARACAO');
+            onClick={async () => {
+              await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
+              onAfterAction?.();
               data.setToast({
                 variant: 'ok',
                 message: `Pedido #${numero} enviado para separação ✓`,

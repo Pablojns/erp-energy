@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2 } from 'lucide-react';
+import { CalendarDays, Loader2, Pencil } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -73,6 +73,9 @@ export const OrderInfoPanel = forwardRef<
     onStatusChanged?: () => void;
     onToggleUrgent?: () => void | Promise<void>;
     showFinalizeVolumesHint?: boolean;
+    panelMode?: 'orders' | 'separation';
+    isAdmin?: boolean;
+    onEditOrder?: () => void;
   }
 >(function OrderInfoPanel(props, ref) {
   const {
@@ -85,7 +88,12 @@ export const OrderInfoPanel = forwardRef<
     onStatusChanged,
     onToggleUrgent,
     showFinalizeVolumesHint = false,
+    panelMode = 'separation',
+    isAdmin = false,
+    onEditOrder,
   } = props;
+
+  const isOrdersMode = panelMode === 'orders';
 
   const numero = orderDisplayNumber(order);
   const overdue = getOverdueDays(order);
@@ -100,9 +108,13 @@ export const OrderInfoPanel = forwardRef<
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [notaRemessa, setNotaRemessa] = useState(order.notaRemessa ?? '');
+  const [notaRemessaConfirmada, setNotaRemessaConfirmada] = useState(
+    order.notaRemessaConfirmada ?? false,
+  );
   const [savingNotaRemessa, setSavingNotaRemessa] = useState(false);
   const [notaRemessaError, setNotaRemessaError] = useState<string | null>(null);
   const lastSavedNotaRemessaRef = useRef(order.notaRemessa ?? '');
+  const lastSavedNotaRemessaConfirmadaRef = useRef(order.notaRemessaConfirmada ?? false);
 
   const [volumesInput, setVolumesInput] = useState(
     order.volumes != null ? String(order.volumes) : '',
@@ -113,10 +125,13 @@ export const OrderInfoPanel = forwardRef<
 
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
+    const confirmed = order.notaRemessaConfirmada ?? false;
     setNotaRemessa(initial);
+    setNotaRemessaConfirmada(confirmed);
     lastSavedNotaRemessaRef.current = initial;
+    lastSavedNotaRemessaConfirmadaRef.current = confirmed;
     setNotaRemessaError(null);
-  }, [order.id, order.notaRemessa]);
+  }, [order.id, order.notaRemessa, order.notaRemessaConfirmada]);
 
   useEffect(() => {
     const initial = order.volumes ?? null;
@@ -126,8 +141,9 @@ export const OrderInfoPanel = forwardRef<
   }, [order.id, order.volumes]);
 
   useEffect(() => {
+    if (isOrdersMode) return;
     onVolumesValidityChange?.(parseVolumesInput(volumesInput) !== null);
-  }, [volumesInput, onVolumesValidityChange]);
+  }, [volumesInput, onVolumesValidityChange, isOrdersMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +170,21 @@ export const OrderInfoPanel = forwardRef<
     ...carriers.map((c) => ({ value: c.id, label: c.name })),
   ];
 
-  const saveNotaRemessa = async () => {
+  const saveNotaRemessa = async (opts?: { confirmed?: boolean }) => {
     const trimmed = notaRemessa.trim();
+    const confirmed = opts?.confirmed ?? notaRemessaConfirmada;
     const persisted = trimmed || null;
     const lastPersisted = lastSavedNotaRemessaRef.current.trim() || null;
-    if (persisted === lastPersisted || savingNotaRemessa) return;
+    const lastConfirmed = lastSavedNotaRemessaConfirmadaRef.current;
+
+    if (confirmed && !trimmed) {
+      setNotaRemessaError('Informe o número da nota de remessa para confirmar.');
+      return;
+    }
+
+    if (persisted === lastPersisted && confirmed === lastConfirmed && !savingNotaRemessa) {
+      return;
+    }
 
     const numeroPed = numeroPedFromOrder(order);
     if (!numeroPed) {
@@ -169,16 +195,22 @@ export const OrderInfoPanel = forwardRef<
     setSavingNotaRemessa(true);
     setNotaRemessaError(null);
     const previous = lastSavedNotaRemessaRef.current;
+    const previousConfirmed = lastSavedNotaRemessaConfirmadaRef.current;
 
     try {
       await erpFetchJson(`api/pedidos/${numeroPed}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ notaRemessa: trimmed }),
+        body: JSON.stringify({
+          notaRemessa: trimmed,
+          notaRemessaConfirmada: confirmed,
+        }),
       });
       lastSavedNotaRemessaRef.current = trimmed;
+      lastSavedNotaRemessaConfirmadaRef.current = confirmed;
       onNotaRemessaSaved?.(persisted);
     } catch {
       setNotaRemessa(previous);
+      setNotaRemessaConfirmada(previousConfirmed);
       setNotaRemessaError('Não foi possível salvar.');
     } finally {
       setSavingNotaRemessa(false);
@@ -226,7 +258,7 @@ export const OrderInfoPanel = forwardRef<
     'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 py-1.5 text-sm outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
 
   return (
-    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks border-[var(--border-color)] bg-[var(--bg-card)]">
+    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks">
       <div className="exp-wb-order-header-meta">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <p className="exp-wb-order-number m-0 shrink-0">#{numero}</p>
@@ -253,6 +285,16 @@ export const OrderInfoPanel = forwardRef<
             <span className="exp-wb-order-badge exp-wb-order-badge--urgent exp-wb-order-badge--pulse">
               Urgente
             </span>
+          ) : null}
+          {isAdmin && onEditOrder ? (
+            <button
+              type="button"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs"
+              onClick={onEditOrder}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Editar pedido
+            </button>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-sm">
@@ -298,90 +340,127 @@ export const OrderInfoPanel = forwardRef<
 
         <div className="exp-wb-order-header-block">
           <div className="exp-wb-order-header-grid">
-          <HeaderField label="Transportadora:">
-            {onCarrierChange ? (
-              <div className="flex items-center gap-1.5">
-                <div className="min-w-0 flex-1">
-                  <PremiumSelect
-                    value={order.carrierId ?? ''}
-                    onChange={(value) => {
-                      void onCarrierChange(value.trim() ? value : null);
-                    }}
-                    options={carrierOptions}
-                    placeholder="Selecionar…"
-                    disabled={carrierSaving || carriersLoading}
-                  />
+            <HeaderField label="Transportadora:">
+              {onCarrierChange ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="min-w-0 flex-1">
+                    <PremiumSelect
+                      value={order.carrierId ?? ''}
+                      onChange={(value) => {
+                        void onCarrierChange(value.trim() ? value : null);
+                      }}
+                      options={carrierOptions}
+                      placeholder="Selecionar…"
+                      disabled={carrierSaving || carriersLoading}
+                    />
+                  </div>
+                  {carrierSaving || carriersLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+                  ) : null}
                 </div>
-                {carrierSaving || carriersLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
-                ) : null}
-              </div>
-            ) : (
-              <span>{displayOrDash(order.carrierName)}</span>
-            )}
-          </HeaderField>
+              ) : (
+                <span>{displayOrDash(order.carrierName)}</span>
+              )}
+            </HeaderField>
 
-          <HeaderField label="Volumes:">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                value={volumesInput}
-                onChange={(e) => {
-                  setVolumesInput(e.target.value);
-                  setVolumesError(null);
-                }}
-                onBlur={() => {
-                  const parsed = parseVolumesInput(volumesInput);
-                  if (parsed !== null) {
-                    void saveVolumes(parsed);
-                  }
-                }}
-                disabled={savingVolumes}
-                placeholder="Mín. 1"
-                className={inputClassName}
-              />
-              {savingVolumes ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
-              ) : null}
-            </div>
-            {volumesError ? (
-              <p className="mt-1 text-xs text-red-500">{volumesError}</p>
-            ) : showFinalizeVolumesHint ? (
-              <p className="mt-1 text-xs text-[var(--color-text-secondary,var(--text-secondary))]">
-                Obrigatório para finalizar.
-              </p>
-            ) : null}
-          </HeaderField>
+            <HeaderField label="Volumes:">
+              {isOrdersMode ? (
+                <span>
+                  {order.volumes != null && order.volumes >= 1
+                    ? `${order.volumes} volume${order.volumes > 1 ? 's' : ''}`
+                    : '—'}
+                </span>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      value={volumesInput}
+                      onChange={(e) => {
+                        setVolumesInput(e.target.value);
+                        setVolumesError(null);
+                      }}
+                      onBlur={() => {
+                        const parsed = parseVolumesInput(volumesInput);
+                        if (parsed !== null) {
+                          void saveVolumes(parsed);
+                        }
+                      }}
+                      disabled={savingVolumes}
+                      placeholder="Mín. 1"
+                      className={inputClassName}
+                    />
+                    {savingVolumes ? (
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+                    ) : null}
+                  </div>
+                  {volumesError ? (
+                    <p className="mt-1 text-xs text-red-500">{volumesError}</p>
+                  ) : showFinalizeVolumesHint ? (
+                    <p className="mt-1 text-xs text-[var(--color-text-secondary,var(--text-secondary))]">
+                      Obrigatório para finalizar.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </HeaderField>
 
-          <HeaderField label="Nota de Venda:">
-            <span>{notaVenda ?? '—'}</span>
-          </HeaderField>
+            <HeaderField label="Nota de Venda:">
+              <span>{notaVenda ?? '—'}</span>
+            </HeaderField>
 
-          <HeaderField label="Nota de Remessa:">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={notaRemessa}
-                onChange={(e) => {
-                  setNotaRemessa(e.target.value);
-                  setNotaRemessaError(null);
-                }}
-                onBlur={() => void saveNotaRemessa()}
-                disabled={savingNotaRemessa}
-                placeholder="Opcional"
-                className={inputClassName}
-              />
-              {savingNotaRemessa ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
-              ) : null}
-            </div>
-            {notaRemessaError ? (
-              <p className="mt-1 text-xs text-red-500">{notaRemessaError}</p>
-            ) : null}
-          </HeaderField>
+            <HeaderField label="Nota de Remessa:">
+              {isOrdersMode ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{notaRemessa.trim() || '—'}</span>
+                  {order.notaRemessaConfirmada ? (
+                    <span className="exp-wb-line-status exp-wb-line-status--recebido">
+                      Confirmada
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      value={notaRemessa}
+                      onChange={(e) => {
+                        setNotaRemessa(e.target.value);
+                        setNotaRemessaError(null);
+                      }}
+                      onBlur={() => void saveNotaRemessa()}
+                      disabled={savingNotaRemessa}
+                      placeholder="Número da remessa"
+                      className={inputClassName}
+                    />
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={notaRemessaConfirmada}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNotaRemessaConfirmada(checked);
+                          void saveNotaRemessa({ confirmed: checked });
+                        }}
+                        disabled={savingNotaRemessa}
+                        className="h-4 w-4 accent-[var(--accent)]"
+                      />
+                      Confirmar nota de remessa
+                    </label>
+                  </div>
+                  {savingNotaRemessa ? (
+                    <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" />
+                  ) : null}
+                  {notaRemessaError ? (
+                    <p className="mt-1 text-xs text-red-500">{notaRemessaError}</p>
+                  ) : null}
+                </>
+              )}
+            </HeaderField>
           </div>
         </div>
       </div>

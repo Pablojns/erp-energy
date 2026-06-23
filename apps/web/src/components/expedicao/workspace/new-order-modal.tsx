@@ -650,7 +650,7 @@ export function NewOrderModal(props: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-[var(--color-overlay)]"
         aria-label="Fechar"
         onClick={onClose}
         disabled={saving}
@@ -1010,7 +1010,7 @@ export function NewOrderModal(props: {
                 type="button"
                 onClick={() => void handleSubmit()}
                 disabled={saving}
-                className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-inverse)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? 'Salvando…' : 'Confirmar'}
               </button>
@@ -1029,7 +1029,7 @@ export function NewOrderModal(props: {
             type="button"
             onClick={() => void handleSubmit()}
             disabled={saving || loadingOptions}
-            className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-inverse)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Criar pedido'}
           </button>

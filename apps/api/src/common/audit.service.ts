@@ -11,6 +11,7 @@ export class AuditService {
     entity: string;
     entityId: string;
     changes?: Record<string, unknown> | null;
+    ipAddress?: string | null;
   }): Promise<void> {
     await this.prisma.client.auditLog.create({
       data: {
@@ -18,10 +19,33 @@ export class AuditService {
         action: input.action,
         entity: input.entity,
         entityId: input.entityId,
+        ipAddress: input.ipAddress ?? undefined,
         changes:
           input.changes === undefined || input.changes === null
             ? undefined
             : (input.changes as object),
+      },
+    });
+  }
+
+  async logDataAccess(
+    userId: string,
+    entity: string,
+    entityId: string,
+    action: string,
+    ip?: string | null,
+  ): Promise<void> {
+    const timestamp = new Date();
+    await this.log({
+      userId,
+      action: 'DATA_ACCESS',
+      entity,
+      entityId,
+      ipAddress: ip ?? null,
+      changes: {
+        action,
+        ip: ip ?? null,
+        timestamp: timestamp.toISOString(),
       },
     });
   }

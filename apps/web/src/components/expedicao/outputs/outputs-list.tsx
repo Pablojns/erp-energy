@@ -130,7 +130,7 @@ export function OutputsList(props: {
                   onClick={() => onPeriodChange(key)}
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
                     period === key
-                      ? 'border-transparent bg-[var(--accent)] text-white'
+                      ? 'border-transparent bg-[var(--accent)] text-[var(--color-text-inverse)]'
                       : 'border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)]'
                   }`}
                 >

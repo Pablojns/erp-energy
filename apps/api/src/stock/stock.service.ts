@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
@@ -29,6 +28,7 @@ import {
 import type { StockSummaryQueryDto } from './dto/stock-summary.dto';
 
 import { AuditService } from '../common/audit.service';
+import { AppLogger } from '../common/logger/app-logger';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -41,7 +41,7 @@ type StockTx = Omit<
 
 @Injectable()
 export class StockService implements OnModuleInit {
-  private readonly logger = new Logger(StockService.name);
+  private readonly logger = new AppLogger(StockService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -52,16 +52,15 @@ export class StockService implements OnModuleInit {
     try {
       const removed = await this.cleanOrphanStockMovements();
       if (removed > 0) {
-        this.logger.log(
-          `Removidas ${removed} movimentação(ões) órfãs de pedidos excluídos.`,
-        );
+        this.logger.info('Orphan stock movements removed on startup', {
+          removed,
+        });
       }
-    } catch (err) {
-      this.logger.warn(
-        `Falha ao limpar movimentações órfãs na inicialização: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+    } catch (err: unknown) {
+      this.logger.warn('Failed to clean orphan stock movements on startup', {
+        fallbackUsed: true,
+        error: err,
+      });
     }
   }
 

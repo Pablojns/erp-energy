@@ -10,12 +10,16 @@ import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
+import type { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import {
   decimalFromStringOrZero,
   groupByNumeroPed,
+  isoDateStringToUtcDate,
+  normalizePlanilhaItemStatus,
   parseBrlMoneyToDecimalString,
+  pickFirstLineOfOrderGroup,
   readPedidosSheet,
-  splitSkuAndName,
+  resolveOrderStatusFromPlanilha,
   type PedidosImportSummary,
 } from './pedidos-import';
 
@@ -49,6 +53,152 @@ export class PedidosService {
 
   updateManual(userId: string, numeroPed: number, dto: CreateManualPedidoDto) {
     return this.orders.updateManualPedido(userId, numeroPed, dto);
+  }
+
+  async updateAdmin(userId: string, numeroPed: number, dto: UpdatePedidoAdminDto) {
+    const numeroStr = String(numeroPed);
+    const before = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: numeroStr },
+      include: { items: { orderBy: { lineNumber: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!before) throw new NotFoundException('Pedido não encontrado.');
+
+    const data: Prisma.OrderUpdateInput = {};
+    if (dto.receiverName !== undefined) {
+      data.receiverName = dto.receiverName.trim() || null;
+    }
+    if (dto.unloadingPoint !== undefined) {
+      data.unloadingPoint = dto.unloadingPoint.trim() || null;
+    }
+    if (dto.deliveryCnpj !== undefined) {
+      data.deliveryCnpj = dto.deliveryCnpj.trim() || null;
+    }
+    if (dto.notes !== undefined) {
+      data.notes = dto.notes.trim() || null;
+    }
+    if (dto.obsExpedicao !== undefined) {
+      data.obsExpedicao = dto.obsExpedicao.trim() || null;
+    }
+    if (dto.status !== undefined) {
+      data.status = dto.status as OrderStatus;
+    }
+    if (dto.priority !== undefined) {
+      data.priority = dto.priority;
+    }
+    if (dto.mercadoEletronicoStatus !== undefined) {
+      data.mercadoEletronicoStatus = dto.mercadoEletronicoStatus.trim() || null;
+    }
+    if (dto.contaAzulStatus !== undefined) {
+      data.contaAzulStatus = dto.contaAzulStatus.trim() || null;
+    }
+    if (dto.invoiceNumber !== undefined) {
+      data.invoiceNumber = dto.invoiceNumber.trim() || null;
+    }
+    if (dto.orderDate !== undefined && dto.orderDate.trim()) {
+      data.orderDate = isoDateStringToUtcDate(dto.orderDate.trim().slice(0, 10));
+    }
+    if (dto.requestedDeliveryDate !== undefined && dto.requestedDeliveryDate.trim()) {
+      data.requestedDeliveryDate = isoDateStringToUtcDate(
+        dto.requestedDeliveryDate.trim().slice(0, 10),
+      );
+    }
+    if (dto.totalValue !== undefined && dto.totalValue.trim()) {
+      const totalDec = decimalFromStringOrZero(dto.totalValue.trim());
+      data.subtotal = totalDec;
+      data.total = totalDec;
+      data.totalValue = totalDec;
+    }
+    if (dto.carrierId !== undefined) {
+      (data as Prisma.OrderUpdateInput & { carrierId?: string | null }).carrierId =
+        dto.carrierId;
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.order.update({ where: { id: before.id }, data });
+
+      if (dto.items?.length) {
+        for (const item of dto.items) {
+          const itemData: Prisma.OrderItemUpdateInput = {};
+          if (item.lineNumber !== undefined) itemData.lineNumber = item.lineNumber;
+          if (item.sku !== undefined) itemData.sku = item.sku.trim();
+          if (item.description !== undefined) {
+            itemData.description = item.description.trim();
+          }
+          if (item.quantity !== undefined) itemData.quantity = item.quantity;
+          if (item.mercadoEletronicoItemStatus !== undefined) {
+            itemData.mercadoEletronicoItemStatus =
+              normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus);
+          }
+          if (Object.keys(itemData).length === 0) continue;
+          await tx.orderItem.update({ where: { id: item.id }, data: itemData });
+        }
+      }
+    });
+
+    const after = await this.prisma.client.order.findFirst({
+      where: { id: before.id },
+      include: { items: { orderBy: { lineNumber: 'asc' } } },
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_ADMIN_UPDATED',
+      entity: 'Order',
+      entityId: before.id,
+      changes: {
+        externalOrderNumber: numeroStr,
+        source: before.source,
+        before: {
+          receiverName: before.receiverName,
+          unloadingPoint: before.unloadingPoint,
+          deliveryCnpj: before.deliveryCnpj,
+          status: before.status,
+          priority: before.priority,
+          notes: before.notes,
+          obsExpedicao: before.obsExpedicao,
+          mercadoEletronicoStatus: before.mercadoEletronicoStatus,
+          contaAzulStatus: before.contaAzulStatus,
+          invoiceNumber: before.invoiceNumber,
+          orderDate: before.orderDate?.toISOString() ?? null,
+          requestedDeliveryDate: before.requestedDeliveryDate?.toISOString() ?? null,
+          totalValue: before.totalValue.toString(),
+          items: before.items.map((it) => ({
+            id: it.id,
+            lineNumber: it.lineNumber,
+            sku: it.sku,
+            quantity: it.quantity,
+            mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus,
+          })),
+        },
+        after: after
+          ? {
+              receiverName: after.receiverName,
+              unloadingPoint: after.unloadingPoint,
+              deliveryCnpj: after.deliveryCnpj,
+              status: after.status,
+              priority: after.priority,
+              notes: after.notes,
+              obsExpedicao: after.obsExpedicao,
+              mercadoEletronicoStatus: after.mercadoEletronicoStatus,
+              contaAzulStatus: after.contaAzulStatus,
+              invoiceNumber: after.invoiceNumber,
+              orderDate: after.orderDate?.toISOString() ?? null,
+              requestedDeliveryDate: after.requestedDeliveryDate?.toISOString() ?? null,
+              totalValue: after.totalValue.toString(),
+              items: after.items.map((it) => ({
+                id: it.id,
+                lineNumber: it.lineNumber,
+                sku: it.sku,
+                quantity: it.quantity,
+                mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus,
+              })),
+            }
+          : null,
+      },
+    });
+
+    return this.findByNumeroPed(numeroPed);
   }
 
   async deleteManual(userId: string, numeroPed: number) {
@@ -128,7 +278,6 @@ export class PedidosService {
     const order = await this.prisma.client.order.findFirst({
       where: {
         externalOrderNumber: String(numeroPed),
-        source: OrderSource.WEG_MERCADO_ELETRONICO,
       },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
@@ -166,6 +315,10 @@ export class PedidosService {
     }
     if (dto.notaRemessa !== undefined) {
       data.notaRemessa = dto.notaRemessa.trim() || null;
+    }
+    if (dto.notaRemessaConfirmada !== undefined) {
+      (data as Prisma.OrderUpdateInput & { notaRemessaConfirmada?: boolean }).notaRemessaConfirmada =
+        dto.notaRemessaConfirmada;
     }
     if (dto.volumes !== undefined) {
       (data as Prisma.OrderUpdateInput & { volumes?: number }).volumes = dto.volumes;
@@ -466,23 +619,58 @@ export class PedidosService {
     });
   }
 
-  async importarPlanilha(buffer: Uint8Array): Promise<PedidosImportSummary> {
-    const parsed = readPedidosSheet(buffer);
-    const grouped = groupByNumeroPed(parsed.rows);
+  private async resetAllOrdersForImport(): Promise<number> {
+    const orders = await this.prisma.client.order.findMany({
+      select: {
+        id: true,
+        code: true,
+        externalOrderNumber: true,
+        invoiceNumber: true,
+      },
+    });
+
+    await this.prisma.client.$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(${EXPEDITION_STOCK_LOCK})`,
+        );
+        for (const order of orders) {
+          await this.stock.purgeOrderRelatedData(tx, order);
+          await tx.order.delete({ where: { id: order.id } });
+        }
+      },
+      { timeout: 300_000 },
+    );
+
+    return orders.length;
+  }
+
+  async importarPlanilha(
+    buffer: Uint8Array,
+    options?: { reset?: boolean },
+  ): Promise<PedidosImportSummary> {
     const summary: PedidosImportSummary = {
       importados: 0,
       atualizados: 0,
-      ignorados: parsed.ignored,
+      ignorados: 0,
       erros: [],
     };
+
+    if (options?.reset) {
+      summary.resetados = await this.resetAllOrdersForImport();
+    }
+
+    const parsed = readPedidosSheet(buffer);
+    const grouped = groupByNumeroPed(parsed.rows);
+    summary.ignorados = parsed.ignored;
 
     for (const [numero, items] of grouped.entries()) {
       try {
         await this.prisma.client.$transaction(async (tx) => {
           const numeroStr = String(numero);
-          const first = items[0]!;
+          const header = pickFirstLineOfOrderGroup(items);
 
-          const totalStr = parseBrlMoneyToDecimalString(first.valor_total);
+          const totalStr = parseBrlMoneyToDecimalString(header.valor_total);
           const totalDec = decimalFromStringOrZero(totalStr);
 
           const existing = await tx.order.findFirst({
@@ -496,18 +684,19 @@ export class PedidosService {
             source: OrderSource.WEG_MERCADO_ELETRONICO,
             code: existing ? undefined! : 'TEMP', // será substituído abaixo
             externalOrderNumber: numeroStr,
-            customerName: first.recebedor?.trim() || first.ponto_descarga?.trim() || '—',
-            receiverName: first.recebedor?.trim() || null,
-            unloadingPoint: first.ponto_descarga?.trim() || null,
-            deliveryCnpj: first.cnpj_entrega?.trim() || null,
-            notes: first.observacao?.trim() || null,
-            mercadoEletronicoStatus: first.status_me?.trim() || null,
-            contaAzulStatus: first.status_ca?.trim() || null,
-            invoiceNumber: first.nota_fiscal?.trim() || null,
-            invoiceStatus: first.nota_fiscal ? InvoiceStatus.PENDING : InvoiceStatus.NOT_FOUND,
-            orderDate: new Date(first.data_pedido),
-            requestedDeliveryDate: new Date(first.data_entrega),
-            status: OrderStatus.NOVO,
+            customerName: header.recebedor?.trim() || header.ponto_descarga?.trim() || '—',
+            receiverName: header.recebedor?.trim() || null,
+            unloadingPoint: header.ponto_descarga?.trim() || null,
+            deliveryCnpj: header.cnpj_entrega?.trim() || null,
+            notes: header.observacao_me?.trim() || null,
+            obsExpedicao: header.observacao_logistica?.trim() || null,
+            mercadoEletronicoStatus: header.status_me?.trim() || null,
+            contaAzulStatus: header.status_ca?.trim() || null,
+            invoiceNumber: header.nota_fiscal?.trim() || null,
+            invoiceStatus: header.nota_fiscal ? InvoiceStatus.PENDING : InvoiceStatus.NOT_FOUND,
+            orderDate: isoDateStringToUtcDate(header.data_pedido),
+            requestedDeliveryDate: isoDateStringToUtcDate(header.data_entrega),
+            status: resolveOrderStatusFromPlanilha(header.status_me, header.status_ca),
             priority: 3,
             subtotal: totalDec,
             discount: new Prisma.Decimal('0.00'),
@@ -516,7 +705,7 @@ export class PedidosService {
           };
 
           // Resolve unitPrice via Product.sku quando existir.
-          const skus = items.map((r) => splitSkuAndName(r.produto).sku);
+          const skus = items.map((r) => r.sku);
           const products = await tx.product.findMany({
             where: { sku: { in: skus } },
             select: { sku: true, price: true },
@@ -541,11 +730,16 @@ export class PedidosService {
             summary.importados += 1;
 
             for (const r of items) {
-              const { sku, nome } = splitSkuAndName(r.produto);
+              const sku = r.sku.trim();
+              const nome = r.nome_produto.trim() || sku;
               const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
               const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
-              await tx.orderItem.create({
-                data: {
+              const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
+              await tx.orderItem.upsert({
+                where: {
+                  orderId_lineNumber: { orderId: created.id, lineNumber: r.seq },
+                },
+                create: {
                   orderId: created.id,
                   lineNumber: r.seq,
                   sku,
@@ -558,7 +752,16 @@ export class PedidosService {
                   missingQty: 0,
                   pickedQty: 0,
                   invoicedQty: 0,
+                  mercadoEletronicoItemStatus: meItemStatus,
                   stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+                },
+                update: {
+                  sku,
+                  description: nome,
+                  quantity: r.quantidade,
+                  unitPrice: unitPrice.toDecimalPlaces(2),
+                  totalPrice,
+                  mercadoEletronicoItemStatus: meItemStatus,
                 },
               });
             }
@@ -573,12 +776,14 @@ export class PedidosService {
               unloadingPoint: orderData.unloadingPoint,
               deliveryCnpj: orderData.deliveryCnpj,
               notes: orderData.notes,
+              obsExpedicao: orderData.obsExpedicao,
               mercadoEletronicoStatus: orderData.mercadoEletronicoStatus,
               contaAzulStatus: orderData.contaAzulStatus,
               invoiceNumber: orderData.invoiceNumber,
               invoiceStatus: orderData.invoiceStatus,
               orderDate: orderData.orderDate,
               requestedDeliveryDate: orderData.requestedDeliveryDate,
+              status: orderData.status,
               subtotal: orderData.subtotal,
               total: orderData.total,
               totalValue: orderData.totalValue,
@@ -588,9 +793,11 @@ export class PedidosService {
           summary.atualizados += 1;
 
           for (const r of items) {
-            const { sku, nome } = splitSkuAndName(r.produto);
+            const sku = r.sku.trim();
+            const nome = r.nome_produto.trim() || sku;
             const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
             const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
+            const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
             await tx.orderItem.upsert({
               where: { orderId_lineNumber: { orderId: existing.id, lineNumber: r.seq } },
               create: {
@@ -606,6 +813,7 @@ export class PedidosService {
                 missingQty: 0,
                 pickedQty: 0,
                 invoicedQty: 0,
+                mercadoEletronicoItemStatus: meItemStatus,
                 stockStatus: OrderItemStockStatus.NAO_ANALISADO,
               },
               update: {
@@ -614,6 +822,7 @@ export class PedidosService {
                 quantity: r.quantidade,
                 unitPrice: unitPrice.toDecimalPlaces(2),
                 totalPrice,
+                mercadoEletronicoItemStatus: meItemStatus,
               },
             });
           }
@@ -686,6 +895,52 @@ export class PedidosService {
         })),
       },
     };
+  }
+
+  async excluirDadosTitular(documento: string, userId: string) {
+    const doc = documento.trim();
+    const orders = await this.prisma.client.order.findMany({
+      where: {
+        OR: [
+          { deliveryCnpj: { contains: doc, mode: 'insensitive' } },
+          { customerDocument: { contains: doc, mode: 'insensitive' } },
+          { receiverName: { contains: doc, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        externalOrderNumber: true,
+      },
+    });
+
+    for (const order of orders) {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: {
+          receiverName: 'REMOVIDO',
+          deliveryCnpj: '00.000.000/0000-00',
+          customerName: 'TITULAR REMOVIDO',
+          deliveryAddress: null,
+          deliveryCity: null,
+          deliveryState: null,
+        },
+      });
+    }
+
+    await this.audit.log({
+      userId,
+      action: 'LGPD_DATA_REMOVAL',
+      entity: 'Order',
+      entityId: doc,
+      changes: {
+        documento: doc,
+        pedidosAfetados: orders.length,
+        orderIds: orders.map((o) => o.id),
+        externalOrderNumbers: orders.map((o) => o.externalOrderNumber),
+      },
+    });
+
+    return { ok: true, pedidosAfetados: orders.length, documento: doc };
   }
 }
 

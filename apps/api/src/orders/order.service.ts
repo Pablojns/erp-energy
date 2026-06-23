@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -25,6 +24,7 @@ import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { ORDER_STATUS_EXPEDITION_CHAIN, ORDER_STATUS_VALUES } from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
+import { AppLogger } from '../common/logger/app-logger';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -37,6 +37,13 @@ const NEXT_CODE_ADVISORY_LOCK = 94821002;
 const TERMINAL: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
+];
+
+/** Pedidos encerrados não entram no contador de atrasados. */
+const DELAYED_EXCLUDED_STATUSES: OrderStatus[] = [
+  OrderStatus.FINALIZADO,
+  OrderStatus.CANCELADO,
+  OrderStatus.EXPEDIDO,
 ];
 
 const EMPTY_EXPEDITION_SUMMARY = {
@@ -64,6 +71,7 @@ type OrderItemSerializeSource = {
   missingQty?: number;
   pickedQty?: number;
   invoicedQty?: number;
+  mercadoEletronicoItemStatus?: string | null;
   availableAtAnalysis?: number | null;
   stockStatus?: OrderItemStockStatus;
   unit: string | null;
@@ -102,6 +110,7 @@ type OrderSerializeSource = {
   deliveryAddress: string | null;
   notes: string | null;
   notaRemessa: string | null;
+  notaRemessaConfirmada?: boolean;
   volumes?: number | null;
   status: OrderStatus;
   priority: number;
@@ -128,7 +137,7 @@ type OrderSerializeSource = {
 
 @Injectable()
 export class OrderService {
-  private readonly logger = new Logger(OrderService.name);
+  private readonly logger = new AppLogger(OrderService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -145,7 +154,7 @@ export class OrderService {
 
       const delayedArm: Prisma.OrderWhereInput = {
         requestedDeliveryDate: { lt: todayUtc },
-        status: { notIn: [...TERMINAL, OrderStatus.EXPEDIDO] },
+        status: { notIn: DELAYED_EXCLUDED_STATUSES },
       };
 
       const urgentArm: Prisma.OrderWhereInput = {
@@ -230,10 +239,14 @@ export class OrderService {
         estoqueReservadoTotal: String(reservedSum),
         rupturaPedidos,
       };
-    } catch (e) {
+    } catch (e: unknown) {
       this.logger.error(
-        'orders.summary falhou (ex.: enum/coluna desalinhada com o Postgres). Retornando KPIs zerados. Aplique as migrations (`pnpm db:deploy` no pacote database).',
-        e instanceof Error ? e.stack : e,
+        'Order summary query failed; returning empty summary fallback',
+        e,
+        {
+          fallbackUsed: true,
+          recommendation: 'Run database migrations and validate schema sync',
+        },
       );
       return { ...EMPTY_EXPEDITION_SUMMARY };
     }
@@ -372,10 +385,16 @@ export class OrderService {
           totalPages: Math.max(1, Math.ceil(total / pageSize)),
         },
       };
-    } catch (e) {
+    } catch (e: unknown) {
       this.logger.error(
-        'orders.findMany falhou (ex.: enum/coluna desalinhada). Retornando lista vazia. Aplique as migrations.',
-        e instanceof Error ? e.stack : e,
+        'Order list query failed; returning empty list fallback',
+        e,
+        {
+          fallbackUsed: true,
+          page,
+          pageSize,
+          recommendation: 'Run database migrations and validate schema sync',
+        },
       );
       return {
         data: [],
@@ -2000,7 +2019,7 @@ export class OrderService {
         const todayUtc = OrderService.startOfUtcDay(new Date());
         clauses.push({
           requestedDeliveryDate: { lt: todayUtc },
-          status: { notIn: [...TERMINAL, OrderStatus.EXPEDIDO] },
+          status: { notIn: DELAYED_EXCLUDED_STATUSES },
         });
       } else if (st === 'urgent') {
         clauses.push({
@@ -2147,6 +2166,7 @@ export class OrderService {
           pickedQty: true,
           invoicedQty: true,
           availableAtAnalysis: true,
+          mercadoEletronicoItemStatus: true,
           stockStatus: true,
           unit: true,
           ncm: true,
@@ -2493,6 +2513,7 @@ export class OrderService {
       deliveryAddress: row.deliveryAddress,
       notes: row.notes,
       notaRemessa: row.notaRemessa,
+      notaRemessaConfirmada: row.notaRemessaConfirmada ?? false,
       volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
@@ -2540,6 +2561,7 @@ export class OrderService {
           missingQty: it.missingQty ?? 0,
           pickedQty: it.pickedQty ?? 0,
           invoicedQty: it.invoicedQty ?? 0,
+          mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus ?? null,
           availableAtAnalysis: it.availableAtAnalysis ?? null,
           stockStatus: it.stockStatus ?? OrderItemStockStatus.NAO_ANALISADO,
           unit: it.unit,

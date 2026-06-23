@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
+import { normalizePedidoFromApi, normalizeItemFromApi } from '@/src/services/api/pedidos-normalize';
 
 export function usePedidoDetalhe(numeroPed: string | null | undefined) {
   const [pedido, setPedido] = useState<OrderDto | null>(null);
@@ -32,32 +32,9 @@ export function usePedidoDetalhe(numeroPed: string | null | undefined) {
 
       const normalized = normalizePedidoFromApi(orderRes);
       if (itensRes && Array.isArray(itensRes) && itensRes.length > 0) {
-        const mapped = itensRes.map((it) => ({
-          id: String(it.id),
-          lineNumber: Number(it.lineNumber ?? 0),
-          sku: String(it.sku ?? ''),
-          description: String(it.description ?? ''),
-          quantity: Number(it.quantity ?? 0),
-          reservedQuantity: Number(it.reservedQuantity ?? 0),
-          missingQty: Number(it.missingQty ?? 0),
-          pickedQty: Number(it.pickedQty ?? 0),
-          invoicedQty: Number(it.invoicedQty ?? 0),
-          availableAtAnalysis:
-            it.availableAtAnalysis !== undefined && it.availableAtAnalysis !== null
-              ? Number(it.availableAtAnalysis)
-              : null,
-          stockStatus: it.stockStatus ? String(it.stockStatus) : undefined,
-          unit: it.unit ? String(it.unit) : null,
-          ncm: it.ncm ? String(it.ncm) : null,
-          unitPrice: String(it.unitPrice ?? '0'),
-          totalPrice: String(it.totalPrice ?? '0'),
-          productId: it.productId ? String(it.productId) : null,
-          stockAvailable: null,
-          openNeed: 0,
-          stockCoversOpenNeed: false,
-          product: null,
-        })) as OrderItemDto[];
-        normalized.items = mapped;
+        normalized.items = itensRes.map((it) =>
+          normalizeItemFromApi(it as Record<string, unknown>),
+        );
       }
       setPedido(normalized);
       setItens(normalized.items);

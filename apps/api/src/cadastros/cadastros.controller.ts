@@ -9,11 +9,14 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { AuditService } from '../common/audit.service';
 import { CadastrosService } from './cadastros.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
@@ -25,7 +28,10 @@ import { UpdateSupplierDto } from './dto/update-supplier.dto';
 @Controller('cadastros')
 @UseGuards(JwtGuard)
 export class CadastrosController {
-  constructor(private readonly cadastros: CadastrosService) {}
+  constructor(
+    private readonly cadastros: CadastrosService,
+    private readonly audit: AuditService,
+  ) {}
 
   private assertAdmin(user: AuthUser) {
     if (!user.roles.includes('ADMIN')) {
@@ -170,8 +176,19 @@ export class CadastrosController {
   }
 
   @Get('customers')
-  listCustomers() {
-    return this.cadastros.listCustomers();
+  async listCustomers(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    const result = await this.cadastros.listCustomers();
+    await this.audit.logDataAccess(
+      user.id,
+      'Customer',
+      'list',
+      'DATA_ACCESS',
+      req.ip,
+    );
+    return result;
   }
 
   @Post('customers')

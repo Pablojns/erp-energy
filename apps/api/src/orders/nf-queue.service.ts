@@ -1,10 +1,11 @@
 import * as crypto from 'crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   buildNfFlaskPayload,
   callNfFlaskApi,
   parseNfFlaskResult,
 } from './nf-flask-payload';
+import { AppLogger } from '../common/logger/app-logger';
 
 export type NfJobStatus = 'aguardando' | 'processando' | 'concluido' | 'erro';
 
@@ -24,7 +25,7 @@ type NfJobInterno = NfJob & { pedidoCompleto?: any };
 
 @Injectable()
 export class NfQueueService {
-  private readonly logger = new Logger(NfQueueService.name);
+  private readonly logger = new AppLogger(NfQueueService.name);
   private fila: NfJobInterno[] = [];
   private processando = false;
 
@@ -46,13 +47,13 @@ export class NfQueueService {
       pedidoCompleto,
     };
     this.fila.push(job);
-    this.logger.log(
-      `Job adicionado: ${job.id} | pedido ${numeroPed} | fila: ${
-        this.fila.filter((j) => j.status === 'aguardando').length
-      }`,
-    );
+    this.logger.info('NF job enqueued', {
+      jobId: job.id,
+      numeroPed,
+      queueWaiting: this.fila.filter((j) => j.status === 'aguardando').length,
+    });
     if (!this.processando) {
-      this.logger.log('Iniciando processamento da fila...');
+      this.logger.info('NF queue worker started');
       void this.processarProximo();
     }
     return job;
@@ -70,14 +71,17 @@ export class NfQueueService {
   private async processarProximo() {
     const proximo = this.fila.find((job) => job.status === 'aguardando');
     if (!proximo) {
-      this.logger.log('Fila vazia — worker pausado.');
+      this.logger.info('NF queue empty, worker paused');
       this.processando = false;
       return;
     }
 
     this.processando = true;
     proximo.status = 'processando';
-    this.logger.log(`Processando pedido ${proximo.numeroPed}...`);
+    this.logger.info('Processing NF job', {
+      jobId: proximo.id,
+      numeroPed: proximo.numeroPed,
+    });
 
     try {
       const payload = buildNfFlaskPayload(
@@ -89,12 +93,22 @@ export class NfQueueService {
         },
       );
 
-      this.logger.log(
-        `Chamando Flask com payload: ${JSON.stringify(payload).slice(0, 200)}`,
-      );
+      const itemCount = Array.isArray((payload as { pedidos?: unknown[] }).pedidos)
+        ? ((payload as { pedidos: Array<{ itens?: unknown[] }> }).pedidos[0]?.itens
+            ?.length ?? 0)
+        : 0;
+      this.logger.info('Calling NF Flask provider', {
+        jobId: proximo.id,
+        numeroPed: proximo.numeroPed,
+        itemCount,
+        hasTransportadora: Boolean(proximo.transportadora),
+      });
 
       const resultado = await callNfFlaskApi(payload);
-      this.logger.log(`Resultado Flask: ${JSON.stringify(resultado).slice(0, 300)}`);
+      this.logger.info('NF Flask provider response received', {
+        jobId: proximo.id,
+        numeroPed: proximo.numeroPed,
+      });
 
       const parsed = parseNfFlaskResult(proximo.numeroPed, resultado);
 
@@ -102,24 +116,30 @@ export class NfQueueService {
         proximo.status = 'concluido';
         proximo.numeroNota = parsed.numeroNota;
         proximo.concluidoEm = new Date();
-        this.logger.log(
-          `NF gerada: ${parsed.numeroNota} para pedido ${proximo.numeroPed}`,
-        );
+        this.logger.info('NF generated successfully', {
+          jobId: proximo.id,
+          numeroPed: proximo.numeroPed,
+          numeroNota: parsed.numeroNota,
+        });
       } else {
         proximo.status = 'erro';
         proximo.erro = parsed.erro;
         proximo.concluidoEm = new Date();
-        this.logger.error(
-          `Erro no pedido ${proximo.numeroPed}: ${proximo.erro}`,
-        );
+        this.logger.error('NF generation failed', undefined, {
+          jobId: proximo.id,
+          numeroPed: proximo.numeroPed,
+          reason: parsed.erro,
+        });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       proximo.status = 'erro';
-      proximo.erro = e?.message || 'Falha inesperada ao chamar Flask';
+      proximo.erro =
+        e instanceof Error ? e.message : 'Falha inesperada ao chamar Flask';
       proximo.concluidoEm = new Date();
-      this.logger.error(
-        `Exceção ao processar ${proximo.numeroPed}: ${e?.message || 'erro sem mensagem'}`,
-      );
+      this.logger.error('Unhandled NF queue exception', e, {
+        jobId: proximo.id,
+        numeroPed: proximo.numeroPed,
+      });
     }
 
     setTimeout(() => void this.processarProximo(), 3000);

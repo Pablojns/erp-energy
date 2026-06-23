@@ -15,10 +15,12 @@ import {
   ParseUUIDPipe,
   InternalServerErrorException,
   NotFoundException,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { OrderImportService } from './order-import.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -31,9 +33,11 @@ import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
+import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
+import { AuditService } from '../common/audit.service';
 
 @Controller('api/pedidos')
 @UseGuards(JwtGuard)
@@ -43,6 +47,7 @@ export class PedidosController {
     private readonly pedidos: PedidosService,
     private readonly nfAutomaticoService: NfAutomaticoService,
     private readonly nfQueueService: NfQueueService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -78,6 +83,32 @@ export class PedidosController {
       );
     }
     return this.pedidos.updateManual(user.id, numeroPed, dto);
+  }
+
+  @Patch(':numeroPed/admin')
+  updateAdmin(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdatePedidoAdminDto,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem editar pedidos.',
+      );
+    }
+    return this.pedidos.updateAdmin(user.id, numeroPed, dto);
+  }
+
+  @Delete('lgpd/titular/:documento')
+  @HttpCode(HttpStatus.OK)
+  async excluirDadosTitular(
+    @Param('documento') documento: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Apenas administradores podem executar exclusão LGPD.');
+    }
+    return this.pedidos.excluirDadosTitular(documento, user.id);
   }
 
   @Delete(':numeroPed')
@@ -288,13 +319,37 @@ export class PedidosController {
   }
 
   @Get(':numeroPed')
-  detalhe(@Param('numeroPed', ParseIntPipe) numeroPed: number) {
-    return this.pedidos.findByNumeroPed(numeroPed);
+  async detalhe(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    const result = await this.pedidos.findByNumeroPed(numeroPed);
+    await this.audit.logDataAccess(
+      user.id,
+      'Order',
+      String(numeroPed),
+      'DATA_ACCESS',
+      req.ip,
+    );
+    return result;
   }
 
   @Get(':numeroPed/itens')
-  itens(@Param('numeroPed', ParseIntPipe) numeroPed: number) {
-    return this.pedidos.listItems(numeroPed);
+  async itens(
+    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    const result = await this.pedidos.listItems(numeroPed);
+    await this.audit.logDataAccess(
+      user.id,
+      'OrderItem',
+      String(numeroPed),
+      'DATA_ACCESS',
+      req.ip,
+    );
+    return result;
   }
 
   @Patch(':numeroPed/itens/:seq')
@@ -329,7 +384,10 @@ export class PedidosController {
   @UseGuards()
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
-  async importar(@UploadedFile() file?: { originalname?: string; buffer?: Buffer }) {
+  async importar(
+    @UploadedFile() file?: { originalname?: string; buffer?: Buffer },
+    @Query('reset') reset?: string,
+  ) {
     if (!file?.buffer) {
       throw new BadRequestException('Arquivo obrigatório (campo multipart: file).');
     }
@@ -340,7 +398,8 @@ export class PedidosController {
     if (name.endsWith('.csv')) {
       throw new BadRequestException('CSV ainda não suportado. Envie .xlsx.');
     }
-    return this.pedidos.importarPlanilha(file.buffer);
+    const shouldReset = reset === 'true' || reset === '1';
+    return this.pedidos.importarPlanilha(file.buffer, { reset: shouldReset });
   }
 }
 

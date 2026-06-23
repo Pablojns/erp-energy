@@ -1,4 +1,13 @@
 /** Extrai texto útil das respostas de erro do NestJS (validation pipe pode retornar `message` como string[]). */
+import { clientLogger } from '@/src/services/observability/client-logger';
+
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function nestErrorMessage(payload: unknown, fallbackStatus: number): string {
   if (
     typeof payload !== 'object' ||
@@ -24,14 +33,28 @@ export async function erpFetchJson<T>(
     .replace(/^\//, '')
     .replace(/^api\/erp\/?/, '')
     .replace(/^api\//, '');
-  const res = await fetch(`/api/erp/${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
+  const requestId = createRequestId();
+  let res: Response;
+  try {
+    res = await fetch(`/api/erp/${path}`, {
+      ...init,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-id': requestId,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    clientLogger.error('Network error in ERP fetch', {
+      action: 'erp.fetch.network',
+      requestId,
+      path: `/api/erp/${path}`,
+      method: init?.method ?? 'GET',
+      error,
+    });
+    throw error;
+  }
 
   const text = await res.text();
   let body: unknown = null;
@@ -44,6 +67,16 @@ export async function erpFetchJson<T>(
   }
 
   if (!res.ok) {
+    const responseRequestId = res.headers.get('x-request-id');
+    clientLogger.error('ERP API request failed', {
+      action: 'erp.fetch.http_error',
+      requestId,
+      responseRequestId,
+      path: `/api/erp/${path}`,
+      method: init?.method ?? 'GET',
+      statusCode: res.status,
+      responseBody: body,
+    });
     throw new Error(nestErrorMessage(body, res.status));
   }
 

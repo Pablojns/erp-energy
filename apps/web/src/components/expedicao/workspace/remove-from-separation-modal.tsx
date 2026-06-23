@@ -9,7 +9,7 @@ export function RemoveFromSeparationModal(props: {
   const { count, loading, onCancel, onConfirm } = props;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay)] p-4">
       <div className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
         <h3 className="text-base font-semibold text-[var(--text-primary)]">
           Remover da separação
@@ -28,7 +28,7 @@ export function RemoveFromSeparationModal(props: {
           </button>
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
             onClick={onConfirm}
             disabled={loading}
           >

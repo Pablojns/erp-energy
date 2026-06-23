@@ -1303,7 +1303,12 @@ export function EstoqueWorkspace() {
     setMoveForm({
       productId: presetProduct?.id ?? '',
       movementKind: kind,
-      quantity: presetProduct != null ? String(presetProduct.stockQty) : '0',
+      quantity:
+        presetProduct != null
+          ? kind === 'ajuste'
+            ? String(presetProduct.stockQty)
+            : '0'
+          : '0',
       notes: '',
       cost: presetProduct?.cost ?? '',
       price: presetProduct?.price ?? '',
@@ -1533,42 +1538,6 @@ export function EstoqueWorkspace() {
 
       if (!moveForm.productId) {
         throw new Error('Selecione um produto.');
-      }
-
-      if (movePresetProduct && moveForm.movementKind === 'entrada') {
-        const priceNum = parseMoneyToNumber(moveForm.price);
-        if (!Number.isFinite(priceNum) || priceNum < 0) {
-          throw new Error('Informe um preço de venda válido.');
-        }
-
-        const patch: Record<string, number> = {};
-        const origPrice = Number(movePresetProduct.price);
-        if (Number(priceNum.toFixed(2)) !== Number(origPrice.toFixed(2))) {
-          patch.price = Number(priceNum.toFixed(2));
-        }
-
-        const costStr = moveForm.cost.trim();
-        if (costStr.length > 0) {
-          const costNum = parseMoneyToNumber(costStr);
-          if (!Number.isFinite(costNum) || costNum < 0) {
-            throw new Error('Informe um preço base válido.');
-          }
-          const origCost =
-            movePresetProduct.cost != null ? Number(movePresetProduct.cost) : null;
-          if (
-            origCost === null ||
-            Number(costNum.toFixed(2)) !== Number(origCost.toFixed(2))
-          ) {
-            patch.cost = Number(costNum.toFixed(2));
-          }
-        }
-
-        if (Object.keys(patch).length > 0) {
-          await erpFetchJson(`products/${movePresetProduct.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify(patch),
-          });
-        }
       }
 
       await erpFetchJson('stock/movements', {
@@ -3325,21 +3294,21 @@ export function EstoqueWorkspace() {
                   <button
                     type="button"
                     onClick={() => void openMoveModal('entrada', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
                   >
                     → Entrada de Estoque
                   </button>
                   <button
                     type="button"
                     onClick={() => void openMoveModal('ajuste', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
                   >
                     ⇄ Ajuste de Estoque
                   </button>
                   <button
                     type="button"
                     onClick={() => void openReserveModal()}
-                    className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/15 px-4 text-sm font-semibold text-violet-200"
+                    className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
                   >
                     <Bookmark className="h-4 w-4" />
                     Reservar
@@ -3347,7 +3316,7 @@ export function EstoqueWorkspace() {
                   <button
                     type="button"
                     onClick={() => setTab('movements')}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--text-primary)]"
+                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
                   >
                     📋 Histórico Completo
                   </button>
@@ -3507,35 +3476,39 @@ export function EstoqueWorkspace() {
                       SKU {movePresetProduct.sku}
                     </p>
                   </div>
-                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Preço Base
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={moveForm.cost}
-                      onChange={(e) =>
-                        setMoveForm((f) => ({ ...f, cost: e.target.value }))
-                      }
-                      placeholder="0,00"
-                      className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
-                    />
-                  </label>
-                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Preço Venda
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      required
-                      value={moveForm.price}
-                      onChange={(e) =>
-                        setMoveForm((f) => ({ ...f, price: e.target.value }))
-                      }
-                      placeholder="0,00"
-                      className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
-                    />
-                  </label>
+                  {moveForm.movementKind === 'ajuste' ? (
+                    <>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Preço Base
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={moveForm.cost}
+                          onChange={(e) =>
+                            setMoveForm((f) => ({ ...f, cost: e.target.value }))
+                          }
+                          placeholder="0,00"
+                          className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Preço Venda
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          required
+                          value={moveForm.price}
+                          onChange={(e) =>
+                            setMoveForm((f) => ({ ...f, price: e.target.value }))
+                          }
+                          placeholder="0,00"
+                          className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
+                        />
+                      </label>
+                    </>
+                  ) : null}
                 </div>
               ) : (
                 <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
