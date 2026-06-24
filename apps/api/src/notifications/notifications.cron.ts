@@ -67,35 +67,37 @@ export class NotificationsCron {
   }
 
   private async checkLowStock(): Promise<void> {
-    const products = await this.prisma.client.product.findMany({
+    const type = 'estoque_critico';
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const existing = await this.prisma.client.notification.findFirst({
+      where: {
+        type,
+        createdAt: { gte: since },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return;
+    }
+
+    const count = await this.prisma.client.product.count({
       where: {
         isActive: true,
-        stockQty: { lte: 5 },
-      },
-      select: {
-        id: true,
-        sku: true,
-        name: true,
-        stockQty: true,
+        stockQty: { lte: 0 },
       },
     });
 
-    for (const product of products) {
-      const link = `product:${product.id}`;
-      const type = 'estoque_baixo';
-      if (await this.notifications.hasRecentDuplicate(type, link)) {
-        continue;
-      }
-
-      await this.notifications.createForPermission(
-        'estoque',
-        'ver_movimentacoes',
-        'Estoque baixo',
-        `Produto ${product.sku} (${product.name}) com ${product.stockQty} un. em estoque.`,
-        type,
-        link,
-      );
+    if (count === 0) {
+      return;
     }
+
+    await this.notifications.createForPermission(
+      'estoque',
+      'ver_movimentacoes',
+      'Estoque crítico',
+      `${count} produtos com estoque crítico`,
+      type,
+    );
   }
 
   private async checkFinishedWithoutInvoice(): Promise<void> {
