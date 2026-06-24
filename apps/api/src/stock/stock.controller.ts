@@ -15,6 +15,7 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { JwtGuard } from '../auth/jwt.guard';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import {
   CreateStockMovementDto,
   StockMovementQueryDto,
@@ -38,6 +39,7 @@ export class StockController {
   }
 
   @Get('movements')
+  @RequirePermission('estoque', 'ver_movimentacoes')
   listMovements(@Query() query: StockMovementQueryDto) {
     return this.stockService.listMovements(query);
   }
@@ -53,6 +55,7 @@ export class StockController {
 
   @Delete('movements/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('estoque', 'deletar_movimentacao')
   deleteMovement(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,

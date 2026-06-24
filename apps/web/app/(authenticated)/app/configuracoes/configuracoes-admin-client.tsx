@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { UserPermissionsPanel } from '@/src/components/configuracoes/user-permissions-panel';
 
 type AdminUser = {
   id: string;
@@ -379,12 +380,15 @@ function UsersTableToolbar(props: { onNew: () => void }) {
   );
 }
 
+type EditUserModalTab = 'dados' | 'permissoes';
+
 function EditUserModal(props: {
   user: AdminUser;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { user, onClose, onSaved } = props;
+  const [activeTab, setActiveTab] = useState<EditUserModalTab>('dados');
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [role, setRole] = useState<UserRole>(primaryRole(user));
@@ -421,54 +425,146 @@ function EditUserModal(props: {
   };
 
   return (
-    <ModalShell
-      title="Editar Usuário"
-      icon={<Pencil size={20} />}
-      onClose={onClose}
-      saving={saving}
-      onConfirm={() => void handleSubmit()}
-      confirmLabel={saving ? 'Salvando...' : 'Salvar'}
-    >
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">Nome</span>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </label>
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">Email</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setError(null);
-          }}
-          className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </label>
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">Perfil</span>
-        <select
-          value={role}
-          onChange={(e) => {
-            setRole(e.target.value as UserRole);
-            setError(null);
-          }}
-          className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="OPERADOR">OPERADOR</option>
-          <option value="ADMIN">ADMIN</option>
-        </select>
-      </label>
-      {error ? <p className="text-sm text-rose-400">{error}</p> : null}
-    </ModalShell>
+    <div className="fixed inset-0 z-50 flex sm:items-center sm:justify-center sm:p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60"
+        aria-label="Fechar"
+        onClick={onClose}
+        disabled={saving}
+      />
+      <div
+        className="relative flex h-full w-full flex-col overflow-hidden bg-[#121724] sm:h-auto sm:max-h-[min(90vh,800px)] sm:max-w-2xl sm:rounded-xl sm:border sm:border-white/10 sm:shadow-xl"
+        role="dialog"
+        aria-labelledby="edit-user-title"
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <h2
+            id="edit-user-title"
+            className="flex items-center gap-2 text-lg font-semibold text-zinc-100"
+          >
+            <Pencil size={20} />
+            Editar Usuário
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex gap-1 border-b border-white/10 px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('dados')}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              activeTab === 'dados'
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+            }`}
+          >
+            Dados
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('permissoes')}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              activeTab === 'permissoes'
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+            }`}
+          >
+            Permissões
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {activeTab === 'dados' ? (
+            <div className="space-y-4 px-5 py-5">
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-zinc-300">Nome</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setError(null);
+                  }}
+                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-zinc-300">Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setError(null);
+                  }}
+                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-zinc-300">Perfil</span>
+                <select
+                  value={role}
+                  onChange={(e) => {
+                    setRole(e.target.value as UserRole);
+                    setError(null);
+                  }}
+                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="OPERADOR">OPERADOR</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </label>
+              {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+            </div>
+          ) : (
+            <UserPermissionsPanel
+              userId={user.id}
+              userName={user.name}
+              isAdmin={true}
+            />
+          )}
+        </div>
+
+        {activeTab === 'dados' ? (
+          <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={saving}
+              className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        ) : (
+          <div className="border-t border-white/10 bg-white/[0.02] px-5 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -17,6 +17,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { AuditService } from '../common/audit.service';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
+import { PermissionsModule } from '../common/permissions/permissions.module';
 import { CadastrosService } from './cadastros.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
@@ -40,12 +42,14 @@ export class CadastrosController {
   }
 
   @Get('receivers')
+  @RequirePermission('cadastros', 'ver_cadastros')
   listReceivers() {
     return this.cadastros.listReceivers();
   }
 
   @Post('receivers')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
   createReceiver(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
@@ -74,12 +78,14 @@ export class CadastrosController {
   }
 
   @Get('unloading-points')
+  @RequirePermission('cadastros', 'ver_cadastros')
   listUnloadingPoints() {
     return this.cadastros.listUnloadingPoints();
   }
 
   @Post('unloading-points')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
   createUnloadingPoint(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
@@ -108,12 +114,14 @@ export class CadastrosController {
   }
 
   @Get('carriers')
+  @RequirePermission('cadastros', 'ver_cadastros')
   listCarriers() {
     return this.cadastros.listCarriers();
   }
 
   @Post('carriers')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
   createCarrier(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
@@ -142,12 +150,14 @@ export class CadastrosController {
   }
 
   @Get('suppliers')
+  @RequirePermission('cadastros', 'ver_cadastros')
   listSuppliers() {
     return this.cadastros.listSuppliers();
   }
 
   @Post('suppliers')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
   createSupplier(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateSupplierDto,
@@ -176,6 +186,7 @@ export class CadastrosController {
   }
 
   @Get('customers')
+  @RequirePermission('cadastros', 'ver_cadastros')
   async listCustomers(
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
@@ -193,6 +204,7 @@ export class CadastrosController {
 
   @Post('customers')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
   createCustomer(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateCustomerDto,

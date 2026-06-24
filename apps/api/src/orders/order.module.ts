@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AuditService } from '../common/audit.service';
+import { PermissionsModule } from '../common/permissions/permissions.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { StockModule } from '../stock/stock.module';
 import { OrderController } from './order.controller';
@@ -13,7 +14,7 @@ import { PedidosController } from './pedidos.controller';
 import { PedidosService } from './pedidos.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule, StockModule],
+  imports: [PrismaModule, AuthModule, StockModule, PermissionsModule],
   controllers: [OrderController, PedidosController],
   providers: [
     OrderService,

@@ -25,6 +25,10 @@ function isAllowedPath(path: string): boolean {
     /^pedidos(\/|$)/i.test(path) ||
     /^dashboard(\/|$)/i.test(path) ||
     /^api\/erp\/dashboard(\/|$)/i.test(path) ||
+    /^api\/permissions(\/|$)/i.test(path) ||
+    /^permissions(\/|$)/i.test(path) ||
+    /^api\/users\/[^/]+\/permissions$/i.test(path) ||
+    /^users\/[^/]+\/permissions$/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -37,6 +41,12 @@ function resolveUpstreamPath(segments: string[]): string {
   }
   if (/^dashboard(\/|$)/i.test(path)) {
     return `api/erp/${path}`;
+  }
+  if (/^users\/[^/]+\/permissions$/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^permissions(\/|$)/i.test(path)) {
+    return `api/${path}`;
   }
   return path;
 }

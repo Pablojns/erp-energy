@@ -38,6 +38,7 @@ import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
 import { AuditService } from '../common/audit.service';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 
 @Controller('api/pedidos')
 @UseGuards(JwtGuard)
@@ -64,6 +65,7 @@ export class PedidosController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('expedicao', 'criar_pedido')
   create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateManualPedidoDto,
@@ -72,6 +74,7 @@ export class PedidosController {
   }
 
   @Patch(':numeroPed')
+  @RequirePermission('expedicao', 'editar_pedido')
   updateManual(
     @Param('numeroPed', ParseIntPipe) numeroPed: number,
     @CurrentUser() user: AuthUser,
@@ -113,6 +116,7 @@ export class PedidosController {
 
   @Delete(':numeroPed')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('expedicao', 'deletar_pedido')
   deleteManual(
     @Param('numeroPed', ParseIntPipe) numeroPed: number,
     @CurrentUser() user: AuthUser,
@@ -201,6 +205,7 @@ export class PedidosController {
   }
 
   @Post(':numeroPed/nf')
+  @RequirePermission('expedicao', 'emitir_nf')
   attachNf(
     @Param('numeroPed', ParseIntPipe) numeroPed: number,
     @CurrentUser() user: AuthUser,
@@ -210,6 +215,7 @@ export class PedidosController {
   }
 
   @Post(':numeroPed/saida')
+  @RequirePermission('expedicao', 'confirmar_saida')
   gerarSaida(
     @Param('numeroPed', ParseIntPipe) numeroPed: number,
     @CurrentUser() user: AuthUser,
@@ -362,6 +368,7 @@ export class PedidosController {
   }
 
   @Post(':numeroPed/separacao/concluir')
+  @RequirePermission('expedicao', 'concluir_separacao')
   concluir(
     @Param('numeroPed', ParseIntPipe) numeroPed: number,
     @CurrentUser() user: AuthUser,

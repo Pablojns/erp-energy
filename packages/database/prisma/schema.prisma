@@ -114,6 +114,7 @@ model User {
   stockReservationsCreated StockReservation[] @relation("StockReservationCreatedBy")
   crmInteractions      CrmInteraction[]
   auditLogs            AuditLog[]
+  userPermissions      UserPermission[]
   createdTasks         Task[]                @relation("TaskCreatedBy")
   assignedTasks        Task[]                @relation("TaskAssignedTo")
   createdAt            DateTime              @default(now())
@@ -135,7 +136,7 @@ model Role {
   @@index([createdAt])
 }
 
-model Permission {
+model RbacPermission {
   id              String           @id @default(uuid()) @db.Uuid
   code            String           @unique
   description     String?
@@ -144,6 +145,30 @@ model Permission {
   updatedAt       DateTime         @updatedAt
 
   @@index([createdAt])
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime         @default(now())
+  users       UserPermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+model UserPermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  granted      Boolean    @default(false)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([permissionId])
 }
 
 model UserRole {
@@ -160,12 +185,12 @@ model UserRole {
 }
 
 model RolePermission {
-  id           String     @id @default(uuid()) @db.Uuid
-  roleId       String     @db.Uuid
-  permissionId String     @db.Uuid
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-  createdAt    DateTime   @default(now())
+  id           String         @id @default(uuid()) @db.Uuid
+  roleId       String         @db.Uuid
+  permissionId String         @db.Uuid
+  role         Role           @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   RbacPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime       @default(now())
 
   @@unique([roleId, permissionId])
   @@index([permissionId])

@@ -14,6 +14,7 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { JwtGuard } from '../auth/jwt.guard';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -51,6 +52,7 @@ export class ProductController {
   }
 
   @Patch(':id')
+  @RequirePermission('estoque', 'editar_produto')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
