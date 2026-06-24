@@ -62,6 +62,7 @@ export class ProductController {
   }
 
   @Delete(':id')
+  @RequirePermission('estoque', 'desativar_produto')
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,

@@ -11,3 +11,4 @@ apps/*/.next
 apps/*/dist
 packages/*/dist
 packages/database/prisma/migrations
+.vercel
