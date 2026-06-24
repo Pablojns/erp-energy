@@ -1,5 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceStatus, OrderItemStockStatus, OrderSource, OrderStatus, Prisma } from '@erp/database';
+import {
+  InvoiceStatus,
+  OrderItemStockStatus,
+  OrderSource,
+  OrderStatus,
+  Prisma,
+  StockMovementType,
+} from '@erp/database';
 import { AuditService } from '../common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +16,7 @@ import { OrderService } from './order.service';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
+import type { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
@@ -60,6 +68,183 @@ export class PedidosService {
       `order:${(order as { id: string }).id}`,
     );
     return order;
+  }
+
+  async createPedidoSite(userId: string, dto: CreateSitePedidoDto) {
+    const created = await this.orders.createSitePedido(userId, dto);
+    const orderId = (created as { id: string }).id;
+    const order = await this.reserveSitePedido(orderId, userId);
+    const label =
+      (order as { externalOrderNumber?: string }).externalOrderNumber ??
+      (order as { code?: string }).code ??
+      'novo';
+    void this.notifications.createForPermission(
+      'expedicao',
+      'ver_pedidos',
+      'Novo pedido do site',
+      `Pedido do site ${label} foi criado e reservado.`,
+      'novo_pedido_site',
+      `order:${orderId}`,
+    );
+    return order;
+  }
+
+  /**
+   * Reserva a quantidade integral de cada linha, independente do saldo físico atual.
+   * A cobertura física é reconciliada quando houver entrada de estoque (StockService).
+   */
+  private async reserveSitePedido(orderId: string, userId: string) {
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${EXPEDITION_STOCK_LOCK})`,
+      );
+
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: { orderBy: { lineNumber: 'asc' } },
+        },
+      });
+      if (!order) {
+        throw new NotFoundException('Pedido não encontrado.');
+      }
+
+      for (const line of order.items) {
+        const qty = line.quantity;
+        let productId = line.productId;
+        let skuNorm = line.sku.trim();
+
+        if (!productId) {
+          const found = await tx.product.findFirst({
+            where: {
+              sku: { equals: line.sku.trim(), mode: Prisma.QueryMode.insensitive },
+              isActive: true,
+            },
+          });
+          if (found) {
+            productId = found.id;
+            skuNorm = found.sku;
+            await tx.orderItem.update({
+              where: { id: line.id },
+              data: { productId },
+            });
+          }
+        }
+
+        if (!productId) {
+          await tx.orderItem.update({
+            where: { id: line.id },
+            data: {
+              reservedQuantity: qty,
+              missingQty: qty,
+              availableAtAnalysis: 0,
+              stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
+            },
+          });
+          continue;
+        }
+
+        const pRow = await tx.product.findUnique({ where: { id: productId } });
+        if (!pRow?.isActive) {
+          await tx.orderItem.update({
+            where: { id: line.id },
+            data: {
+              reservedQuantity: qty,
+              missingQty: qty,
+              availableAtAnalysis: 0,
+              stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
+            },
+          });
+          continue;
+        }
+
+        const physicalAvailable = Math.max(0, pRow.stockQty - pRow.reservedQty);
+        const missing = Math.max(0, qty - physicalAvailable);
+        let stockStatus: OrderItemStockStatus;
+        if (missing <= 0) {
+          stockStatus = OrderItemStockStatus.COMPLETO;
+        } else if (missing >= qty) {
+          stockStatus = OrderItemStockStatus.SEM_ESTOQUE;
+        } else {
+          stockStatus = OrderItemStockStatus.PARCIAL;
+        }
+
+        await tx.orderItem.update({
+          where: { id: line.id },
+          data: {
+            availableAtAnalysis: physicalAvailable,
+            missingQty: missing,
+            reservedQuantity: qty,
+            stockStatus,
+          },
+        });
+
+        await tx.stockReservation.deleteMany({
+          where: { orderItemId: line.id },
+        });
+
+        await tx.product.update({
+          where: { id: productId },
+          data: { reservedQty: { increment: qty } },
+        });
+
+        await tx.stockReservation.create({
+          data: {
+            orderId: order.id,
+            orderItemId: line.id,
+            productId,
+            sku: skuNorm,
+            quantity: qty,
+            createdById: userId,
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId,
+            movementType: StockMovementType.RESERVA,
+            quantity: qty,
+            reference: order.code,
+            notes: `Reserva pedido site ${order.code}`,
+            movedById: userId,
+          },
+        });
+      }
+
+      const statusRows = await tx.orderItem.findMany({
+        where: { orderId: order.id },
+        select: { stockStatus: true },
+      });
+      const allCompleto =
+        statusRows.length > 0 &&
+        statusRows.every((r) => r.stockStatus === OrderItemStockStatus.COMPLETO);
+      const nextStatus = allCompleto
+        ? OrderStatus.RESERVADO
+        : OrderStatus.PARCIAL;
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: nextStatus,
+          reservedAt: new Date(),
+        },
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_SITE_RESERVE',
+        entity: 'Order',
+        entityId: order.id,
+        changes: {
+          code: order.code,
+          status: nextStatus,
+          source: 'site',
+          reservedFullQuantity: true,
+        },
+      });
+    });
+
+    return this.orders.findOne(orderId);
   }
 
   list(query: Parameters<OrderService['findMany']>[0]) {

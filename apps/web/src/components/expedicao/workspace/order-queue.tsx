@@ -80,6 +80,9 @@ export function OrderQueue(props: {
   onOrderChosen?: () => void;
   title?: string;
   onNewOrder?: () => void;
+  onNewSiteOrder?: () => void;
+  sourceFilter?: 'WEG' | 'SITE';
+  onSourceFilterChange?: (value: 'WEG' | 'SITE') => void;
   onRefresh?: () => void;
   isAdmin?: boolean;
   onEditOrder?: (order: OrderDto) => void;
@@ -93,6 +96,9 @@ export function OrderQueue(props: {
     onOrderChosen,
     title = 'Fila de Pedidos p/ Separação',
     onNewOrder,
+    onNewSiteOrder,
+    sourceFilter,
+    onSourceFilterChange,
     onRefresh,
     isAdmin = false,
     onEditOrder,
@@ -297,11 +303,11 @@ export function OrderQueue(props: {
   );
 
   return (
-    <aside className="exp-queue-panel">
-      <div className="exp-queue-panel-header">
-        <div className="exp-queue-header-row">
-          <h2 className="exp-queue-panel-title">{title}</h2>
-          <div className="exp-queue-header-actions">
+    <aside className="exp-queue-panel flex h-full min-h-0 flex-1 flex-col">
+      <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)] !px-2 !py-1.5">
+        <div className="exp-queue-header-row !mb-1.5 !gap-2">
+          <h2 className="exp-queue-panel-title text-sm">{title}</h2>
+          <div className="exp-queue-header-actions !gap-2">
             {isPedidosMode ? (
               <PedidosPeriodFilter
                 dateFrom={data.appliedFilters.orderDateFrom}
@@ -319,7 +325,7 @@ export function OrderQueue(props: {
             {onRefresh ? (
               <button
                 type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--icon"
+                className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8 !px-2.5 !py-1.5 !text-xs"
                 onClick={onRefresh}
                 aria-label="Atualizar fila"
               >
@@ -331,7 +337,7 @@ export function OrderQueue(props: {
             {isPedidosMode ? (
               <button
                 type="button"
-                className={`exp-queue-header-btn ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
+                className={`exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
                 onClick={() => setFiltersOpen((v) => !v)}
               >
                 <Filter className="h-4 w-4" aria-hidden />
@@ -344,14 +350,50 @@ export function OrderQueue(props: {
             {onNewOrder ? (
               <button
                 type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--primary"
+                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
                 onClick={onNewOrder}
               >
                 + Novo Pedido
               </button>
             ) : null}
+            {onNewSiteOrder ? (
+              <button
+                type="button"
+                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
+                onClick={onNewSiteOrder}
+              >
+                Novo Pedido Site
+              </button>
+            ) : null}
           </div>
         </div>
+
+        {isPedidosMode && sourceFilter && onSourceFilterChange ? (
+          <div className="mt-1.5 flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => onSourceFilterChange('WEG')}
+              className={
+                sourceFilter === 'WEG'
+                  ? 'relative rounded-lg border border-blue-400/30 bg-gradient-to-r from-blue-600 to-blue-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(37,99,235,0.4)]'
+                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
+              }
+            >
+              WEG
+            </button>
+            <button
+              type="button"
+              onClick={() => onSourceFilterChange('SITE')}
+              className={
+                sourceFilter === 'SITE'
+                  ? 'relative rounded-lg border border-blue-400/30 bg-gradient-to-r from-blue-600 to-blue-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(37,99,235,0.4)]'
+                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
+              }
+            >
+              Site
+            </button>
+          </div>
+        ) : null}
 
         {isPedidosMode ? (
           <ErpFilterBar<ExpeditionPedidosPreset>
@@ -433,7 +475,7 @@ export function OrderQueue(props: {
       ) : null}
 
       {isPedidosMode ? (
-        <div className="exp-queue-print-toolbar">
+        <div className="exp-queue-print-toolbar shrink-0">
           {selectedForPrintCount > 0 ? (
             <span className="exp-queue-print-count">
               {selectedForPrintCount} pedido(s) selecionado(s)
@@ -452,7 +494,7 @@ export function OrderQueue(props: {
           </button>
         </div>
       ) : (
-        <div className="exp-queue-print-toolbar">
+        <div className="exp-queue-print-toolbar shrink-0">
           {selectedForRemovalCount > 0 ? (
             <span className="exp-queue-print-count">
               {selectedForRemovalCount} pedido(s) selecionado(s)
@@ -480,7 +522,10 @@ export function OrderQueue(props: {
         />
       ) : null}
 
-      <div ref={listScrollRef} className="exp-queue-panel-list erp-scrollbar">
+      <div
+        ref={listScrollRef}
+        className="exp-queue-panel-list erp-scrollbar min-h-0 flex-1 overflow-y-auto !p-2 !pb-4"
+      >
         {data.ordersLoading && data.orders.length === 0 ? (
           <div className="exp-queue-empty">
             <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
@@ -490,7 +535,9 @@ export function OrderQueue(props: {
           <p className="exp-queue-empty">Nenhum pedido neste filtro.</p>
         ) : isPedidosMode ? (
           <>
-            <div className="exp-queue-grid">{data.orders.map(renderOrderCard)}</div>
+            <div className="grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+              {data.orders.map(renderOrderCard)}
+            </div>
             {data.ordersHasMore ? (
               <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
             ) : null}
@@ -502,14 +549,16 @@ export function OrderQueue(props: {
             ) : null}
           </>
         ) : separationSections ? (
-          <div className="exp-queue-sections">
+          <div className="exp-queue-sections gap-2">
             {separationSections.map((section) => (
               <section key={section.id} className="exp-queue-section">
                 <h3 className="exp-queue-section-title">{section.label}</h3>
                 {section.orders.length === 0 ? (
                   <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
                 ) : (
-                  <div className="exp-queue-grid">{section.orders.map(renderOrderCard)}</div>
+                  <div className="grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+                    {section.orders.map(renderOrderCard)}
+                  </div>
                 )}
               </section>
             ))}
@@ -518,7 +567,7 @@ export function OrderQueue(props: {
       </div>
 
       {data.meta && !data.ordersLoading && isPedidosMode ? (
-        <div className="exp-queue-panel-footer">
+        <div className="exp-queue-panel-footer shrink-0">
           <p className="exp-queue-footer-text">
             {data.orders.length} de {data.meta.total} pedido(s)
           </p>

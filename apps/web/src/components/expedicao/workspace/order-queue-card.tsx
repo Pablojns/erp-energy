@@ -65,18 +65,18 @@ export function OrderQueueCard(props: {
 
   return (
     <div
-      className={`exp-queue-card-wrap ${isMarked ? 'exp-queue-card-wrap--print' : ''} ${selected ? 'exp-queue-card-wrap--selected' : ''}`}
+      className={`exp-queue-card-wrap w-full min-w-0 ${isMarked ? 'exp-queue-card-wrap--print' : ''} ${selected ? 'exp-queue-card-wrap--selected' : ''}`}
     >
-      <div className="exp-queue-card-body">
+      <div className="exp-queue-card-body w-full min-w-0">
         <div
           role="button"
           tabIndex={0}
           onClick={onSelect}
           onKeyDown={handleCardKeyDown}
-          className={`exp-queue-card ${selected ? 'exp-queue-card--selected' : ''}`}
+          className={`exp-queue-card flex min-h-0 flex-col gap-1.5 !p-2.5 ${selected ? 'exp-queue-card--selected' : ''}`}
         >
-          <div className="exp-queue-card-head">
-            <div className="exp-queue-card-head-left">
+          <div className="exp-queue-card-head gap-1.5">
+            <div className="exp-queue-card-head-left gap-1.5">
               {onTogglePrint ? (
                 <label
                   className="exp-queue-card-check"
@@ -103,15 +103,27 @@ export function OrderQueueCard(props: {
                   />
                 </label>
               ) : null}
-              <div className="exp-queue-card-title-block">
-                <span className="exp-queue-card-num">#{numero}</span>
-                <span className="exp-queue-card-customer" title={`Comprador: ${comprador}`}>
+              <div className="exp-queue-card-title-block gap-1">
+                <span className="exp-queue-card-num text-sm">#{numero}</span>
+                <span
+                  className="exp-queue-card-customer text-xs"
+                  title={`Comprador: ${comprador}`}
+                >
                   {comprador}
                 </span>
               </div>
+              {order.source === 'SITE' ? (
+                <span className="exp-queue-source-badge exp-queue-source-badge--site text-xs">
+                  SITE
+                </span>
+              ) : order.source === 'WEG_MERCADO_ELETRONICO' ? (
+                <span className="exp-queue-source-badge exp-queue-source-badge--weg text-xs">
+                  WEG
+                </span>
+              ) : null}
               {isUrgent ? (
                 <span
-                  className="exp-queue-urgent-badge exp-queue-urgent-badge--pulse"
+                  className="exp-queue-urgent-badge exp-queue-urgent-badge--pulse text-xs"
                   style={URGENT_BADGE_STYLE}
                 >
                   URGENTE
@@ -119,9 +131,12 @@ export function OrderQueueCard(props: {
               ) : null}
             </div>
           </div>
-          <p className="exp-queue-card-value">{formatCurrency(order.totalValue)}</p>
-          <p className="exp-queue-card-date">{when}</p>
-          <span className="exp-queue-status-badge" style={orderWorkflowCardBadgeStyle(statusBadge.color)}>
+          <p className="exp-queue-card-value text-xs font-bold">{formatCurrency(order.totalValue)}</p>
+          <p className="exp-queue-card-date text-xs">{when}</p>
+          <span
+            className="exp-queue-status-badge text-xs"
+            style={orderWorkflowCardBadgeStyle(statusBadge.color)}
+          >
             {statusBadge.label}
           </span>
         </div>

@@ -42,7 +42,7 @@ export function SeparationWorkbench(props: {
 
   if (!order) {
     return (
-      <div className="exp-wb-panel exp-wb-panel--empty">
+      <div className="exp-wb-panel exp-wb-panel--empty !gap-2 !p-3">
         <h2 className="exp-wb-panel-heading">Mesa de Trabalho de Separação</h2>
         <div className="exp-wb-empty-state">
           <PackageOpen className="h-14 w-14 text-[var(--exp-text-muted)]" aria-hidden />
@@ -124,7 +124,7 @@ export function SeparationWorkbench(props: {
   })();
 
   return (
-    <div className="exp-wb-panel">
+    <div className="exp-wb-panel !gap-2 !p-3">
       <OrderInfoPanel
         ref={orderInfoRef}
         order={order}
@@ -165,10 +165,10 @@ export function SeparationWorkbench(props: {
       />
 
       {canSendToSeparation ? (
-        <div className="exp-wb-triage exp-wb-triage--sticky">
+        <div className="exp-wb-triage exp-wb-triage--sticky !pt-2">
           <button
             type="button"
-            className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full"
+            className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
             onClick={async () => {
               await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
               onAfterAction?.();
@@ -186,11 +186,11 @@ export function SeparationWorkbench(props: {
       {mode === 'separation' ? (
         <>
           <div className="exp-wb-footer-spacer min-[1025px]:hidden" />
-          <footer className="exp-wb-footer">
+          <footer className="exp-wb-footer !gap-2 !pt-2">
             {shouldShowConcludeAction ? (
               <button
                 type="button"
-                className="exp-wb-btn exp-wb-btn--success exp-wb-footer-main disabled:cursor-not-allowed disabled:opacity-50"
+                className="exp-wb-btn exp-wb-btn--success exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={concluding || !canFinalizeSeparation || !volumesValid}
                 title={
                   !volumesValid
@@ -208,7 +208,7 @@ export function SeparationWorkbench(props: {
             {shouldShowNfAction ? (
               <button
                 type="button"
-                className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main"
+                className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
                 onClick={() => {
                   setNfModalOpen(true);
                 }}
@@ -220,7 +220,7 @@ export function SeparationWorkbench(props: {
             {shouldShowSaveAction ? (
               <button
                 type="button"
-                className="exp-wb-btn exp-wb-btn--ghost"
+                className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
                 onClick={() => {
                   if (typeof data.saveSeparationProgress === 'function') {
                     void data.saveSeparationProgress(order.id);
@@ -233,7 +233,7 @@ export function SeparationWorkbench(props: {
               </button>
             ) : null}
             {exitGenerated || order.status === 'FINALIZADO' ? (
-              <Link href="/app/expedicao/saidas" className="exp-wb-btn exp-wb-btn--ghost">
+              <Link href="/app/expedicao/saidas" className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs">
                 Ver em Saídas
               </Link>
             ) : null}

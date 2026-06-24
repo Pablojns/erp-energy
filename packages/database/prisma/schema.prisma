@@ -100,7 +100,7 @@ model User {
   userRoles            UserRole[]
   notifications        Notification[]
   chatMessages         ChatMessage[]
-  chatRoomParticipants ChatRoomParticipant[]
+  chatRooms            ChatMember[]
   stockMovements       StockMovement[]
   stockReservationsCreated StockReservation[] @relation("StockReservationCreatedBy")
   crmInteractions      CrmInteraction[]
@@ -558,47 +558,38 @@ model Notification {
 }
 
 model ChatRoom {
-  id           String                @id @default(uuid()) @db.Uuid
-  name         String
-  isPrivate    Boolean               @default(false)
-  participants ChatRoomParticipant[]
-  messages     ChatMessage[]
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  id        String        @id @default(uuid()) @db.Uuid
+  name      String?
+  isGroup   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  messages  ChatMessage[]
+  members   ChatMember[]
 
   @@index([createdAt])
 }
 
-model ChatRoomParticipant {
-  id        String   @id @default(uuid()) @db.Uuid
-  roomId    String   @db.Uuid
-  userId    String   @db.Uuid
-  joinedAt  DateTime @default(now())
-  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model ChatMember {
+  id     String   @id @default(uuid()) @db.Uuid
+  roomId String   @db.Uuid
+  userId String   @db.Uuid
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
   @@index([userId])
-  @@index([createdAt])
 }
 
 model ChatMessage {
   id        String   @id @default(uuid()) @db.Uuid
   roomId    String   @db.Uuid
-  senderId  String   @db.Uuid
+  userId    String   @db.Uuid
   content   String
-  sentAt    DateTime @default(now())
-  editedAt  DateTime?
-  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  sender    User     @relation(fields: [senderId], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  @@index([senderId])
-  @@index([createdAt])
-  @@index([roomId, sentAt])
+  @@index([userId])
+  @@index([roomId, createdAt])
 }
 
 enum OrderImportStatus {

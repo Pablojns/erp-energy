@@ -245,6 +245,8 @@ export class CadastrosService {
         data: {
           name: dto.name.trim(),
           document: this.trimOptional(dto.cnpj) ?? null,
+          email: this.trimOptional(dto.email) ?? null,
+          phone: this.trimOptional(dto.phone) ?? null,
           deliveryAddress: this.trimOptional(dto.deliveryAddress) ?? null,
         },
       })

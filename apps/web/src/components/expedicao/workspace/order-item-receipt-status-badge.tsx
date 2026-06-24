@@ -7,12 +7,12 @@ export function OrderItemReceiptStatusBadge(props: {
 }) {
   const visual = getItemReceiptStatusVisual(props.status);
   if (visual.tone === 'unknown' && visual.label === '—') {
-    return <span className="text-[var(--text-muted)]">—</span>;
+    return <span className="text-xs text-[var(--text-muted)]">—</span>;
   }
 
   return (
     <span
-      className={`exp-wb-line-status exp-wb-line-status--${visual.tone}`}
+      className={`exp-wb-line-status exp-wb-line-status--${visual.tone} text-xs`}
       title={props.status ?? undefined}
     >
       {visual.label}

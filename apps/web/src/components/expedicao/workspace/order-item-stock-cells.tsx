@@ -17,7 +17,7 @@ function stockQtyToneClass(tone: ReturnType<typeof getStockAvailabilityTone>): s
 }
 
 export function OrderItemOrderedQtyCell(props: { qty: number }) {
-  return <span className="exp-wb-cell-num">{props.qty}</span>;
+  return <span className="exp-wb-cell-num text-xs">{props.qty}</span>;
 }
 
 export function OrderItemStockQtyCell(props: {
@@ -27,17 +27,17 @@ export function OrderItemStockQtyCell(props: {
   const { stock, orderedQty } = props;
   if (stock.loading) {
     return (
-      <span className="exp-wb-cell-muted" aria-label="Carregando estoque">
+      <span className="exp-wb-cell-muted text-xs" aria-label="Carregando estoque">
         …
       </span>
     );
   }
   if (stock.available === null) {
-    return <span className="exp-wb-cell-muted">—</span>;
+    return <span className="exp-wb-cell-muted text-xs">—</span>;
   }
   const tone = getStockAvailabilityTone(orderedQty, stock.available);
   return (
-    <span className={`exp-wb-cell-num font-semibold ${stockQtyToneClass(tone)}`}>
+    <span className={`exp-wb-cell-num text-xs font-semibold ${stockQtyToneClass(tone)}`}>
       {stock.available}
     </span>
   );

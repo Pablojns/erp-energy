@@ -49,9 +49,9 @@ export function SeparationItemRow(props: {
 
   return (
     <tr>
-      <td className="exp-wb-cell-linha">{item.lineNumber}</td>
-      <td className="exp-wb-cell-sku">{item.sku}</td>
-      <td className="exp-wb-cell-item" title={item.description}>
+      <td className="exp-wb-cell-linha text-xs">{item.lineNumber}</td>
+      <td className="exp-wb-cell-sku text-xs">{item.sku}</td>
+      <td className="exp-wb-cell-item text-xs" title={item.description}>
         {item.description}
       </td>
       <td className="text-center">
@@ -68,12 +68,12 @@ export function SeparationItemRow(props: {
           value={qtyDraft}
           disabled={!editable}
           onChange={(e) => setQtyDraft(Number(e.target.value))}
-          className="exp-wb-qty-input"
+          className="exp-wb-qty-input !min-h-0 !py-1 !text-xs"
         />
       </td>
       <td className="text-center">
         <span
-          className={`exp-wb-line-status exp-wb-line-status--${statusLabel.toLowerCase()}`}
+          className={`exp-wb-line-status exp-wb-line-status--${statusLabel.toLowerCase()} text-xs`}
         >
           {statusLabel}
         </span>
@@ -82,7 +82,7 @@ export function SeparationItemRow(props: {
         <button
           type="button"
           disabled={!editable || confirming}
-          className="exp-wb-confirm-btn w-full px-[6px] py-[4px] text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+          className="exp-wb-confirm-btn w-full !px-3 !py-1.5 !text-xs disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handleConfirm}
         >
           {confirming ? (

@@ -13,6 +13,16 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(500)
   deliveryAddress?: string;
 }

@@ -28,6 +28,7 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { JwtGuard } from '../auth/jwt.guard';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
+import { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
 import { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -71,6 +72,15 @@ export class PedidosController {
     @Body() dto: CreateManualPedidoDto,
   ) {
     return this.pedidos.createManual(user.id, dto);
+  }
+
+  @Post('site')
+  @HttpCode(HttpStatus.CREATED)
+  createSite(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateSitePedidoDto,
+  ) {
+    return this.pedidos.createPedidoSite(user.id, dto);
   }
 
   @Patch(':numeroPed')

@@ -43,7 +43,7 @@
   overflow: hidden;
 }
 
-/* Layout fila / mesa — altura fixa na viewport (como inventário/estoque) */
+/* Layout fila / mesa — preenche altura disponível sem cortar conteúdo */
 .exp-page-layout {
   box-sizing: border-box;
   display: flex;
@@ -52,8 +52,8 @@
   width: 100%;
   min-width: 0;
   min-height: 0;
-  height: calc(100dvh - 11.5rem);
-  max-height: calc(100dvh - 11.5rem);
+  flex: 1;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -73,8 +73,9 @@
 
 @media (max-width: 1024px) {
   .exp-page-layout {
-    height: calc(100dvh - 14.5rem);
-    max-height: calc(100dvh - 14.5rem);
+    min-height: 0;
+    flex: 1;
+    height: 100%;
   }
 
   .exp-page-col-queue,
@@ -363,7 +364,8 @@
 .exp-queue-panel-list {
   flex: 1;
   min-height: 0;
-  padding: 0.75rem;
+  padding: 0.5rem;
+  padding-bottom: 1rem;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -751,9 +753,10 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  min-width: 155px;
-  min-height: 140px;
-  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
 .exp-queue-card-wrap--print .exp-queue-card {
@@ -771,9 +774,10 @@
   display: flex;
   flex: 1;
   flex-direction: column;
+  width: 100%;
   min-width: 0;
-  min-height: 140px;
-  overflow: hidden;
+  min-height: 0;
+  overflow: visible;
   border-radius: 0.5rem;
   border: 1px solid var(--exp-border);
   background: var(--exp-card);
@@ -852,6 +856,29 @@
 
 .exp-queue-urgent-badge--pulse {
   animation: exp-urgent-pulse 2s ease-in-out infinite;
+}
+
+.exp-queue-source-badge {
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+.exp-queue-source-badge--site {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.exp-queue-source-badge--weg {
+  background: rgba(167, 139, 250, 0.15);
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.35);
 }
 
 .exp-queue-card-title-block {

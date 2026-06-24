@@ -26,10 +26,12 @@ export function SeparationItemsTable(props: {
 
   return (
     <div className="exp-wb-table-wrap">
-      <div className="exp-wb-table-head">
-        <h3>{isOrdersMode ? 'Itens do pedido (leitura)' : 'Itens para separação'}</h3>
+      <div className="exp-wb-table-head !px-3 !py-2">
+        <h3 className="text-sm font-semibold">
+          {isOrdersMode ? 'Itens do pedido (leitura)' : 'Itens para separação'}
+        </h3>
         {isOrdersMode && receiptSummary.recebidos + receiptSummary.emFalta > 0 ? (
-          <p className="exp-wb-item-receipt-summary">
+          <p className="exp-wb-item-receipt-summary text-xs">
             <span className="exp-wb-item-receipt-summary__recebido">
               {receiptSummary.recebidos} recebido(s)
             </span>
@@ -42,7 +44,7 @@ export function SeparationItemsTable(props: {
       </div>
       <div className="exp-wb-table-scroll">
         <table
-          className={`exp-wb-table ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
+          className={`exp-wb-table text-xs [&_thead_th]:!px-2 [&_thead_th]:!py-1.5 [&_thead_th]:!text-xs [&_tbody_td]:!px-2 [&_tbody_td]:!py-1.5 [&_tbody_td]:!text-xs [&_tbody_td]:!min-h-0 ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
         >
           <colgroup>
             <col className="exp-wb-col-linha" />
@@ -89,9 +91,9 @@ export function SeparationItemsTable(props: {
 
               return (
                 <tr key={it.id}>
-                  <td className="exp-wb-cell-linha">{it.lineNumber}</td>
-                  <td className="exp-wb-cell-sku">{it.sku}</td>
-                  <td className="exp-wb-cell-item" title={it.description}>
+                  <td className="exp-wb-cell-linha text-xs">{it.lineNumber}</td>
+                  <td className="exp-wb-cell-sku text-xs">{it.sku}</td>
+                  <td className="exp-wb-cell-item text-xs" title={it.description}>
                     {it.description}
                   </td>
                   <td className="text-center">

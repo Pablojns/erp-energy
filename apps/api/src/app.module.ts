@@ -9,6 +9,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
+import { ChatModule } from './chat/chat.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
@@ -47,6 +48,7 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     OrderModule,
     CadastrosModule,
     DashboardModule,
+    ChatModule,
     PermissionsModule,
   ],
   controllers: [AppController],

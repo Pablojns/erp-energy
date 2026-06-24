@@ -38,9 +38,9 @@ export type OrderInfoPanelHandle = {
 function HeaderField(props: { label: string; children: ReactNode }) {
   const { label, children } = props;
   return (
-    <div className="exp-wb-order-header-field">
-      <span className="exp-wb-order-header-label">{label}</span>
-      <div className="exp-wb-order-header-value">{children}</div>
+    <div className="exp-wb-order-header-field gap-1">
+      <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}</span>
+      <div className="exp-wb-order-header-value text-xs">{children}</div>
     </div>
   );
 }
@@ -55,8 +55,8 @@ function HeaderPair(props: {
     <div
       className={`exp-wb-order-header-pair${align === 'end' ? ' exp-wb-order-header-pair--end' : ''}`}
     >
-      <span className="exp-wb-order-header-label">{label}:</span>
-      <span className="exp-wb-order-header-value">{value}</span>
+      <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}:</span>
+      <span className="exp-wb-order-header-value text-xs">{value}</span>
     </div>
   );
 }
@@ -255,13 +255,13 @@ export const OrderInfoPanel = forwardRef<
   }));
 
   const inputClassName =
-    'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 py-1.5 text-sm outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
+    'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
 
   return (
-    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks">
-      <div className="exp-wb-order-header-meta">
+    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-2 !p-3">
+      <div className="exp-wb-order-header-meta !gap-2 !py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <p className="exp-wb-order-number m-0 shrink-0">#{numero}</p>
+          <p className="exp-wb-order-number m-0 shrink-0 text-sm font-semibold">#{numero}</p>
           <OrderClickableStatusBadge order={order} onStatusChanged={onStatusChanged} />
           {onToggleUrgent ? (
             urgent ? (
@@ -297,10 +297,10 @@ export const OrderInfoPanel = forwardRef<
             </button>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 text-sm">
-          <CalendarDays className="h-4 w-4 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
-          <span className="exp-wb-order-header-label">Entrega:</span>
-          <span className="exp-wb-order-header-value">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
+          <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
+          <span className="exp-wb-order-header-label text-xs text-zinc-400">Entrega:</span>
+          <span className="exp-wb-order-header-value text-xs">
             {order.requestedDeliveryDate
               ? formatDayDisplay(order.requestedDeliveryDate)
               : 'não informada'}
@@ -311,26 +311,26 @@ export const OrderInfoPanel = forwardRef<
         </div>
       </div>
 
-      <div className="exp-wb-order-header-body">
-        <div className="exp-wb-order-header-block">
-          <div className="exp-wb-order-header-row">
+      <div className="exp-wb-order-header-body !mt-2 !gap-2">
+        <div className="exp-wb-order-header-block !p-3">
+          <div className="exp-wb-order-header-row !gap-2">
             <HeaderPair label="Comprador" value={cnpj} />
             <HeaderPair label="Endereço" value={address} align="end" />
           </div>
         </div>
 
-        <div className="exp-wb-order-header-block">
-          <div className="exp-wb-order-header-row">
+        <div className="exp-wb-order-header-block !p-3">
+          <div className="exp-wb-order-header-row !gap-2">
             <HeaderPair label="Recebedor" value={receiver} />
             <HeaderPair label="Ponto de descarga" value={point} align="end" />
           </div>
         </div>
 
-        <div className="exp-wb-order-header-block">
-          <div className="exp-wb-order-header-obs">
-            <span className="exp-wb-order-header-label">Observações:</span>
+        <div className="exp-wb-order-header-block !p-3">
+          <div className="exp-wb-order-header-obs gap-1">
+            <span className="exp-wb-order-header-label text-xs text-zinc-400">Observações:</span>
             <p
-              className="exp-wb-order-header-value m-0 whitespace-pre-wrap"
+              className="exp-wb-order-header-value m-0 whitespace-pre-wrap text-xs"
               title={notes ?? undefined}
             >
               {notes ?? '—'}
@@ -338,8 +338,8 @@ export const OrderInfoPanel = forwardRef<
           </div>
         </div>
 
-        <div className="exp-wb-order-header-block">
-          <div className="exp-wb-order-header-grid">
+        <div className="exp-wb-order-header-block !p-3">
+          <div className="exp-wb-order-header-grid !gap-2">
             <HeaderField label="Transportadora:">
               {onCarrierChange ? (
                 <div className="flex items-center gap-1.5">
@@ -424,7 +424,7 @@ export const OrderInfoPanel = forwardRef<
                 </div>
               ) : (
                 <>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5">
                     <input
                       type="text"
                       value={notaRemessa}

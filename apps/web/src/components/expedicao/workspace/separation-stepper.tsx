@@ -11,7 +11,7 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
   const { currentStep } = props;
 
   return (
-    <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+    <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] !p-3">
       <div className="flex flex-wrap items-center gap-2">
         {STEPS.map((step, idx) => {
           const done = step.id < currentStep;

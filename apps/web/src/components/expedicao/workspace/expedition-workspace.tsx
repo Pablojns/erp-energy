@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminOrderEditModal } from '@/src/components/expedicao/workspace/admin-order-edit-modal';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
+import { NewSiteOrderModal } from '@/src/components/expedicao/workspace/new-site-order-modal';
 import { DeleteOrderModal } from '@/src/components/expedicao/workspace/delete-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
 import { SeparationWorkbench } from '@/src/components/expedicao/workspace/separation-workbench';
@@ -30,6 +31,8 @@ export function ExpeditionWorkspace(props: {
   });
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [siteOrderOpen, setSiteOrderOpen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE'>('WEG');
   const [adminEditOrder, setAdminEditOrder] = useState<OrderDto | null>(null);
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<OrderDto | null>(null);
@@ -57,7 +60,17 @@ export function ExpeditionWorkspace(props: {
   useEffect(() => {
     setSelectedOrderId(null);
     setActiveTab('fila');
-  }, [data.statusFilter, mode]);
+  }, [data.statusFilter, mode, sourceFilter]);
+
+  useEffect(() => {
+    if (mode !== 'orders') return;
+    data.setPage(1);
+    data.setAppliedFilters((f) => ({
+      ...f,
+      source:
+        sourceFilter === 'WEG' ? 'WEG_MERCADO_ELETRONICO' : 'SITE',
+    }));
+  }, [sourceFilter, mode, data.setPage, data.setAppliedFilters]);
 
   useEffect(() => {
     const onRefresh = () => void data.refreshAll();
@@ -74,8 +87,47 @@ export function ExpeditionWorkspace(props: {
     setNewOrderOpen(true);
   };
 
+  const orderQueue = (
+    <OrderQueue
+      data={data}
+      selectedOrderId={selectedOrderId}
+      onSelectOrder={setSelectedOrderId}
+      onOrderChosen={() => setActiveTab('detalhes')}
+      title={mode === 'orders' ? 'Pedidos' : 'Fila de Pedidos p/ Separação'}
+      sourceFilter={mode === 'orders' ? sourceFilter : undefined}
+      onSourceFilterChange={mode === 'orders' ? setSourceFilter : undefined}
+      onNewOrder={
+        mode === 'orders' && sourceFilter === 'WEG'
+          ? onNewOrder ??
+            (() => {
+              setEditOrder(null);
+              setNewOrderOpen(true);
+            })
+          : onNewOrder
+      }
+      onNewSiteOrder={
+        mode === 'orders' && sourceFilter === 'SITE'
+          ? () => {
+              setSiteOrderOpen(true);
+            }
+          : undefined
+      }
+      onRefresh={() => void data.refreshAll()}
+      isAdmin={isAdmin}
+      onEditOrder={
+        mode === 'orders' && isAdmin
+          ? (order) => openOrderEdit(order)
+          : undefined
+      }
+      onDeleteOrder={
+        mode === 'orders' ? (order) => setDeleteOrder(order) : undefined
+      }
+      queueMode={mode}
+    />
+  );
+
   return (
-    <div className="flex min-h-0 w-full flex-col gap-3 overflow-hidden px-4 pt-2 pb-2">
+    <div className="flex h-[calc(100dvh-11.5rem)] min-h-0 w-full flex-col gap-2 overflow-hidden px-2 pt-2 pb-2 max-lg:h-[calc(100dvh-14.5rem)]">
       <div className="exp-mobile-tabs flex shrink-0 lg:hidden">
         <button
           type="button"
@@ -93,35 +145,22 @@ export function ExpeditionWorkspace(props: {
         </button>
       </div>
 
-      <div className="exp-page-layout min-h-0 flex-1">
-        <div className={`exp-page-col-queue w-full ${activeTab === 'fila' ? 'block' : 'hidden'} lg:block`}>
-          <OrderQueue
-            data={data}
-            selectedOrderId={selectedOrderId}
-            onSelectOrder={setSelectedOrderId}
-            onOrderChosen={() => setActiveTab('detalhes')}
-            title={mode === 'orders' ? 'Pedidos' : 'Fila de Pedidos p/ Separação'}
-            onNewOrder={
-              mode === 'orders'
-                ? onNewOrder ??
-                  (() => {
-                    setEditOrder(null);
-                    setNewOrderOpen(true);
-                  })
-                : onNewOrder
-            }
-            onRefresh={() => void data.refreshAll()}
-            isAdmin={isAdmin}
-            onEditOrder={
-              mode === 'orders' && isAdmin
-                ? (order) => openOrderEdit(order)
-                : undefined
-            }
-            onDeleteOrder={
-              mode === 'orders' ? (order) => setDeleteOrder(order) : undefined
-            }
-            queueMode={mode}
-          />
+      <div className="exp-page-layout flex h-full min-h-0 flex-1 flex-col">
+        <div
+          className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col ${activeTab === 'fila' ? 'block' : 'hidden'} lg:block`}
+        >
+          {mode === 'orders' && sourceFilter === 'SITE' ? (
+            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-blue-500/30 bg-blue-500/5 p-2">
+              <div className="mb-1.5 flex shrink-0 items-center gap-2">
+                <span className="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
+                  SITE — Pedidos do E-commerce
+                </span>
+              </div>
+              {orderQueue}
+            </div>
+          ) : (
+            orderQueue
+          )}
         </div>
         <div className={`exp-page-col-workbench w-full ${activeTab === 'detalhes' ? 'block' : 'hidden'} lg:block`}>
           {detailLoading && !displayOrder ? (
@@ -182,6 +221,17 @@ export function ExpeditionWorkspace(props: {
                   : 'Pedido criado com sucesso e adicionado à fila.',
               });
               setEditOrder(null);
+            }}
+          />
+          <NewSiteOrderModal
+            isOpen={siteOrderOpen}
+            onClose={() => setSiteOrderOpen(false)}
+            onCreated={() => {
+              void data.refreshAll();
+              data.setToast({
+                variant: 'ok',
+                message: 'Pedido do site criado e estoque reservado.',
+              });
             }}
           />
           <AdminOrderEditModal

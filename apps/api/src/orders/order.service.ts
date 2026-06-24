@@ -15,6 +15,7 @@ import {
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
+import type { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
 import type { CreateOrderDto } from './dto/create-order.dto';
 import type { CreateWegOrderDto } from './dto/create-wego-order.dto';
 import type { OrderQueryDto } from './dto/order-query.dto';
@@ -717,16 +718,191 @@ export class OrderService {
     });
   }
 
+  /** Pedido originado no site — status NOVO; reserva feita pelo chamador. */
+  async createSitePedido(userId: string, dto: CreateSitePedidoDto) {
+    const externalOrderNumber = dto.externalOrderNumber.trim();
+    if (!externalOrderNumber) {
+      throw new BadRequestException('Número do pedido no site é obrigatório.');
+    }
+
+    const deliveryRaw = dto.requestedDeliveryDate.trim();
+    const requestedDeliveryDate = new Date(`${deliveryRaw}T12:00:00.000Z`);
+    if (Number.isNaN(requestedDeliveryDate.getTime())) {
+      throw new BadRequestException('Data de entrega prevista inválida.');
+    }
+
+    const duplicate = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Já existe pedido com este número.');
+    }
+
+    const [receiver, unloadingPoint, customer, carrier] = await Promise.all([
+      this.prisma.client.receiver.findUnique({
+        where: { id: dto.receiverId },
+      }),
+      this.prisma.client.unloadingPoint.findUnique({
+        where: { id: dto.unloadingPointId },
+      }),
+      this.prisma.client.customer.findUnique({
+        where: { id: dto.customerId },
+      }),
+      this.prisma.client.carrier.findUnique({
+        where: { id: dto.carrierId },
+      }),
+    ]);
+
+    if (!receiver?.isActive) {
+      throw new BadRequestException('Recebedor inválido ou inativo.');
+    }
+    if (!unloadingPoint?.isActive) {
+      throw new BadRequestException('Ponto de descarga inválido ou inativo.');
+    }
+    if (!customer?.isActive) {
+      throw new BadRequestException('Cliente inválido ou inativo.');
+    }
+    if (!carrier?.isActive) {
+      throw new BadRequestException('Transportadora inválida ou inativa.');
+    }
+
+    const allowedCarriers = ['JADLOG', 'SEDEX', 'PAC', 'MINI ENVIOS'];
+    if (!allowedCarriers.includes(carrier.name.trim().toUpperCase())) {
+      throw new BadRequestException('Transportadora não permitida para pedidos do site.');
+    }
+
+    const mergedLines = new Map<
+      string,
+      { qty: number; unitPriceHint?: number }
+    >();
+    for (const li of dto.items) {
+      const prev = mergedLines.get(li.productId);
+      if (prev) {
+        mergedLines.set(li.productId, {
+          qty: prev.qty + li.quantity,
+          unitPriceHint: prev.unitPriceHint ?? li.unitPrice,
+        });
+      } else {
+        mergedLines.set(li.productId, {
+          qty: li.quantity,
+          unitPriceHint: li.unitPrice,
+        });
+      }
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const productIds = [...mergedLines.keys()].sort();
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        orderBy: { id: 'asc' },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+
+      for (const pid of productIds) {
+        const p = byId.get(pid);
+        if (!p) {
+          throw new BadRequestException(`Produto ${pid} não encontrado.`);
+        }
+        if (!p.isActive) {
+          throw new BadRequestException(
+            `Produto ${p.name} está inativo e não pode constar em pedidos.`,
+          );
+        }
+      }
+
+      const code = await this.nextOrderCode(tx);
+      let subtotalDec = new Prisma.Decimal(0);
+      let lineNumber = 10;
+
+      const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+
+      for (const pid of productIds) {
+        const p = byId.get(pid)!;
+        const { qty, unitPriceHint } = mergedLines.get(pid)!;
+        const unitPrice =
+          unitPriceHint !== undefined && unitPriceHint !== null
+            ? new Prisma.Decimal(Number(unitPriceHint).toFixed(2))
+            : p.price;
+        const totalLine = unitPrice.mul(qty).toDecimalPlaces(2);
+        subtotalDec = subtotalDec.add(totalLine);
+
+        creates.push({
+          product: { connect: { id: pid } },
+          lineNumber,
+          sku: p.sku,
+          description: p.name,
+          quantity: qty,
+          reservedQuantity: 0,
+          unitPrice: unitPrice.toDecimalPlaces(2),
+          totalPrice: totalLine,
+          discount: new Prisma.Decimal(0),
+          stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+        });
+        lineNumber += 10;
+      }
+
+      const totalFixed = subtotalDec.toDecimalPlaces(2);
+      const customerDocument = customer.document?.trim() || null;
+      const deliveryCnpj =
+        dto.deliveryCnpj?.trim() || customerDocument || null;
+
+      const order = await tx.order.create({
+        data: {
+          source: OrderSource.SITE,
+          code,
+          externalOrderNumber,
+          customerId: customer.id,
+          customerName: customer.name.trim(),
+          customerDocument,
+          deliveryCnpj,
+          deliveryAddress: customer.deliveryAddress?.trim() || null,
+          receiverName: receiver.name.trim(),
+          unloadingPoint: unloadingPoint.name.trim(),
+          notes: dto.notes?.trim() || null,
+          status: OrderStatus.NOVO,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          priority: 3,
+          orderDate: new Date(),
+          requestedDeliveryDate,
+          subtotal: totalFixed,
+          discount: new Prisma.Decimal(0),
+          total: totalFixed,
+          totalValue: totalFixed,
+          carrierId: carrier.id,
+          items: { create: creates },
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_CREATED',
+        entity: 'Order',
+        entityId: order.id,
+        changes: {
+          code: order.code,
+          externalOrderNumber,
+          lines: order.items.length,
+          subtotal: totalFixed.toString(),
+          status: order.status,
+          source: 'site',
+          reservedAutomatically: true,
+        },
+      });
+
+      return this.serializeOrder(order);
+    });
+  }
+
   private assertManualOrderMutable(order: {
-    status: OrderStatus;
     items: Array<{ pickedQty: number | null }>;
     exits?: Array<unknown>;
   }) {
-    if (order.status !== OrderStatus.NOVO && order.status !== OrderStatus.ANALISADO) {
-      throw new BadRequestException(
-        'Somente pedidos manuais em NOVO ou ANALISADO podem ser alterados.',
-      );
-    }
     if (order.items.some((it) => (it.pickedQty ?? 0) > 0)) {
       throw new BadRequestException(
         'Pedido com itens já separados não pode ser alterado.',
@@ -746,12 +922,12 @@ export class OrderService {
   ) {
     const numeroStr = String(numeroPed);
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: numeroStr, source: OrderSource.MANUAL },
+      where: { externalOrderNumber: numeroStr },
       include: { items: true, exits: true },
       orderBy: { createdAt: 'desc' },
     });
     if (!order) {
-      throw new NotFoundException('Pedido manual não encontrado.');
+      throw new NotFoundException('Pedido não encontrado.');
     }
     this.assertManualOrderMutable(order);
 

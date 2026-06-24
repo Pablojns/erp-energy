@@ -30,6 +30,18 @@ export const CARRIER_SEED: Array<{ name: string; documents: string[] }> = [
     name: 'ENVIA RAPIDO',
     documents: [],
   },
+  {
+    name: 'SEDEX',
+    documents: [],
+  },
+  {
+    name: 'PAC',
+    documents: [],
+  },
+  {
+    name: 'MINI ENVIOS',
+    documents: [],
+  },
 ];
 
 export async function seedCarriers(
