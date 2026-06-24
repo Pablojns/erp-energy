@@ -73,7 +73,7 @@ export class DashboardService {
   async getResumo(dataInicio?: string, dataFim?: string) {
     const { start, end } = this.resolveRange(dataInicio, dataFim);
     const periodWhere: Prisma.OrderWhereInput = {
-      createdAt: { gte: start, lte: end },
+      orderDate: { gte: start, lte: end },
     };
     const finalizedInPeriodWhere: Prisma.OrderWhereInput = {
       AND: [periodWhere, { status: OrderStatus.FINALIZADO }],
