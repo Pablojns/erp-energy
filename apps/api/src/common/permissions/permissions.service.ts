@@ -25,23 +25,23 @@ export class PermissionsService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    const [permissions, grants] = await Promise.all([
-      this.prisma.client.permission.findMany({
-        orderBy: [{ module: 'asc' }, { action: 'asc' }],
-      }),
-      this.prisma.client.userPermission.findMany({
-        where: { userId },
-      }),
-    ]);
-
-    const grantMap = new Map(grants.map((g) => [g.permissionId, g.granted]));
+    const permissions = await this.prisma.client.permission.findMany({
+      orderBy: [{ module: 'asc' }, { action: 'asc' }],
+      include: {
+        users: {
+          where: { userId },
+          select: { granted: true },
+        },
+      },
+    });
 
     return permissions.map((permission) => ({
+      id: permission.id,
       permissionId: permission.id,
       module: permission.module,
       action: permission.action,
       description: permission.description,
-      granted: grantMap.get(permission.id) ?? false,
+      granted: permission.users[0]?.granted ?? false,
     }));
   }
 

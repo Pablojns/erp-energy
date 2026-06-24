@@ -33,16 +33,6 @@ function formatActionLabel(action: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-function normalizePermissions(rows: ApiUserPermission[]): UserPermissionRow[] {
-  return rows.map((row) => ({
-    id: row.permissionId ?? row.id ?? '',
-    module: row.module,
-    action: row.action,
-    description: row.description,
-    granted: row.granted,
-  }));
-}
-
 function PermissionSwitch({
   granted,
   disabled,
@@ -103,25 +93,35 @@ export function UserPermissionsPanel({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    erpFetchJson<ApiUserPermission[]>(`api/users/${userId}/permissions`)
-      .then((data) => {
-        const rows = normalizePermissions(Array.isArray(data) ? data : []);
-        setPermissions(rows);
-        const initialExpanded: Record<string, boolean> = {};
-        for (const row of rows) {
-          initialExpanded[row.module] = true;
-        }
-        setExpanded(initialExpanded);
-      })
-      .catch((err: unknown) => {
-        setError(
-          err instanceof Error ? err.message : 'Falha ao carregar permissões.',
-        );
-      })
-      .finally(() => setLoading(false));
+    try {
+      const data = await erpFetchJson<ApiUserPermission[]>(
+        `api/users/${userId}/permissions`,
+      );
+      const rows: UserPermissionRow[] = (Array.isArray(data) ? data : []).map(
+        (row) => ({
+          id: row.id ?? row.permissionId ?? '',
+          module: row.module,
+          action: row.action,
+          description: row.description,
+          granted: row.granted ?? false,
+        }),
+      );
+      setPermissions(rows);
+      const initialExpanded: Record<string, boolean> = {};
+      for (const row of rows) {
+        initialExpanded[row.module] = true;
+      }
+      setExpanded(initialExpanded);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : 'Falha ao carregar permissões.',
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
 
   useEffect(() => {
