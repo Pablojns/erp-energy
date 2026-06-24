@@ -29,6 +29,8 @@ function isAllowedPath(path: string): boolean {
     /^permissions(\/|$)/i.test(path) ||
     /^api\/users\/[^/]+\/permissions$/i.test(path) ||
     /^users\/[^/]+\/permissions$/i.test(path) ||
+    /^api\/notifications(\/|$)/i.test(path) ||
+    /^notifications(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -46,6 +48,9 @@ function resolveUpstreamPath(segments: string[]): string {
     return `api/${path}`;
   }
   if (/^permissions(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^notifications(\/|$)/i.test(path)) {
     return `api/${path}`;
   }
   return path;

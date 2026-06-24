@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
 import { OrderModule } from './orders/order.module';
 import { ProductModule } from './product/product.module';
@@ -39,6 +40,7 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     ]),
     LoggerModule.forRoot(buildNestPinoParams()),
     PrismaModule,
+    NotificationsModule,
     AuthModule,
     ProductModule,
     StockModule,

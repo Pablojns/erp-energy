@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetUserPasswordDto } from './dto/reset-user-password.dto';
@@ -41,6 +42,7 @@ export class AuthService implements OnModuleInit {
     private readonly prismaService: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -95,7 +97,7 @@ export class AuthService implements OnModuleInit {
     return this.buildAuthResponse(user);
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, clientIp?: string) {
     const email = loginDto.email.trim().toLowerCase();
     const user = await this.prismaService.client.user.findUnique({
       where: { email },
@@ -126,6 +128,12 @@ export class AuthService implements OnModuleInit {
         'Usuário inativo. Contate o administrador.',
       );
     }
+
+    void this.notifications.createForAdmins(
+      'Login detectado',
+      `Usuário ${user.name} (${user.email}) logou de IP ${clientIp ?? 'desconhecido'}.`,
+      'login',
+    );
 
     return this.buildAuthResponse(user);
   }

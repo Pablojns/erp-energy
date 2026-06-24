@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, OrderItemStockStatus, OrderSource, OrderStatus, Prisma } from '@erp/database';
 import { AuditService } from '../common/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CarrierResolverService } from './carrier-resolver.service';
@@ -41,14 +42,28 @@ export class PedidosService {
     private readonly stock: StockService,
     private readonly audit: AuditService,
     private readonly carrierResolver: CarrierResolverService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  async createManual(userId: string, dto: CreateManualPedidoDto) {
+    const order = await this.orders.createManualPedido(userId, dto);
+    const label =
+      (order as { externalOrderNumber?: string }).externalOrderNumber ??
+      (order as { code?: string }).code ??
+      'novo';
+    void this.notifications.createForPermission(
+      'expedicao',
+      'ver_pedidos',
+      'Novo pedido criado',
+      `Pedido manual ${label} foi criado.`,
+      'novo_pedido',
+      `order:${(order as { id: string }).id}`,
+    );
+    return order;
+  }
 
   list(query: Parameters<OrderService['findMany']>[0]) {
     return this.orders.findMany(query as never);
-  }
-
-  createManual(userId: string, dto: CreateManualPedidoDto) {
-    return this.orders.createManualPedido(userId, dto);
   }
 
   updateManual(userId: string, numeroPed: number, dto: CreateManualPedidoDto) {
@@ -832,6 +847,19 @@ export class PedidosService {
           `Pedido ${numero}: ${e instanceof Error ? e.message : 'erro desconhecido'}`,
         );
       }
+    }
+
+    if (summary.erros.length > 0) {
+      const preview = summary.erros.slice(0, 3).join('; ');
+      const suffix =
+        summary.erros.length > 3
+          ? ` (+${summary.erros.length - 3} outros)`
+          : '';
+      void this.notifications.createForAdmins(
+        'Erros no import',
+        `${summary.erros.length} erro(s) na importação de pedidos: ${preview}${suffix}`,
+        'import_erro',
+      );
     }
 
     return summary;

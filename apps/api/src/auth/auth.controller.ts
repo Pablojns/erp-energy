@@ -7,8 +7,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -35,8 +37,9 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  login(@Body() loginDto: LoginDto, @Req() req: Request) {
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'desconhecido';
+    return this.authService.login(loginDto, ip);
   }
 
   @UseGuards(JwtGuard)

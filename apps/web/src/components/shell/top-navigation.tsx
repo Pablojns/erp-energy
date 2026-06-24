@@ -16,7 +16,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { LogoutButton } from '@/src/components/auth/logout-button';
-import { NotificationDropdown } from '@/src/components/shell/notification-dropdown';
+import { NotificationsBell } from '@/src/components/layout/notifications-bell';
 import { ThemeToggle } from '@/src/components/theme/theme-toggle';
 import type { AuthUser } from '@/src/services/api/auth';
 import { MAIN_NAV_ITEMS, type NavIconName } from './nav-config';
@@ -103,7 +103,7 @@ export function TopNavigation({ user }: TopNavigationProps) {
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
           <ThemeToggle />
-          <NotificationDropdown />
+          <NotificationsBell />
           <div className="erp-divider hidden h-9 w-px sm:block" />
           <div className="hidden max-w-[148px] text-right md:block lg:max-w-[180px]">
             <p className="truncate text-sm font-medium text-erp-fg">{user.name}</p>

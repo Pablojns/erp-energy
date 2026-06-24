@@ -75,7 +75,11 @@ export async function erpFetchJson<T>(
       statusCode: res.status,
       responseBody: body,
     });
-    throw new Error(nestErrorMessage(body, res.status));
+    throw new Error(
+      res.status === 403
+        ? 'Você não tem permissão para realizar esta ação.'
+        : nestErrorMessage(body, res.status),
+    );
   }
 
   return body as T;

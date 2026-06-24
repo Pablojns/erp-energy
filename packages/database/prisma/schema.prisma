@@ -81,15 +81,6 @@ enum TaskStatus {
   CANCELLED
 }
 
-enum NotificationType {
-  SYSTEM
-  ORDER
-  FINANCIAL
-  TASK
-  CRM
-  CHAT
-}
-
 enum ShipmentStatus {
   PENDING
   PICKING
@@ -551,21 +542,19 @@ model Task {
 }
 
 model Notification {
-  id        String           @id @default(uuid()) @db.Uuid
-  userId    String           @db.Uuid
-  type      NotificationType
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
   title     String
   message   String
-  metadata  Json?
-  isRead    Boolean          @default(false)
-  readAt    DateTime?
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  type      String
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([type])
+  @@index([type, link, createdAt])
+  @@index([userId, read])
   @@index([createdAt])
-  @@index([userId, isRead])
 }
 
 model ChatRoom {
