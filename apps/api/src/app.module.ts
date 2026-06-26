@@ -11,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
 import { ChatModule } from './chat/chat.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { FinanceiroModule } from './financeiro/financeiro.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
 import { OrderModule } from './orders/order.module';
@@ -49,6 +50,7 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     CadastrosModule,
     DashboardModule,
     ChatModule,
+    FinanceiroModule,
     PermissionsModule,
   ],
   controllers: [AppController],

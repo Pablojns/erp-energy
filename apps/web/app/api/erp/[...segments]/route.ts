@@ -33,6 +33,8 @@ function isAllowedPath(path: string): boolean {
     /^notifications(\/|$)/i.test(path) ||
     /^api\/chat(\/|$)/i.test(path) ||
     /^chat(\/|$)/i.test(path) ||
+    /^api\/financeiro(\/|$)/i.test(path) ||
+    /^financeiro(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -56,6 +58,9 @@ function resolveUpstreamPath(segments: string[]): string {
     return `api/${path}`;
   }
   if (/^chat(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^financeiro(\/|$)/i.test(path)) {
     return `api/${path}`;
   }
   return path;

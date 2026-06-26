@@ -323,6 +323,7 @@ model Order {
   exits                   OrderExit[]
   shipments               Shipment[]
   receivables             AccountReceivable[]
+  financeiroNF            FinanceiroNF?
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
@@ -680,4 +681,37 @@ model CarrierDocument {
   createdAt DateTime @default(now())
 
   @@index([carrierId])
+}
+
+model FinanceiroNF {
+  id            String    @id @default(uuid()) @db.Uuid
+  orderId       String    @unique @db.Uuid
+  invoiceNumber String
+  valor         Decimal   @default(0) @db.Decimal(12, 2)
+  dataEmissao   DateTime
+  dataPagamento DateTime?
+  status        String    @default("ABERTO")
+  observacao    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([dataEmissao])
+  @@index([dataPagamento])
+}
+
+model Despesa {
+  id         String   @id @default(uuid()) @db.Uuid
+  descricao  String
+  categoria  String
+  valor      Decimal  @db.Decimal(12, 2)
+  data       DateTime
+  fornecedor String?
+  observacao String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([categoria])
+  @@index([data])
 }
