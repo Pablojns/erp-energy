@@ -25,7 +25,7 @@ export function OperationalWidget({
       <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
         {title}
       </p>
-      <p className="mt-2 text-2xl font-semibold tabular-nums text-white">{value}</p>
+      <p className="mt-2 text-lg font-semibold tabular-nums text-white sm:text-2xl">{value}</p>
     </GlassCard>
   );
 }

@@ -1,6 +1,7 @@
 import type { PeriodPreset } from '@/src/components/dashboard/types';
 
 const PRESETS: { id: PeriodPreset; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
   { id: 'mes', label: 'Este mês' },
   { id: 'trimestre', label: 'Últimos 3 meses' },
   { id: 'ano', label: 'Este ano' },

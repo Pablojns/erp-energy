@@ -104,6 +104,8 @@ export const OrderInfoPanel = forwardRef<
   const point = displayOrDash(order.unloadingPoint);
   const notes = order.notes?.trim() || null;
   const notaVenda = order.invoiceNumber?.trim() || null;
+  const isFinalized =
+    order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
@@ -409,7 +411,19 @@ export const OrderInfoPanel = forwardRef<
             </HeaderField>
 
             <HeaderField label="Nota de Venda:">
-              <span>{notaVenda ?? '—'}</span>
+              {notaVenda ? (
+                <span
+                  className={
+                    isFinalized
+                      ? 'exp-wb-order-badge exp-wb-order-badge--complete inline-flex w-fit text-[10px]'
+                      : 'inline-flex w-fit rounded-md bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold text-blue-400'
+                  }
+                >
+                  {notaVenda}
+                </span>
+              ) : (
+                <span>—</span>
+              )}
             </HeaderField>
 
             <HeaderField label="Nota de Remessa:">

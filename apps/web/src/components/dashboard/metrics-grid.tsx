@@ -32,12 +32,12 @@ export function MetricsGrid({ data }: MetricsGridProps) {
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <MetricCard
         label="Faturamento do Período"
-        value={formatCurrency(f.faturamentoMes)}
+        value={formatCurrency(f.valorPedidosPeriodo)}
         icon={Banknote}
       />
       <MetricCard
         label="Faturamento Total Histórico"
-        value={formatCurrency(f.faturamentoTotal)}
+        value={formatCurrency(f.valorPedidosHistorico)}
         icon={TrendingUp}
       />
       <MetricCard

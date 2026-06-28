@@ -38,7 +38,7 @@ export function ExpeditionDashboardView() {
           acc.push(...res.data);
           totalPages = res.meta.totalPages;
           page += 1;
-        } while (page <= totalPages && page <= 20);
+        } while (page <= totalPages);
         if (!cancelled) setOrders(acc);
       } catch (e) {
         if (!cancelled) {
@@ -191,7 +191,7 @@ export function ExpeditionDashboardView() {
   }
 
   return (
-    <div className="space-y-4 px-4 pt-4">
+    <div className="space-y-4 px-2 pt-2 sm:px-4 sm:pt-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         {topMetrics.map((m) => (
           <Link
@@ -200,13 +200,13 @@ export function ExpeditionDashboardView() {
             className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 transition hover:border-[var(--accent)]"
           >
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">{m.label}</p>
-            <p className="mt-2 text-3xl font-bold text-[var(--text-primary)]">{m.value}</p>
+            <p className="mt-2 text-xl font-bold text-[var(--text-primary)] sm:text-3xl">{m.value}</p>
             <p className="mt-1 text-xs text-[var(--text-secondary)]">{m.hint}</p>
           </Link>
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {smallMetrics.map((m) => (
           <Link
             key={m.label}
@@ -214,7 +214,7 @@ export function ExpeditionDashboardView() {
             className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 transition hover:border-[var(--accent)]"
           >
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">{m.label}</p>
-            <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{m.value}</p>
+            <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{m.value}</p>
             <p className="text-[11px] text-[var(--text-secondary)]">{m.hint}</p>
           </Link>
         ))}

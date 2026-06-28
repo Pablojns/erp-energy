@@ -107,7 +107,7 @@ export function DataTablePremium({
 
   return (
     <GlassCard className="relative overflow-hidden border border-[var(--border-color)] bg-[var(--bg-card)] shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <div className="relative border-b border-[var(--border-color)] bg-[var(--bg-card)] px-5 py-4">
+      <div className="relative border-b border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-3 sm:px-5 sm:py-4">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[var(--border-color)]"
           aria-hidden
@@ -118,8 +118,8 @@ export function DataTablePremium({
         ) : null}
       </div>
 
-      <div className="erp-scrollbar overflow-x-auto">
-        <table className="w-full min-w-[680px] table-fixed border-separate border-spacing-0 text-left lg:min-w-0">
+      <div className="erp-scrollbar -mx-px overflow-x-auto">
+        <table className="w-full min-w-[680px] border-separate border-spacing-0 text-left lg:min-w-0 lg:table-fixed">
           <colgroup>
             {columns.map((column) => (
               <col
@@ -151,7 +151,7 @@ export function DataTablePremium({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-4 py-3.5 backdrop-blur-sm first:rounded-tl-none sm:px-5 ${column.className ?? ''}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 backdrop-blur-sm first:rounded-tl-none sm:px-5 sm:py-3.5 ${column.className ?? ''}`}
                   scope="col"
                 >
                   {column.header}
@@ -159,7 +159,7 @@ export function DataTablePremium({
               ))}
               {actionsColumn ? (
                 <th
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-4 py-3.5 backdrop-blur-sm sm:px-5 ${actionsAlign}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 backdrop-blur-sm sm:px-5 sm:py-3.5 ${actionsAlign}`}
                   scope="col"
                 >
                   {actionsColumn.header}
@@ -167,7 +167,7 @@ export function DataTablePremium({
               ) : null}
               {showStatusColumn ? (
                 <th
-                  className="sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-4 py-3.5 text-right backdrop-blur-sm sm:px-5"
+                  className="sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 text-right backdrop-blur-sm sm:px-5 sm:py-3.5"
                   scope="col"
                 >
                   Status
@@ -185,7 +185,7 @@ export function DataTablePremium({
                 {columns.map((column) => (
                   <td
                     key={column.key}
-                    className={`max-w-0 border-b border-[var(--border-color)] px-4 py-3.5 align-middle transition duration-200 group-hover:border-[var(--border-color)] sm:px-5 ${column.className ?? ''}`}
+                    className={`max-w-0 border-b border-[var(--border-color)] px-3 py-2.5 align-middle transition duration-200 group-hover:border-[var(--border-color)] sm:px-5 sm:py-3.5 ${column.className ?? ''}`}
                   >
                     {column.renderCell ? (
                       <div className="min-w-0">{column.renderCell({

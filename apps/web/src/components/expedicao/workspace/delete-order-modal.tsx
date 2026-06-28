@@ -75,7 +75,7 @@ export function DeleteOrderModal(props: {
         disabled={deleting}
       />
       <div
-        className="relative w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-6 shadow-xl"
+        className="relative w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-xl sm:p-6"
         role="dialog"
         aria-labelledby="delete-order-title"
       >

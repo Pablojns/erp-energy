@@ -535,7 +535,7 @@ export function OrderQueue(props: {
           <p className="exp-queue-empty">Nenhum pedido neste filtro.</p>
         ) : isPedidosMode ? (
           <>
-            <div className="grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+            <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
               {data.orders.map(renderOrderCard)}
             </div>
             {data.ordersHasMore ? (
@@ -556,7 +556,7 @@ export function OrderQueue(props: {
                 {section.orders.length === 0 ? (
                   <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
                 ) : (
-                  <div className="grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+                  <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
                     {section.orders.map(renderOrderCard)}
                   </div>
                 )}

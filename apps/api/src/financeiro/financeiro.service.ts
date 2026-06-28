@@ -14,6 +14,7 @@ const NF_STATUS = {
 } as const;
 
 const DIAS_ATRASO_LIMITE = 12;
+const CONTA_AZUL_FATURADO = 'Faturado';
 
 function decimalToNumber(value: Prisma.Decimal | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -49,15 +50,6 @@ function endOfUtcDay(d: Date): Date {
       999,
     ),
   );
-}
-
-function currentMonthRange(): { start: Date; end: Date } {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = endOfUtcDay(
-    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)),
-  );
-  return { start, end };
 }
 
 function diasEmAberto(dataEmissao: Date, ref: Date = new Date()): number {
@@ -140,18 +132,59 @@ export class FinanceiroService {
   }
 
   async getDashboard(dataInicio?: string, dataFim?: string) {
-    const { start, end } = this.resolveRange(dataInicio, dataFim);
+    const range = this.parseOptionalRange(dataInicio, dataFim);
+    const nfPeriodWhere: Prisma.FinanceiroNFWhereInput = range
+      ? { dataEmissao: { gte: range.start, lte: range.end } }
+      : {};
+    const pagoPeriodWhere: Prisma.FinanceiroNFWhereInput = range
+      ? {
+          status: NF_STATUS.PAGO,
+          dataPagamento: { gte: range.start, lte: range.end },
+        }
+      : { status: NF_STATUS.PAGO };
+    const despesaPeriodWhere: Prisma.DespesaWhereInput = range
+      ? { data: { gte: range.start, lte: range.end } }
+      : {};
+
+    const periodWhere: Prisma.OrderWhereInput = range
+      ? { orderDate: { gte: range.start, lte: range.end } }
+      : {};
+    const faturadoWhere: Prisma.OrderWhereInput = {
+      contaAzulStatus: CONTA_AZUL_FATURADO,
+    };
+    const faturadoPeriodWhere: Prisma.OrderWhereInput = range
+      ? { AND: [periodWhere, faturadoWhere] }
+      : faturadoWhere;
 
     const [
       faturamentoAgg,
+      valorPedidosPeriodoAgg,
+      valorFaturadoPeriodoAgg,
+      valorPedidosHistoricoAgg,
+      valorFaturadoHistoricoAgg,
       emAbertoAgg,
       atrasadoAgg,
       pagoAgg,
       despesasAgg,
     ] = await Promise.all([
       this.prisma.client.financeiroNF.aggregate({
-        where: { dataEmissao: { gte: start, lte: end } },
+        where: nfPeriodWhere,
         _sum: { valor: true },
+      }),
+      this.prisma.client.order.aggregate({
+        where: periodWhere,
+        _sum: { totalValue: true },
+      }),
+      this.prisma.client.order.aggregate({
+        where: faturadoPeriodWhere,
+        _sum: { totalValue: true },
+      }),
+      this.prisma.client.order.aggregate({
+        _sum: { totalValue: true },
+      }),
+      this.prisma.client.order.aggregate({
+        where: faturadoWhere,
+        _sum: { totalValue: true },
       }),
       this.prisma.client.financeiroNF.aggregate({
         where: { status: NF_STATUS.ABERTO },
@@ -162,14 +195,11 @@ export class FinanceiroService {
         _sum: { valor: true },
       }),
       this.prisma.client.financeiroNF.aggregate({
-        where: {
-          status: NF_STATUS.PAGO,
-          dataPagamento: { gte: start, lte: end },
-        },
+        where: pagoPeriodWhere,
         _sum: { valor: true },
       }),
       this.prisma.client.despesa.aggregate({
-        where: { data: { gte: start, lte: end } },
+        where: despesaPeriodWhere,
         _sum: { valor: true },
       }),
     ]);
@@ -180,6 +210,10 @@ export class FinanceiroService {
 
     return {
       faturamentoMes,
+      valorPedidosPeriodo: decimalToNumber(valorPedidosPeriodoAgg._sum.totalValue),
+      valorFaturadoPeriodo: decimalToNumber(valorFaturadoPeriodoAgg._sum.totalValue),
+      valorPedidosHistorico: decimalToNumber(valorPedidosHistoricoAgg._sum.totalValue),
+      valorFaturadoHistorico: decimalToNumber(valorFaturadoHistoricoAgg._sum.totalValue),
       totalEmAberto: decimalToNumber(emAbertoAgg._sum.valor),
       totalAtrasado: decimalToNumber(atrasadoAgg._sum.valor),
       totalPago,
@@ -281,10 +315,10 @@ export class FinanceiroService {
   }
 
   async getDespesas(dataInicio?: string, dataFim?: string) {
-    const { start, end } = this.resolveRange(dataInicio, dataFim);
+    const range = this.parseOptionalRange(dataInicio, dataFim);
 
     const rows = await this.prisma.client.despesa.findMany({
-      where: { data: { gte: start, lte: end } },
+      where: range ? { data: { gte: range.start, lte: range.end } } : {},
       orderBy: { data: 'desc' },
     });
 
@@ -340,14 +374,20 @@ export class FinanceiroService {
   }
 
   async getExtrato(dataInicio?: string, dataFim?: string) {
-    const { start, end } = this.resolveRange(dataInicio, dataFim);
+    const range = this.parseOptionalRange(dataInicio, dataFim);
+    const nfWhere: Prisma.FinanceiroNFWhereInput = range
+      ? {
+          status: NF_STATUS.PAGO,
+          dataPagamento: { gte: range.start, lte: range.end },
+        }
+      : { status: NF_STATUS.PAGO };
+    const despesaWhere: Prisma.DespesaWhereInput = range
+      ? { data: { gte: range.start, lte: range.end } }
+      : {};
 
     const [entradas, saidas] = await Promise.all([
       this.prisma.client.financeiroNF.findMany({
-        where: {
-          status: NF_STATUS.PAGO,
-          dataPagamento: { gte: start, lte: end },
-        },
+        where: nfWhere,
         include: {
           order: {
             select: {
@@ -358,7 +398,7 @@ export class FinanceiroService {
         },
       }),
       this.prisma.client.despesa.findMany({
-        where: { data: { gte: start, lte: end } },
+        where: despesaWhere,
       }),
     ]);
 
@@ -423,19 +463,27 @@ export class FinanceiroService {
     });
   }
 
-  private resolveRange(dataInicio?: string, dataFim?: string): {
-    start: Date;
-    end: Date;
-  } {
-    if (!dataInicio && !dataFim) {
-      return currentMonthRange();
+  private normalizeDateParam(value?: string): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
+  /** Retorna null quando nenhum filtro de período foi informado (opção "Todos"). */
+  private parseOptionalRange(
+    dataInicio?: string,
+    dataFim?: string,
+  ): { start: Date; end: Date } | null {
+    const inicio = this.normalizeDateParam(dataInicio);
+    const fim = this.normalizeDateParam(dataFim);
+    if (!inicio && !fim) {
+      return null;
     }
 
-    const start = dataInicio
-      ? startOfUtcDay(parseYmdOrThrow(dataInicio, 'dataInicio'))
-      : currentMonthRange().start;
-    const end = dataFim
-      ? endOfUtcDay(parseYmdOrThrow(dataFim, 'dataFim'))
+    const start = inicio
+      ? startOfUtcDay(parseYmdOrThrow(inicio, 'dataInicio'))
+      : startOfUtcDay(parseYmdOrThrow(fim!, 'dataFim'));
+    const end = fim
+      ? endOfUtcDay(parseYmdOrThrow(fim, 'dataFim'))
       : endOfUtcDay(
           new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)),
         );

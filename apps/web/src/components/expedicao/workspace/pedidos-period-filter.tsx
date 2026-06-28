@@ -165,18 +165,27 @@ export function PedidosPeriodFilter(props: {
     ) : null;
 
   return (
-    <div className="exp-period-filter-wrap" ref={wrapRef}>
+    <div className="flex items-center gap-1">
       <button
-        ref={btnRef}
         type="button"
-        className={`exp-period-filter-btn${hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+        className={`exp-period-filter-btn exp-period-filter-btn--preset${!hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
+        onClick={() => onChange('', '')}
       >
-        <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
-        <span>{label}</span>
+        Todos
       </button>
-      {popover ? createPortal(popover, document.body) : null}
+      <div className="exp-period-filter-wrap" ref={wrapRef}>
+        <button
+          ref={btnRef}
+          type="button"
+          className={`exp-period-filter-btn${hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
+          <span>{label}</span>
+        </button>
+        {popover ? createPortal(popover, document.body) : null}
+      </div>
     </div>
   );
 }

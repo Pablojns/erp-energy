@@ -2237,7 +2237,8 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-table-scroll {
-  overflow-x: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .exp-wb-table--separation .exp-wb-col-linha {
@@ -2451,6 +2452,18 @@ button.exp-wb-chip:hover {
   color: var(--exp-text-muted);
 }
 
+@media (max-width: 1023px) {
+  .exp-wb-table {
+    min-width: 720px;
+    table-layout: auto;
+  }
+
+  .exp-wb-table tbody td {
+    min-height: 0;
+    height: auto;
+  }
+}
+
 .exp-wb-table {
   width: 100%;
   max-width: 100%;
@@ -2640,6 +2653,14 @@ button.exp-wb-chip:hover {
     background: var(--exp-bg);
     padding: 0.65rem;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .exp-wb-footer-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
   }
 }
 

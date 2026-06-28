@@ -84,7 +84,7 @@ export function ExitsPage() {
   }, [selectedId]);
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 px-4 pt-4">
+    <div className="flex h-full w-full flex-col gap-4 px-2 pt-2 sm:px-4 sm:pt-4">
       <div className="grid h-full w-full grid-cols-1 gap-4 lg:grid-cols-[40fr_60fr]">
         <OutputsList
           search={search}
@@ -100,7 +100,7 @@ export function ExitsPage() {
           onPageChange={setPage}
         />
 
-        <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+        <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
           {!selected ? (
             <div className="flex h-full min-h-[260px] items-center justify-center text-sm text-[var(--text-secondary)]">
               Selecione uma saída para visualizar os detalhes.

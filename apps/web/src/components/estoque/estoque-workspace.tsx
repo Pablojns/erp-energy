@@ -22,6 +22,7 @@ import {
   Trash2,
   TrendingUp,
   Undo2,
+  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2065,7 +2066,10 @@ export function EstoqueWorkspace() {
       setSelectedInventoryId(null);
       return;
     }
-    if (!selectedInventoryId || !inventoryProducts.some((p) => p.id === selectedInventoryId)) {
+    if (
+      selectedInventoryId !== null &&
+      !inventoryProducts.some((p) => p.id === selectedInventoryId)
+    ) {
       setSelectedInventoryId(inventoryProducts[0].id);
     }
   }, [inventoryProducts, selectedInventoryId]);
@@ -2273,6 +2277,213 @@ export function EstoqueWorkspace() {
     </button>
   );
 
+  const inventoryDetailPanelContent = selectedInventoryProduct ? (
+    <>
+      <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#1e2130]">
+            <Package className="h-7 w-7 text-[#5b5ef4]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold text-[var(--text-primary)]">
+              SKU #{selectedInventoryProduct.sku} — {selectedInventoryProduct.name}
+            </p>
+            <p className="mt-1 text-xs">
+              <span className="text-[var(--text-secondary)]">Fornecedor:</span>{' '}
+              <span className="text-[var(--text-primary)]">{selectedInventoryProduct.category ?? 'Não informado'}</span>{' '}
+              <span className="mx-1 text-[var(--text-secondary)]">|</span>
+              <span className="text-[var(--text-secondary)]">Ponto:</span>{' '}
+              <span className="text-[var(--text-primary)]">MAT</span>
+            </p>
+          </div>
+          {isAdmin ? (
+            <button
+              type="button"
+              aria-label={`Excluir produto ${selectedInventoryProduct.name}`}
+              disabled={productDeleting}
+              onClick={() => inactivateProduct(selectedInventoryProduct)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-rose-400 transition hover:border-rose-400/30 hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+        <span
+          className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
+            selectedInventoryProduct.stockQty <= 0
+              ? 'border border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
+              : selectedInventoryProduct.stockQty <= selectedInventoryProduct.minStock
+                ? 'border border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
+                : 'border border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
+          }`}
+        >
+          {selectedInventoryProduct.stockQty <= 0
+            ? 'Sem Estoque'
+            : selectedInventoryProduct.stockQty <= selectedInventoryProduct.minStock
+              ? 'Crítico'
+              : 'Em Estoque'}
+        </span>
+        <p className="flex flex-wrap items-center justify-end gap-1.5">
+          <span className="text-[var(--text-secondary)]">Preço Base:</span>
+          <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.basePrice}</span>
+          <span className="text-[var(--text-muted)]">›</span>
+          <span className="text-[var(--text-secondary)]">Preço Venda:</span>
+          <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.salePrice}</span>
+          <span className="text-[var(--text-muted)]">›</span>
+          <span className="text-[var(--text-secondary)]">Valor Total:</span>
+          <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.totalValue}</span>
+        </p>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <PackagePlus className="h-4 w-4 text-[#22c55e]" />
+            Entradas
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedMovementStats.inbound}</p>
+            <MiniGauge value={selectedMovementStats.inbound} max={selectedGaugeMax.inMax} color="#22c55e" />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <PackageMinus className="h-4 w-4 text-[#ef4444]" />
+            Saídas
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedMovementStats.outbound}</p>
+            <MiniGauge value={selectedMovementStats.outbound} max={selectedGaugeMax.outMax} color="#ef4444" />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <Package className="h-4 w-4 text-[#3b82f6]" />
+            Qtd Disponível
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {Math.max(
+                0,
+                selectedInventoryProduct.stockQty -
+                  (selectedInventoryProduct.reservedQty ?? 0),
+              )}
+            </p>
+            <MiniGauge
+              value={Math.max(
+                0,
+                selectedInventoryProduct.stockQty -
+                  (selectedInventoryProduct.reservedQty ?? 0),
+              )}
+              max={selectedGaugeMax.availableMax}
+              color="#3b82f6"
+            />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">
+            {(selectedInventoryProduct.reservedQty ?? 0) > 0
+              ? `${selectedInventoryProduct.reservedQty} reservada(s) · ${selectedInventoryProduct.stockQty} em estoque`
+              : 'disponível'}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
+            Estoque mín.
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedInventoryProduct.minStock}</p>
+            <MiniGauge value={selectedInventoryProduct.minStock} max={selectedGaugeMax.minMax} color="#f59e0b" />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">configurado</p>
+        </div>
+      </div>
+      <div className="mt-4">
+        <p className="mb-2 text-sm font-semibold text-[var(--text-primary)]">Tabela de Movimentações Recentes</p>
+        <div className="erp-scrollbar overflow-x-auto rounded-xl border border-[var(--border-color)]">
+          <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+            <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
+              <tr>
+                <th className="px-3 py-2">Data/Hora</th>
+                <th className="px-3 py-2">Tipo de Movimento</th>
+                <th className="px-3 py-2">Quantidade</th>
+                <th className="px-3 py-2">Referência</th>
+                <th className="px-3 py-2">Responsável</th>
+                {isAdmin ||
+                selectedMovements.some((m) => m.movementType === 'RESERVE') ? (
+                  <th className="px-3 py-2 text-right">Ações</th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              {selectedMovements.map((m, idx) => (
+                <tr
+                  key={m.id}
+                  className={`border-b border-[var(--border-color)] ${idx % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'}`}
+                >
+                  <td className="px-3 py-2 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
+                  <td className="px-3 py-2">
+                    <span className={`rounded-full px-2 py-1 text-xs ${
+                      m.movementType === 'INBOUND' ? 'bg-emerald-500/20 text-[var(--text-primary)]' :
+                      m.movementType === 'OUTBOUND' ? 'bg-rose-500/20 text-[var(--text-primary)]' :
+                      isAjusteMovementType(m.movementType) ? 'bg-amber-500/20 text-[var(--text-primary)]' :
+                      'bg-violet-500/20 text-[var(--text-primary)]'
+                    }`}>
+                      {MOVEMENT_LABEL[m.movementType] ?? m.movementType}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-[var(--text-primary)]">{m.quantity}</td>
+                  <td className="px-3 py-2 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
+                  <td className="px-3 py-2 text-[var(--text-primary)]">
+                    {m.movedBy?.name ?? currentUserName ?? '—'}
+                  </td>
+                  {isAdmin || m.movementType === 'RESERVE' ? (
+                    <td className="px-3 py-2 text-right">
+                      {renderMovementRowActions(m)}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
+        <button
+          type="button"
+          onClick={() => void openMoveModal('entrada', selectedInventoryProduct)}
+          className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
+        >
+          → Entrada de Estoque
+        </button>
+        <button
+          type="button"
+          onClick={() => void openMoveModal('ajuste', selectedInventoryProduct)}
+          className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
+        >
+          ⇄ Ajuste de Estoque
+        </button>
+        <button
+          type="button"
+          onClick={() => void openReserveModal()}
+          className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
+        >
+          <Bookmark className="h-4 w-4" />
+          Reservar
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('movements')}
+          className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
+        >
+          📋 Histórico Completo
+        </button>
+      </div>
+    </>
+  ) : null;
+
   return (
     <div
       className={`scroll-mt-8 pt-2 sm:pt-6 ${
@@ -2375,40 +2586,40 @@ export function EstoqueWorkspace() {
           </div>
 
           {summaryLoading && !summary ? (
-            <GlassCard className="flex shrink-0 items-center gap-2 p-6 text-sm text-zinc-400">
+            <GlassCard className="flex shrink-0 items-center gap-2 p-3 text-sm text-zinc-400 sm:p-6">
               <Loader2 className="h-5 w-5 animate-spin" />
               Carregando dashboard...
             </GlassCard>
           ) : null}
 
-          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">SKUs Ativos</p>
-              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.activeProducts ?? 0}</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.activeProducts ?? 0}</p>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Total em Estoque</p>
-              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.totalUnitsOnHand ?? 0}</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.totalUnitsOnHand ?? 0}</p>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Crítico</p>
-              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{summary?.skusBelowMinStock ?? 0}</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.skusBelowMinStock ?? 0}</p>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">
                 {dashboardPeriod === 'today' ? 'Entradas hoje' : 'Entradas no período'}
               </p>
-              <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{entriesInPeriod}</p>
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{entriesInPeriod}</p>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor em Estoque</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] xl:text-xl">
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
                 {formatBrl(String(summary?.valorEstoque ?? 0))}
               </p>
             </GlassCard>
             <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor a Venda</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] xl:text-xl">
+              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
                 {formatBrl(String(summary?.valorVenda ?? 0))}
               </p>
             </GlassCard>
@@ -2893,7 +3104,7 @@ export function EstoqueWorkspace() {
                     {Math.max(1, movementsData.meta.totalPages)} —{' '}
                     {movementsData.meta.total} registro(s)
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <GlowButton
                       variant="secondary"
                       className="px-3 py-1.5 text-xs"
@@ -2921,9 +3132,9 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'inventory' ? (
-        <div className="grid h-[calc(100dvh-10.5rem)] min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[38fr_62fr]">
-          <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-            <h3 className="shrink-0 text-xl font-semibold text-[var(--text-primary)]">Visão Geral do Estoque - Lista de SKUs</h3>
+        <div className="grid min-h-0 grid-cols-1 gap-4 overflow-hidden lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[38fr_62fr]">
+          <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
+            <h3 className="shrink-0 text-lg font-semibold text-[var(--text-primary)] sm:text-xl">Visão Geral do Estoque - Lista de SKUs</h3>
             <ErpFilterBar<InventoryFilterPreset>
               storageKey={INVENTORY_FILTER_KEY}
               badges={inventoryFilterBadges}
@@ -3005,9 +3216,9 @@ export function EstoqueWorkspace() {
               <div
                 ref={inventoryListScrollRef}
                 onScroll={syncInventoryListScroll}
-                className="erp-scrollbar mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+                className="erp-scrollbar mt-3 min-h-0 flex-1 overflow-x-auto overflow-y-auto pr-1"
               >
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2">
               {inventoryProducts.map((p) => (
                 <div
                   key={p.id}
@@ -3055,7 +3266,7 @@ export function EstoqueWorkspace() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-1 text-xl font-bold text-[var(--text-primary)]">{p.stockQty}</p>
+                    <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">{p.stockQty}</p>
                     <div className="mt-1 flex items-center justify-between text-[11px]">
                       <span className={`rounded-full border px-2 py-0.5 ${
                         p.stockQty <= 0
@@ -3116,216 +3327,42 @@ export function EstoqueWorkspace() {
             </p>
           </GlassCard>
 
-          <GlassCard className="h-full min-h-0 overflow-y-auto p-4">
+          <GlassCard className="hidden h-full min-h-0 overflow-y-auto p-3 sm:p-4 lg:block">
             {selectedInventoryProduct ? (
-              <>
-                <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#1e2130]">
-                      <Package className="h-7 w-7 text-[#5b5ef4]" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-base font-semibold text-[var(--text-primary)]">
-                        SKU #{selectedInventoryProduct.sku} — {selectedInventoryProduct.name}
-                      </p>
-                      <p className="mt-1 text-xs">
-                        <span className="text-[var(--text-secondary)]">Fornecedor:</span>{' '}
-                        <span className="text-[var(--text-primary)]">{selectedInventoryProduct.category ?? 'Não informado'}</span>{' '}
-                        <span className="mx-1 text-[var(--text-secondary)]">|</span>
-                        <span className="text-[var(--text-secondary)]">Ponto:</span>{' '}
-                        <span className="text-[var(--text-primary)]">MAT</span>
-                      </p>
-                    </div>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        aria-label={`Excluir produto ${selectedInventoryProduct.name}`}
-                        disabled={productDeleting}
-                        onClick={() => inactivateProduct(selectedInventoryProduct)}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-rose-400 transition hover:border-rose-400/30 hover:bg-rose-500/10 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-                  <span
-                    className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
-                      selectedInventoryProduct.stockQty <= 0
-                        ? 'border border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
-                        : selectedInventoryProduct.stockQty <= selectedInventoryProduct.minStock
-                          ? 'border border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
-                          : 'border border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
-                    }`}
-                  >
-                    {selectedInventoryProduct.stockQty <= 0
-                      ? 'Sem Estoque'
-                      : selectedInventoryProduct.stockQty <= selectedInventoryProduct.minStock
-                        ? 'Crítico'
-                        : 'Em Estoque'}
-                  </span>
-                  <p className="flex flex-wrap items-center justify-end gap-1.5">
-                    <span className="text-[var(--text-secondary)]">Preço Base:</span>
-                    <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.basePrice}</span>
-                    <span className="text-[var(--text-muted)]">›</span>
-                    <span className="text-[var(--text-secondary)]">Preço Venda:</span>
-                    <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.salePrice}</span>
-                    <span className="text-[var(--text-muted)]">›</span>
-                    <span className="text-[var(--text-secondary)]">Valor Total:</span>
-                    <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.totalValue}</span>
-                  </p>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                    <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-                      <PackagePlus className="h-4 w-4 text-[#22c55e]" />
-                      Entradas
-                    </p>
-                    <div className="mt-3 flex items-end justify-between gap-2">
-                      <p className="text-2xl font-bold text-[var(--text-primary)]">{selectedMovementStats.inbound}</p>
-                      <MiniGauge value={selectedMovementStats.inbound} max={selectedGaugeMax.inMax} color="#22c55e" />
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                    <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-                      <PackageMinus className="h-4 w-4 text-[#ef4444]" />
-                      Saídas
-                    </p>
-                    <div className="mt-3 flex items-end justify-between gap-2">
-                      <p className="text-2xl font-bold text-[var(--text-primary)]">{selectedMovementStats.outbound}</p>
-                      <MiniGauge value={selectedMovementStats.outbound} max={selectedGaugeMax.outMax} color="#ef4444" />
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                    <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-                      <Package className="h-4 w-4 text-[#3b82f6]" />
-                      Qtd Disponível
-                    </p>
-                    <div className="mt-3 flex items-end justify-between gap-2">
-                      <p className="text-2xl font-bold text-[var(--text-primary)]">
-                        {Math.max(
-                          0,
-                          selectedInventoryProduct.stockQty -
-                            (selectedInventoryProduct.reservedQty ?? 0),
-                        )}
-                      </p>
-                      <MiniGauge
-                        value={Math.max(
-                          0,
-                          selectedInventoryProduct.stockQty -
-                            (selectedInventoryProduct.reservedQty ?? 0),
-                        )}
-                        max={selectedGaugeMax.availableMax}
-                        color="#3b82f6"
-                      />
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      {(selectedInventoryProduct.reservedQty ?? 0) > 0
-                        ? `${selectedInventoryProduct.reservedQty} reservada(s) · ${selectedInventoryProduct.stockQty} em estoque`
-                        : 'disponível'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-                    <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-                      <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
-                      Estoque mín.
-                    </p>
-                    <div className="mt-3 flex items-end justify-between gap-2">
-                      <p className="text-2xl font-bold text-[var(--text-primary)]">{selectedInventoryProduct.minStock}</p>
-                      <MiniGauge value={selectedInventoryProduct.minStock} max={selectedGaugeMax.minMax} color="#f59e0b" />
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)]">configurado</p>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <p className="mb-2 text-sm font-semibold text-[var(--text-primary)]">Tabela de Movimentações Recentes</p>
-                  <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
-                    <table className="w-full min-w-[520px] text-left text-sm">
-                      <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
-                        <tr>
-                          <th className="px-3 py-2">Data/Hora</th>
-                          <th className="px-3 py-2">Tipo de Movimento</th>
-                          <th className="px-3 py-2">Quantidade</th>
-                          <th className="px-3 py-2">Referência</th>
-                          <th className="px-3 py-2">Responsável</th>
-                          {isAdmin ||
-                          selectedMovements.some((m) => m.movementType === 'RESERVE') ? (
-                            <th className="px-3 py-2 text-right">Ações</th>
-                          ) : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedMovements.map((m, idx) => (
-                          <tr
-                            key={m.id}
-                            className={`border-b border-[var(--border-color)] ${idx % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'}`}
-                          >
-                            <td className="px-3 py-2 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
-                            <td className="px-3 py-2">
-                              <span className={`rounded-full px-2 py-1 text-xs ${
-                                m.movementType === 'INBOUND' ? 'bg-emerald-500/20 text-[var(--text-primary)]' :
-                                m.movementType === 'OUTBOUND' ? 'bg-rose-500/20 text-[var(--text-primary)]' :
-                                isAjusteMovementType(m.movementType) ? 'bg-amber-500/20 text-[var(--text-primary)]' :
-                                'bg-violet-500/20 text-[var(--text-primary)]'
-                              }`}>
-                                {MOVEMENT_LABEL[m.movementType] ?? m.movementType}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-[var(--text-primary)]">{m.quantity}</td>
-                            <td className="px-3 py-2 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
-                            <td className="px-3 py-2 text-[var(--text-primary)]">
-                              {m.movedBy?.name ?? currentUserName ?? '—'}
-                            </td>
-                            {isAdmin || m.movementType === 'RESERVE' ? (
-                              <td className="px-3 py-2 text-right">
-                                {renderMovementRowActions(m)}
-                              </td>
-                            ) : null}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div className="mt-4 flex w-full flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void openMoveModal('entrada', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--success)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
-                  >
-                    → Entrada de Estoque
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openMoveModal('ajuste', selectedInventoryProduct)}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--warning)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
-                  >
-                    ⇄ Ajuste de Estoque
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openReserveModal()}
-                    className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
-                  >
-                    <Bookmark className="h-4 w-4" />
-                    Reservar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTab('movements')}
-                    className="inline-flex h-[44px] min-w-[140px] flex-1 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
-                  >
-                    📋 Histórico Completo
-                  </button>
-                </div>
-              </>
+              inventoryDetailPanelContent
             ) : (
               <EmptyState title="Selecione um SKU" description="Escolha um item na lista para ver os detalhes." />
             )}
           </GlassCard>
+
+          {selectedInventoryProduct ? (
+            <div
+              className="fixed inset-0 z-[65] flex flex-col bg-[var(--bg-primary)] lg:hidden"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Detalhes do produto"
+            >
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
+                <p className="min-w-0 truncate text-sm font-semibold text-[var(--text-primary)]">
+                  #{selectedInventoryProduct.sku} — {selectedInventoryProduct.name}
+                </p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedInventoryId(null);
+                  }}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                  aria-label="Fechar detalhes do produto"
+                >
+                  <X className="h-5 w-5" aria-hidden />
+                </button>
+              </div>
+              <div className="erp-scrollbar min-h-0 flex-1 overflow-y-auto p-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                {inventoryDetailPanelContent}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -3336,7 +3373,7 @@ export function EstoqueWorkspace() {
           onClick={() => setProductModalOpen(false)}
         >
           <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none p-6 shadow-2xl sm:max-h-[90vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl">
+            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none p-3 shadow-2xl sm:max-h-[90vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 {productModalMode === 'create' ? 'Novo produto' : 'Editar produto'}
@@ -3442,7 +3479,7 @@ export function EstoqueWorkspace() {
           onClick={() => setMoveModalOpen(false)}
         >
           <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none border-white/[0.12] p-6 shadow-[0_0_48px_-12px_rgba(56,189,248,0.25)] sm:max-h-[92vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl">
+            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none border-white/[0.12] p-3 shadow-[0_0_48px_-12px_rgba(56,189,248,0.25)] sm:max-h-[92vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
             <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -3613,7 +3650,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Excluir movimentação
               </h2>
@@ -3658,7 +3695,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Excluir produto
               </h2>
@@ -3708,7 +3745,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
               {reserveStep === 'form' ? (
                 <>
                   <h2 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -3847,7 +3884,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-6 shadow-2xl">
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Confirmar ajuste
               </h2>

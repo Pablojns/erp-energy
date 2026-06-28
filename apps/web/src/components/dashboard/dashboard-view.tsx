@@ -9,7 +9,7 @@ import { MetricsGrid, MetricsGridSkeleton } from '@/src/components/dashboard/met
 import { RecentActivities, RecentActivitiesSkeleton } from '@/src/components/dashboard/recent-activities';
 import { TopReceiversTable, TopReceiversTableSkeleton } from '@/src/components/dashboard/top-receivers-table';
 import type { DashboardResumo, PeriodPreset } from '@/src/components/dashboard/types';
-import { formatYmd, resolvePeriodRange } from '@/src/components/dashboard/utils';
+import { resolvePeriodRange } from '@/src/components/dashboard/utils';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import '@/src/components/dashboard/dashboard.css';
 
@@ -42,7 +42,6 @@ function DashboardSkeleton() {
 }
 
 export function DashboardView({ userName }: DashboardViewProps) {
-  const today = formatYmd(new Date());
   const defaultRange = resolvePeriodRange('mes');
 
   const [preset, setPreset] = useState<PeriodPreset>('mes');
@@ -56,22 +55,24 @@ export function DashboardView({ userName }: DashboardViewProps) {
   const range = useMemo(
     () =>
       resolvePeriodRange(preset, {
-        dataInicio: customInicio || today,
-        dataFim: customFim || today,
+        dataInicio: customInicio,
+        dataFim: customFim,
       }),
-    [preset, customInicio, customFim, today],
+    [preset, customInicio, customFim],
   );
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const qs = new URLSearchParams({
-        dataInicio: range.dataInicio,
-        dataFim: range.dataFim,
-      });
+      const qs = new URLSearchParams();
+      if (range.dataInicio.trim()) qs.set('dataInicio', range.dataInicio.trim());
+      if (range.dataFim.trim()) qs.set('dataFim', range.dataFim.trim());
+      const query = qs.toString();
       const [resumo, users] = await Promise.all([
-        erpFetchJson<DashboardResumo>(`api/dashboard/resumo?${qs.toString()}`),
+        erpFetchJson<DashboardResumo>(
+          query ? `api/dashboard/resumo?${query}` : 'api/dashboard/resumo',
+        ),
         erpFetchJson<AdminUser[]>('auth/users').catch(() => [] as AdminUser[]),
       ]);
       setData(resumo);

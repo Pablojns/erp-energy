@@ -26,10 +26,10 @@ export function DashboardHeader({
   const firstName = userName.split(' ')[0] ?? userName;
 
   return (
-    <header className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+    <header className="flex flex-col gap-3 sm:gap-6 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0 flex-1 space-y-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--dash-text)] sm:text-3xl">
+          <h1 className="text-lg font-semibold tracking-tight text-[var(--dash-text)] sm:text-2xl lg:text-3xl">
             Dashboard Operacional
           </h1>
           <p className="mt-1.5 text-sm text-[var(--dash-text-muted)]">

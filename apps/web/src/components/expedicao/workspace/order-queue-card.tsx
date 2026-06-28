@@ -73,7 +73,7 @@ export function OrderQueueCard(props: {
           tabIndex={0}
           onClick={onSelect}
           onKeyDown={handleCardKeyDown}
-          className={`exp-queue-card flex min-h-0 flex-col gap-1.5 !p-2.5 ${selected ? 'exp-queue-card--selected' : ''}`}
+          className={`exp-queue-card flex min-h-0 flex-col gap-1 !p-2 !min-h-[108px] ${selected ? 'exp-queue-card--selected' : ''}`}
         >
           <div className="exp-queue-card-head gap-1.5">
             <div className="exp-queue-card-head-left gap-1.5">

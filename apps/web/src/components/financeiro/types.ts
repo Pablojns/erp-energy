@@ -1,11 +1,17 @@
-import type { DateRange, PeriodPreset } from '@/src/components/dashboard/types';
-
-export type { DateRange, PeriodPreset };
-
 export type FinanceiroTab = 'dashboard' | 'nfs' | 'despesas' | 'extrato';
 
+export type FinanceiroPeriod = {
+  dataInicio: string;
+  dataFim: string;
+};
+
+export type FinanceiroPeriodPreset = 'todos' | 'mes' | 'personalizado';
+
 export type FinanceiroDashboard = {
-  faturamentoMes: number;
+  valorPedidosPeriodo: number;
+  valorFaturadoPeriodo: number;
+  valorPedidosHistorico: number;
+  valorFaturadoHistorico: number;
   totalEmAberto: number;
   totalAtrasado: number;
   totalPago: number;
@@ -70,3 +76,19 @@ export const DESPESA_CATEGORIAS = [
 ] as const;
 
 export type DespesaCategoria = (typeof DESPESA_CATEGORIAS)[number];
+
+export type NfDisplayStatus = 'ABERTO' | 'ATRASADO' | 'CRITICO';
+
+export type HealthScore = {
+  grade: string;
+  label: string;
+  tone: 'success' | 'warning' | 'danger';
+};
+
+export type ChartGranularity = 'day' | 'week' | 'month';
+
+export type RevenueChartPoint = {
+  label: string;
+  faturado: number;
+  recebido: number;
+};

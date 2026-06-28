@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { LogoutButton } from '@/src/components/auth/logout-button';
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
+import { MobileNavDrawer } from '@/src/components/shell/mobile-nav-drawer';
 import { ThemeToggle } from '@/src/components/theme/theme-toggle';
 import type { AuthUser } from '@/src/services/api/auth';
 import { MAIN_NAV_ITEMS, type NavIconName } from './nav-config';
@@ -73,6 +74,8 @@ export function TopNavigation({ user }: TopNavigationProps) {
             </span>
           </span>
         </Link>
+
+        <MobileNavDrawer />
 
         <nav
           className="scrollbar-hide erp-scrollbar hidden flex-1 items-stretch justify-start gap-2 overflow-x-auto py-0.5 sm:justify-center sm:gap-2.5 sm:px-1 lg:flex"

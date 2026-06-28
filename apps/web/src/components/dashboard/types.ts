@@ -22,8 +22,10 @@ export type DashboardAtividade = {
 
 export type DashboardResumo = {
   financeiro: {
-    faturamentoMes: number;
-    faturamentoTotal: number;
+    valorPedidosPeriodo: number;
+    valorFaturadoPeriodo: number;
+    valorPedidosHistorico: number;
+    valorFaturadoHistorico: number;
     ticketMedio: number;
     totalPedidosMes: number;
     totalPedidosTodos: number;
@@ -43,7 +45,7 @@ export type DashboardResumo = {
   };
 };
 
-export type PeriodPreset = 'mes' | 'trimestre' | 'ano' | 'personalizado';
+export type PeriodPreset = 'todos' | 'mes' | 'trimestre' | 'ano' | 'personalizado';
 
 export type DateRange = {
   dataInicio: string;

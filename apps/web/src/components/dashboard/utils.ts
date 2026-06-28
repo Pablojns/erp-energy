@@ -20,6 +20,10 @@ export function resolvePeriodRange(
   preset: PeriodPreset,
   custom?: Partial<DateRange>,
 ): DateRange {
+  if (preset === 'todos') {
+    return { dataInicio: '', dataFim: '' };
+  }
+
   const now = new Date();
 
   if (preset === 'personalizado' && custom?.dataInicio && custom?.dataFim) {
@@ -48,7 +52,7 @@ export function formatCurrency(value: number): string {
     currency: 'BRL',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(Number(value) || 0);
 }
 
 export function formatNumber(value: number): string {

@@ -1,0 +1,137 @@
+/* Financeiro module — scoped theme tokens (light / dark via data-theme on html) */
+
+.fin-root {
+  background: var(--fin-bg);
+  --fin-bg: #f8f9fa;
+  --fin-card: #ffffff;
+  --fin-card-muted: #f1f3f9;
+  --fin-text: #1a1a2e;
+  --fin-text-secondary: #5c6378;
+  --fin-text-muted: #8b92a8;
+  --fin-border: rgba(26, 26, 46, 0.08);
+  --fin-border-strong: rgba(26, 26, 46, 0.14);
+  --fin-accent: #5b5ef4;
+  --fin-accent-soft: rgba(91, 94, 244, 0.12);
+  --fin-success: #16a34a;
+  --fin-success-soft: rgba(22, 163, 74, 0.12);
+  --fin-danger: #dc2626;
+  --fin-danger-soft: rgba(220, 38, 38, 0.1);
+  --fin-danger-deep: #991b1b;
+  --fin-warning: #d97706;
+  --fin-warning-soft: rgba(217, 119, 6, 0.12);
+  --fin-chart-faturado: #7c6df0;
+  --fin-chart-recebido: #0ea5e9;
+  --fin-chart-grid: rgba(26, 26, 46, 0.06);
+  --fin-shadow: 0 4px 24px -6px rgba(26, 26, 46, 0.08);
+  --fin-glow: none;
+}
+
+.dark .fin-root,
+[data-theme='dark'] .fin-root {
+  --fin-bg: #0f0f1a;
+  --fin-card: #1a1a2e;
+  --fin-card-muted: #141425;
+  --fin-text: #e8e8f0;
+  --fin-text-secondary: #a1a1b5;
+  --fin-text-muted: #6b6b80;
+  --fin-border: rgba(232, 232, 240, 0.1);
+  --fin-border-strong: rgba(232, 232, 240, 0.16);
+  --fin-accent: #7c7ff7;
+  --fin-accent-soft: rgba(124, 127, 247, 0.18);
+  --fin-success: #34d399;
+  --fin-success-soft: rgba(52, 211, 153, 0.14);
+  --fin-danger: #f87171;
+  --fin-danger-soft: rgba(248, 113, 113, 0.14);
+  --fin-danger-deep: #ef4444;
+  --fin-warning: #fbbf24;
+  --fin-warning-soft: rgba(251, 191, 36, 0.14);
+  --fin-chart-faturado: #a78bfa;
+  --fin-chart-recebido: #38bdf8;
+  --fin-chart-grid: rgba(232, 232, 240, 0.06);
+  --fin-shadow: 0 8px 32px -12px rgba(0, 0, 0, 0.45);
+  --fin-glow: 0 0 48px -16px rgba(91, 94, 244, 0.25);
+}
+
+.fin-card {
+  background: var(--fin-card);
+  border: 1px solid var(--fin-border);
+  box-shadow: var(--fin-shadow);
+}
+
+.fin-input {
+  background: var(--fin-card-muted);
+  border: 1px solid var(--fin-border);
+  color: var(--fin-text);
+}
+
+.fin-input::placeholder {
+  color: var(--fin-text-muted);
+}
+
+.fin-tab-active {
+  color: var(--fin-accent);
+  border-bottom-color: var(--fin-accent);
+}
+
+.fin-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--fin-card-muted) 0%,
+    color-mix(in srgb, var(--fin-border) 40%, var(--fin-card-muted)) 50%,
+    var(--fin-card-muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: fin-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes fin-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Filter toolbar — search + Filtros na mesma linha; painel sem corte */
+.fin-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: visible;
+}
+
+.fin-filter-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.fin-filter-btn-wrap {
+  position: relative;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.fin-filter-btn-wrap .erp-filter-bar {
+  margin-top: 0;
+}
+
+.fin-filter-btn-wrap .erp-filter-bar-controls {
+  position: relative;
+  overflow: visible;
+}
+
+.fin-filter-btn-wrap .erp-filter-panel {
+  left: auto;
+  right: 0;
+  z-index: 50;
+  width: 22rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.fin-filter-btn-wrap .erp-filter-panel-body {
+  max-height: none;
+  overflow: visible;
+}
