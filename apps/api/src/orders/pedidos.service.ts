@@ -251,12 +251,16 @@ export class PedidosService {
     return this.orders.findMany(query as never);
   }
 
-  updateManual(userId: string, numeroPed: number, dto: CreateManualPedidoDto) {
-    return this.orders.updateManualPedido(userId, numeroPed, dto);
+  updateManual(userId: string, numeroPed: string, dto: CreateManualPedidoDto) {
+    return this.orders.updateManualPedido(
+      userId,
+      numeroPed as unknown as number,
+      dto,
+    );
   }
 
-  async updateAdmin(userId: string, numeroPed: number, dto: UpdatePedidoAdminDto) {
-    const numeroStr = String(numeroPed);
+  async updateAdmin(userId: string, numeroPed: string, dto: UpdatePedidoAdminDto) {
+    const numeroStr = numeroPed.trim();
     const before = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroStr },
       include: { items: { orderBy: { lineNumber: 'asc' } } },
@@ -401,8 +405,8 @@ export class PedidosService {
     return this.findByNumeroPed(numeroPed);
   }
 
-  async deleteManual(userId: string, numeroPed: number) {
-    const numeroStr = String(numeroPed);
+  async deleteManual(userId: string, numeroPed: string) {
+    const numeroStr = numeroPed.trim();
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroStr },
       include: { items: true, exits: true },
@@ -461,8 +465,8 @@ export class PedidosService {
     return `PED-${String(n).padStart(6, '0')}`;
   }
 
-  async findByNumeroPed(numeroPed: string | number) {
-    const externalOrderNumber = String(numeroPed).trim();
+  async findByNumeroPed(numeroPed: string) {
+    const externalOrderNumber = numeroPed.trim();
     if (!externalOrderNumber) {
       throw new NotFoundException('Pedido não encontrado.');
     }
@@ -478,8 +482,8 @@ export class PedidosService {
     return first;
   }
 
-  async listItems(numeroPed: string | number) {
-    const externalOrderNumber = String(numeroPed).trim();
+  async listItems(numeroPed: string) {
+    const externalOrderNumber = numeroPed.trim();
     if (!externalOrderNumber) {
       throw new NotFoundException('Pedido não encontrado.');
     }
@@ -497,9 +501,9 @@ export class PedidosService {
     });
   }
 
-  async updateStatuses(numeroPed: number, dto: PedidosUpdateStatusDto, userId: string) {
+  async updateStatuses(numeroPed: string, dto: PedidosUpdateStatusDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -538,7 +542,7 @@ export class PedidosService {
   }
 
   async updatePriority(
-    numeroPed: number,
+    numeroPed: string,
     dto: UpdateOrderPriorityDto,
     userId: string,
   ) {
@@ -546,14 +550,14 @@ export class PedidosService {
     return this.orders.updatePriority(order.id, userId, dto);
   }
 
-  async updateCarrier(numeroPed: number, carrierId: string | null, userId: string) {
+  async updateCarrier(numeroPed: string, carrierId: string | null, userId: string) {
     const order = await this.findByNumeroPed(numeroPed);
     return this.orders.updateOrderCarrier(order.id, userId, carrierId);
   }
 
-  async attachNf(numeroPed: number, dto: PedidosAttachNfDto, userId: string) {
+  async attachNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -568,9 +572,9 @@ export class PedidosService {
     return this.orders.generateExitFromInvoice(order.id, userId, { invoiceNumber: nf });
   }
 
-  async gerarSaidaComNf(numeroPed: number, dto: PedidosAttachNfDto, userId: string) {
+  async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -585,9 +589,9 @@ export class PedidosService {
     return this.orders.generateExitFromInvoice(order.id, userId, { invoiceNumber: nf });
   }
 
-  async salvarSeparacao(numeroPed: number) {
+  async salvarSeparacao(numeroPed: string) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       orderBy: { createdAt: 'desc' },
       include: {
         items: {
@@ -610,7 +614,7 @@ export class PedidosService {
 
     return {
       ok: true,
-      pedido: String(numeroPed),
+      pedido: numeroPed.trim(),
       status: order.status,
       itens: {
         total: order.items.length,
@@ -759,9 +763,9 @@ export class PedidosService {
     return { ok: true };
   }
 
-  async updateItem(numeroPed: number, seq: number, dto: PedidosUpdateItemDto) {
+  async updateItem(numeroPed: string, seq: number, dto: PedidosUpdateItemDto) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       select: { id: true, status: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -792,9 +796,9 @@ export class PedidosService {
     });
   }
 
-  async concluirSeparacao(numeroPed: number, userId: string) {
+  async concluirSeparacao(numeroPed: string, userId: string) {
     const order = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: String(numeroPed) },
+      where: { externalOrderNumber: numeroPed.trim() },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });

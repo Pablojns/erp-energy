@@ -86,7 +86,7 @@ export class PedidosController {
   @Patch(':numeroPed')
   @RequirePermission('expedicao', 'editar_pedido')
   updateManual(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateManualPedidoDto,
   ) {
@@ -100,7 +100,7 @@ export class PedidosController {
 
   @Patch(':numeroPed/admin')
   updateAdmin(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePedidoAdminDto,
   ) {
@@ -128,7 +128,7 @@ export class PedidosController {
   @HttpCode(HttpStatus.OK)
   @RequirePermission('expedicao', 'deletar_pedido')
   deleteManual(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
   ) {
     if (!user.roles.includes('ADMIN')) {
@@ -185,7 +185,7 @@ export class PedidosController {
 
   @Patch(':numeroPed/status')
   updateStatus(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: PedidosUpdateStatusDto,
   ) {
@@ -194,7 +194,7 @@ export class PedidosController {
 
   @Patch(':numeroPed/priority')
   updatePriority(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdateOrderPriorityDto,
   ) {
@@ -203,7 +203,7 @@ export class PedidosController {
 
   @Patch(':numeroPed/carrier')
   updateCarrier(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdateOrderCarrierDto,
   ) {
@@ -217,7 +217,7 @@ export class PedidosController {
   @Post(':numeroPed/nf')
   @RequirePermission('expedicao', 'emitir_nf')
   attachNf(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: PedidosAttachNfDto,
   ) {
@@ -227,7 +227,7 @@ export class PedidosController {
   @Post(':numeroPed/saida')
   @RequirePermission('expedicao', 'confirmar_saida')
   gerarSaida(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: PedidosAttachNfDto,
   ) {
@@ -240,9 +240,7 @@ export class PedidosController {
     @CurrentUser() user: AuthUser,
     @Body() body: { volume?: string; transportadora?: string },
   ) {
-    const numeroPedAsNumber = Number(numeroPed);
-    // Busca pedido com itens
-    const pedido = await this.pedidos.findByNumeroPed(numeroPedAsNumber);
+    const pedido = await this.pedidos.findByNumeroPed(numeroPed);
     if (!pedido) throw new NotFoundException('Pedido não encontrado');
 
     const resultado = await this.nfAutomaticoService.emitirNfPedido(numeroPed, {
@@ -258,7 +256,7 @@ export class PedidosController {
     }
 
     await this.pedidos.attachNf(
-      numeroPedAsNumber,
+      numeroPed,
       {
         invoiceNumber: resultado.numeroNota,
         invoiceValue: pedido.totalValue,
@@ -280,7 +278,7 @@ export class PedidosController {
     @Param('numeroPed') numeroPed: string,
     @Body() body: { volume?: string; transportadora?: string },
   ) {
-    const pedido = await this.pedidos.findByNumeroPed(Number(numeroPed));
+    const pedido = await this.pedidos.findByNumeroPed(numeroPed);
     if (!pedido) throw new NotFoundException('Pedido não encontrado');
 
     const job = this.nfQueueService.adicionarNaFila(numeroPed, pedido, {
@@ -312,10 +310,10 @@ export class PedidosController {
     if (!job) throw new NotFoundException('Job não encontrado');
 
     if (job.status === 'concluido' && job.numeroNota) {
-      const pedido = await this.pedidos.findByNumeroPed(Number(job.numeroPed));
+      const pedido = await this.pedidos.findByNumeroPed(job.numeroPed);
       if (pedido && !pedido.invoiceNumber) {
         await this.pedidos.attachNf(
-          Number(job.numeroPed),
+          job.numeroPed,
           {
             invoiceNumber: job.numeroNota,
             invoiceValue: pedido.totalValue,
@@ -370,7 +368,7 @@ export class PedidosController {
 
   @Patch(':numeroPed/itens/:seq')
   updateItem(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @Param('seq', ParseIntPipe) seq: number,
     @Body() dto: PedidosUpdateItemDto,
   ) {
@@ -380,14 +378,14 @@ export class PedidosController {
   @Post(':numeroPed/separacao/concluir')
   @RequirePermission('expedicao', 'concluir_separacao')
   concluir(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
   ) {
     return this.pedidos.concluirSeparacao(numeroPed, user.id);
   }
 
   @Patch(':numeroPed/separacao/salvar')
-  salvarSeparacao(@Param('numeroPed', ParseIntPipe) numeroPed: number) {
+  salvarSeparacao(@Param('numeroPed') numeroPed: string) {
     return this.pedidos.salvarSeparacao(numeroPed);
   }
 
