@@ -336,7 +336,7 @@ export class PedidosController {
 
   @Get(':numeroPed')
   async detalhe(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
@@ -344,7 +344,7 @@ export class PedidosController {
     await this.audit.logDataAccess(
       user.id,
       'Order',
-      String(numeroPed),
+      numeroPed,
       'DATA_ACCESS',
       req.ip,
     );
@@ -353,7 +353,7 @@ export class PedidosController {
 
   @Get(':numeroPed/itens')
   async itens(
-    @Param('numeroPed', ParseIntPipe) numeroPed: number,
+    @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
@@ -361,7 +361,7 @@ export class PedidosController {
     await this.audit.logDataAccess(
       user.id,
       'OrderItem',
-      String(numeroPed),
+      numeroPed,
       'DATA_ACCESS',
       req.ip,
     );

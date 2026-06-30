@@ -461,9 +461,13 @@ export class PedidosService {
     return `PED-${String(n).padStart(6, '0')}`;
   }
 
-  async findByNumeroPed(numeroPed: number) {
+  async findByNumeroPed(numeroPed: string | number) {
+    const externalOrderNumber = String(numeroPed).trim();
+    if (!externalOrderNumber) {
+      throw new NotFoundException('Pedido não encontrado.');
+    }
     const res = await this.orders.findMany({
-      externalOrderNumber: String(numeroPed),
+      externalOrderNumber,
       page: 1,
       pageSize: 1,
       sortBy: 'createdAt',
@@ -474,10 +478,14 @@ export class PedidosService {
     return first;
   }
 
-  async listItems(numeroPed: number) {
+  async listItems(numeroPed: string | number) {
+    const externalOrderNumber = String(numeroPed).trim();
+    if (!externalOrderNumber) {
+      throw new NotFoundException('Pedido não encontrado.');
+    }
     const order = await this.prisma.client.order.findFirst({
       where: {
-        externalOrderNumber: String(numeroPed),
+        externalOrderNumber,
       },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
