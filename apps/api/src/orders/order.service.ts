@@ -926,10 +926,10 @@ export class OrderService {
 
   async updateManualPedido(
     userId: string,
-    numeroPed: number,
+    numeroPed: string | number,
     dto: CreateManualPedidoDto,
   ) {
-    const numeroStr = String(numeroPed);
+    const numeroStr = String(numeroPed).trim();
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroStr },
       include: { items: true, exits: true },
