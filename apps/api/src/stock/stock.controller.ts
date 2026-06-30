@@ -1,8 +1,8 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -56,15 +56,23 @@ export class StockController {
   @Delete('movements/:id')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('estoque', 'deletar_movimentacao')
-  deleteMovement(
+  async deleteMovement(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!user.roles.includes('ADMIN')) {
-      throw new ForbiddenException(
-        'Apenas administradores podem excluir movimentações.',
+    const { wouldCauseNegativeBalance } =
+      await this.stockService.evaluateMovementDelete(id);
+
+    const isAdmin = user.roles.includes('ADMIN');
+
+    if (wouldCauseNegativeBalance && !isAdmin) {
+      throw new ConflictException(
+        'Não é possível reverter entrada do pedido: saldo atual ficaria negativo.',
       );
     }
-    return this.stockService.deleteMovement(user.id, id);
+
+    return this.stockService.deleteMovement(user.id, id, {
+      allowNegativeBalance: isAdmin && wouldCauseNegativeBalance,
+    });
   }
 }

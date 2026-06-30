@@ -1,11 +1,21 @@
+'use client';
+
 import Link from 'next/link';
-import { FileText, Package, Plus } from 'lucide-react';
+import { Package, Plus } from 'lucide-react';
 import { PeriodSelector } from '@/src/components/dashboard/period-selector';
-import { formatLongDate } from '@/src/components/dashboard/utils';
-import type { PeriodPreset } from '@/src/components/dashboard/types';
+import type { DashboardTabId, PeriodPreset } from '@/src/components/dashboard/types';
+
+const TABS: { id: DashboardTabId; label: string }[] = [
+  { id: 'overview', label: 'Visão Geral' },
+  { id: 'financeiro', label: 'Financeiro' },
+  { id: 'expedicao', label: 'Expedição' },
+  { id: 'estoque', label: 'Estoque' },
+  { id: 'alertas', label: 'Alertas' },
+];
 
 type DashboardHeaderProps = {
-  userName: string;
+  activeTab: DashboardTabId;
+  onTabChange: (tab: DashboardTabId) => void;
   preset: PeriodPreset;
   customInicio: string;
   customFim: string;
@@ -15,7 +25,8 @@ type DashboardHeaderProps = {
 };
 
 export function DashboardHeader({
-  userName,
+  activeTab,
+  onTabChange,
   preset,
   customInicio,
   customFim,
@@ -23,42 +34,66 @@ export function DashboardHeader({
   onCustomInicioChange,
   onCustomFimChange,
 }: DashboardHeaderProps) {
-  const firstName = userName.split(' ')[0] ?? userName;
-
   return (
-    <header className="flex flex-col gap-3 sm:gap-6 xl:flex-row xl:items-start xl:justify-between">
-      <div className="min-w-0 flex-1 space-y-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-[var(--dash-text)] sm:text-2xl lg:text-3xl">
-            Dashboard Operacional
-          </h1>
-          <p className="mt-1.5 text-sm text-[var(--dash-text-muted)]">
-            {formatLongDate()} · {firstName}
-          </p>
-        </div>
-        <PeriodSelector
-          preset={preset}
-          customInicio={customInicio}
-          customFim={customFim}
-          onPresetChange={onPresetChange}
-          onCustomInicioChange={onCustomInicioChange}
-          onCustomFimChange={onCustomFimChange}
-        />
-      </div>
+    <header className="dash-fixed-header w-full">
+      <div className="dash-shell w-full space-y-4 pb-4">
+        <nav
+          className="flex flex-wrap gap-2 overflow-x-auto"
+          aria-label="Abas do dashboard"
+        >
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onTabChange(tab.id)}
+                aria-current={isActive ? 'page' : undefined}
+                className={
+                  isActive
+                    ? 'rounded-lg border border-blue-400/50 px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_15px_rgba(37,99,235,0.4)] transition-transform -translate-y-px'
+                    : 'rounded-lg border border-white/20 bg-transparent px-4 py-2 text-sm font-semibold text-zinc-400 shadow-[0_2px_8px_rgba(0,0,0,0.12)] transition-colors hover:text-zinc-300'
+                }
+                style={
+                  isActive
+                    ? {
+                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                      }
+                    : {
+                        background:
+                          'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                      }
+                }
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
 
-      <div className="flex flex-wrap gap-2 xl:justify-end">
-        <Link href="/app/expedicao/pedidos" className="dash-btn-primary">
-          <Plus size={16} strokeWidth={2} />
-          Novo Pedido
-        </Link>
-        <Link href="/app/expedicao/separacao" className="dash-btn-secondary">
-          <Package size={16} strokeWidth={1.75} />
-          Separação Rápida
-        </Link>
-        <Link href="/app/expedicao/pedidos" className="dash-btn-secondary">
-          <FileText size={16} strokeWidth={1.75} />
-          Emitir NF
-        </Link>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <PeriodSelector
+              preset={preset}
+              customInicio={customInicio}
+              customFim={customFim}
+              onPresetChange={onPresetChange}
+              onCustomInicioChange={onCustomInicioChange}
+              onCustomFimChange={onCustomFimChange}
+            />
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Link href="/app/expedicao/pedidos" className="dash-btn-primary">
+              <Plus size={16} strokeWidth={2} />
+              Novo Pedido
+            </Link>
+            <Link href="/app/expedicao/separacao" className="dash-btn-secondary">
+              <Package size={16} strokeWidth={1.75} />
+              Separação Rápida
+            </Link>
+          </div>
+        </div>
       </div>
     </header>
   );

@@ -1,58 +1,32 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertsPanel, AlertsPanelSkeleton } from '@/src/components/dashboard/alerts-panel';
-import { CarriersPieChart, CarriersPieChartSkeleton } from '@/src/components/dashboard/carriers-pie-chart';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardHeader } from '@/src/components/dashboard/dashboard-header';
-import { FlowBarChart, FlowBarChartSkeleton } from '@/src/components/dashboard/flow-bar-chart';
-import { MetricsGrid, MetricsGridSkeleton } from '@/src/components/dashboard/metrics-grid';
-import { RecentActivities, RecentActivitiesSkeleton } from '@/src/components/dashboard/recent-activities';
-import { TopReceiversTable, TopReceiversTableSkeleton } from '@/src/components/dashboard/top-receivers-table';
-import type { DashboardResumo, PeriodPreset } from '@/src/components/dashboard/types';
+import { TabAlertas } from '@/src/components/dashboard/tab-alertas';
+import { TabEstoque } from '@/src/components/dashboard/tab-estoque';
+import { TabExpedicao } from '@/src/components/dashboard/tab-expedicao';
+import { TabFinanceiro } from '@/src/components/dashboard/tab-financeiro';
+import { TabOverview } from '@/src/components/dashboard/tab-overview';
+import type { DashboardTabId, PeriodPreset } from '@/src/components/dashboard/types';
 import { resolvePeriodRange } from '@/src/components/dashboard/utils';
-import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import '@/src/components/dashboard/dashboard.css';
 
-type DashboardViewProps = {
-  userName: string;
-};
+export function DashboardView() {
+  const defaultRange = useMemo(() => resolvePeriodRange('mes'), []);
 
-type AdminUser = { id: string; name: string };
-
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="dash-card p-5 space-y-3">
-        <div className="dash-skeleton h-8 w-64" />
-        <div className="dash-skeleton h-4 w-48" />
-        <div className="dash-skeleton h-9 w-full max-w-xl" />
-      </div>
-      <MetricsGridSkeleton />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <FlowBarChartSkeleton />
-        <CarriersPieChartSkeleton />
-      </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <TopReceiversTableSkeleton />
-        <RecentActivitiesSkeleton />
-        <AlertsPanelSkeleton />
-      </div>
-    </div>
-  );
-}
-
-export function DashboardView({ userName }: DashboardViewProps) {
-  const defaultRange = resolvePeriodRange('mes');
-
+  const [activeTab, setActiveTab] = useState<DashboardTabId>('overview');
   const [preset, setPreset] = useState<PeriodPreset>('mes');
   const [customInicio, setCustomInicio] = useState(defaultRange.dataInicio);
   const [customFim, setCustomFim] = useState(defaultRange.dataFim);
-  const [data, setData] = useState<DashboardResumo | null>(null);
-  const [userNames, setUserNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshKey] = useState(0);
+  const mainRef = useRef<HTMLElement>(null);
 
-  const range = useMemo(
+  useEffect(() => {
+    const panel = mainRef.current?.querySelector('.dash-tab-panel');
+    panel?.scrollTo(0, 0);
+  }, [activeTab]);
+
+  const period = useMemo(
     () =>
       resolvePeriodRange(preset, {
         dataInicio: customInicio,
@@ -61,86 +35,63 @@ export function DashboardView({ userName }: DashboardViewProps) {
     [preset, customInicio, customFim],
   );
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const qs = new URLSearchParams();
-      if (range.dataInicio.trim()) qs.set('dataInicio', range.dataInicio.trim());
-      if (range.dataFim.trim()) qs.set('dataFim', range.dataFim.trim());
-      const query = qs.toString();
-      const [resumo, users] = await Promise.all([
-        erpFetchJson<DashboardResumo>(
-          query ? `api/dashboard/resumo?${query}` : 'api/dashboard/resumo',
-        ),
-        erpFetchJson<AdminUser[]>('auth/users').catch(() => [] as AdminUser[]),
-      ]);
-      setData(resumo);
-      const map: Record<string, string> = {};
-      for (const u of users) {
-        map[u.id] = u.name;
-      }
-      setUserNames(map);
-    } catch (e) {
-      setData(null);
-      setError(
-        e instanceof Error ? e.message : 'Não foi possível carregar o dashboard.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [range.dataInicio, range.dataFim]);
+  const periodReady =
+    preset !== 'personalizado' || (Boolean(customInicio) && Boolean(customFim));
 
-  useEffect(() => {
-    if (preset === 'personalizado' && (!customInicio || !customFim)) {
+  const handlePresetChange = (next: PeriodPreset) => {
+    setPreset(next);
+    if (next === 'todos') {
+      setCustomInicio('');
+      setCustomFim('');
       return;
     }
-    void loadDashboard();
-  }, [loadDashboard, preset, customInicio, customFim]);
+    if (next === 'mes' || next === 'trimestre' || next === 'ano') {
+      const range = resolvePeriodRange(next);
+      setCustomInicio(range.dataInicio);
+      setCustomFim(range.dataFim);
+    }
+  };
 
   return (
-    <div className="erp-dashboard">
-      <div className="mx-auto max-w-[1400px] space-y-6">
-        <DashboardHeader
-          userName={userName}
-          preset={preset}
-          customInicio={customInicio}
-          customFim={customFim}
-          onPresetChange={setPreset}
-          onCustomInicioChange={setCustomInicio}
-          onCustomFimChange={setCustomFim}
-        />
+    <div className="erp-dashboard w-full min-h-0 flex flex-col">
+      <DashboardHeader
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        preset={preset}
+        customInicio={customInicio}
+        customFim={customFim}
+        onPresetChange={handlePresetChange}
+        onCustomInicioChange={(v) => {
+          setPreset('personalizado');
+          setCustomInicio(v);
+        }}
+        onCustomFimChange={(v) => {
+          setPreset('personalizado');
+          setCustomFim(v);
+        }}
+      />
 
-        {error ? (
-          <div className="dash-error-banner" role="alert">
-            {error}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <DashboardSkeleton />
-        ) : data ? (
-          <>
-            <MetricsGrid data={data} />
-
-            <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <FlowBarChart fluxo={data.fluxo} />
-              <CarriersPieChart items={data.topTransportadoras} />
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <TopReceiversTable items={data.topRecebedores} />
-              <RecentActivities
-                items={data.atividadesRecentes}
-                userNames={userNames}
-              />
-              <AlertsPanel alertas={data.alertas} />
-            </section>
-          </>
-        ) : !error ? (
-          <p className="text-sm text-[var(--dash-text-muted)]">Sem dados para exibir.</p>
-        ) : null}
-      </div>
+      <main ref={mainRef} className="dash-scroll-main">
+        {!periodReady ? (
+          <p className="text-sm text-[var(--dash-text-muted)]">
+            Selecione as datas De/Até para o período personalizado.
+          </p>
+        ) : activeTab === 'overview' ? (
+          <TabOverview
+            period={period}
+            refreshKey={refreshKey}
+            onNavigateTab={setActiveTab}
+          />
+        ) : activeTab === 'financeiro' ? (
+          <TabFinanceiro period={period} refreshKey={refreshKey} />
+        ) : activeTab === 'expedicao' ? (
+          <TabExpedicao period={period} refreshKey={refreshKey} />
+        ) : activeTab === 'estoque' ? (
+          <TabEstoque period={period} refreshKey={refreshKey} />
+        ) : (
+          <TabAlertas period={period} refreshKey={refreshKey} />
+        )}
+      </main>
     </div>
   );
 }

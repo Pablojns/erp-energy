@@ -907,7 +907,32 @@ export class StockService implements OnModuleInit {
     return new Prisma.Decimal(n.toFixed(2));
   }
 
-  async deleteMovement(adminUserId: string, movementId: string) {
+  async evaluateMovementDelete(movementId: string): Promise<{
+    wouldCauseNegativeBalance: boolean;
+  }> {
+    const movement = await this.prisma.client.stockMovement.findUnique({
+      where: { id: movementId },
+      include: {
+        product: { select: { stockQty: true } },
+      },
+    });
+
+    if (!movement) {
+      throw new NotFoundException('Movimentação não encontrada.');
+    }
+
+    const wouldCauseNegativeBalance =
+      movement.movementType === StockMovementType.INBOUND &&
+      movement.product.stockQty < movement.quantity;
+
+    return { wouldCauseNegativeBalance };
+  }
+
+  async deleteMovement(
+    adminUserId: string,
+    movementId: string,
+    options?: { allowNegativeBalance?: boolean },
+  ) {
     const result = await this.prisma.client.$transaction(async (tx) => {
       const movement = await tx.stockMovement.findUnique({
         where: { id: movementId },
@@ -937,7 +962,9 @@ export class StockService implements OnModuleInit {
         movementType: movement.movementType,
       };
 
-      await this.revertMovementForOrderDelete(tx, movement);
+      await this.revertMovementForOrderDelete(tx, movement, {
+        allowNegativeBalance: options?.allowNegativeBalance,
+      });
 
       await tx.stockMovement.delete({ where: { id: movementId } });
 
@@ -961,9 +988,17 @@ export class StockService implements OnModuleInit {
 
     const deletedAt = new Date();
 
+    const resultingStockQty = result.updatedProduct?.stockQty ?? null;
+    const forcedNegativeDeletion =
+      Boolean(options?.allowNegativeBalance) &&
+      resultingStockQty !== null &&
+      resultingStockQty < 0;
+
     await this.audit.log({
       userId: adminUserId,
-      action: 'EXCLUSÃO DE MOVIMENTAÇÃO',
+      action: forcedNegativeDeletion
+        ? 'EXCLUSÃO FORÇADA DE MOVIMENTAÇÃO (ADMIN — SALDO NEGATIVO)'
+        : 'EXCLUSÃO DE MOVIMENTAÇÃO',
       entity: 'StockMovement',
       entityId: movementId,
       changes: {
@@ -976,7 +1011,14 @@ export class StockService implements OnModuleInit {
         originalMovementDate: result.movement.movementDate.toISOString(),
         deletedBy: deleter?.name ?? adminUserId,
         deletedAt: deletedAt.toISOString(),
-        newStockQty: result.updatedProduct?.stockQty ?? null,
+        newStockQty: resultingStockQty,
+        ...(forcedNegativeDeletion
+          ? {
+              forcedAdminDeletion: true,
+              negativeBalanceAfterDeletion: true,
+              resultingStockQty,
+            }
+          : {}),
       },
     });
 
@@ -1037,20 +1079,28 @@ export class StockService implements OnModuleInit {
       notes: string | null;
       reference: string | null;
     },
+    options?: { allowNegativeBalance?: boolean },
   ): Promise<void> {
     const type = movement.movementType;
     const qty = movement.quantity;
     const { productId } = movement;
 
     if (type === StockMovementType.INBOUND) {
-      const updated = await tx.product.updateMany({
-        where: { id: productId, stockQty: { gte: qty } },
-        data: { stockQty: { decrement: qty } },
-      });
-      if (updated.count !== 1) {
-        throw new ConflictException(
-          'Não é possível reverter entrada do pedido: saldo atual ficaria negativo.',
-        );
+      if (options?.allowNegativeBalance) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { stockQty: { decrement: qty } },
+        });
+      } else {
+        const updated = await tx.product.updateMany({
+          where: { id: productId, stockQty: { gte: qty } },
+          data: { stockQty: { decrement: qty } },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException(
+            'Não é possível reverter entrada do pedido: saldo atual ficaria negativo.',
+          );
+        }
       }
     } else if (
       type === StockMovementType.OUTBOUND ||

@@ -39,7 +39,7 @@ export function PeriodSelector({
           </button>
         ))}
       </div>
-      {preset === 'personalizado' ? (
+      {preset !== 'todos' ? (
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-[var(--dash-text-muted)]">
             De
