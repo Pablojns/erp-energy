@@ -397,6 +397,7 @@ export function NewOrderModal(props: {
   const [customerId, setCustomerId] = useState('');
   const [unloadingPointId, setUnloadingPointId] = useState('');
   const [notes, setNotes] = useState('');
+  const [isUrgentManual, setIsUrgentManual] = useState(false);
   const [items, setItems] = useState<OrderItemForm[]>([newItemRow()]);
 
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
@@ -452,6 +453,7 @@ export function NewOrderModal(props: {
     setCustomerId('');
     setUnloadingPointId('');
     setNotes('');
+    setIsUrgentManual(false);
     setItems([newItemRow()]);
     setFieldErrors({});
     setSubmitError(null);
@@ -552,6 +554,7 @@ export function NewOrderModal(props: {
       customerId,
       unloadingPointId,
       notes: notes.trim() || undefined,
+      ...(isEdit ? {} : { isUrgentManual }),
       items: items.map((row) => ({
         productId: row.productId,
         quantity: Number(row.quantity),
@@ -836,6 +839,21 @@ export function NewOrderModal(props: {
                 disabled={saving}
               />
             </label>
+
+            {!isEdit ? (
+              <label className="flex items-start gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={isUrgentManual}
+                  onChange={(e) => setIsUrgentManual(e.target.checked)}
+                  disabled={saving}
+                  className="mt-1 h-4 w-4 rounded border-[var(--border-color)]"
+                />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  Pedido Urgente (sem requisição do ME ainda)
+                </span>
+              </label>
+            ) : null}
           </div>
 
           <div className="space-y-3">

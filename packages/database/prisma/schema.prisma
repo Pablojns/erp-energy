@@ -316,6 +316,12 @@ model Order {
   shippedAt               DateTime?
   invoicedAt              DateTime?
   carrierId               String?             @db.Uuid
+  /// Pedido ME vinculado a um envio urgente manual prévio
+  linkedOrderId           String?             @db.Uuid
+  linkedOrder             Order?              @relation("OrderLink", fields: [linkedOrderId], references: [id], onDelete: SetNull)
+  linkedFrom              Order[]             @relation("OrderLink")
+  /// Criado manualmente como urgente antes da requisição ME
+  isUrgentManual          Boolean             @default(false)
   customer                Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
   carrier                 Carrier?            @relation(fields: [carrierId], references: [id], onDelete: SetNull)
   items                   OrderItem[]
@@ -338,6 +344,8 @@ model Order {
   @@index([requestedDeliveryDate])
   @@index([customerId])
   @@index([carrierId])
+  @@index([linkedOrderId])
+  @@index([isUrgentManual])
   @@index([customerId, status])
   @@index([status, createdAt])
 }

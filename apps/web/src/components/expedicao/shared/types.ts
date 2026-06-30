@@ -101,6 +101,9 @@ export type OrderDto = {
   missingSkuForReserve?: boolean;
   integralReserveBlocked?: boolean;
   unidadesFaltantes?: number;
+  isUrgentManual?: boolean;
+  linkedOrderId?: string | null;
+  linkedOrderDisplayNumber?: string | null;
   items: OrderItemDto[];
 };
 

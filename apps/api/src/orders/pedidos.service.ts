@@ -865,9 +865,9 @@ export class PedidosService {
     summary.ignorados = parsed.ignored;
 
     for (const [numero, items] of grouped.entries()) {
+      const numeroStr = String(numero);
       try {
-        await this.prisma.client.$transaction(async (tx) => {
-          const numeroStr = String(numero);
+        const txResult = await this.prisma.client.$transaction(async (tx) => {
           const header = pickFirstLineOfOrderGroup(items);
 
           const totalStr = parseBrlMoneyToDecimalString(header.valor_total);
@@ -919,6 +919,17 @@ export class PedidosService {
           (orderData as Prisma.OrderUncheckedCreateInput).carrierId = carrierId;
 
           if (!existing) {
+            const urgentMatch = await this.findMatchingUrgentManualOrder(
+              tx,
+              orderData.deliveryCnpj ?? null,
+              items.map((r) => r.sku.trim()).filter(Boolean),
+            );
+
+            if (urgentMatch) {
+              orderData.linkedOrderId = urgentMatch.id;
+              orderData.status = OrderStatus.AGUARDANDO_NF;
+            }
+
             // Gera code (mesma regra do ERP)
             const code = await this.nextOrderCode(tx);
             (orderData as Prisma.OrderUncheckedCreateInput).code = code;
@@ -965,7 +976,11 @@ export class PedidosService {
                 },
               });
             }
-            return;
+
+            return {
+              linkedUrgentOrderId: urgentMatch?.id ?? null,
+              createdOrderId: created.id,
+            };
           }
 
           // Update
@@ -1026,7 +1041,17 @@ export class PedidosService {
               },
             });
           }
+
+          return { linkedUrgentOrderId: null, createdOrderId: null };
         });
+
+        if (txResult.linkedUrgentOrderId && txResult.createdOrderId) {
+          await this.notifyUrgentOrderLinked(
+            numeroStr,
+            txResult.createdOrderId,
+            txResult.linkedUrgentOrderId,
+          );
+        }
       } catch (e) {
         summary.erros.push(
           `Pedido ${numero}: ${e instanceof Error ? e.message : 'erro desconhecido'}`,
@@ -1048,6 +1073,91 @@ export class PedidosService {
     }
 
     return summary;
+  }
+
+  private normalizeCnpjDigits(value: string | null | undefined): string | null {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    return digits.length > 0 ? digits : null;
+  }
+
+  private async findMatchingUrgentManualOrder(
+    tx: Prisma.TransactionClient,
+    deliveryCnpj: string | null,
+    skus: string[],
+  ): Promise<{ id: string } | null> {
+    const cnpjDigits = this.normalizeCnpjDigits(deliveryCnpj);
+    const skuSet = new Set(skus.map((s) => s.trim()).filter(Boolean));
+    if (!cnpjDigits || skuSet.size === 0) return null;
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const candidates = await tx.order.findMany({
+      where: {
+        isUrgentManual: true,
+        linkedOrderId: null,
+        source: OrderSource.MANUAL,
+        createdAt: { gte: thirtyDaysAgo },
+        deliveryCnpj: { not: null },
+      },
+      include: {
+        items: { select: { sku: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    for (const candidate of candidates) {
+      if (this.normalizeCnpjDigits(candidate.deliveryCnpj) !== cnpjDigits) {
+        continue;
+      }
+      const hasCommonSku = candidate.items.some((item) =>
+        skuSet.has(item.sku.trim()),
+      );
+      if (hasCommonSku) {
+        return { id: candidate.id };
+      }
+    }
+
+    return null;
+  }
+
+  private async notifyUrgentOrderLinked(
+    meOrderNumber: string,
+    meOrderId: string,
+    urgentOrderId: string,
+  ): Promise<void> {
+    const message = `Pedido ${meOrderNumber} foi vinculado ao envio urgente já realizado.`;
+    const link = `order:${meOrderId}`;
+
+    const creatorLog = await this.prisma.client.auditLog.findFirst({
+      where: {
+        entity: 'Order',
+        entityId: urgentOrderId,
+        action: 'ORDER_CREATED',
+        userId: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { userId: true },
+    });
+
+    if (creatorLog?.userId) {
+      void this.notifications.create(
+        creatorLog.userId,
+        'Pedido vinculado ao urgente',
+        message,
+        'pedido_vinculado_urgente',
+        link,
+      );
+      return;
+    }
+
+    void this.notifications.createForPermission(
+      'expedicao',
+      'ver_pedidos',
+      'Pedido vinculado ao urgente',
+      message,
+      'pedido_vinculado_urgente',
+      link,
+    );
   }
 
   private serializeOrderExit(row: Prisma.OrderExitGetPayload<{

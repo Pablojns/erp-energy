@@ -130,6 +130,13 @@ type OrderSerializeSource = {
   invoicedAt: Date | null;
   carrierId: string | null;
   carrier?: { id: string; name: string } | null;
+  linkedOrderId: string | null;
+  isUrgentManual: boolean;
+  linkedOrder?: {
+    id: string;
+    code: string;
+    externalOrderNumber: string | null;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
   items: OrderItemSerializeSource[];
@@ -683,6 +690,7 @@ export class OrderService {
           receiverName: receiver.name.trim(),
           unloadingPoint: unloadingPoint.name.trim(),
           notes: dto.notes?.trim() || null,
+          isUrgentManual: Boolean(dto.isUrgentManual),
           status: OrderStatus.NOVO,
           invoiceStatus: InvoiceStatus.NOT_FOUND,
           priority: 3,
@@ -710,6 +718,7 @@ export class OrderService {
           subtotal: totalFixed.toString(),
           status: order.status,
           source: 'manual_expedicao',
+          isUrgentManual: Boolean(dto.isUrgentManual),
           reservedAutomatically: false,
         },
       });
@@ -1250,6 +1259,11 @@ export class OrderService {
       });
 
       if (!order) throw new NotFoundException('Pedido não encontrado.');
+      if (order.linkedOrderId) {
+        throw new BadRequestException(
+          'Pedido vinculado a envio urgente — não requer reserva de estoque.',
+        );
+      }
       if (order.status !== OrderStatus.NOVO && order.status !== OrderStatus.PARCIAL) {
         throw new BadRequestException(
           'Somente pedidos em NOVO ou PARCIAL podem ser analisados e reservados.',
@@ -2325,6 +2339,13 @@ export class OrderService {
       carrier: {
         select: { id: true, name: true },
       },
+      linkedOrder: {
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+        },
+      },
       stockReservations: {
         select: { id: true },
         take: 1,
@@ -2666,9 +2687,13 @@ export class OrderService {
 
     const physicalReservationActive =
       (row.stockReservations?.length ?? 0) > 0;
-    const stockReserveBlocked = false;
+    const stockReserveBlocked = Boolean(row.linkedOrderId);
     const missingSkuForReserve =
       OrderService.computeMissingSkuForReserve(row);
+    const linkedOrderDisplayNumber =
+      row.linkedOrder?.externalOrderNumber?.trim() ||
+      row.linkedOrder?.code ||
+      null;
 
     return {
       id: row.id,
@@ -2693,6 +2718,9 @@ export class OrderService {
       volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
+      linkedOrderId: row.linkedOrderId,
+      isUrgentManual: row.isUrgentManual,
+      linkedOrderDisplayNumber,
       status: row.status,
       priority: row.priority,
       mercadoEletronicoStatus: row.mercadoEletronicoStatus,

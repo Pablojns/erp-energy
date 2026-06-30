@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -35,6 +36,10 @@ export class CreateManualPedidoDto {
   @IsString()
   @MaxLength(4000)
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isUrgentManual?: boolean;
 
   @IsArray()
   @ArrayMinSize(1, { message: 'Informe ao menos um item.' })

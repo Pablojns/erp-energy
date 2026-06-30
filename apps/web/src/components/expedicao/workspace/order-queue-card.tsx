@@ -10,6 +10,7 @@ import {
 } from '@/src/components/expedicao/shared/order-helpers';
 import {
   orderWorkflowCardBadgeStyle,
+  MANUAL_URGENT_BADGE_STYLE,
   URGENT_BADGE_STYLE,
 } from '@/src/components/expedicao/shared/pedidos-status-styles';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
@@ -52,7 +53,8 @@ export function OrderQueueCard(props: {
   const comprador = displayOrDash(order.deliveryCnpj ?? order.customerDocument);
   const when = formatOrderQueueDate(order.orderDate ?? order.createdAt);
   const statusBadge = getOrderQueueCardStatusBadge(order);
-  const isUrgent = order.priority <= 2;
+  const isPriorityUrgent = order.priority <= 2;
+  const isManualUrgent = Boolean(order.isUrgentManual);
   const isMarked =
     (onTogglePrint && checkedForPrint) || (onToggleRemoval && checkedForRemoval);
 
@@ -121,7 +123,14 @@ export function OrderQueueCard(props: {
                   WEG
                 </span>
               ) : null}
-              {isUrgent ? (
+              {isManualUrgent ? (
+                <span
+                  className="exp-queue-urgent-badge text-xs"
+                  style={MANUAL_URGENT_BADGE_STYLE}
+                >
+                  URGENTE
+                </span>
+              ) : isPriorityUrgent ? (
                 <span
                   className="exp-queue-urgent-badge exp-queue-urgent-badge--pulse text-xs"
                   style={URGENT_BADGE_STYLE}
@@ -131,6 +140,11 @@ export function OrderQueueCard(props: {
               ) : null}
             </div>
           </div>
+          {order.linkedOrderId ? (
+            <p className="text-[10px] font-medium text-orange-400">
+              Vinculado ao pedido #{order.linkedOrderDisplayNumber ?? '—'}
+            </p>
+          ) : null}
           <p className="exp-queue-card-value text-xs font-bold">{formatCurrency(order.totalValue)}</p>
           <p className="exp-queue-card-date text-xs">{when}</p>
           <span

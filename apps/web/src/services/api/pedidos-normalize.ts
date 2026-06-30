@@ -65,6 +65,11 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     missingSkuForReserve: Boolean(raw.missingSkuForReserve),
     integralReserveBlocked: Boolean(raw.integralReserveBlocked),
     unidadesFaltantes: Number(raw.unidadesFaltantes ?? unidadesFaltantes),
+    isUrgentManual: Boolean(raw.isUrgentManual),
+    linkedOrderId: raw.linkedOrderId ? String(raw.linkedOrderId) : null,
+    linkedOrderDisplayNumber: raw.linkedOrderDisplayNumber
+      ? String(raw.linkedOrderDisplayNumber)
+      : null,
     items,
   };
 }

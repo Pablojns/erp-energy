@@ -46,6 +46,11 @@ export const URGENT_BADGE_STYLE: CSSProperties = {
   color: 'var(--color-text-inverse)',
 };
 
+export const MANUAL_URGENT_BADGE_STYLE: CSSProperties = {
+  background: '#ea580c',
+  color: '#ffffff',
+};
+
 export function orderStatusToWorkflowColor(
   status: OrderStatus,
 ): OrderWorkflowStatusColor | null {
