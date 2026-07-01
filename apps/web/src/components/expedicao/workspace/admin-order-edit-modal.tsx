@@ -5,7 +5,7 @@ import { Loader2, X } from 'lucide-react';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 const ORDER_STATUSES = [
   'NOVO',
@@ -110,7 +110,7 @@ export function AdminOrderEditModal(props: {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson(`api/pedidos/${numeroPed}/admin`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
         method: 'PATCH',
         body: JSON.stringify({
           receiverName,

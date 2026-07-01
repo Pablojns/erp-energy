@@ -152,9 +152,21 @@ function decimalToString(v: unknown): string {
   return String(v);
 }
 
-export function numeroPedFromOrder(order: OrderDto): number | null {
+export function numeroPedFromOrder(order: {
+  externalOrderNumber?: string | null;
+  code?: string;
+}): string | null {
   const raw = order.externalOrderNumber?.trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (raw) return raw;
+  const code = order.code?.trim();
+  return code || null;
+}
+
+export function pedidoApiUrl(numeroPed: string, ...pathParts: string[]): string {
+  return [
+    'api',
+    'pedidos',
+    encodeURIComponent(numeroPed),
+    ...pathParts.map((part) => encodeURIComponent(part)),
+  ].join('/');
 }

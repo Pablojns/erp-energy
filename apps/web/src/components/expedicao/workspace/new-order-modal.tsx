@@ -5,6 +5,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 type CadastroOption = {
   id: string;
@@ -578,7 +579,7 @@ export function NewOrderModal(props: {
       if (!numeroPed) {
         throw new Error('Número do pedido não encontrado.');
       }
-      await erpFetchJson(`api/pedidos/${encodeURIComponent(numeroPed)}`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed), {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });

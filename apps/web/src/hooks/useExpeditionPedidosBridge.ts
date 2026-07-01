@@ -18,7 +18,7 @@ import type {
   UseExpeditionOrdersOptions,
 } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 import { usePedidoDetalhe } from '@/src/hooks/usePedidoDetalhe';
 import { usePedidos } from '@/src/hooks/usePedidos';
 
@@ -163,7 +163,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       if (!numero) {
         await erpFetchJson(`orders/${id}/mark-picked`, { method: 'POST' });
       } else {
-        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'separacao', 'concluir'), {
           method: 'POST',
         });
       }
@@ -184,7 +184,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     if (!nf) return false;
     try {
       if (numero) {
-        await erpFetchJson(`api/pedidos/${numero}/nf`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'nf'), {
           method: 'POST',
           body: JSON.stringify({ invoiceNumber: nf }),
         });
@@ -212,7 +212,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = order ? numeroPedFromOrder(order) : null;
     try {
       if (numero) {
-        await erpFetchJson(`api/pedidos/${numero}/separacao/salvar`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'separacao', 'salvar'), {
           method: 'PATCH',
         });
       }
@@ -237,7 +237,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = order ? numeroPedFromOrder(order) : null;
     try {
       if (numero) {
-        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'separacao', 'concluir'), {
           method: 'POST',
         });
       } else {
@@ -273,7 +273,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       const next = order.priority <= 2 ? 4 : 2;
       const numero = numeroPedFromOrder(order);
       const path = numero
-        ? `api/pedidos/${numero}/priority`
+        ? pedidoApiUrl(numero, 'priority')
         : `orders/${order.id}/priority`;
       await erpFetchJson(path, {
         method: 'PATCH',
@@ -305,7 +305,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         const qty = Math.max(0, Math.min(qtyLine, item.quantity));
         const status_item =
           qty === 0 ? 'pendente' : qty >= item.quantity ? 'completo' : 'parcial';
-        await erpFetchJson(`api/pedidos/${numero}/itens/${item.lineNumber}`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'itens', String(item.lineNumber)), {
           method: 'PATCH',
           body: JSON.stringify({
             quantidade_separada: qty,
@@ -334,7 +334,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     const numero = numeroPedFromOrder(o);
     try {
       if (numero) {
-        await erpFetchJson(`api/pedidos/${numero}/separacao/concluir`, {
+        await erpFetchJson(pedidoApiUrl(numero, 'separacao', 'concluir'), {
           method: 'POST',
         });
       } else if (o.status === 'EM_SEPARACAO') {
@@ -365,7 +365,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       for (const order of targetOrders) {
         const numero = numeroPedFromOrder(order);
         if (numero) {
-          await erpFetchJson(`api/pedidos/${numero}/status`, {
+          await erpFetchJson(pedidoApiUrl(numero, 'status'), {
             method: 'PATCH',
             body: JSON.stringify({ status: 'NOVO' }),
           });
@@ -417,7 +417,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       return;
     }
     try {
-      await erpFetchJson(`api/pedidos/${numero}/carrier`, {
+      await erpFetchJson(pedidoApiUrl(numero, 'carrier'), {
         method: 'PATCH',
         body: JSON.stringify({ carrierId }),
       });

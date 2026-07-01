@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi, normalizeItemFromApi } from '@/src/services/api/pedidos-normalize';
+import { normalizePedidoFromApi, normalizeItemFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 export function usePedidoDetalhe(numeroPed: string | null | undefined) {
   const [pedido, setPedido] = useState<OrderDto | null>(null);
@@ -24,8 +24,8 @@ export function usePedidoDetalhe(numeroPed: string | null | undefined) {
     setError(null);
     try {
       const [orderRes, itensRes] = await Promise.all([
-        erpFetchJson<Record<string, unknown>>(`api/pedidos/${raw}`),
-        erpFetchJson<Record<string, unknown>[]>(`api/pedidos/${raw}/itens`).catch(
+        erpFetchJson<Record<string, unknown>>(pedidoApiUrl(raw)),
+        erpFetchJson<Record<string, unknown>[]>(pedidoApiUrl(raw, 'itens')).catch(
           () => null,
         ),
       ]);

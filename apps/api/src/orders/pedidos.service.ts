@@ -252,11 +252,7 @@ export class PedidosService {
   }
 
   updateManual(userId: string, numeroPed: string, dto: CreateManualPedidoDto) {
-    return this.orders.updateManualPedido(
-      userId,
-      numeroPed as unknown as number,
-      dto,
-    );
+    return this.orders.updateManualPedido(userId, numeroPed, dto);
   }
 
   async updateAdmin(userId: string, numeroPed: string, dto: UpdatePedidoAdminDto) {

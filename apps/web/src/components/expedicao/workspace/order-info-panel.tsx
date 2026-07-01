@@ -14,7 +14,7 @@ import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/order-clickable-status-badge';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 type CarrierOption = {
   id: string;
@@ -200,7 +200,7 @@ export const OrderInfoPanel = forwardRef<
     const previousConfirmed = lastSavedNotaRemessaConfirmadaRef.current;
 
     try {
-      await erpFetchJson(`api/pedidos/${numeroPed}/status`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
         method: 'PATCH',
         body: JSON.stringify({
           notaRemessa: trimmed,
@@ -232,7 +232,7 @@ export const OrderInfoPanel = forwardRef<
     setVolumesError(null);
 
     try {
-      await erpFetchJson(`api/pedidos/${numeroPed}/status`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
         method: 'PATCH',
         body: JSON.stringify({ volumes: value }),
       });

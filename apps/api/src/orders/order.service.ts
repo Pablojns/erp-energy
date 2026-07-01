@@ -908,28 +908,12 @@ export class OrderService {
     });
   }
 
-  private assertManualOrderMutable(order: {
-    items: Array<{ pickedQty: number | null }>;
-    exits?: Array<unknown>;
-  }) {
-    if (order.items.some((it) => (it.pickedQty ?? 0) > 0)) {
-      throw new BadRequestException(
-        'Pedido com itens já separados não pode ser alterado.',
-      );
-    }
-    if ((order.exits?.length ?? 0) > 0) {
-      throw new BadRequestException(
-        'Pedido com saída registrada não pode ser alterado.',
-      );
-    }
-  }
-
   async updateManualPedido(
     userId: string,
-    numeroPed: string | number,
+    numeroPed: string,
     dto: CreateManualPedidoDto,
   ) {
-    const numeroStr = String(numeroPed).trim();
+    const numeroStr = numeroPed.trim();
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroStr },
       include: { items: true, exits: true },
@@ -938,7 +922,6 @@ export class OrderService {
     if (!order) {
       throw new NotFoundException('Pedido não encontrado.');
     }
-    this.assertManualOrderMutable(order);
 
     const externalOrderNumber = dto.externalOrderNumber.trim();
     if (!externalOrderNumber) {

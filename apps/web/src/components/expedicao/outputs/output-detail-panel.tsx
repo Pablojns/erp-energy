@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { formatBrlDisplay, formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import type { OrderExitDto, OrderExitItemDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 function formatOrderNumber(exitItem: OrderExitDto): string {
   return exitItem.order.externalOrderNumber?.trim()
@@ -19,11 +20,9 @@ function statusLabel(exitItem: OrderExitDto): string {
   return 'NO PRAZO';
 }
 
-function numeroPedFromExit(exitItem: OrderExitDto): number | null {
+function numeroPedFromExit(exitItem: OrderExitDto): string | null {
   const raw = exitItem.order.externalOrderNumber?.trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return raw || null;
 }
 
 function DetailRow(props: { label: string; value: string | null | undefined }) {
@@ -99,7 +98,7 @@ export function OutputDetailPanel(props: {
     const previous = lastSavedRef.current;
 
     try {
-      await erpFetchJson(`api/pedidos/${numeroPed}/status`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
         method: 'PATCH',
         body: JSON.stringify({ obsExpedicao: trimmed }),
       });

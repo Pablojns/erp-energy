@@ -13,7 +13,7 @@ import {
 } from '@/src/components/expedicao/shared/pedidos-status-styles';
 import type { OrderDto, OrderStatus } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 const MANUAL_STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
   { value: 'NOVO', label: 'Novo' },
@@ -74,7 +74,7 @@ export function OrderClickableStatusBadge(props: {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson(`api/pedidos/${numeroPed}/status`, {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
         method: 'PATCH',
         body: JSON.stringify({ status: pending }),
       });
