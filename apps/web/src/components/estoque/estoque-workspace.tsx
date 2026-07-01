@@ -606,13 +606,12 @@ function ProductCategoryCell({
 }
 
 const movementColumnsBase: TableColumn[] = [
-  { key: 'date', header: 'Data' },
+  { key: 'date', header: 'Data', className: 'whitespace-nowrap' },
   { key: 'type', header: 'Tipo' },
-  { key: 'pedido', header: 'Pedido' },
-  { key: 'nf', header: 'NF' },
+  { key: 'pedido', header: 'Pedido', className: 'whitespace-nowrap min-w-[4.5rem]' },
+  { key: 'nf', header: 'NF', className: 'whitespace-nowrap min-w-[3rem]' },
   { key: 'product', header: 'Produto' },
-  { key: 'qty', header: 'Qtd' },
-  { key: 'priceChange', header: 'Alteração de preço' },
+  { key: 'qty', header: 'Qtd', className: 'text-center w-12' },
   { key: 'user', header: 'Responsável' },
 ];
 
@@ -661,7 +660,6 @@ export function EstoqueWorkspace() {
     null,
   );
 
-  const [movePage, setMovePage] = useState(1);
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsData, setMovementsData] = useState<Paginated<MovementRow> | null>(
     null,
@@ -1027,19 +1025,6 @@ export function EstoqueWorkspace() {
     });
   }, []);
 
-  useEffect(() => {
-    if (tab !== 'movements') return;
-    setMovePage(1);
-  }, [
-    tab,
-    moveFilterSearchDebounced,
-    moveTypeCardFilters,
-    moveFilterUserId,
-    moveFilterPeriod,
-    moveFilterDateFrom,
-    moveFilterDateTo,
-  ]);
-
   const buildMovementQueryParams = useCallback(
     (opts?: {
       page?: number;
@@ -1047,18 +1032,22 @@ export function EstoqueWorkspace() {
       includeTypeFilters?: boolean;
     }) => {
       const params = new URLSearchParams();
-      params.set('page', String(opts?.page ?? movePage));
+      params.set('page', String(opts?.page ?? 1));
 
       if (tab === 'movements') {
-        params.set('pageSize', String(opts?.pageSize ?? 25));
+        params.set('pageSize', String(opts?.pageSize ?? 100));
         if (moveFilterSearchDebounced.trim()) {
           params.set('search', moveFilterSearchDebounced.trim());
         }
-        if (opts?.includeTypeFilters !== false && moveTypeCardFilters.size > 0) {
-          params.set(
-            'types',
-            [...moveTypeCardFilters].sort().join(','),
-          );
+        if (opts?.includeTypeFilters !== false) {
+          if (moveTypeCardFilters.size > 0) {
+            params.set(
+              'types',
+              [...moveTypeCardFilters].sort().join(','),
+            );
+          } else {
+            params.set('types', 'entrada,saida');
+          }
         }
         if (moveFilterUserId) {
           params.set('userId', moveFilterUserId);
@@ -1077,7 +1066,6 @@ export function EstoqueWorkspace() {
       return params;
     },
     [
-      movePage,
       tab,
       moveFilterSearchDebounced,
       moveTypeCardFilters,
@@ -1118,13 +1106,36 @@ export function EstoqueWorkspace() {
     setMovementsLoading(true);
     setBannerError(null);
     try {
-      const params = buildMovementQueryParams();
-      const res = await erpFetchJson<Paginated<MovementRow>>(
-        `stock/movements?${params.toString()}`,
-      );
-      setMovementsData(res);
       if (tab === 'movements') {
+        const allRows: MovementRow[] = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+          const params = buildMovementQueryParams({ page, pageSize: 100 });
+          const res = await erpFetchJson<Paginated<MovementRow>>(
+            `stock/movements?${params.toString()}`,
+          );
+          allRows.push(...res.data);
+          totalPages = res.meta.totalPages;
+          page += 1;
+        } while (page <= totalPages);
+
+        setMovementsData({
+          data: allRows,
+          meta: {
+            total: allRows.length,
+            page: 1,
+            pageSize: allRows.length || 100,
+            totalPages: 1,
+          },
+        });
         await loadMovementsSummary();
+      } else {
+        const params = buildMovementQueryParams();
+        const res = await erpFetchJson<Paginated<MovementRow>>(
+          `stock/movements?${params.toString()}`,
+        );
+        setMovementsData(res);
       }
     } catch (e) {
       setBannerError(
@@ -1650,7 +1661,6 @@ export function EstoqueWorkspace() {
     setMoveFilterPeriod('month');
     setMoveFilterDateFrom('');
     setMoveFilterDateTo('');
-    setMovePage(1);
   };
 
   const exportMovementsCsv = async () => {
@@ -1917,7 +1927,7 @@ export function EstoqueWorkspace() {
               const type = item?.movementType ?? '';
               return (
                 <span
-                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${movementBadgeClass(type)}`}
+                  className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${movementBadgeClass(type)}`}
                 >
                   {value}
                 </span>
@@ -1954,7 +1964,6 @@ export function EstoqueWorkspace() {
           nf,
           product: `${m.product.name} (${m.product.sku})`,
           qty: String(m.quantity),
-          priceChange: parsePriceChangeLabel(m.reference, m.movementType),
           user: m.movedBy?.name ?? '—',
         },
       };
@@ -2322,7 +2331,6 @@ export function EstoqueWorkspace() {
       onClick={() => {
         setTab(id);
         setProductPage(1);
-        setMovePage(1);
         setBannerSuccess(null);
         setBannerError(null);
       }}
@@ -2466,14 +2474,14 @@ export function EstoqueWorkspace() {
           <table className="w-full min-w-[520px] border-collapse text-left text-sm">
             <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
               <tr>
-                <th className="px-3 py-2">Data/Hora</th>
-                <th className="px-3 py-2">Tipo de Movimento</th>
-                <th className="px-3 py-2">Quantidade</th>
-                <th className="px-3 py-2">Referência</th>
-                <th className="px-3 py-2">Responsável</th>
+                <th className="px-2 py-1">Data/Hora</th>
+                <th className="px-2 py-1">Tipo de Movimento</th>
+                <th className="px-2 py-1">Quantidade</th>
+                <th className="px-2 py-1">Referência</th>
+                <th className="px-2 py-1">Responsável</th>
                 {isAdmin ||
                 selectedMovements.some((m) => m.movementType === 'RESERVE') ? (
-                  <th className="px-3 py-2 text-right">Ações</th>
+                  <th className="px-2 py-1 text-right">Ações</th>
                 ) : null}
               </tr>
             </thead>
@@ -2483,9 +2491,9 @@ export function EstoqueWorkspace() {
                   key={m.id}
                   className={`border-b border-[var(--border-color)] ${idx % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'}`}
                 >
-                  <td className="px-3 py-2 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
-                  <td className="px-3 py-2">
-                    <span className={`rounded-full px-2 py-1 text-xs ${
+                  <td className="px-2 py-1 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
+                  <td className="px-2 py-1">
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${
                       m.movementType === 'INBOUND' ? 'bg-emerald-500/20 text-[var(--text-primary)]' :
                       m.movementType === 'OUTBOUND' ? 'bg-rose-500/20 text-[var(--text-primary)]' :
                       isAjusteMovementType(m.movementType) ? 'bg-amber-500/20 text-[var(--text-primary)]' :
@@ -2494,13 +2502,13 @@ export function EstoqueWorkspace() {
                       {MOVEMENT_LABEL[m.movementType] ?? m.movementType}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-[var(--text-primary)]">{m.quantity}</td>
-                  <td className="px-3 py-2 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
-                  <td className="px-3 py-2 text-[var(--text-primary)]">
+                  <td className="px-2 py-1 text-[var(--text-primary)]">{m.quantity}</td>
+                  <td className="px-2 py-1 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
+                  <td className="px-2 py-1 text-[var(--text-primary)]">
                     {m.movedBy?.name ?? currentUserName ?? '—'}
                   </td>
                   {isAdmin || m.movementType === 'RESERVE' ? (
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-1 text-right">
                       {renderMovementRowActions(m)}
                     </td>
                   ) : null}
@@ -2547,7 +2555,9 @@ export function EstoqueWorkspace() {
   return (
     <div
       className={`scroll-mt-8 pt-2 sm:pt-6 ${
-        tab === 'inventory' ? 'space-y-4' : 'space-y-9 sm:space-y-10'
+        tab === 'inventory' || tab === 'movements'
+          ? 'space-y-3'
+          : 'space-y-9 sm:space-y-10'
       }`}
     >
 
@@ -2889,8 +2899,8 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'movements' ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex max-h-[calc(100dvh-10.5rem)] flex-col gap-2 overflow-hidden">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--text-primary)]">
               Movimentações de estoque
             </h2>
@@ -2909,7 +2919,7 @@ export function EstoqueWorkspace() {
             </GlowButton>
           </div>
 
-          <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3">
+          <GlassCard className="shrink-0 border-[var(--border-color)] bg-[var(--bg-card)] p-2.5">
             <ErpFilterBar<MovementFilterPreset>
               storageKey={MOVEMENTS_FILTER_KEY}
               badges={movementFilterBadges}
@@ -2924,7 +2934,6 @@ export function EstoqueWorkspace() {
                 setMoveFilterPeriod(preset.period);
                 setMoveFilterDateFrom(preset.dateFrom);
                 setMoveFilterDateTo(preset.dateTo);
-                setMovePage(1);
               }}
               searchSlot={
                 <div className="relative erp-filter-search-slot">
@@ -3016,7 +3025,7 @@ export function EstoqueWorkspace() {
             </ErpFilterBar>
           </GlassCard>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4">
             <button
               type="button"
               onClick={() => toggleMoveTypeCardFilter('entrada')}
@@ -3026,15 +3035,15 @@ export function EstoqueWorkspace() {
                   : 'hover:ring-1 hover:ring-emerald-500/30'
               }`}
             >
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Total entradas
                 </p>
-                <p className="mt-1 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                <p className="mt-0.5 text-xl font-bold text-emerald-600 dark:text-emerald-400">
                   {movementsSummary?.totalInbound ?? 0}
                 </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-                <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
+                <p className="text-[10px] text-[var(--text-secondary)]">no período</p>
+                <PackagePlus className="mt-1.5 h-4 w-4 text-emerald-500" />
               </GlassCard>
             </button>
             <button
@@ -3046,15 +3055,15 @@ export function EstoqueWorkspace() {
                   : 'hover:ring-1 hover:ring-rose-500/30'
               }`}
             >
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Total saídas
                 </p>
-                <p className="mt-1 text-2xl font-bold text-rose-600 dark:text-rose-400">
+                <p className="mt-0.5 text-xl font-bold text-rose-600 dark:text-rose-400">
                   {movementsSummary?.totalOutbound ?? 0}
                 </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-                <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
+                <p className="text-[10px] text-[var(--text-secondary)]">no período</p>
+                <PackageMinus className="mt-1.5 h-4 w-4 text-rose-500" />
               </GlassCard>
             </button>
             <button
@@ -3067,19 +3076,19 @@ export function EstoqueWorkspace() {
               }`}
             >
               <GlassCard
-                className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm"
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-2 shadow-sm"
                 style={{ boxShadow: 'var(--shadow-card)' }}
               >
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Reservados
                 </p>
-                <p className="mt-1 text-2xl font-bold text-violet-600 dark:text-violet-400">
+                <p className="mt-0.5 text-xl font-bold text-violet-600 dark:text-violet-400">
                   {movementsSummary?.totalReserved ?? 0}
                 </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                <p className="text-[10px] text-[var(--text-secondary)]">
                   unidades (RESERVE / RESERVA) no período
                 </p>
-                <Bookmark className="mt-3 h-5 w-5 text-violet-500" />
+                <Bookmark className="mt-1.5 h-4 w-4 text-violet-500" />
               </GlassCard>
             </button>
             <button
@@ -3092,25 +3101,25 @@ export function EstoqueWorkspace() {
               }`}
             >
               <GlassCard
-                className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm"
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-2 shadow-sm"
                 style={{ boxShadow: 'var(--shadow-card)' }}
               >
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Ajustes
                 </p>
-                <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">
+                <p className="mt-0.5 text-xl font-bold text-amber-600 dark:text-amber-400">
                   {movementsSummary?.totalAdjustments ?? 0}
                 </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                <p className="text-[10px] text-[var(--text-secondary)]">
                   movimentações de ajuste no período
                 </p>
-                <SlidersHorizontal className="mt-3 h-5 w-5 text-amber-500" />
+                <SlidersHorizontal className="mt-1.5 h-4 w-4 text-amber-500" />
               </GlassCard>
             </button>
           </div>
 
           {movementsLoading ? (
-            <GlassCard className="flex items-center gap-2 p-6 text-xs text-zinc-400">
+            <GlassCard className="flex shrink-0 items-center gap-2 p-4 text-xs text-zinc-400">
               <Loader2 className="h-5 w-5 animate-spin" />
               Carregando movimentações...
             </GlassCard>
@@ -3120,13 +3129,15 @@ export function EstoqueWorkspace() {
               description="O histórico será preenchido conforme entradas, ajustes e reservas forem registrados no Inventário."
             />
           ) : (
-            <>
+            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
               <DataTablePremium
                 title="Histórico de movimentações"
-                subtitle={`${movementsData?.meta.total ?? 0} registro(s) — 25 por página · clique na linha para ver detalhes`}
+                subtitle={`${movementsData?.meta.total ?? 0} registro(s) · clique na linha para detalhes`}
                 columns={movementTableColumns}
                 rows={movementRows}
                 showStatusColumn={false}
+                dense
+                bodyClassName="max-h-full"
                 onRowClick={(row) => setMovementDetailId(row.id)}
                 actionsColumn={
                   isAdmin ||
@@ -3134,7 +3145,7 @@ export function EstoqueWorkspace() {
                     false)
                     ? {
                         header: 'Ações',
-                        columnClassName: 'w-36 min-w-[9rem]',
+                        columnClassName: 'w-24 min-w-[6rem]',
                         render: (row) => {
                           const item = movementsData?.data.find(
                             (m) => m.id === row.id,
@@ -3145,36 +3156,7 @@ export function EstoqueWorkspace() {
                     : undefined
                 }
               />
-              {movementsData && movementsData.meta.total > 0 ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
-                  <span>
-                    Página {movementsData.meta.page} de{' '}
-                    {Math.max(1, movementsData.meta.totalPages)} —{' '}
-                    {movementsData.meta.total} registro(s)
-                  </span>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <GlowButton
-                      variant="secondary"
-                      className="px-3 py-1.5 text-xs"
-                      disabled={movementsData.meta.page <= 1}
-                      onClick={() => setMovePage((p) => Math.max(1, p - 1))}
-                    >
-                      Anterior
-                    </GlowButton>
-                    <GlowButton
-                      variant="secondary"
-                      className="px-3 py-1.5 text-xs"
-                      disabled={
-                        movementsData.meta.page >= movementsData.meta.totalPages
-                      }
-                      onClick={() => setMovePage((p) => p + 1)}
-                    >
-                      Próxima
-                    </GlowButton>
-                  </div>
-                </div>
-              ) : null}
-            </>
+            </div>
           )}
         </div>
       ) : null}

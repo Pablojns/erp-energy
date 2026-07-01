@@ -2,7 +2,7 @@
 
 import { Loader2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
+import { formatBrlDisplay, formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
@@ -74,6 +74,22 @@ function DetailRow(props: { label: string; value: string | null | undefined }) {
   );
 }
 
+function parsePriceChangeLabel(
+  reference: string | null | undefined,
+  movementType: string,
+): string | null {
+  if (
+    !reference?.includes('|') ||
+    (movementType !== 'AJUSTE_PRECO_VENDA' &&
+      movementType !== 'AJUSTE_PRECO_BASE')
+  ) {
+    return null;
+  }
+  const [from, to] = reference.split('|');
+  if (!from || !to) return null;
+  return `De ${formatBrlDisplay(from)} para ${formatBrlDisplay(to)}`;
+}
+
 export function MovementOrderDetailModal(props: {
   movementId: string | null;
   onClose: () => void;
@@ -126,6 +142,9 @@ export function MovementOrderDetailModal(props: {
     movement?.invoiceNumber?.trim() ||
     movement?.reference?.trim() ||
     null;
+  const priceChangeLabel = movement
+    ? parsePriceChangeLabel(movement.reference, movement.movementType)
+    : null;
 
   return (
     <div
@@ -236,6 +255,9 @@ export function MovementOrderDetailModal(props: {
                   value={`${movement.product.name} (${movement.product.sku})`}
                 />
                 <DetailRow label="Quantidade" value={String(movement.quantity)} />
+                {priceChangeLabel ? (
+                  <DetailRow label="Alteração de preço" value={priceChangeLabel} />
+                ) : null}
                 <DetailRow label="Responsável" value={movement.movedBy?.name ?? '—'} />
                 {movement.notes?.trim() ? (
                   <DetailRow label="Observação" value={movement.notes} />

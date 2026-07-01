@@ -36,6 +36,10 @@ type DataTablePremiumProps = {
   /** @default true — listagens sem status (ex.: movimentações) */
   showStatusColumn?: boolean;
   onRowClick?: (row: TableRow) => void;
+  /** Rolagem vertical interna (ex.: histórico de movimentações) */
+  bodyClassName?: string;
+  /** Linhas mais compactas */
+  dense?: boolean;
   /** Coluna extra para botões (ex.: editar / inativar produto) */
   actionsColumn?: {
     header: string;
@@ -98,8 +102,13 @@ export function DataTablePremium({
   rows,
   showStatusColumn = true,
   onRowClick,
+  bodyClassName,
+  dense = false,
   actionsColumn,
 }: DataTablePremiumProps) {
+  const cellPad = dense ? 'px-1.5 py-0.5' : 'px-2 py-1';
+  const headPad = dense ? 'px-1.5 py-1' : 'px-2 py-1.5';
+  const headerPad = dense ? 'px-2 py-1.5' : 'px-3 py-2';
   const actionsAlign =
     actionsColumn?.align === 'center'
       ? 'text-center'
@@ -108,8 +117,11 @@ export function DataTablePremium({
         : 'text-right';
 
   return (
-    <GlassCard className="relative overflow-hidden border border-[var(--border-color)] bg-[var(--bg-card)] shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <div className="relative border-b border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2">
+    <GlassCard
+      className={`relative h-full overflow-hidden border border-[var(--border-color)] bg-[var(--bg-card)] shadow-sm${bodyClassName ? ' flex min-h-0 flex-col' : ''}`}
+      style={{ boxShadow: 'var(--shadow-card)' }}
+    >
+      <div className={`relative shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-card)] ${headerPad}`}>
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[var(--border-color)]"
           aria-hidden
@@ -120,7 +132,9 @@ export function DataTablePremium({
         ) : null}
       </div>
 
-      <div className="erp-scrollbar -mx-px overflow-x-auto">
+      <div
+        className={`erp-scrollbar -mx-px overflow-x-auto${bodyClassName ? ` min-h-0 flex-1 overflow-y-auto ${bodyClassName}` : ''}`}
+      >
         <table className="w-full min-w-[680px] border-separate border-spacing-0 text-left lg:min-w-0 lg:table-fixed">
           <colgroup>
             {columns.map((column) => (
@@ -153,7 +167,7 @@ export function DataTablePremium({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 backdrop-blur-sm first:rounded-tl-none ${column.className ?? ''}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] ${headPad} backdrop-blur-sm first:rounded-tl-none ${column.className ?? ''}`}
                   scope="col"
                 >
                   {column.header}
@@ -161,7 +175,7 @@ export function DataTablePremium({
               ))}
               {actionsColumn ? (
                 <th
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 backdrop-blur-sm ${actionsAlign}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] ${headPad} backdrop-blur-sm ${actionsAlign}`}
                   scope="col"
                 >
                   {actionsColumn.header}
@@ -169,7 +183,7 @@ export function DataTablePremium({
               ) : null}
               {showStatusColumn ? (
                 <th
-                  className="sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 text-right backdrop-blur-sm"
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] ${headPad} text-right backdrop-blur-sm`}
                   scope="col"
                 >
                   Status
@@ -200,7 +214,7 @@ export function DataTablePremium({
                 {columns.map((column) => (
                   <td
                     key={column.key}
-                    className={`max-w-0 border-b border-[var(--border-color)] px-2 py-1 align-middle transition duration-200 group-hover:border-[var(--border-color)] ${column.className ?? ''}`}
+                    className={`max-w-0 border-b border-[var(--border-color)] ${cellPad} align-middle transition duration-200 group-hover:border-[var(--border-color)] ${column.className ?? ''}`}
                   >
                     {column.renderCell ? (
                       <div className="min-w-0">{column.renderCell({
@@ -224,14 +238,14 @@ export function DataTablePremium({
                 ))}
                 {actionsColumn ? (
                   <td
-                    className={`border-b border-[var(--border-color)] px-2 py-1 align-middle transition duration-200 group-hover:border-[var(--border-color)] ${actionsAlign}`}
+                    className={`border-b border-[var(--border-color)] ${cellPad} align-middle transition duration-200 group-hover:border-[var(--border-color)] ${actionsAlign}`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     {actionsColumn.render(row)}
                   </td>
                 ) : null}
                 {showStatusColumn ? (
-                  <td className="border-b border-[var(--border-color)] px-2 py-1 text-right align-middle transition duration-200 group-hover:border-[var(--border-color)]">
+                  <td className={`border-b border-[var(--border-color)] ${cellPad} text-right align-middle transition duration-200 group-hover:border-[var(--border-color)]`}>
                     {row.status ? (
                       <div className="flex justify-end">
                         <StatusBadge
