@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable react-hooks/set-state-in-effect -- seleção/tabs sincronizam com atualização da fila */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AdminOrderEditModal } from '@/src/components/expedicao/workspace/admin-order-edit-modal';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
@@ -28,11 +28,14 @@ export function ExpeditionWorkspace(props: {
     mode: mode === 'separation' ? 'separation' : 'expedition',
     initialStatusFilter:
       initialStatusFilter ?? 'all',
+    initialOrderSource:
+      mode === 'orders' ? 'WEG_MERCADO_ELETRONICO' : 'all',
   });
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [siteOrderOpen, setSiteOrderOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE'>('WEG');
+  const prevSourceFilterRef = useRef(sourceFilter);
   const [adminEditOrder, setAdminEditOrder] = useState<OrderDto | null>(null);
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<OrderDto | null>(null);
@@ -72,12 +75,16 @@ export function ExpeditionWorkspace(props: {
 
   useEffect(() => {
     if (mode !== 'orders') return;
-    data.setPage(1);
-    data.setAppliedFilters((f) => ({
-      ...f,
-      source:
-        sourceFilter === 'WEG' ? 'WEG_MERCADO_ELETRONICO' : 'SITE',
-    }));
+    const nextSource =
+      sourceFilter === 'WEG' ? 'WEG_MERCADO_ELETRONICO' : 'SITE';
+    data.setAppliedFilters((f) => {
+      if (f.source === nextSource) return f;
+      return { ...f, source: nextSource };
+    });
+    if (prevSourceFilterRef.current !== sourceFilter) {
+      prevSourceFilterRef.current = sourceFilter;
+      data.setPage(1);
+    }
   }, [sourceFilter, mode, data.setPage, data.setAppliedFilters]);
 
   useEffect(() => {

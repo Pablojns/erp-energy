@@ -165,6 +165,8 @@ export type StatusFilterId =
 export type UseExpeditionOrdersOptions = {
   mode?: 'expedition' | 'separation';
   initialStatusFilter?: StatusFilterId;
+  /** Fonte padrão da fila (evita busca dupla no mount da aba Pedidos). */
+  initialOrderSource?: FilterFormState['source'];
 };
 
 export type BannerState = { variant: 'error' | 'success'; message: string };

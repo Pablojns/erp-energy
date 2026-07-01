@@ -36,8 +36,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     opts.initialStatusFilter ?? 'all',
   );
   const [page, setPage] = useState(1);
-  const [appliedFilters, setAppliedFilters] =
-    useState<FilterFormState>(INITIAL_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState<FilterFormState>(() => ({
+    ...INITIAL_FILTERS,
+    source: opts.initialOrderSource ?? INITIAL_FILTERS.source,
+  }));
   const [searchDebounced, setSearchDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);

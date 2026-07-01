@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   buildFilterParams,
   clientRefineOrders,
@@ -49,11 +49,24 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchPedidos = useCallback(
-    async (override?: { page?: number }, signal?: AbortSignal) => {
+  const fetchGenerationRef = useRef(0);
+
+  const runFetch = useCallback(
+    async (fetchOpts?: {
+      page?: number;
+      signal?: AbortSignal;
+      /** Força substituir a lista (ex.: refetch na página 1). */
+      replace?: boolean;
+    }) => {
       if (!enabled) return;
-      const effectivePage = override?.page ?? page;
-      const appendPage = infinite && effectivePage > 1 && override === undefined;
+
+      const generation = ++fetchGenerationRef.current;
+      const effectivePage = fetchOpts?.page ?? page;
+      const appendPage =
+        infinite &&
+        effectivePage > 1 &&
+        fetchOpts?.replace !== true &&
+        fetchOpts?.page === undefined;
 
       if (appendPage) {
         setLoadingMore(true);
@@ -61,6 +74,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
         setLoading(true);
       }
       setError(null);
+
       try {
         const searchDebounced = search.trim();
         const params = buildFilterParams({
@@ -74,8 +88,11 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
 
         const res = await erpFetchJson<PaginatedOrders>(
           `api/pedidos?${params.toString()}`,
-          { ...pedidosListFetchInit, signal },
+          { ...pedidosListFetchInit, signal: fetchOpts?.signal },
         );
+
+        if (generation !== fetchGenerationRef.current) return;
+
         const list = res.data.map((row) =>
           normalizePedidoFromApi(row as unknown as Record<string, unknown>),
         );
@@ -101,13 +118,17 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           setPedidos(refined);
         }
       } catch (e) {
+        if (generation !== fetchGenerationRef.current) return;
         if (e instanceof Error && e.name === 'AbortError') return;
+
         if (!appendPage) {
           setPedidos([]);
           setMeta(null);
         }
         setError(e instanceof Error ? e.message : 'Falha ao carregar pedidos.');
       } finally {
+        if (generation !== fetchGenerationRef.current) return;
+
         if (appendPage) {
           setLoadingMore(false);
         } else {
@@ -129,33 +150,39 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchPedidos(undefined, controller.signal);
-    return () => controller.abort();
-  }, [fetchPedidos]);
+    void runFetch({ signal: controller.signal });
+    return () => {
+      controller.abort();
+      fetchGenerationRef.current += 1;
+    };
+  }, [runFetch]);
 
   useEffect(() => {
     if (!enabled) return;
+
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
     const revalidate = () => {
-      void fetchPedidos(infinite ? { page: 1 } : undefined);
+      if (focusTimer) clearTimeout(focusTimer);
+      focusTimer = setTimeout(() => {
+        void runFetch({ page: 1, replace: true });
+      }, 400);
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') revalidate();
     };
+
     window.addEventListener('focus', revalidate);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
+      if (focusTimer) clearTimeout(focusTimer);
       window.removeEventListener('focus', revalidate);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [enabled, fetchPedidos, infinite]);
+  }, [enabled, runFetch]);
 
   const refetch = useCallback(async () => {
-    if (infinite) {
-      await fetchPedidos({ page: 1 });
-      return;
-    }
-    await fetchPedidos();
-  }, [fetchPedidos, infinite]);
+    await runFetch({ page: 1, replace: true });
+  }, [runFetch]);
 
   const hasMore =
     infinite && meta != null ? meta.page < meta.totalPages : false;
