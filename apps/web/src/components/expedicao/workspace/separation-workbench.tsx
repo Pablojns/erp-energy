@@ -106,6 +106,10 @@ export function SeparationWorkbench(props: {
     order.status === 'AGUARDANDO_NF' ||
     order.status === 'NF_ATRELADA';
   const shouldShowNfAction = mode === 'separation' && canGenerateExit;
+  const canRemessaExit =
+    mode === 'separation' &&
+    canGenerateExit &&
+    Boolean(order.notaRemessa?.trim());
   const shouldShowConcludeAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
   const shouldShowSaveAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
 
@@ -206,16 +210,35 @@ export function SeparationWorkbench(props: {
               </button>
             ) : null}
             {shouldShowNfAction ? (
-              <button
-                type="button"
-                className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
-                onClick={() => {
-                  setNfModalOpen(true);
-                }}
-              >
-                <FileText className="h-4 w-4" aria-hidden />
-                Gerar NF-e
-              </button>
+              <>
+                {canRemessaExit ? (
+                  <button
+                    type="button"
+                    className="exp-wb-btn exp-wb-btn--success exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
+                    onClick={() => {
+                      void data.attachRemessaExit(order.id).then((ok) => {
+                        if (ok) {
+                          setExitGenerated(true);
+                          onAfterAction?.();
+                        }
+                      });
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    Dar saída (Remessa)
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
+                  onClick={() => {
+                    setNfModalOpen(true);
+                  }}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Gerar NF-e
+                </button>
+              </>
             ) : null}
             {shouldShowSaveAction ? (
               <button

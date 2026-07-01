@@ -116,6 +116,11 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     await Promise.all([loadSummary(), refetchPedidos()]);
   }, [loadSummary, refetchPedidos]);
 
+  const refetchFromStart = useCallback(async () => {
+    setPage(1);
+    await Promise.all([loadSummary(), refetchPedidos()]);
+  }, [loadSummary, refetchPedidos]);
+
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
@@ -174,6 +179,34 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         variant: 'err',
         message: e instanceof Error ? e.message : 'Falha ao concluir separação.',
       });
+    }
+  }
+
+  async function attachRemessaExit(orderId: string) {
+    const order = orders.find((o) => o.id === orderId);
+    const numero = order ? numeroPedFromOrder(order) : null;
+    if (!numero) {
+      setToast({
+        variant: 'err',
+        message: 'Pedido sem número para registrar saída.',
+      });
+      return false;
+    }
+    try {
+      await erpFetchJson(pedidoApiUrl(numero, 'saida'), {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      await refreshAll();
+      window.dispatchEvent(new Event('expedition-refresh'));
+      setToast({ variant: 'ok', message: 'Saída registrada com nota de remessa.' });
+      return true;
+    } catch (e) {
+      setToast({
+        variant: 'err',
+        message: e instanceof Error ? e.message : 'Falha ao registrar saída.',
+      });
+      return false;
     }
   }
 
@@ -480,10 +513,12 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     setAppliedFilters,
     filterCounts,
     refreshAll,
+    refetchFromStart,
     reserveOrder,
     sendToPicking,
     markPicked,
     attachInvoiceOrder,
+    attachRemessaExit,
     finalizeExpeditionOrder,
     toggleOrderUrgent,
     markLineSeparated,

@@ -1118,6 +1118,19 @@ export function EstoqueWorkspace() {
   }, [tab, loadMovementUsers]);
 
   useEffect(() => {
+    if (tab !== 'movements') return;
+    void loadMovementsSummary();
+  }, [
+    tab,
+    loadMovementsSummary,
+    moveFilterPeriod,
+    moveFilterDateFrom,
+    moveFilterDateTo,
+    moveFilterSearchDebounced,
+    moveFilterUserId,
+  ]);
+
+  useEffect(() => {
     if (tab === 'movements' || tab === 'inventory' || tab === 'dashboard') {
       void loadMovements();
     }
@@ -2829,125 +2842,27 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'movements' ? (
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                Movimentações de estoque
-              </h2>
-              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
-                Histórico filtrável de entradas, saídas, ajustes e reservas.
-              </p>
-            </div>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              Movimentações de estoque
+            </h2>
             <GlowButton
               variant="secondary"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm"
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs"
               disabled={movementsExporting || movementsLoading}
               onClick={() => void exportMovementsCsv()}
             >
               {movementsExporting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" />
               )}
               Exportar CSV
             </GlowButton>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <button
-              type="button"
-              onClick={() => toggleMoveTypeCardFilter('entrada')}
-              className={`text-left rounded-2xl transition focus-visible:outline-none ${
-                moveTypeCardFilters.has('entrada')
-                  ? 'ring-2 ring-emerald-500/60 border-2 border-emerald-500/40'
-                  : 'hover:ring-1 hover:ring-emerald-500/30'
-              }`}
-            >
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                  Total entradas
-                </p>
-                <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {movementsSummary?.totalInbound ?? 0}
-                </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-                <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
-              </GlassCard>
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleMoveTypeCardFilter('saida')}
-              className={`text-left rounded-2xl transition focus-visible:outline-none ${
-                moveTypeCardFilters.has('saida')
-                  ? 'ring-2 ring-rose-500/60 border-2 border-rose-500/40'
-                  : 'hover:ring-1 hover:ring-rose-500/30'
-              }`}
-            >
-              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                  Total saídas
-                </p>
-                <p className="mt-2 text-3xl font-bold text-rose-600 dark:text-rose-400">
-                  {movementsSummary?.totalOutbound ?? 0}
-                </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
-                <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
-              </GlassCard>
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleMoveTypeCardFilter('reserva')}
-              className={`text-left rounded-2xl transition focus-visible:outline-none ${
-                moveTypeCardFilters.has('reserva')
-                  ? 'ring-2 ring-violet-500/60 border-2 border-violet-500/40'
-                  : 'hover:ring-1 hover:ring-violet-500/30'
-              }`}
-            >
-              <GlassCard
-                className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm"
-                style={{ boxShadow: 'var(--shadow-card)' }}
-              >
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                  Reservados
-                </p>
-                <p className="mt-2 text-3xl font-bold text-violet-600 dark:text-violet-400">
-                  {movementsSummary?.totalReserved ?? 0}
-                </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  unidades (RESERVE / RESERVA) no período
-                </p>
-                <Bookmark className="mt-3 h-5 w-5 text-violet-500" />
-              </GlassCard>
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleMoveTypeCardFilter('ajuste')}
-              className={`text-left rounded-2xl transition focus-visible:outline-none ${
-                moveTypeCardFilters.has('ajuste')
-                  ? 'ring-2 ring-amber-500/60 border-2 border-amber-500/40'
-                  : 'hover:ring-1 hover:ring-amber-500/30'
-              }`}
-            >
-              <GlassCard
-                className="border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-sm"
-                style={{ boxShadow: 'var(--shadow-card)' }}
-              >
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                  Ajustes
-                </p>
-                <p className="mt-2 text-3xl font-bold text-amber-600 dark:text-amber-400">
-                  {movementsSummary?.totalAdjustments ?? 0}
-                </p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  movimentações de ajuste no período
-                </p>
-                <SlidersHorizontal className="mt-3 h-5 w-5 text-amber-500" />
-              </GlassCard>
-            </button>
-          </div>
-
-          <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3">
             <ErpFilterBar<MovementFilterPreset>
               storageKey={MOVEMENTS_FILTER_KEY}
               badges={movementFilterBadges}
@@ -2966,23 +2881,23 @@ export function EstoqueWorkspace() {
               }}
               searchSlot={
                 <div className="relative erp-filter-search-slot">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
                   <input
                     value={moveFilterSearch}
                     onChange={(e) => setMoveFilterSearch(e.target.value)}
                     placeholder="Buscar produto..."
-                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                    className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-1.5 pl-9 pr-3 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   />
                 </div>
               }
             >
-              <div className="erp-filter-option-grid">
+              <div className="flex flex-wrap gap-1.5">
                 {(Object.keys(MOVE_TYPE_LABEL) as MoveTypeCardFilter[]).map((type) => (
                   <button
                     key={type}
                     type="button"
                     onClick={() => toggleMoveTypeCardFilter(type)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${
                       moveTypeCardFilters.has(type)
                         ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
                         : 'border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)]'
@@ -3029,24 +2944,24 @@ export function EstoqueWorkspace() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                      Data início
+                      De
                     </label>
                     <input
                       type="date"
                       value={moveFilterDateFrom}
                       onChange={(e) => setMoveFilterDateFrom(e.target.value)}
-                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                      Data fim
+                      Até
                     </label>
                     <input
                       type="date"
                       value={moveFilterDateTo}
                       onChange={(e) => setMoveFilterDateTo(e.target.value)}
-                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                      className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                     />
                   </div>
                 </div>
@@ -3054,16 +2969,101 @@ export function EstoqueWorkspace() {
             </ErpFilterBar>
           </GlassCard>
 
-          <div className="rounded-2xl border border-white/[0.09] bg-gradient-to-br from-white/[0.04] via-transparent to-violet-500/[0.06] p-4 sm:p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Histórico
-            </p>
-            <p className="mt-1 text-xs text-zinc-400">
-              Consulta e filtros — registre movimentações pelo Inventário.
-            </p>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('entrada')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('entrada')
+                  ? 'ring-2 ring-emerald-500/60 border-2 border-emerald-500/40'
+                  : 'hover:ring-1 hover:ring-emerald-500/30'
+              }`}
+            >
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                  Total entradas
+                </p>
+                <p className="mt-1 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {movementsSummary?.totalInbound ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+                <PackagePlus className="mt-3 h-5 w-5 text-emerald-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('saida')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('saida')
+                  ? 'ring-2 ring-rose-500/60 border-2 border-rose-500/40'
+                  : 'hover:ring-1 hover:ring-rose-500/30'
+              }`}
+            >
+              <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                  Total saídas
+                </p>
+                <p className="mt-1 text-2xl font-bold text-rose-600 dark:text-rose-400">
+                  {movementsSummary?.totalOutbound ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">no período</p>
+                <PackageMinus className="mt-3 h-5 w-5 text-rose-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('reserva')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('reserva')
+                  ? 'ring-2 ring-violet-500/60 border-2 border-violet-500/40'
+                  : 'hover:ring-1 hover:ring-violet-500/30'
+              }`}
+            >
+              <GlassCard
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm"
+                style={{ boxShadow: 'var(--shadow-card)' }}
+              >
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                  Reservados
+                </p>
+                <p className="mt-1 text-2xl font-bold text-violet-600 dark:text-violet-400">
+                  {movementsSummary?.totalReserved ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  unidades (RESERVE / RESERVA) no período
+                </p>
+                <Bookmark className="mt-3 h-5 w-5 text-violet-500" />
+              </GlassCard>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMoveTypeCardFilter('ajuste')}
+              className={`text-left rounded-2xl transition focus-visible:outline-none ${
+                moveTypeCardFilters.has('ajuste')
+                  ? 'ring-2 ring-amber-500/60 border-2 border-amber-500/40'
+                  : 'hover:ring-1 hover:ring-amber-500/30'
+              }`}
+            >
+              <GlassCard
+                className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm"
+                style={{ boxShadow: 'var(--shadow-card)' }}
+              >
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                  Ajustes
+                </p>
+                <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">
+                  {movementsSummary?.totalAdjustments ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  movimentações de ajuste no período
+                </p>
+                <SlidersHorizontal className="mt-3 h-5 w-5 text-amber-500" />
+              </GlassCard>
+            </button>
           </div>
+
           {movementsLoading ? (
-            <GlassCard className="flex items-center gap-2 p-8 text-sm text-zinc-400">
+            <GlassCard className="flex items-center gap-2 p-6 text-xs text-zinc-400">
               <Loader2 className="h-5 w-5 animate-spin" />
               Carregando movimentações...
             </GlassCard>

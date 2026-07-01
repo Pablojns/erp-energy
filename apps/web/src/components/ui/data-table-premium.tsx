@@ -107,12 +107,12 @@ export function DataTablePremium({
 
   return (
     <GlassCard className="relative overflow-hidden border border-[var(--border-color)] bg-[var(--bg-card)] shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <div className="relative border-b border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-3 sm:px-5 sm:py-4">
+      <div className="relative border-b border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[var(--border-color)]"
           aria-hidden
         />
-        <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">{title}</h3>
+        <h3 className="text-xs font-semibold tracking-tight text-[var(--text-primary)]">{title}</h3>
         {subtitle ? (
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{subtitle}</p>
         ) : null}
@@ -151,7 +151,7 @@ export function DataTablePremium({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 backdrop-blur-sm first:rounded-tl-none sm:px-5 sm:py-3.5 ${column.className ?? ''}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 backdrop-blur-sm first:rounded-tl-none ${column.className ?? ''}`}
                   scope="col"
                 >
                   {column.header}
@@ -159,7 +159,7 @@ export function DataTablePremium({
               ))}
               {actionsColumn ? (
                 <th
-                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 backdrop-blur-sm sm:px-5 sm:py-3.5 ${actionsAlign}`}
+                  className={`sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 backdrop-blur-sm ${actionsAlign}`}
                   scope="col"
                 >
                   {actionsColumn.header}
@@ -167,7 +167,7 @@ export function DataTablePremium({
               ) : null}
               {showStatusColumn ? (
                 <th
-                  className="sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2.5 text-right backdrop-blur-sm sm:px-5 sm:py-3.5"
+                  className="sticky top-0 z-[1] border-b border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 text-right backdrop-blur-sm"
                   scope="col"
                 >
                   Status
@@ -176,7 +176,7 @@ export function DataTablePremium({
             </tr>
           </thead>
 
-          <tbody className="text-[13px]">
+          <tbody className="text-xs">
             {rows.map((row, index) => (
               <tr
                 key={row.id}
@@ -185,7 +185,7 @@ export function DataTablePremium({
                 {columns.map((column) => (
                   <td
                     key={column.key}
-                    className={`max-w-0 border-b border-[var(--border-color)] px-3 py-2.5 align-middle transition duration-200 group-hover:border-[var(--border-color)] sm:px-5 sm:py-3.5 ${column.className ?? ''}`}
+                    className={`max-w-0 border-b border-[var(--border-color)] px-2 py-1 align-middle transition duration-200 group-hover:border-[var(--border-color)] ${column.className ?? ''}`}
                   >
                     {column.renderCell ? (
                       <div className="min-w-0">{column.renderCell({
@@ -209,13 +209,13 @@ export function DataTablePremium({
                 ))}
                 {actionsColumn ? (
                   <td
-                    className={`border-b border-[var(--border-color)] px-3 py-3.5 align-middle transition duration-200 group-hover:border-[var(--border-color)] sm:px-4 ${actionsAlign}`}
+                    className={`border-b border-[var(--border-color)] px-2 py-1 align-middle transition duration-200 group-hover:border-[var(--border-color)] ${actionsAlign}`}
                   >
                     {actionsColumn.render(row)}
                   </td>
                 ) : null}
                 {showStatusColumn ? (
-                  <td className="border-b border-[var(--border-color)] px-4 py-3.5 text-right align-middle transition duration-200 group-hover:border-[var(--border-color)] sm:px-5">
+                  <td className="border-b border-[var(--border-color)] px-2 py-1 text-right align-middle transition duration-200 group-hover:border-[var(--border-color)]">
                     {row.status ? (
                       <div className="flex justify-end">
                         <StatusBadge

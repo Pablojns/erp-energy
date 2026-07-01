@@ -23,6 +23,11 @@ export class PedidosUpdateStatusDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(64)
+  invoiceNumber?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   notaRemessa?: string;
 

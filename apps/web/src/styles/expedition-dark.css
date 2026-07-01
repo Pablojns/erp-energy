@@ -806,12 +806,12 @@
   align-items: stretch;
   width: 100%;
   min-width: 0;
-  min-height: 132px;
+  min-height: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  padding: 0.65rem 0.75rem 0.5rem;
+  padding: 0.5rem 0.65rem 0.4rem;
   text-align: left;
   overflow: hidden;
   cursor: pointer;
@@ -956,8 +956,8 @@
 .exp-queue-status-badge {
   align-self: flex-start;
   border-radius: 0.35rem;
-  padding: 0.2rem 0.45rem;
-  font-size: 9px;
+  padding: 0.15rem 0.4rem;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1437,8 +1437,8 @@
 
 .exp-wb-order-badge {
   border-radius: 0.35rem;
-  padding: 0.15rem 0.45rem;
-  font-size: 10px;
+  padding: 0.12rem 0.4rem;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.03em;
   border: 1px solid transparent;
@@ -1661,6 +1661,20 @@
   border-color: #22c55e40;
 }
 
+.exp-wb-order-data-card--finalized .exp-wb-order-header-value,
+.exp-wb-order-data-card--finalized .exp-wb-order-number,
+.exp-wb-order-data-card--finalized input,
+.exp-wb-order-data-card--finalized .exp-wb-order-badge {
+  color: #22c55e !important;
+  border-color: #22c55e40;
+}
+
+.exp-wb-order-data-card--finalized input {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.95;
+}
+
 .exp-wb-order-badge--late {
   background: #f59e0b20;
   color: #f59e0b;
@@ -1793,7 +1807,7 @@
   border-radius: 0.65rem;
   border: 1px solid var(--exp-border);
   background: var(--exp-card);
-  padding: 0.85rem 1rem;
+  padding: 0.75rem;
 }
 
 .exp-wb-section-title {
@@ -1971,7 +1985,7 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-order-data-card.exp-wb-order-data-card--blocks {
-  padding: 12px 16px;
+  padding: 0.75rem;
   overflow: visible;
   background: var(--bg-card);
   border: 1px solid var(--color-border-tertiary, var(--border-color));
@@ -1981,15 +1995,15 @@ button.exp-wb-chip:hover {
 .exp-wb-order-header-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .exp-wb-order-header-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
   flex-wrap: wrap;
   padding: 0;
   margin-bottom: 0;
@@ -1997,7 +2011,7 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-order-header-block {
-  padding: 12px 16px;
+  padding: 8px 10px;
   border: 1px solid var(--color-border-tertiary, var(--border-color));
   border-radius: 8px;
   background: var(--color-background-secondary, var(--input-bg));
@@ -2006,7 +2020,7 @@ button.exp-wb-chip:hover {
 .exp-wb-order-header-row {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -2027,7 +2041,7 @@ button.exp-wb-chip:hover {
   font-weight: 500;
   color: var(--color-text-primary, var(--text-primary));
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .exp-wb-order-header-value {
@@ -2040,19 +2054,19 @@ button.exp-wb-chip:hover {
 .exp-wb-order-header-obs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .exp-wb-order-header-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 .exp-wb-order-header-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -2231,7 +2245,7 @@ button.exp-wb-chip:hover {
 
 .exp-wb-table-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--exp-text);
 }
@@ -2285,7 +2299,7 @@ button.exp-wb-chip:hover {
   display: inline-block;
   border-radius: 0.3rem;
   padding: 0.1rem 0.35rem;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.03em;
 }
@@ -2490,9 +2504,9 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-table thead th {
-  padding: 0.55rem 0.65rem;
+  padding: 0.25rem 0.5rem;
   text-align: left;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2503,13 +2517,13 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-table tbody td {
-  padding: 0.55rem 0.65rem;
+  padding: 0.25rem 0.5rem;
   border-bottom: 1px solid var(--exp-border);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 400;
   vertical-align: middle;
-  min-height: 52px;
+  min-height: 0;
 }
 
 .exp-wb-table tbody tr:hover {

@@ -3,7 +3,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 body { overflow-x: hidden; }
-html { font-size: clamp(13px, 1.1vw, 16px); }
+html { font-size: clamp(12px, 0.95vw, 14px); }
 img, video, svg { max-width: 100%; height: auto; }
 
 /* altura real no mobile (Safari não engole a barra) */
@@ -555,6 +555,8 @@ body {
   background: var(--erp-nav-bg);
   color: var(--erp-nav-fg);
   transition: all 0.2s ease;
+  padding: 0.4rem 0.5rem;
+  gap: 0.35rem;
 }
 
 .erp-nav-link:hover {

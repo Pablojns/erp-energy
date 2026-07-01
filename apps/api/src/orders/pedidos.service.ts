@@ -524,6 +524,9 @@ export class PedidosService {
     if (dto.notaRemessa !== undefined) {
       data.notaRemessa = dto.notaRemessa.trim() || null;
     }
+    if (dto.invoiceNumber !== undefined) {
+      data.invoiceNumber = dto.invoiceNumber.trim() || null;
+    }
     if (dto.notaRemessaConfirmada !== undefined) {
       (data as Prisma.OrderUpdateInput & { notaRemessaConfirmada?: boolean }).notaRemessaConfirmada =
         dto.notaRemessaConfirmada;
@@ -571,15 +574,24 @@ export class PedidosService {
   async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroPed.trim() },
-      select: { id: true },
+      select: { id: true, notaRemessa: true, notaRemessaConfirmada: true },
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
-    const nf = this.readInvoiceNumber(dto);
+    let nf = this.readInvoiceNumber(dto);
     if (!nf) {
-      throw new BadRequestException('Informe o número da NF-e.');
+      const remessa = order.notaRemessa?.trim();
+      if (remessa) {
+        nf = remessa;
+      }
     }
-    if (!/^\d{1,9}$/.test(nf)) {
+    if (!nf) {
+      throw new BadRequestException(
+        'Informe a Nota de Venda ou preencha a Nota de Remessa no pedido.',
+      );
+    }
+    const fromDto = Boolean(this.readInvoiceNumber(dto));
+    if (fromDto && !/^\d{1,9}$/.test(nf)) {
       throw new BadRequestException('NF-e deve ter de 1 a 9 dígitos numéricos.');
     }
     return this.orders.generateExitFromInvoice(order.id, userId, { invoiceNumber: nf });

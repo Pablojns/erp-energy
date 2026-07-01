@@ -89,14 +89,14 @@ export function TopNavigation({ user }: TopNavigationProps) {
                 key={item.href}
                 href={item.href}
                 data-active={active ? 'true' : 'false'}
-                className="erp-nav-link erp-focus-ring relative flex min-w-[4.5rem] shrink-0 flex-col items-center gap-1.5 rounded-2xl px-2 py-2.5 text-center outline-none sm:min-w-[5.25rem] sm:gap-2 sm:px-2.5 sm:py-3"
+                className="erp-nav-link erp-focus-ring relative flex min-w-[4rem] shrink-0 flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-center outline-none sm:min-w-[4.5rem] sm:px-2"
               >
                 <Icon
-                  className="erp-nav-icon relative z-10 h-[18px] w-[18px] sm:h-5 sm:w-5"
+                  className="erp-nav-icon relative z-10 h-4 w-4 sm:h-[18px] sm:w-[18px]"
                   strokeWidth={active ? 2 : 1.75}
                   aria-hidden
                 />
-                <span className="relative z-10 max-w-[4.75rem] truncate text-[10px] font-medium leading-tight sm:max-w-[5.5rem] sm:text-[11px]">
+                <span className="relative z-10 max-w-[4.25rem] truncate text-[10px] font-medium leading-tight sm:max-w-[5rem] sm:text-xs">
                   {item.label}
                 </span>
               </Link>

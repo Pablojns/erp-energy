@@ -430,7 +430,13 @@ export class StockService implements OnModuleInit {
         this.prisma.client.stockMovement.aggregate({
           where: {
             ...baseWhere,
-            movementType: StockMovementType.OUTBOUND,
+            movementType: {
+              in: [
+                StockMovementType.OUTBOUND,
+                StockMovementType.SAIDA_EXPEDICAO,
+                StockMovementType.BAIXA_EXPEDICAO,
+              ],
+            },
           },
           _sum: { quantity: true },
         }),

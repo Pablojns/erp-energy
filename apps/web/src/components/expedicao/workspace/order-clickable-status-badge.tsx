@@ -27,8 +27,9 @@ const MANUAL_STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
 export function OrderClickableStatusBadge(props: {
   order: OrderDto;
   onStatusChanged?: () => void;
+  readOnly?: boolean;
 }) {
-  const { order, onStatusChanged } = props;
+  const { order, onStatusChanged, readOnly = false } = props;
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<OrderStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -86,6 +87,17 @@ export function OrderClickableStatusBadge(props: {
       setSaving(false);
     }
   };
+
+  if (readOnly) {
+    return (
+      <span
+        className="exp-wb-order-badge"
+        style={orderWorkflowCardBadgeStyle(badge.color)}
+      >
+        {badge.label}
+      </span>
+    );
+  }
 
   if (pending !== null) {
     const currentLabel = formatOrderStatusLabel(order.status);

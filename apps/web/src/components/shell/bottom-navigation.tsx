@@ -74,11 +74,11 @@ export function BottomNavigation() {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`inline-flex h-full min-h-[44px] w-full min-w-[44px] flex-col items-center justify-center gap-0.5 text-[11px] ${
+                  className={`inline-flex h-full min-h-[40px] w-full min-w-[40px] flex-col items-center justify-center gap-0.5 text-xs ${
                     active ? 'text-[#5b5ef4]' : 'text-white'
                   }`}
                 >
-                  <Icon className="h-[18px] w-[18px]" />
+                  <Icon className="h-4 w-4" />
                   <span>{item.label}</span>
                 </Link>
               </li>
@@ -88,11 +88,11 @@ export function BottomNavigation() {
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className={`inline-flex h-full min-h-[44px] w-full min-w-[44px] flex-col items-center justify-center gap-0.5 text-[11px] ${
+              className={`inline-flex h-full min-h-[40px] w-full min-w-[40px] flex-col items-center justify-center gap-0.5 text-xs ${
                 open ? 'text-[#5b5ef4]' : 'text-white'
               }`}
             >
-              <Menu className="h-[18px] w-[18px]" />
+              <Menu className="h-4 w-4" />
               <span>Menu</span>
             </button>
           </li>

@@ -26,8 +26,8 @@ export function SeparationItemsTable(props: {
 
   return (
     <div className="exp-wb-table-wrap">
-      <div className="exp-wb-table-head !px-3 !py-2">
-        <h3 className="text-sm font-semibold">
+      <div className="exp-wb-table-head !px-3 !py-1.5">
+        <h3 className="text-xs font-semibold">
           {isOrdersMode ? 'Itens do pedido (leitura)' : 'Itens para separação'}
         </h3>
         {isOrdersMode && receiptSummary.recebidos + receiptSummary.emFalta > 0 ? (
@@ -44,7 +44,7 @@ export function SeparationItemsTable(props: {
       </div>
       <div className="exp-wb-table-scroll">
         <table
-          className={`exp-wb-table text-xs [&_thead_th]:!px-2 [&_thead_th]:!py-1.5 [&_thead_th]:!text-xs [&_tbody_td]:!px-2 [&_tbody_td]:!py-1.5 [&_tbody_td]:!text-xs [&_tbody_td]:!min-h-0 ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
+          className={`exp-wb-table text-xs [&_thead_th]:!px-2 [&_thead_th]:!py-1 [&_thead_th]:!text-xs [&_tbody_td]:!px-2 [&_tbody_td]:!py-1 [&_tbody_td]:!text-xs [&_tbody_td]:!min-h-0 ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
         >
           <colgroup>
             <col className="exp-wb-col-linha" />

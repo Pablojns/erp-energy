@@ -5,7 +5,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { normalizePedidoFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 type CadastroOption = {
   id: string;
@@ -98,6 +98,23 @@ function formatCustomerLabel(c: CadastroOption) {
 
 function lineNumberForIndex(index: number) {
   return (index + 1) * 10;
+}
+
+function normalizeProductSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function productMatchesSearch(product: ProductOption, query: string): boolean {
+  const normalizedQuery = normalizeProductSearchText(query);
+  if (!normalizedQuery) return true;
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const haystack = normalizeProductSearchText(`${product.sku} ${product.name}`);
+  return tokens.every((token) => haystack.includes(token));
 }
 
 type OrderFormSnapshot = {
@@ -392,7 +409,7 @@ function DatePickerField(props: {
 export function NewOrderModal(props: {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (order?: OrderDto) => void;
   editOrder?: OrderDto | null;
 }) {
   const { isOpen, onClose, onCreated, editOrder = null } = props;
@@ -412,6 +429,7 @@ export function NewOrderModal(props: {
   const [notes, setNotes] = useState('');
   const [isUrgentManual, setIsUrgentManual] = useState(false);
   const [items, setItems] = useState<OrderItemForm[]>([newItemRow()]);
+  const [productSearch, setProductSearch] = useState<Record<string, string>>({});
 
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -468,6 +486,7 @@ export function NewOrderModal(props: {
     setNotes('');
     setIsUrgentManual(false);
     setItems([newItemRow()]);
+    setProductSearch({});
     setFieldErrors({});
     setSubmitError(null);
     setSaving(false);
@@ -579,17 +598,18 @@ export function NewOrderModal(props: {
       if (!numeroPed) {
         throw new Error('Número do pedido não encontrado.');
       }
-      await erpFetchJson(pedidoApiUrl(numeroPed), {
+      const updated = await erpFetchJson<Record<string, unknown>>(pedidoApiUrl(numeroPed), {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
+      onCreated(normalizePedidoFromApi(updated));
     } else {
-      await erpFetchJson('api/pedidos', {
+      const created = await erpFetchJson<Record<string, unknown>>('api/pedidos', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      onCreated(normalizePedidoFromApi(created));
     }
-    onCreated();
     onClose();
   };
 
@@ -904,6 +924,12 @@ export function NewOrderModal(props: {
                 const rowErrors = fieldErrors.itemRows?.[row.key];
                 const selectedProduct = productById(row.productId);
                 const lineNo = lineNumberForIndex(index);
+                const searchQuery = productSearch[row.key] ?? '';
+                const filteredProducts = products.filter(
+                  (product) =>
+                    product.id === row.productId ||
+                    productMatchesSearch(product, searchQuery),
+                );
 
                 return (
                   <div key={row.key}>
@@ -941,6 +967,19 @@ export function NewOrderModal(props: {
                         <span className="mb-1 block text-xs text-[var(--text-muted)] sm:sr-only">
                           Produto
                         </span>
+                        <input
+                          type="search"
+                          value={searchQuery}
+                          onChange={(e) => {
+                            setProductSearch((prev) => ({
+                              ...prev,
+                              [row.key]: e.target.value,
+                            }));
+                          }}
+                          placeholder="Buscar produto (ex.: polo p)"
+                          disabled={saving || loadingOptions}
+                          className={`${fieldClass()} mb-1.5`}
+                        />
                         <select
                           value={row.productId}
                           onChange={(e) => {
@@ -958,10 +997,14 @@ export function NewOrderModal(props: {
                           className={fieldClass(Boolean(rowErrors?.productId))}
                           disabled={saving || loadingOptions}
                         >
-                          <option value="">Selecione o produto</option>
-                          {products.map((p) => (
+                          <option value="">
+                            {filteredProducts.length === 0
+                              ? 'Nenhum produto encontrado'
+                              : 'Selecione o produto'}
+                          </option>
+                          {filteredProducts.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name}
+                              {p.sku} — {p.name}
                             </option>
                           ))}
                         </select>

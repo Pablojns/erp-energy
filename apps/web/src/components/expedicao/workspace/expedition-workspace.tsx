@@ -212,8 +212,20 @@ export function ExpeditionWorkspace(props: {
               setNewOrderOpen(false);
               setEditOrder(null);
             }}
-            onCreated={() => {
-              void data.refreshAll();
+            onCreated={async (created) => {
+              data.setStatusFilter('all');
+              data.setPage(1);
+              data.setAppliedFilters((f) => ({
+                ...f,
+                source: 'all',
+                search: '',
+              }));
+              await data.refetchFromStart();
+              window.dispatchEvent(new Event('expedition-refresh'));
+              if (created?.id) {
+                setSelectedOrderId(created.id);
+                setActiveTab('detalhes');
+              }
               data.setToast({
                 variant: 'ok',
                 message: editOrder

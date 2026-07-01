@@ -40,7 +40,7 @@ function HeaderField(props: { label: string; children: ReactNode }) {
   return (
     <div className="exp-wb-order-header-field gap-1">
       <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}</span>
-      <div className="exp-wb-order-header-value text-xs">{children}</div>
+      <div className="exp-wb-order-header-value text-sm">{children}</div>
     </div>
   );
 }
@@ -56,7 +56,7 @@ function HeaderPair(props: {
       className={`exp-wb-order-header-pair${align === 'end' ? ' exp-wb-order-header-pair--end' : ''}`}
     >
       <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}:</span>
-      <span className="exp-wb-order-header-value text-xs">{value}</span>
+      <span className="exp-wb-order-header-value text-sm">{value}</span>
     </div>
   );
 }
@@ -106,17 +106,24 @@ export const OrderInfoPanel = forwardRef<
   const notaVenda = order.invoiceNumber?.trim() || null;
   const isFinalized =
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
+  const carrierLocked =
+    !isOrdersMode && Boolean(order.carrierId?.trim());
+  const fieldsReadOnly = isFinalized;
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [notaRemessa, setNotaRemessa] = useState(order.notaRemessa ?? '');
+  const [notaVendaInput, setNotaVendaInput] = useState(order.invoiceNumber ?? '');
   const [notaRemessaConfirmada, setNotaRemessaConfirmada] = useState(
     order.notaRemessaConfirmada ?? false,
   );
   const [savingNotaRemessa, setSavingNotaRemessa] = useState(false);
+  const [savingNotaVenda, setSavingNotaVenda] = useState(false);
   const [notaRemessaError, setNotaRemessaError] = useState<string | null>(null);
+  const [notaVendaError, setNotaVendaError] = useState<string | null>(null);
   const lastSavedNotaRemessaRef = useRef(order.notaRemessa ?? '');
   const lastSavedNotaRemessaConfirmadaRef = useRef(order.notaRemessaConfirmada ?? false);
+  const lastSavedNotaVendaRef = useRef(order.invoiceNumber ?? '');
 
   const [volumesInput, setVolumesInput] = useState(
     order.volumes != null ? String(order.volumes) : '',
@@ -128,12 +135,16 @@ export const OrderInfoPanel = forwardRef<
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
     const confirmed = order.notaRemessaConfirmada ?? false;
+    const invoice = order.invoiceNumber ?? '';
     setNotaRemessa(initial);
+    setNotaVendaInput(invoice);
     setNotaRemessaConfirmada(confirmed);
     lastSavedNotaRemessaRef.current = initial;
     lastSavedNotaRemessaConfirmadaRef.current = confirmed;
+    lastSavedNotaVendaRef.current = invoice;
     setNotaRemessaError(null);
-  }, [order.id, order.notaRemessa, order.notaRemessaConfirmada]);
+    setNotaVendaError(null);
+  }, [order.id, order.notaRemessa, order.notaRemessaConfirmada, order.invoiceNumber]);
 
   useEffect(() => {
     const initial = order.volumes ?? null;
@@ -219,6 +230,40 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
+  const saveNotaVenda = async () => {
+    const trimmed = notaVendaInput.trim();
+    const persisted = trimmed || null;
+    const lastPersisted = lastSavedNotaVendaRef.current.trim() || null;
+
+    if (persisted === lastPersisted && !savingNotaVenda) {
+      return;
+    }
+
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setNotaVendaError('Número do pedido inválido.');
+      return;
+    }
+
+    setSavingNotaVenda(true);
+    setNotaVendaError(null);
+    const previous = lastSavedNotaVendaRef.current;
+
+    try {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
+        method: 'PATCH',
+        body: JSON.stringify({ invoiceNumber: trimmed }),
+      });
+      lastSavedNotaVendaRef.current = trimmed;
+      onNotaRemessaSaved?.(persisted);
+    } catch {
+      setNotaVendaInput(previous);
+      setNotaVendaError('Não foi possível salvar.');
+    } finally {
+      setSavingNotaVenda(false);
+    }
+  };
+
   const saveVolumes = async (value: number): Promise<boolean> => {
     if (lastSavedVolumesRef.current === value || savingVolumes) return true;
 
@@ -257,10 +302,18 @@ export const OrderInfoPanel = forwardRef<
   }));
 
   const inputClassName =
-    'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
+    'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
+
+  const finalizedValueClass = isFinalized
+    ? 'text-emerald-400 font-semibold'
+    : 'text-[var(--text-primary)]';
 
   return (
-    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-2 !p-3">
+    <div
+      className={`exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-1.5 !p-3${
+        isFinalized ? ' exp-wb-order-data-card--finalized' : ''
+      }`}
+    >
       {order.linkedOrderId && order.source === 'WEG_MERCADO_ELETRONICO' ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           Este pedido já foi enviado via saída urgente. Apenas emita a NF.
@@ -274,7 +327,11 @@ export const OrderInfoPanel = forwardRef<
       <div className="exp-wb-order-header-meta !gap-2 !py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <p className="exp-wb-order-number m-0 shrink-0 text-sm font-semibold">#{numero}</p>
-          <OrderClickableStatusBadge order={order} onStatusChanged={onStatusChanged} />
+          <OrderClickableStatusBadge
+            order={order}
+            onStatusChanged={onStatusChanged}
+            readOnly={fieldsReadOnly}
+          />
           {onToggleUrgent ? (
             urgent ? (
               <button
@@ -312,7 +369,7 @@ export const OrderInfoPanel = forwardRef<
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
           <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
           <span className="exp-wb-order-header-label text-xs text-zinc-400">Entrega:</span>
-          <span className="exp-wb-order-header-value text-xs">
+          <span className="exp-wb-order-header-value text-sm">
             {order.requestedDeliveryDate
               ? formatDayDisplay(order.requestedDeliveryDate)
               : 'não informada'}
@@ -323,7 +380,7 @@ export const OrderInfoPanel = forwardRef<
         </div>
       </div>
 
-      <div className="exp-wb-order-header-body !mt-2 !gap-2">
+      <div className="exp-wb-order-header-body !mt-1.5 !gap-1.5">
         <div className="exp-wb-order-header-block !p-3">
           <div className="exp-wb-order-header-row !gap-2">
             <HeaderPair label="Comprador" value={cnpj} />
@@ -342,7 +399,7 @@ export const OrderInfoPanel = forwardRef<
           <div className="exp-wb-order-header-obs gap-1">
             <span className="exp-wb-order-header-label text-xs text-zinc-400">Observações:</span>
             <p
-              className="exp-wb-order-header-value m-0 whitespace-pre-wrap text-xs"
+              className="exp-wb-order-header-value m-0 whitespace-pre-wrap text-sm"
               title={notes ?? undefined}
             >
               {notes ?? '—'}
@@ -353,7 +410,7 @@ export const OrderInfoPanel = forwardRef<
         <div className="exp-wb-order-header-block !p-3">
           <div className="exp-wb-order-header-grid !gap-2">
             <HeaderField label="Transportadora:">
-              {onCarrierChange ? (
+              {onCarrierChange && !carrierLocked && !fieldsReadOnly ? (
                 <div className="flex items-center gap-1.5">
                   <div className="min-w-0 flex-1">
                     <PremiumSelect
@@ -371,13 +428,15 @@ export const OrderInfoPanel = forwardRef<
                   ) : null}
                 </div>
               ) : (
-                <span>{displayOrDash(order.carrierName)}</span>
+                <span className={finalizedValueClass}>
+                  {displayOrDash(order.carrierName)}
+                </span>
               )}
             </HeaderField>
 
             <HeaderField label="Volumes:">
-              {isOrdersMode ? (
-                <span>
+              {isOrdersMode || fieldsReadOnly ? (
+                <span className={finalizedValueClass}>
                   {order.volumes != null && order.volumes >= 1
                     ? `${order.volumes} volume${order.volumes > 1 ? 's' : ''}`
                     : '—'}
@@ -420,26 +479,47 @@ export const OrderInfoPanel = forwardRef<
               )}
             </HeaderField>
 
-            <HeaderField label="Nota de Venda:">
-              {notaVenda ? (
+            <HeaderField label="Nota de Venda (NF):">
+              {fieldsReadOnly ? (
                 <span
                   className={
-                    isFinalized
+                    notaVenda
                       ? 'exp-wb-order-badge exp-wb-order-badge--complete inline-flex w-fit text-[10px]'
-                      : 'inline-flex w-fit rounded-md bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold text-blue-400'
+                      : finalizedValueClass
                   }
                 >
-                  {notaVenda}
+                  {notaVenda ?? '—'}
                 </span>
               ) : (
-                <span>—</span>
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={notaVendaInput}
+                      onChange={(e) => {
+                        setNotaVendaInput(e.target.value);
+                        setNotaVendaError(null);
+                      }}
+                      onBlur={() => void saveNotaVenda()}
+                      disabled={savingNotaVenda}
+                      placeholder="NF oficial (opcional)"
+                      className={inputClassName}
+                    />
+                    {savingNotaVenda ? (
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+                    ) : null}
+                  </div>
+                  {notaVendaError ? (
+                    <p className="mt-1 text-xs text-red-500">{notaVendaError}</p>
+                  ) : null}
+                </>
               )}
             </HeaderField>
 
             <HeaderField label="Nota de Remessa:">
-              {isOrdersMode ? (
+              {fieldsReadOnly ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span>{notaRemessa.trim() || '—'}</span>
+                  <span className={finalizedValueClass}>{notaRemessa.trim() || '—'}</span>
                   {order.notaRemessaConfirmada ? (
                     <span className="exp-wb-line-status exp-wb-line-status--recebido">
                       Confirmada
