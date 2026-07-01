@@ -151,18 +151,36 @@ function optionLabel(id: string, list: CadastroOption[], formatter?: (o: Cadastr
   return formatter ? formatter(row) : row.name;
 }
 
-function itemsSummary(
-  rows: Array<{ productId: string; quantity: string }>,
+function computeItemChanges(
+  before: Array<{ productId: string; quantity: string }>,
+  after: Array<{ productId: string; quantity: string }>,
   products: ProductOption[],
-) {
-  if (rows.length === 0) return '—';
-  return rows
-    .map((row) => {
-      const product = products.find((p) => p.id === row.productId);
-      const sku = product?.sku ?? row.productId;
-      return `${sku} × ${row.quantity || '0'}`;
-    })
-    .join('; ');
+): FieldChange[] {
+  const changes: FieldChange[] = [];
+  const beforeMap = new Map(
+    before.filter((r) => r.productId).map((r) => [r.productId, r.quantity]),
+  );
+  const afterMap = new Map(
+    after.filter((r) => r.productId).map((r) => [r.productId, r.quantity]),
+  );
+  const allIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+
+  for (const productId of allIds) {
+    const bQty = beforeMap.get(productId);
+    const aQty = afterMap.get(productId);
+    const product = products.find((p) => p.id === productId);
+    const sku = product?.sku ?? productId;
+
+    if (bQty === undefined && aQty !== undefined) {
+      changes.push({ label: sku, from: '—', to: `× ${aQty}` });
+    } else if (bQty !== undefined && aQty === undefined) {
+      changes.push({ label: sku, from: `× ${bQty}`, to: '—' });
+    } else if (bQty !== undefined && aQty !== undefined && bQty !== aQty) {
+      changes.push({ label: sku, from: `× ${bQty}`, to: `× ${aQty}` });
+    }
+  }
+
+  return changes;
 }
 
 function computeOrderFormChanges(
@@ -217,13 +235,7 @@ function computeOrderFormChanges(
       to: after.notes || '—',
     });
   }
-  if (JSON.stringify(before.items) !== JSON.stringify(after.items)) {
-    changes.push({
-      label: 'itens do pedido',
-      from: itemsSummary(before.items, products),
-      to: itemsSummary(after.items, products),
-    });
-  }
+  changes.push(...computeItemChanges(before.items, after.items, products));
 
   return changes;
 }
@@ -562,11 +574,11 @@ export function NewOrderModal(props: {
     };
 
     if (isEdit && editOrder) {
-      const numeroPed = Number(editOrder.externalOrderNumber);
-      if (!Number.isFinite(numeroPed) || numeroPed <= 0) {
-        throw new Error('Número do pedido inválido para edição.');
+      const numeroPed = editOrder.externalOrderNumber?.trim();
+      if (!numeroPed) {
+        throw new Error('Número do pedido não encontrado.');
       }
-      await erpFetchJson(`api/pedidos/${numeroPed}`, {
+      await erpFetchJson(`api/pedidos/${encodeURIComponent(numeroPed)}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
@@ -694,9 +706,9 @@ export function NewOrderModal(props: {
                     key={`${change.label}-${change.from}-${change.to}`}
                     className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-secondary)]"
                   >
-                    Você alterou <strong>{change.label}</strong> de{' '}
+                    Você está mudando <strong>{change.label}</strong> de{' '}
                     <span className="text-[var(--text-primary)]">{change.from}</span> para{' '}
-                    <span className="text-[var(--text-primary)]">{change.to}</span>. Confirmar?
+                    <span className="text-[var(--text-primary)]">{change.to}</span>. Tem certeza?
                   </li>
                 ))}
               </ul>
