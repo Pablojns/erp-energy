@@ -304,16 +304,8 @@ export const OrderInfoPanel = forwardRef<
   const inputClassName =
     'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
 
-  const finalizedValueClass = isFinalized
-    ? 'text-emerald-400 font-semibold'
-    : 'text-[var(--text-primary)]';
-
   return (
-    <div
-      className={`exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-1.5 !p-3${
-        isFinalized ? ' exp-wb-order-data-card--finalized' : ''
-      }`}
-    >
+    <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-1.5 !p-3">
       {order.linkedOrderId && order.source === 'WEG_MERCADO_ELETRONICO' ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           Este pedido já foi enviado via saída urgente. Apenas emita a NF.
@@ -428,15 +420,13 @@ export const OrderInfoPanel = forwardRef<
                   ) : null}
                 </div>
               ) : (
-                <span className={finalizedValueClass}>
-                  {displayOrDash(order.carrierName)}
-                </span>
+                <span>{displayOrDash(order.carrierName)}</span>
               )}
             </HeaderField>
 
             <HeaderField label="Volumes:">
               {isOrdersMode || fieldsReadOnly ? (
-                <span className={finalizedValueClass}>
+                <span>
                   {order.volumes != null && order.volumes >= 1
                     ? `${order.volumes} volume${order.volumes > 1 ? 's' : ''}`
                     : '—'}
@@ -481,15 +471,7 @@ export const OrderInfoPanel = forwardRef<
 
             <HeaderField label="Nota de Venda (NF):">
               {fieldsReadOnly ? (
-                <span
-                  className={
-                    notaVenda
-                      ? 'exp-wb-order-badge exp-wb-order-badge--complete inline-flex w-fit text-[10px]'
-                      : finalizedValueClass
-                  }
-                >
-                  {notaVenda ?? '—'}
-                </span>
+                <span>{notaVenda ?? '—'}</span>
               ) : (
                 <>
                   <div className="flex items-center gap-1.5">
@@ -519,7 +501,7 @@ export const OrderInfoPanel = forwardRef<
             <HeaderField label="Nota de Remessa:">
               {fieldsReadOnly ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={finalizedValueClass}>{notaRemessa.trim() || '—'}</span>
+                  <span>{notaRemessa.trim() || '—'}</span>
                   {order.notaRemessaConfirmada ? (
                     <span className="exp-wb-line-status exp-wb-line-status--recebido">
                       Confirmada

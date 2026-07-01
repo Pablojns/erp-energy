@@ -1661,20 +1661,6 @@
   border-color: #22c55e40;
 }
 
-.exp-wb-order-data-card--finalized .exp-wb-order-header-value,
-.exp-wb-order-data-card--finalized .exp-wb-order-number,
-.exp-wb-order-data-card--finalized input,
-.exp-wb-order-data-card--finalized .exp-wb-order-badge {
-  color: #22c55e !important;
-  border-color: #22c55e40;
-}
-
-.exp-wb-order-data-card--finalized input {
-  cursor: default;
-  pointer-events: none;
-  opacity: 0.95;
-}
-
 .exp-wb-order-badge--late {
   background: #f59e0b20;
   color: #f59e0b;

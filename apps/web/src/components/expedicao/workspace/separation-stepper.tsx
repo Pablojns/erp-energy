@@ -14,8 +14,9 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
     <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] !p-3">
       <div className="flex flex-wrap items-center gap-2">
         {STEPS.map((step, idx) => {
-          const done = step.id < currentStep;
           const active = step.id === currentStep;
+          const isWorkflowComplete = currentStep === STEPS.length;
+          const done = step.id < currentStep || (active && isWorkflowComplete);
           const cls = done
             ? 'border-transparent bg-[var(--success)] text-[var(--color-text-inverse)]'
             : active
