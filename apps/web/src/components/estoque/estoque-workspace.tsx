@@ -28,6 +28,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
+import { MovementOrderDetailModal } from '@/src/components/estoque/movement-order-detail-modal';
 import {
   ErpFilterBar,
   type FilterBadgeItem,
@@ -205,6 +206,7 @@ type MovementRow = {
   movementType: string;
   quantity: number;
   reference: string | null;
+  invoiceNumber: string | null;
   notes: string | null;
   movementDate: string;
   createdAt: string;
@@ -216,6 +218,26 @@ type MovementRow = {
   };
   movedBy: { id: string; name: string; email: string } | null;
 };
+
+function parseMovementOrderRefs(
+  m: Pick<MovementRow, 'reference' | 'invoiceNumber' | 'notes'>,
+): { pedido: string; nf: string } {
+  const fromNotes = m.notes
+    ?.match(/pedido\s+(.+?)(?:\s*[-·•]|\s+NF\b|$)/i)?.[1]
+    ?.trim();
+  const pedido =
+    fromNotes ||
+    (m.reference?.trim().startsWith('PED-') ? m.reference.trim() : '') ||
+    '—';
+  const nfFromNotes = m.notes?.match(/\bNF\s+(\S+)/i)?.[1]?.trim();
+  const ref = m.reference?.trim() ?? '';
+  const nf =
+    m.invoiceNumber?.trim() ||
+    nfFromNotes ||
+    (ref && !ref.startsWith('PED-') ? ref : '') ||
+    '—';
+  return { pedido, nf };
+}
 
 const MOVEMENT_LABEL: Record<string, string> = {
   INBOUND: 'Entrada',
@@ -586,11 +608,12 @@ function ProductCategoryCell({
 const movementColumnsBase: TableColumn[] = [
   { key: 'date', header: 'Data' },
   { key: 'type', header: 'Tipo' },
+  { key: 'pedido', header: 'Pedido' },
+  { key: 'nf', header: 'NF' },
   { key: 'product', header: 'Produto' },
   { key: 'qty', header: 'Qtd' },
   { key: 'priceChange', header: 'Alteração de preço' },
   { key: 'user', header: 'Responsável' },
-  { key: 'notes', header: 'Observação' },
 ];
 
 type ProductFormState = {
@@ -659,6 +682,7 @@ export function EstoqueWorkspace() {
   const [movementsExporting, setMovementsExporting] = useState(false);
   const [movementDeleteTarget, setMovementDeleteTarget] =
     useState<MovementRow | null>(null);
+  const [movementDetailId, setMovementDetailId] = useState<string | null>(null);
   const [movementDeleteStep, setMovementDeleteStep] = useState<
     'idle' | 'confirm'
   >('idle');
@@ -798,6 +822,7 @@ export function EstoqueWorkspace() {
     setProductDeleteTarget(null);
     setReserveOpen(false);
     setReserveStep('form');
+    setMovementDetailId(null);
   }, []);
 
   useCloseOverlaysOnRouteChange(closeAllModals);
@@ -808,7 +833,8 @@ export function EstoqueWorkspace() {
       !moveModalOpen &&
       movementDeleteStep === 'idle' &&
       !productDeleteTarget &&
-      !reserveOpen
+      !reserveOpen &&
+      !movementDetailId
     )
       return;
     const onKey = (e: KeyboardEvent) => {
@@ -816,7 +842,7 @@ export function EstoqueWorkspace() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [productModalOpen, moveModalOpen, movementDeleteStep, productDeleteTarget, reserveOpen, closeAllModals]);
+  }, [productModalOpen, moveModalOpen, movementDeleteStep, productDeleteTarget, reserveOpen, movementDetailId, closeAllModals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1647,6 +1673,8 @@ export function EstoqueWorkspace() {
       const header = [
         'Data',
         'Tipo',
+        'Pedido',
+        'NF',
         'Produto',
         'SKU',
         'Quantidade',
@@ -1657,10 +1685,13 @@ export function EstoqueWorkspace() {
       const lines = allRows.map((m) => {
         const typeLabel = MOVEMENT_LABEL[m.movementType] ?? m.movementType;
         const priceChange = parsePriceChangeLabel(m.reference, m.movementType);
+        const { pedido, nf } = parseMovementOrderRefs(m);
         const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
         return [
           esc(formatDateTime(m.movementDate)),
           esc(typeLabel),
+          esc(pedido),
+          esc(nf),
           esc(m.product.name),
           esc(m.product.sku),
           esc(String(m.quantity)),
@@ -1768,7 +1799,7 @@ export function EstoqueWorkspace() {
   };
 
   const renderMovementRowActions = (movement: MovementRow) => (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
       {movement.movementType === 'RESERVE' ? (
         <button
           type="button"
@@ -1894,6 +1925,17 @@ export function EstoqueWorkspace() {
             },
           };
         }
+        if (col.key === 'pedido' || col.key === 'nf') {
+          return {
+            ...col,
+            renderCell: ({ value }) =>
+              value !== '—' ? (
+                <span className="font-semibold text-[var(--accent)]">{value}</span>
+              ) : (
+                <span className="text-[var(--text-muted)]">—</span>
+              ),
+          };
+        }
         return col;
       }),
     [movementsData],
@@ -1901,18 +1943,22 @@ export function EstoqueWorkspace() {
 
   const movementRows: TableRow[] = useMemo(() => {
     if (!movementsData) return [];
-    return movementsData.data.map((m) => ({
-      id: m.id,
-      values: {
-        date: formatDateTime(m.movementDate),
-        type: MOVEMENT_LABEL[m.movementType] ?? m.movementType,
-        product: `${m.product.name} (${m.product.sku})`,
-        qty: String(m.quantity),
-        priceChange: parsePriceChangeLabel(m.reference, m.movementType),
-        user: m.movedBy?.name ?? '—',
-        notes: m.notes ?? '—',
-      },
-    }));
+    return movementsData.data.map((m) => {
+      const { pedido, nf } = parseMovementOrderRefs(m);
+      return {
+        id: m.id,
+        values: {
+          date: formatDateTime(m.movementDate),
+          type: MOVEMENT_LABEL[m.movementType] ?? m.movementType,
+          pedido,
+          nf,
+          product: `${m.product.name} (${m.product.sku})`,
+          qty: String(m.quantity),
+          priceChange: parsePriceChangeLabel(m.reference, m.movementType),
+          user: m.movedBy?.name ?? '—',
+        },
+      };
+    });
   }, [movementsData]);
 
   const movementItems = useMemo(() => movementsData?.data ?? [], [movementsData]);
@@ -3077,10 +3123,11 @@ export function EstoqueWorkspace() {
             <>
               <DataTablePremium
                 title="Histórico de movimentações"
-                subtitle={`${movementsData?.meta.total ?? 0} registro(s) — 25 por página`}
+                subtitle={`${movementsData?.meta.total ?? 0} registro(s) — 25 por página · clique na linha para ver detalhes`}
                 columns={movementTableColumns}
                 rows={movementRows}
                 showStatusColumn={false}
+                onRowClick={(row) => setMovementDetailId(row.id)}
                 actionsColumn={
                   isAdmin ||
                   (movementsData?.data.some((m) => m.movementType === 'RESERVE') ??
@@ -3933,6 +3980,11 @@ export function EstoqueWorkspace() {
           </div>
         </div>
       ) : null}
+
+      <MovementOrderDetailModal
+        movementId={movementDetailId}
+        onClose={() => setMovementDetailId(null)}
+      />
     </div>
   );
 }

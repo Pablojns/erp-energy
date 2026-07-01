@@ -53,6 +53,12 @@ export class StockController {
     return this.stockService.createMovement(user.id, dto);
   }
 
+  @Get('movements/:id/detail')
+  @RequirePermission('estoque', 'ver_movimentacoes')
+  getMovementDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.stockService.getMovementDetail(id);
+  }
+
   @Delete('movements/:id')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('estoque', 'deletar_movimentacao')

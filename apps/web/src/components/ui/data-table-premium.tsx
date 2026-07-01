@@ -35,6 +35,7 @@ type DataTablePremiumProps = {
   rows: TableRow[];
   /** @default true — listagens sem status (ex.: movimentações) */
   showStatusColumn?: boolean;
+  onRowClick?: (row: TableRow) => void;
   /** Coluna extra para botões (ex.: editar / inativar produto) */
   actionsColumn?: {
     header: string;
@@ -96,6 +97,7 @@ export function DataTablePremium({
   columns,
   rows,
   showStatusColumn = true,
+  onRowClick,
   actionsColumn,
 }: DataTablePremiumProps) {
   const actionsAlign =
@@ -180,7 +182,20 @@ export function DataTablePremium({
             {rows.map((row, index) => (
               <tr
                 key={row.id}
-                className={`group border-b border-[var(--border-color)] text-[var(--text-primary)] transition duration-200 last:border-b-0 ${index % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'} hover:bg-[var(--input-bg)]`}
+                className={`group border-b border-[var(--border-color)] text-[var(--text-primary)] transition duration-200 last:border-b-0 ${index % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'} hover:bg-[var(--input-bg)]${onRowClick ? ' cursor-pointer' : ''}`}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                tabIndex={onRowClick ? 0 : undefined}
+                role={onRowClick ? 'button' : undefined}
               >
                 {columns.map((column) => (
                   <td
@@ -210,6 +225,7 @@ export function DataTablePremium({
                 {actionsColumn ? (
                   <td
                     className={`border-b border-[var(--border-color)] px-2 py-1 align-middle transition duration-200 group-hover:border-[var(--border-color)] ${actionsAlign}`}
+                    onClick={(e) => e.stopPropagation()}
                   >
                     {actionsColumn.render(row)}
                   </td>

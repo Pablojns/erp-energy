@@ -576,6 +576,8 @@ export class StockService implements OnModuleInit {
 
         reference: m.reference,
 
+        invoiceNumber: m.invoiceNumber,
+
         notes: m.notes,
 
         movementDate: m.movementDate.toISOString(),
@@ -602,6 +604,152 @@ export class StockService implements OnModuleInit {
 
     };
 
+  }
+
+
+
+  async getMovementDetail(movementId: string) {
+    const movement = await this.prisma.client.stockMovement.findUnique({
+      where: { id: movementId },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            internalCode: true,
+          },
+        },
+        movedBy: {
+          select: { id: true, name: true, email: true },
+        },
+      },
+    });
+
+    if (!movement) {
+      throw new NotFoundException('Movimentação não encontrada.');
+    }
+
+    const parsed = StockService.parseMovementOrderRefs(movement);
+    const order = await this.findOrderByMovementReference(
+      this.prisma.client,
+      movement,
+    );
+
+    let orderDetail: Record<string, unknown> | null = null;
+    let relatedMovements: Array<Record<string, unknown>> = [];
+
+    if (order) {
+      const full = await this.prisma.client.order.findUnique({
+        where: { id: order.id },
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          status: true,
+          customerName: true,
+          customerDocument: true,
+          receiverName: true,
+          unloadingPoint: true,
+          deliveryCnpj: true,
+          deliveryAddress: true,
+          deliveryCity: true,
+          deliveryState: true,
+          notes: true,
+          notaRemessa: true,
+          notaRemessaConfirmada: true,
+          volumes: true,
+          carrierId: true,
+          carrier: { select: { name: true } },
+          invoiceNumber: true,
+          requestedDeliveryDate: true,
+          orderDate: true,
+        },
+      });
+
+      if (full) {
+        orderDetail = {
+          ...full,
+          carrierName: full.carrier?.name ?? null,
+          orderDate: full.orderDate?.toISOString() ?? null,
+          requestedDeliveryDate:
+            full.requestedDeliveryDate?.toISOString() ?? null,
+          displayNumber:
+            full.externalOrderNumber?.trim() || full.code || parsed.orderLabel,
+        };
+
+        const siblings = await this.prisma.client.stockMovement.findMany({
+          where: StockService.buildOrderStockMovementWhere(full),
+          orderBy: [{ movementDate: 'desc' }, { createdAt: 'desc' }],
+          take: 50,
+          include: {
+            product: {
+              select: { sku: true, name: true },
+            },
+          },
+        });
+
+        relatedMovements = siblings.map((m) => ({
+          id: m.id,
+          movementType: m.movementType,
+          quantity: m.quantity,
+          movementDate: m.movementDate.toISOString(),
+          productSku: m.product.sku,
+          productName: m.product.name,
+          invoiceNumber: m.invoiceNumber,
+          reference: m.reference,
+        }));
+      }
+    }
+
+    return {
+      movement: {
+        id: movement.id,
+        movementType: movement.movementType,
+        quantity: movement.quantity,
+        reference: movement.reference,
+        invoiceNumber: movement.invoiceNumber,
+        notes: movement.notes,
+        movementDate: movement.movementDate.toISOString(),
+        createdAt: movement.createdAt.toISOString(),
+        product: movement.product,
+        movedBy: movement.movedBy,
+      },
+      parsed,
+      order: orderDetail,
+      relatedMovements,
+    };
+  }
+
+  static parseMovementOrderRefs(movement: {
+    reference: string | null;
+    invoiceNumber: string | null;
+    notes: string | null;
+  }): { orderLabel: string | null; invoiceLabel: string | null } {
+    let orderLabel: string | null = null;
+    const fromNotes = movement.notes
+      ?.match(/pedido\s+(.+?)(?:\s*[-·•]|\s+NF\b|$)/i)?.[1]
+      ?.trim();
+    if (fromNotes) {
+      orderLabel = fromNotes;
+    } else if (movement.reference?.trim().startsWith('PED-')) {
+      orderLabel = movement.reference.trim();
+    }
+
+    let invoiceLabel =
+      movement.invoiceNumber?.trim() ||
+      movement.reference?.trim() ||
+      null;
+    const nfFromNotes = movement.notes?.match(/\bNF\s+(\S+)/i)?.[1]?.trim();
+    if (nfFromNotes) {
+      invoiceLabel = nfFromNotes;
+    }
+
+    if (invoiceLabel && orderLabel === invoiceLabel) {
+      invoiceLabel = nfFromNotes ?? movement.invoiceNumber?.trim() ?? null;
+    }
+
+    return { orderLabel, invoiceLabel };
   }
 
 
@@ -1301,6 +1449,14 @@ export class StockService implements OnModuleInit {
     }
     const codeFromNotes = movement.notes?.match(/PED-\d+/i)?.[0];
     if (codeFromNotes) candidates.add(codeFromNotes);
+
+    const pedidoFromNotes = movement.notes
+      ?.match(/pedido\s+(.+?)(?:\s*[-·•]|\s+NF\b|$)/i)?.[1]
+      ?.trim();
+    if (pedidoFromNotes) candidates.add(pedidoFromNotes);
+
+    const nfFromNotes = movement.notes?.match(/\bNF\s+(\S+)/i)?.[1]?.trim();
+    if (nfFromNotes) candidates.add(nfFromNotes);
 
     if (candidates.size === 0) return null;
 
