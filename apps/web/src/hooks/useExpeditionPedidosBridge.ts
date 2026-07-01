@@ -562,8 +562,8 @@ export function useExpeditionSelectedPedido(
   const { pedido, loading, error, refetch } = usePedidoDetalhe(numero);
 
   const displayOrder = useMemo(() => {
+    if (!selectedOrder) return null;
     if (!pedido) return selectedOrder;
-    if (!selectedOrder) return pedido;
     return mergeListOrderIntoDetail(pedido, selectedOrder);
   }, [pedido, selectedOrder]);
 

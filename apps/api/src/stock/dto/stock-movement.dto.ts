@@ -60,8 +60,12 @@ export function mapTypeFilterToPrismaTypes(
   type: MovementTypeFilter,
 ): StockMovementType[] {
   const map: Record<MovementTypeFilter, StockMovementType[]> = {
-    entrada: [StockMovementType.INBOUND],
-    saida: [StockMovementType.OUTBOUND],
+    entrada: [StockMovementType.INBOUND, StockMovementType.RETURN],
+    saida: [
+      StockMovementType.OUTBOUND,
+      StockMovementType.SAIDA_EXPEDICAO,
+      StockMovementType.BAIXA_EXPEDICAO,
+    ],
     ajuste: [
       StockMovementType.ADJUSTMENT,
       StockMovementType.AJUSTE_QUANTIDADE,
@@ -73,6 +77,19 @@ export function mapTypeFilterToPrismaTypes(
   };
   return map[type];
 }
+
+/** Tipos que incrementam o card/resumo de entradas. */
+export const ENTRADA_SUMMARY_TYPES: StockMovementType[] = [
+  StockMovementType.INBOUND,
+  StockMovementType.RETURN,
+];
+
+/** Tipos que incrementam o card/resumo de saídas. */
+export const SAIDA_SUMMARY_TYPES: StockMovementType[] = [
+  StockMovementType.OUTBOUND,
+  StockMovementType.SAIDA_EXPEDICAO,
+  StockMovementType.BAIXA_EXPEDICAO,
+];
 
 export const MOVEMENT_CARD_TYPE_FILTER_VALUES = [
   'entrada',

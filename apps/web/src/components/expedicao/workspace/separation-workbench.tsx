@@ -37,6 +37,10 @@ export function SeparationWorkbench(props: {
   );
 
   useEffect(() => {
+    setExitGenerated(false);
+  }, [order?.id]);
+
+  useEffect(() => {
     setVolumesValid(order != null && order.volumes != null && order.volumes >= 1);
   }, [order?.id, order?.volumes]);
 
@@ -218,7 +222,6 @@ export function SeparationWorkbench(props: {
                     onClick={() => {
                       void data.attachRemessaExit(order.id).then((ok) => {
                         if (ok) {
-                          setExitGenerated(true);
                           onAfterAction?.();
                         }
                       });

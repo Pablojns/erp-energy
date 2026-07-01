@@ -45,6 +45,14 @@ export function ExpeditionWorkspace(props: {
   const { displayOrder, detailLoading, detailError, refetchDetail } =
     useExpeditionSelectedPedido(selectedInList, () => void data.refreshAll());
 
+  const handleAfterAction = async () => {
+    await refetchDetail();
+    setSelectedOrderId((current) => {
+      if (current && data.orders.some((o) => o.id === current)) return current;
+      return data.orders[0]?.id ?? null;
+    });
+  };
+
   useEffect(() => {
     if (data.ordersLoading) return;
     if (selectedOrderId && data.orders.some((o) => o.id === selectedOrderId)) {
@@ -179,7 +187,7 @@ export function ExpeditionWorkspace(props: {
               mode={mode}
               isAdmin={isAdmin}
               onEditOrder={mode === 'orders' && isAdmin ? openOrderEdit : undefined}
-              onAfterAction={() => void refetchDetail()}
+              onAfterAction={() => void handleAfterAction()}
             />
           )}
         </div>

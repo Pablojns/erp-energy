@@ -23,6 +23,8 @@ import {
   mapTypeFilterToPrismaTypes,
   mapTypesFiltersToPrismaTypes,
   parseTypesFilterParam,
+  ENTRADA_SUMMARY_TYPES,
+  SAIDA_SUMMARY_TYPES,
 } from './dto/stock-movement.dto';
 
 import type { StockSummaryQueryDto } from './dto/stock-summary.dto';
@@ -110,10 +112,10 @@ export class StockService implements OnModuleInit {
     }
 
     const periodStart = query.startDate
-      ? new Date(`${query.startDate}T00:00:00.000`)
+      ? this.calendarDayStart(query.startDate)
       : new Date(0);
     const periodEnd = query.endDate
-      ? new Date(`${query.endDate}T23:59:59.999`)
+      ? this.calendarDayEnd(query.endDate)
       : new Date();
 
     const movements = await this.prisma.client.stockMovement.findMany({
@@ -156,7 +158,7 @@ export class StockService implements OnModuleInit {
     for (const m of movements) {
       const dayKey = this.toIsoDate(m.movementDate);
       const daily = dailyMap.get(dayKey);
-      if (m.movementType === StockMovementType.INBOUND) {
+      if (this.isInboundSummaryType(m.movementType)) {
         periodInboundCount += 1;
         if (daily) daily.inbound += m.quantity;
         const cur = productVolume.get(m.productId) ?? {
@@ -166,7 +168,7 @@ export class StockService implements OnModuleInit {
         };
         cur.totalVolume += m.quantity;
         productVolume.set(m.productId, cur);
-      } else if (m.movementType === StockMovementType.OUTBOUND) {
+      } else if (this.isOutboundSummaryType(m.movementType)) {
         periodOutboundCount += 1;
         if (daily) daily.outbound += m.quantity;
         const cur = productVolume.get(m.productId) ?? {
@@ -302,16 +304,48 @@ export class StockService implements OnModuleInit {
   }
 
   private toIsoDate(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return this.toBusinessCalendarDate(d);
+  }
+
+  /** Calendário operacional (America/Sao_Paulo) para agrupar movimentações por dia. */
+  private toBusinessCalendarDate(d: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+  }
+
+  /** Início do dia civil no fuso America/Sao_Paulo (UTC-3, sem horário de verão). */
+  private calendarDayStart(isoDate: string): Date {
+    const [y, m, d] = isoDate.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 3, 0, 0, 0));
+  }
+
+  /** Fim do dia civil no fuso America/Sao_Paulo. */
+  private calendarDayEnd(isoDate: string): Date {
+    const [y, m, d] = isoDate.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + 1, 2, 59, 59, 999));
+  }
+
+  private isInboundSummaryType(type: StockMovementType): boolean {
+    return ENTRADA_SUMMARY_TYPES.includes(type);
+  }
+
+  private isOutboundSummaryType(type: StockMovementType): boolean {
+    return SAIDA_SUMMARY_TYPES.includes(type);
   }
 
   private iterateIsoDates(startDate: string, endDate: string): string[] {
     const days: string[] = [];
-    const cur = new Date(`${startDate}T00:00:00.000`);
-    const end = new Date(`${endDate}T00:00:00.000`);
+    const [sy, sm, sd] = startDate.split('-').map(Number);
+    const [ey, em, ed] = endDate.split('-').map(Number);
+    const cur = new Date(Date.UTC(sy, sm - 1, sd));
+    const end = new Date(Date.UTC(ey, em - 1, ed));
     while (cur <= end) {
-      days.push(this.toIsoDate(cur));
-      cur.setDate(cur.getDate() + 1);
+      days.push(this.toBusinessCalendarDate(cur));
+      cur.setUTCDate(cur.getUTCDate() + 1);
     }
     return days;
   }
@@ -329,12 +363,11 @@ export class StockService implements OnModuleInit {
     const deltas = new Map<string, number>();
     for (const m of movements) {
       const key = this.toIsoDate(m.movementDate);
-      const sign =
-        m.movementType === StockMovementType.INBOUND
-          ? 1
-          : m.movementType === StockMovementType.OUTBOUND
-            ? -1
-            : 0;
+      const sign = this.isInboundSummaryType(m.movementType)
+        ? 1
+        : this.isOutboundSummaryType(m.movementType)
+          ? -1
+          : 0;
       deltas.set(key, (deltas.get(key) ?? 0) + sign * m.quantity);
     }
 
@@ -396,10 +429,10 @@ export class StockService implements OnModuleInit {
     if (query.startDate || query.endDate) {
       where.movementDate = {};
       if (query.startDate) {
-        where.movementDate.gte = new Date(`${query.startDate}T00:00:00.000`);
+        where.movementDate.gte = this.calendarDayStart(query.startDate);
       }
       if (query.endDate) {
-        where.movementDate.lte = new Date(`${query.endDate}T23:59:59.999`);
+        where.movementDate.lte = this.calendarDayEnd(query.endDate);
       }
     }
 
@@ -423,20 +456,14 @@ export class StockService implements OnModuleInit {
         this.prisma.client.stockMovement.aggregate({
           where: {
             ...baseWhere,
-            movementType: StockMovementType.INBOUND,
+            movementType: { in: ENTRADA_SUMMARY_TYPES },
           },
           _sum: { quantity: true },
         }),
         this.prisma.client.stockMovement.aggregate({
           where: {
             ...baseWhere,
-            movementType: {
-              in: [
-                StockMovementType.OUTBOUND,
-                StockMovementType.SAIDA_EXPEDICAO,
-                StockMovementType.BAIXA_EXPEDICAO,
-              ],
-            },
+            movementType: { in: SAIDA_SUMMARY_TYPES },
           },
           _sum: { quantity: true },
         }),
@@ -1256,7 +1283,6 @@ export class StockService implements OnModuleInit {
       return true;
     }
     if (movement.reference?.startsWith('PED-')) return true;
-    if (movement.notes?.toLowerCase().includes('pedido')) return true;
     return false;
   }
 
@@ -1314,7 +1340,6 @@ export class StockService implements OnModuleInit {
             },
           },
           { reference: { startsWith: 'PED-' } },
-          { notes: { contains: 'pedido', mode: 'insensitive' } },
         ],
       },
       select: {

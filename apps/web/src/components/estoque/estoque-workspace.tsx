@@ -652,7 +652,7 @@ export function EstoqueWorkspace() {
   >(() => new Set());
   const [moveFilterUserId, setMoveFilterUserId] = useState('');
   const [moveFilterPeriod, setMoveFilterPeriod] =
-    useState<MovePeriodPreset>('month');
+    useState<MovePeriodPreset>('week');
   const [moveFilterDateFrom, setMoveFilterDateFrom] = useState('');
   const [moveFilterDateTo, setMoveFilterDateTo] = useState('');
   const [movementUsers, setMovementUsers] = useState<MovementUserOption[]>([]);
@@ -1558,6 +1558,7 @@ export function EstoqueWorkspace() {
         method: 'POST',
         body: JSON.stringify({
           productId: moveForm.productId,
+          movementKind: moveForm.movementKind,
           movementType: MOVEMENT_KIND_TO_TYPE[moveForm.movementKind],
           quantity: qtyRaw,
           ...(moveForm.notes.trim()
@@ -1974,7 +1975,7 @@ export function EstoqueWorkspace() {
         label: `Responsável: ${user?.name ?? moveFilterUserId}`,
       });
     }
-    if (moveFilterPeriod !== 'month') {
+    if (moveFilterPeriod !== 'week') {
       badges.push({
         key: 'period',
         label: MOVE_PERIOD_LABEL[moveFilterPeriod],
@@ -2026,7 +2027,7 @@ export function EstoqueWorkspace() {
   const hasMovementFilters =
     moveTypeCardFilters.size > 0 ||
     moveFilterUserId !== '' ||
-    moveFilterPeriod !== 'month' ||
+    moveFilterPeriod !== 'week' ||
     moveFilterDateFrom !== '' ||
     moveFilterDateTo !== '' ||
     moveFilterSearchDebounced.trim().length > 0;
