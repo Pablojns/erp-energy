@@ -170,3 +170,6 @@ export function pedidoApiUrl(numeroPed: string, ...pathParts: string[]): string 
     ...pathParts.map((part) => encodeURIComponent(part)),
   ].join('/');
 }
+
+/** GET de listagens de pedidos — sem cache do fetch/Next. */
+export const pedidosListFetchInit: RequestInit = { cache: 'no-store' };

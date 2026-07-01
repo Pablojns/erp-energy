@@ -7,6 +7,7 @@ import { GlassCard } from '@/src/components/shell/glass-card';
 import { isOrderOverdue } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, PaginatedOrders, StatusFilterId } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 
 type MetricCard = {
   label: string;
@@ -34,6 +35,7 @@ export function ExpeditionDashboardView() {
         do {
           const res = await erpFetchJson<PaginatedOrders>(
             `api/pedidos?page=${page}&pageSize=50&status=all&sortBy=orderDate&sortOrder=desc`,
+            pedidosListFetchInit,
           );
           acc.push(...res.data);
           totalPages = res.meta.totalPages;

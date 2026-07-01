@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PaginatedOrderExits } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 import { OutputDetailPanel } from '@/src/components/expedicao/outputs/output-detail-panel';
 import {
   OutputsList,
@@ -34,6 +35,7 @@ export function ExitsPage() {
     setError(null);
     void erpFetchJson<PaginatedOrderExits>(
       `api/pedidos/saidas?search=${encodeURIComponent(searchDebounced)}&period=${period}&page=${page}&pageSize=25`,
+      pedidosListFetchInit,
     )
       .then((res) => {
         if (cancelled) return;

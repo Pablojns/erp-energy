@@ -22,7 +22,7 @@ import {
 } from '@/src/components/dashboard/utils';
 import { getOverdueDays } from '@/src/components/expedicao/shared/order-helpers';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
+import { normalizePedidoFromApi, pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 
 type TabExpedicaoProps = {
   period: DateRange;
@@ -71,6 +71,7 @@ export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
     try {
       const res = await erpFetchJson<{ data: Record<string, unknown>[] }>(
         'api/pedidos?status=delayed&pageSize=5&page=1&sortBy=requestedDeliveryDate&sortOrder=asc',
+        pedidosListFetchInit,
       );
       const rows = res.data
         .map((raw) => {

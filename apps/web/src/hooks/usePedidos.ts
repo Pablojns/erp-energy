@@ -14,7 +14,10 @@ import type {
   StatusFilterId,
 } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
+import {
+  normalizePedidoFromApi,
+  pedidosListFetchInit,
+} from '@/src/services/api/pedidos-normalize';
 
 export type UsePedidosOptions = {
   statusFilter?: StatusFilterId;
@@ -47,7 +50,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchPedidos = useCallback(
-    async (override?: { page?: number }) => {
+    async (override?: { page?: number }, signal?: AbortSignal) => {
       if (!enabled) return;
       const effectivePage = override?.page ?? page;
       const appendPage = infinite && effectivePage > 1 && override === undefined;
@@ -71,6 +74,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
 
         const res = await erpFetchJson<PaginatedOrders>(
           `api/pedidos?${params.toString()}`,
+          { ...pedidosListFetchInit, signal },
         );
         const list = res.data.map((row) =>
           normalizePedidoFromApi(row as unknown as Record<string, unknown>),
@@ -97,6 +101,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           setPedidos(refined);
         }
       } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return;
         if (!appendPage) {
           setPedidos([]);
           setMeta(null);
@@ -123,8 +128,26 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   );
 
   useEffect(() => {
-    void fetchPedidos();
+    const controller = new AbortController();
+    void fetchPedidos(undefined, controller.signal);
+    return () => controller.abort();
   }, [fetchPedidos]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const revalidate = () => {
+      void fetchPedidos(infinite ? { page: 1 } : undefined);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') revalidate();
+    };
+    window.addEventListener('focus', revalidate);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [enabled, fetchPedidos, infinite]);
 
   const refetch = useCallback(async () => {
     if (infinite) {

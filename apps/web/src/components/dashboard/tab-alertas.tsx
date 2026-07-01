@@ -20,7 +20,7 @@ import {
 } from '@/src/components/dashboard/utils';
 import { getOverdueDays } from '@/src/components/expedicao/shared/order-helpers';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
+import { normalizePedidoFromApi, pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 
 type TabAlertasProps = {
   period: DateRange;
@@ -51,6 +51,7 @@ export function TabAlertas({ period, refreshKey }: TabAlertasProps) {
         erpFetchJson<AdminUser[]>('auth/users').catch(() => [] as AdminUser[]),
         erpFetchJson<{ data: Record<string, unknown>[] }>(
           'api/pedidos?status=delayed&pageSize=100&page=1',
+          pedidosListFetchInit,
         ),
       ]);
 
