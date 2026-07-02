@@ -49,6 +49,33 @@
   overflow: hidden;
 }
 
+.dash-page-root--overview {
+  height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px);
+  background: transparent;
+}
+
+@media (max-width: 1023px) {
+  .dash-page-root--overview {
+    height: auto;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+}
+
+.dash-page-root--overview .dash-scroll-main {
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1023px) {
+  .dash-page-root--overview .dash-scroll-main {
+    overflow: visible;
+  }
+}
+
+
 .dash-shell {
   width: 100%;
 }
@@ -229,7 +256,15 @@
 
 .dash-chart-wrap {
   width: 100%;
-  height: 220px;
+  height: 240px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+}
+
+.dash-chart-wrap svg {
+  display: block;
+  height: 100%;
 }
 
 @media (min-width: 640px) {

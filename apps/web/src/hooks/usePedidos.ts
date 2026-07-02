@@ -118,8 +118,14 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           setPedidos(refined);
         }
       } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          if (generation === fetchGenerationRef.current) {
+            if (appendPage) setLoadingMore(false);
+            else setLoading(false);
+          }
+          return;
+        }
         if (generation !== fetchGenerationRef.current) return;
-        if (e instanceof Error && e.name === 'AbortError') return;
 
         if (!appendPage) {
           setPedidos([]);

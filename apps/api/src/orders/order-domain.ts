@@ -11,6 +11,13 @@ export type OrderSource = (typeof ORDER_SOURCE)[keyof typeof ORDER_SOURCE];
 
 export const ORDER_SOURCE_VALUES = Object.values(ORDER_SOURCE);
 
+/** Fontes exibidas na aba WEG da expedição (tudo exceto pedidos do site). */
+export const WEG_TAB_ORDER_SOURCES = [
+  ORDER_SOURCE.WEG_MERCADO_ELETRONICO,
+  ORDER_SOURCE.MANUAL,
+  ORDER_SOURCE.ECOMMERCE,
+] as const satisfies readonly OrderSource[];
+
 export const ORDER_STATUS = {
   NOVO: 'NOVO',
   ANALISADO: 'ANALISADO',

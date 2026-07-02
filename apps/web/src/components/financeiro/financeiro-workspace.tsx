@@ -30,8 +30,13 @@ import {
   defaultMonthRange,
   downloadCsv,
   fetchAllNfsEmAberto,
+  filterNfsByPeriod,
 } from '@/src/components/financeiro/utils';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  adjustRangeOnDateChange,
+  normalizeDateRange,
+} from '@/src/lib/period-range';
 import '@/src/components/financeiro/financeiro.css';
 
 export function FinanceiroWorkspace() {
@@ -46,7 +51,7 @@ export function FinanceiroWorkspace() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const period = useMemo(
-    () => ({ dataInicio, dataFim }),
+    () => normalizeDateRange({ dataInicio, dataFim }),
     [dataInicio, dataFim],
   );
 
@@ -72,8 +77,18 @@ export function FinanceiroWorkspace() {
 
   const handlePeriodChange = (patch: Partial<typeof period>) => {
     setPeriodPreset('personalizado');
-    if (patch.dataInicio != null) setDataInicio(patch.dataInicio);
-    if (patch.dataFim != null) setDataFim(patch.dataFim);
+    const base = { dataInicio, dataFim };
+    if (patch.dataInicio != null) {
+      const next = adjustRangeOnDateChange('dataInicio', patch.dataInicio, base);
+      setDataInicio(next.dataInicio);
+      setDataFim(next.dataFim);
+      return;
+    }
+    if (patch.dataFim != null) {
+      const next = adjustRangeOnDateChange('dataFim', patch.dataFim, base);
+      setDataInicio(next.dataInicio);
+      setDataFim(next.dataFim);
+    }
   };
 
   const handleSync = async () => {
@@ -114,7 +129,11 @@ export function FinanceiroWorkspace() {
       }
 
       if (tab === 'nfs') {
-        const nfs = await fetchAllNfsEmAberto();
+        const nfs = filterNfsByPeriod(
+          await fetchAllNfsEmAberto(),
+          period.dataInicio,
+          period.dataFim,
+        );
         downloadCsv('financeiro-nfs-em-aberto.csv', NFS_CSV_HEADERS, nfsToCsvRows(nfs));
         return;
       }
@@ -174,6 +193,7 @@ export function FinanceiroWorkspace() {
         ) : null}
         {tab === 'nfs' ? (
           <FinanceiroNfsTab
+            period={period}
             refreshToken={refreshToken}
             onCountChange={setNfsCount}
           />

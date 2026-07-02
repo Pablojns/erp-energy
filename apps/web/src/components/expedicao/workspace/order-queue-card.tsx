@@ -118,11 +118,11 @@ export function OrderQueueCard(props: {
                 <span className="exp-queue-source-badge exp-queue-source-badge--site text-xs">
                   SITE
                 </span>
-              ) : order.source === 'WEG_MERCADO_ELETRONICO' ? (
+              ) : (
                 <span className="exp-queue-source-badge exp-queue-source-badge--weg text-xs">
                   WEG
                 </span>
-              ) : null}
+              )}
               {isManualUrgent ? (
                 <span
                   className="exp-queue-urgent-badge text-xs"

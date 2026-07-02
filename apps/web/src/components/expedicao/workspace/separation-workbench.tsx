@@ -117,7 +117,12 @@ export function SeparationWorkbench(props: {
   const shouldShowConcludeAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
   const shouldShowSaveAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
 
-  const canSendToSeparation = mode === 'orders' && (orderStatus === 'NOVO' || orderStatus === 'PENDENTE');
+  const canSendToSeparation =
+    mode === 'orders' &&
+    (orderStatus === 'NOVO' ||
+      orderStatus === 'PENDENTE' ||
+      (order.source === 'SITE' &&
+        (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO')));
   const currentStep: 1 | 2 | 3 | 4 = (() => {
     if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') return 4;
     if (

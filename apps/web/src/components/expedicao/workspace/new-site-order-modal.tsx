@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { generateUUID } from '@/src/lib/uuid';
+import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
 
 const SITE_CARRIER_NAMES = ['JADLOG', 'SEDEX', 'PAC', 'MINI ENVIOS'] as const;
 
@@ -252,7 +254,7 @@ function InlineCreateButton(props: {
 export function NewSiteOrderModal(props: {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (order?: OrderDto) => void;
 }) {
   const { isOpen, onClose, onCreated } = props;
 
@@ -430,7 +432,7 @@ export function NewSiteOrderModal(props: {
     setSubmitError(null);
     setFieldErrors({});
     try {
-      await erpFetchJson('api/pedidos/site', {
+      const created = await erpFetchJson<Record<string, unknown>>('api/pedidos/site', {
         method: 'POST',
         body: JSON.stringify({
           externalOrderNumber: externalOrderNumber.trim(),
@@ -447,7 +449,7 @@ export function NewSiteOrderModal(props: {
           })),
         }),
       });
-      onCreated();
+      onCreated(normalizePedidoFromApi(created));
       onClose();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Falha ao criar pedido do site.');

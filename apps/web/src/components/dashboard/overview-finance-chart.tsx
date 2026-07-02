@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   barHeight,
   buildBarChartLayout,
@@ -8,29 +8,49 @@ import {
   formatAxisMonthLabel,
   formatCompactCurrency,
 } from '@/src/components/dashboard/bar-chart-layout';
-import { ChartHoverPanel } from '@/src/components/dashboard/chart-hover-panel';
 import type { MonthlyOrdersPoint } from '@/src/components/dashboard/types';
 import { formatCurrency } from '@/src/components/dashboard/utils';
 
-type MonthlyOrdersChartProps = {
+type OverviewFinanceChartProps = {
   points: MonthlyOrdersPoint[];
-  title?: string;
 };
 
-export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
+export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
   const clipId = useId().replace(/:/g, '');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 320, height: 100 });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setSize({
+        width: Math.max(Math.floor(width), 120),
+        height: Math.max(Math.floor(height), 72),
+      });
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const layout = useMemo(() => {
     const values = points.map((p) => Number(p.value) || 0);
     const yMax = chartDataMax(values);
+    const count = Math.max(points.length, 1);
+    const chartHeight = Math.max(size.height, 72);
     const chart = buildBarChartLayout({
-      count: points.length,
-      fixedSlotWidth: 52,
-      maxBarWidth: 16,
-      minBarWidth: 6,
-      margin: { top: 24, right: 20, bottom: 48, left: 64 },
-      height: 280,
+      count,
+      width: size.width,
+      maxBarWidth: count > 18 ? 6 : count > 12 ? 8 : 10,
+      minBarWidth: 3,
+      height: chartHeight,
+      margin: { top: 10, right: 6, bottom: 22, left: 40 },
     });
 
     const bars = points.map((p, i) => {
@@ -50,64 +70,45 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
       };
     });
 
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+    const yTicks = [0, 0.5, 1].map((t) => ({
       y: chart.margin.top + chart.innerH * (1 - t),
       value: yMax * t,
     }));
 
     return { ...chart, bars, yTicks, yMax };
-  }, [points]);
+  }, [points, size.width, size.height]);
 
   const active = activeIndex != null ? layout.bars[activeIndex] ?? null : null;
 
-  const heading =
-    title ??
-    (points.length >= 12
-      ? 'Valor de pedidos — últimos 12 meses'
-      : 'Valor de pedidos por mês');
-
   if (points.length === 0) {
-    return (
-      <div className="dash-card w-full p-4 md:p-6">
-        <h3 className="text-sm font-semibold text-[var(--dash-text)]">{heading}</h3>
-        <p className="mt-8 text-center text-sm text-[var(--dash-text-muted)]">
-          Sem dados para o período selecionado.
-        </p>
-      </div>
-    );
+    return <p className="overview-empty m-auto">Sem dados no período.</p>;
   }
 
   return (
-    <div className="dash-card w-full p-4 md:p-6">
-      <div className="mb-1">
-        <h3 className="text-sm font-semibold text-[var(--dash-text)]">{heading}</h3>
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <div
+        className="mb-0.5 min-h-[1rem] truncate pr-28 text-[10px] text-zinc-500"
+        aria-live="polite"
+      >
+        {active ? (
+          <>
+            <span className="font-semibold text-zinc-300">{active.label}</span>
+            {' · '}
+            <span className="font-semibold tabular-nums text-zinc-200">
+              {formatCurrency(active.v)}
+            </span>
+          </>
+        ) : (
+          'Passe o mouse para ver valores'
+        )}
       </div>
 
-      <ChartHoverPanel
-        label={active?.label ?? null}
-        lines={
-          active
-            ? [
-                {
-                  name: 'Valor pedidos',
-                  value: formatCurrency(active.v),
-                  color: active.isPrevious
-                    ? 'var(--dash-warning)'
-                    : 'var(--dash-accent)',
-                },
-                ...(active.pedidos != null
-                  ? [{ name: 'Qtd. pedidos', value: String(active.pedidos) }]
-                  : []),
-              ]
-            : []
-        }
-      />
-
-      <div className="dash-chart-wrap">
+      <div ref={containerRef} className="overview-chart-wrap">
         <svg
+          width="100%"
+          height="100%"
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          preserveAspectRatio="xMinYMid meet"
-          style={{ minWidth: layout.width }}
+          preserveAspectRatio="none"
           role="img"
           aria-label="Gráfico de barras com valor de pedidos por mês"
           onMouseLeave={() => setActiveIndex(null)}
@@ -130,15 +131,15 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
                 y1={tick.y}
                 x2={layout.width - layout.margin.right}
                 y2={tick.y}
-                stroke="var(--dash-chart-grid)"
-                strokeDasharray="4 4"
+                stroke="rgb(255 255 255 / 0.06)"
+                strokeDasharray="3 3"
               />
               <text
-                x={layout.margin.left - 10}
-                y={tick.y + 4}
+                x={layout.margin.left - 4}
+                y={tick.y + 3}
                 textAnchor="end"
-                fontSize="10"
-                fill="var(--dash-text-muted)"
+                fontSize="7"
+                fill="rgb(113 113 122)"
                 pointerEvents="none"
               >
                 {formatCompactCurrency(tick.value)}
@@ -151,7 +152,7 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
             y1={layout.baselineY}
             x2={layout.width - layout.margin.right}
             y2={layout.baselineY}
-            stroke="var(--dash-border)"
+            stroke="rgb(255 255 255 / 0.1)"
             strokeWidth="1"
           />
 
@@ -182,34 +183,14 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
                   y={b.y}
                   width={b.barW}
                   height={b.barH}
-                  rx={2}
-                  fill={
-                    b.isCurrent
-                      ? 'var(--dash-accent)'
-                      : b.isPrevious
-                        ? 'var(--dash-warning)'
-                        : 'var(--dash-accent)'
-                  }
-                  opacity={dimmed ? 0.28 : b.isCurrent || b.isPrevious ? 1 : 0.42}
+                  rx={1.5}
+                  fill={isActive ? '#3b82f6' : '#2563eb'}
+                  opacity={dimmed ? 0.3 : 0.85}
                   pointerEvents="none"
                 />
               );
             })}
           </g>
-
-          {active && active.v > 0 ? (
-            <text
-              x={active.centerX}
-              y={Math.max(layout.margin.top + 12, active.y - 6)}
-              textAnchor="middle"
-              fontSize="10"
-              fontWeight="600"
-              fill="var(--dash-text)"
-              pointerEvents="none"
-            >
-              {formatCompactCurrency(active.v)}
-            </text>
-          ) : null}
 
           {layout.bars.map((b, i) => (
             <text
@@ -217,8 +198,8 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
               x={b.centerX}
               y={b.labelY}
               textAnchor="middle"
-              fontSize="10"
-              fill={activeIndex === i ? 'var(--dash-text)' : 'var(--dash-text-muted)'}
+              fontSize="7"
+              fill={activeIndex === i ? '#e4e4e7' : 'rgb(113 113 122)'}
               fontWeight={activeIndex === i ? 600 : 400}
               pointerEvents="none"
             >
@@ -227,29 +208,10 @@ export function MonthlyOrdersChart({ points, title }: MonthlyOrdersChartProps) {
           ))}
         </svg>
       </div>
-
-      <div className="mt-2 flex flex-wrap gap-4 text-xs text-[var(--dash-text-muted)]">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--dash-accent)]" />
-          Mês atual
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-sm"
-            style={{ background: 'var(--dash-warning)' }}
-          />
-          Mês anterior
-        </span>
-      </div>
     </div>
   );
 }
 
-export function MonthlyOrdersChartSkeleton() {
-  return (
-    <div className="dash-card w-full space-y-3 p-4 md:p-6">
-      <div className="dash-skeleton h-4 w-56" />
-      <div className="dash-skeleton h-[220px] w-full rounded-lg sm:h-[260px]" />
-    </div>
-  );
+export function OverviewFinanceChartSkeleton() {
+  return <div className="overview-skeleton h-full min-h-[100px] w-full" />;
 }

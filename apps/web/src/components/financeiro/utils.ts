@@ -10,6 +10,7 @@ import type {
   ChartGranularity,
 } from '@/src/components/financeiro/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { normalizeDateRange } from '@/src/lib/period-range';
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
@@ -29,9 +30,10 @@ export function buildFinanceiroPeriodQuery(period: {
   dataInicio: string;
   dataFim: string;
 }): string {
+  const norm = normalizeDateRange(period);
   const qs = new URLSearchParams();
-  if (period.dataInicio.trim()) qs.set('dataInicio', period.dataInicio.trim());
-  if (period.dataFim.trim()) qs.set('dataFim', period.dataFim.trim());
+  if (norm.dataInicio.trim()) qs.set('dataInicio', norm.dataInicio.trim());
+  if (norm.dataFim.trim()) qs.set('dataFim', norm.dataFim.trim());
   const s = qs.toString();
   return s ? `?${s}` : '';
 }
@@ -278,6 +280,14 @@ export function downloadCsv(filename: string, headers: string[], rows: string[][
 }
 
 export function countNfsInPeriod(nfs: NfEmAberto[], dataInicio: string, dataFim: string): number {
-  if (!dataInicio.trim() || !dataFim.trim()) return nfs.length;
-  return nfs.filter((nf) => isoInRange(nf.dataEmissao, dataInicio, dataFim)).length;
+  return filterNfsByPeriod(nfs, dataInicio, dataFim).length;
+}
+
+export function filterNfsByPeriod(
+  nfs: NfEmAberto[],
+  dataInicio: string,
+  dataFim: string,
+): NfEmAberto[] {
+  if (!dataInicio.trim() || !dataFim.trim()) return nfs;
+  return nfs.filter((nf) => isoInRange(nf.dataEmissao, dataInicio, dataFim));
 }

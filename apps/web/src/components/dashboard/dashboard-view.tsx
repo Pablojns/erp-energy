@@ -9,6 +9,10 @@ import { TabFinanceiro } from '@/src/components/dashboard/tab-financeiro';
 import { TabOverview } from '@/src/components/dashboard/tab-overview';
 import type { DashboardTabId, PeriodPreset } from '@/src/components/dashboard/types';
 import { resolvePeriodRange } from '@/src/components/dashboard/utils';
+import {
+  adjustRangeOnDateChange,
+  isPeriodRangeValid,
+} from '@/src/lib/period-range';
 import '@/src/components/dashboard/dashboard.css';
 
 export function DashboardView() {
@@ -36,7 +40,15 @@ export function DashboardView() {
   );
 
   const periodReady =
-    preset !== 'personalizado' || (Boolean(customInicio) && Boolean(customFim));
+    preset === 'todos' ||
+    (preset !== 'personalizado' && Boolean(period.dataInicio && period.dataFim)) ||
+    (preset === 'personalizado' &&
+      isPeriodRangeValid({ dataInicio: customInicio, dataFim: customFim }));
+
+  const periodInvalid =
+    preset === 'personalizado' &&
+    Boolean(customInicio && customFim) &&
+    !isPeriodRangeValid({ dataInicio: customInicio, dataFim: customFim });
 
   const handlePresetChange = (next: PeriodPreset) => {
     setPreset(next);
@@ -63,15 +75,31 @@ export function DashboardView() {
         onPresetChange={handlePresetChange}
         onCustomInicioChange={(v) => {
           setPreset('personalizado');
-          setCustomInicio(v);
+          const next = adjustRangeOnDateChange('dataInicio', v, {
+            dataInicio: customInicio,
+            dataFim: customFim,
+          });
+          setCustomInicio(next.dataInicio);
+          setCustomFim(next.dataFim);
         }}
         onCustomFimChange={(v) => {
           setPreset('personalizado');
-          setCustomFim(v);
+          const next = adjustRangeOnDateChange('dataFim', v, {
+            dataInicio: customInicio,
+            dataFim: customFim,
+          });
+          setCustomInicio(next.dataInicio);
+          setCustomFim(next.dataFim);
         }}
       />
 
       <main ref={mainRef} className="dash-scroll-main">
+        {periodInvalid ? (
+          <p className="dash-section-error" role="alert">
+            A data &quot;De&quot; não pode ser posterior à data &quot;Até&quot;. Ajuste o
+            período para carregar os dados.
+          </p>
+        ) : null}
         {!periodReady ? (
           <p className="text-sm text-[var(--dash-text-muted)]">
             Selecione as datas De/Até para o período personalizado.

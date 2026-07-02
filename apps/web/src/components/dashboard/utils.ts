@@ -11,6 +11,11 @@ import type {
   StockSummaryData,
 } from '@/src/components/dashboard/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  normalizeDateRange,
+  previousPeriodRange,
+  formatPeriodShortLabel,
+} from '@/src/lib/period-range';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -39,7 +44,10 @@ export function resolvePeriodRange(
   const now = new Date();
 
   if (preset === 'personalizado' && custom?.dataInicio && custom?.dataFim) {
-    return { dataInicio: custom.dataInicio, dataFim: custom.dataFim };
+    return normalizeDateRange({
+      dataInicio: custom.dataInicio,
+      dataFim: custom.dataFim,
+    });
   }
 
   if (preset === 'trimestre') {
@@ -59,9 +67,10 @@ export function resolvePeriodRange(
 }
 
 export function buildPeriodQuery(range: DateRange): string {
+  const norm = normalizeDateRange(range);
   const qs = new URLSearchParams();
-  if (range.dataInicio.trim()) qs.set('dataInicio', range.dataInicio.trim());
-  if (range.dataFim.trim()) qs.set('dataFim', range.dataFim.trim());
+  if (norm.dataInicio.trim()) qs.set('dataInicio', norm.dataInicio.trim());
+  if (norm.dataFim.trim()) qs.set('dataFim', norm.dataFim.trim());
   const s = qs.toString();
   return s ? `?${s}` : '';
 }
@@ -203,29 +212,106 @@ async function fetchMonthBundle(monthDate: Date, isCurrent: boolean, isPrevious:
   const start = formatYmd(startOfUtcMonth(monthDate));
   const end = formatYmd(endOfUtcMonth(monthDate));
   const q = `?dataInicio=${start}&dataFim=${end}`;
-  const [fin, resumo] = await Promise.all([
-    erpFetchJson<FinanceiroDashboardData>(`api/financeiro/dashboard${q}`),
-    erpFetchJson<DashboardResumo>(`api/dashboard/resumo${q}`),
-  ]);
+
+  let value = 0;
+  let faturado = 0;
+  let pedidos = 0;
+
+  try {
+    const fin = await erpFetchJson<FinanceiroDashboardData>(
+      `api/financeiro/dashboard${q}`,
+    );
+    value = Number(fin.valorPedidosPeriodo) || 0;
+    faturado = Number(fin.valorFaturadoPeriodo) || 0;
+  } catch {
+    /* mês sem dados ou falha pontual */
+  }
+
+  try {
+    const resumo = await erpFetchJson<DashboardResumo>(`api/dashboard/resumo${q}`);
+    pedidos = Number(resumo.financeiro.totalPedidosMes) || 0;
+  } catch {
+    /* resumo opcional — gráfico segue só com valor financeiro */
+  }
+
   return {
     key: start.slice(0, 7),
     label: formatShortMonth(monthDate),
-    value: Number(fin.valorPedidosPeriodo) || 0,
-    faturado: Number(fin.valorFaturadoPeriodo) || 0,
-    pedidos: Number(resumo.financeiro.totalPedidosMes) || 0,
+    value,
+    faturado,
+    pedidos,
     isCurrent,
     isPrevious,
   } satisfies MonthlyOrdersPoint;
 }
 
-export async function fetchMonthlyOrdersChart(): Promise<MonthlyOrdersPoint[]> {
+function parseYmdUtc(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function last12MonthDates(): Date[] {
   const now = new Date();
-  const tasks: Promise<MonthlyOrdersPoint>[] = [];
+  const months: Date[] = [];
   for (let offset = 11; offset >= 0; offset -= 1) {
-    const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
-    tasks.push(fetchMonthBundle(monthDate, offset === 0, offset === 1));
+    months.push(
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1)),
+    );
   }
-  return Promise.all(tasks);
+  return months;
+}
+
+export function enumerateMonthsInRange(range: DateRange): Date[] {
+  const norm = normalizeDateRange(range);
+  if (!norm.dataInicio.trim() || !norm.dataFim.trim()) {
+    return last12MonthDates();
+  }
+
+  const months: Date[] = [];
+  let cur = startOfUtcMonth(parseYmdUtc(norm.dataInicio.trim()));
+  const endMonth = startOfUtcMonth(parseYmdUtc(norm.dataFim.trim()));
+
+  while (cur.getTime() <= endMonth.getTime()) {
+    months.push(new Date(cur));
+    cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));
+  }
+
+  if (months.length === 0) return last12MonthDates();
+  if (months.length > 24) return months.slice(-24);
+  return months;
+}
+
+/** Períodos curtos (ex.: “este mês”) geram 1 barra — usa 12 meses para o gráfico ficar legível. */
+export function resolveChartMonthDates(range?: DateRange): Date[] {
+  const months = enumerateMonthsInRange(range ?? { dataInicio: '', dataFim: '' });
+  if (months.length < 2) return last12MonthDates();
+  return months;
+}
+
+export async function fetchMonthlyOrdersChart(
+  range?: DateRange,
+): Promise<MonthlyOrdersPoint[]> {
+  const now = new Date();
+  const monthDates = resolveChartMonthDates(range);
+
+  const results = await Promise.allSettled(
+    monthDates.map((monthDate) => {
+      const isCurrent =
+        monthDate.getUTCFullYear() === now.getUTCFullYear() &&
+        monthDate.getUTCMonth() === now.getUTCMonth();
+      const prevMonth = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+      );
+      const isPrevious =
+        monthDate.getUTCFullYear() === prevMonth.getUTCFullYear() &&
+        monthDate.getUTCMonth() === prevMonth.getUTCMonth();
+      return fetchMonthBundle(monthDate, isCurrent, isPrevious);
+    }),
+  );
+
+  return results
+    .filter((r) => r.status === 'fulfilled')
+    .map((r) => (r as PromiseFulfilledResult<MonthlyOrdersPoint>).value);
 }
 
 export function buildMonthlyTable(points: MonthlyOrdersPoint[]): MonthlyTableRow[] {
@@ -236,6 +322,36 @@ export function buildMonthlyTable(points: MonthlyOrdersPoint[]): MonthlyTableRow
       variationPct: computeVariationPct(Number(p.value) || 0, prev),
     };
   });
+}
+
+export async function fetchPeriodComparison(range: DateRange): Promise<{
+  current: number;
+  previous: number;
+  currentLabel: string;
+  previousLabel: string;
+}> {
+  const norm = normalizeDateRange(range);
+  if (!norm.dataInicio.trim() || !norm.dataFim.trim()) {
+    throw new Error('Período inválido para comparação');
+  }
+
+  const prev = previousPeriodRange(norm);
+
+  const [currentData, previousData] = await Promise.all([
+    erpFetchJson<FinanceiroDashboardData>(
+      `api/financeiro/dashboard${buildPeriodQuery(norm)}`,
+    ),
+    erpFetchJson<FinanceiroDashboardData>(
+      `api/financeiro/dashboard${buildPeriodQuery(prev)}`,
+    ),
+  ]);
+
+  return {
+    current: Number(currentData.valorPedidosPeriodo) || 0,
+    previous: Number(previousData.valorPedidosPeriodo) || 0,
+    currentLabel: `${formatPeriodShortLabel(norm.dataInicio)} – ${formatPeriodShortLabel(norm.dataFim)}`,
+    previousLabel: `${formatPeriodShortLabel(prev.dataInicio)} – ${formatPeriodShortLabel(prev.dataFim)}`,
+  };
 }
 
 export async function fetchCurrentAndPreviousMonth(): Promise<{

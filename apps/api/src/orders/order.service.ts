@@ -23,7 +23,11 @@ import type { AttachInvoiceDto } from './dto/attach-invoice.dto';
 import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
-import { ORDER_STATUS_EXPEDITION_CHAIN, ORDER_STATUS_VALUES } from './order-domain';
+import {
+  ORDER_STATUS_EXPEDITION_CHAIN,
+  ORDER_STATUS_VALUES,
+  WEG_TAB_ORDER_SOURCES,
+} from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { AppLogger } from '../common/logger/app-logger';
 
@@ -2078,7 +2082,11 @@ export class OrderService {
 
     const src = query.source?.trim();
     if (src && src !== 'all') {
-      clauses.push({ source: src as OrderSource });
+      if (src === OrderSource.WEG_MERCADO_ELETRONICO) {
+        clauses.push({ source: { in: [...WEG_TAB_ORDER_SOURCES] } });
+      } else {
+        clauses.push({ source: src as OrderSource });
+      }
     }
 
     const ext = query.externalOrderNumber?.trim();

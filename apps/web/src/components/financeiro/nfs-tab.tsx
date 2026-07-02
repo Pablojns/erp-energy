@@ -12,9 +12,14 @@ import {
   PagarNfModal,
 } from '@/src/components/financeiro/modals';
 import { FinTableSkeleton } from '@/src/components/financeiro/skeletons';
-import type { NfDisplayStatus, NfEmAberto } from '@/src/components/financeiro/types';
+import type {
+  FinanceiroPeriod,
+  NfDisplayStatus,
+  NfEmAberto,
+} from '@/src/components/financeiro/types';
 import {
   fetchAllNfsEmAberto,
+  filterNfsByPeriod,
   formatCurrency,
   formatDateBr,
   nfDisplayStatus,
@@ -44,10 +49,11 @@ function NfStatusBadge(props: { status: NfDisplayStatus }) {
 }
 
 export function FinanceiroNfsTab(props: {
+  period: FinanceiroPeriod;
   refreshToken: number;
   onCountChange?: (count: number) => void;
 }) {
-  const { refreshToken, onCountChange } = props;
+  const { period, refreshToken, onCountChange } = props;
   const [rows, setRows] = useState<NfEmAberto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,8 +88,13 @@ export function FinanceiroNfsTab(props: {
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [rows]);
 
+  const periodFiltered = useMemo(
+    () => filterNfsByPeriod(rows, period.dataInicio, period.dataFim),
+    [rows, period.dataInicio, period.dataFim],
+  );
+
   const filtered = useMemo(() => {
-    let list = rows;
+    let list = periodFiltered;
     if (statusFilter !== 'ALL') {
       list = list.filter((r) => nfDisplayStatus(r) === statusFilter);
     }
@@ -92,7 +103,7 @@ export function FinanceiroNfsTab(props: {
       list = list.filter((r) => r.recebedor?.toLowerCase().includes(q));
     }
     return list;
-  }, [rows, recebedorFilter, statusFilter]);
+  }, [periodFiltered, recebedorFilter, statusFilter]);
 
   const activeFilterCount =
     (statusFilter !== 'ALL' ? 1 : 0) + (recebedorFilter.trim() ? 1 : 0);

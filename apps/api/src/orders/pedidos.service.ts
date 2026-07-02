@@ -218,14 +218,14 @@ export class PedidosService {
       const allCompleto =
         statusRows.length > 0 &&
         statusRows.every((r) => r.stockStatus === OrderItemStockStatus.COMPLETO);
-      const nextStatus = allCompleto
+      const stockCoverage = allCompleto
         ? OrderStatus.RESERVADO
         : OrderStatus.PARCIAL;
 
       await tx.order.update({
         where: { id: order.id },
         data: {
-          status: nextStatus,
+          status: OrderStatus.EM_SEPARACAO,
           reservedAt: new Date(),
         },
       });
@@ -237,7 +237,8 @@ export class PedidosService {
         entityId: order.id,
         changes: {
           code: order.code,
-          status: nextStatus,
+          status: OrderStatus.EM_SEPARACAO,
+          stockCoverage,
           source: 'site',
           reservedFullQuantity: true,
         },

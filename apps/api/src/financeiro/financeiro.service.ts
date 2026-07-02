@@ -475,18 +475,12 @@ export class FinanceiroService {
   ): { start: Date; end: Date } | null {
     const inicio = this.normalizeDateParam(dataInicio);
     const fim = this.normalizeDateParam(dataFim);
-    if (!inicio && !fim) {
+    if (!inicio || !fim) {
       return null;
     }
 
-    const start = inicio
-      ? startOfUtcDay(parseYmdOrThrow(inicio, 'dataInicio'))
-      : startOfUtcDay(parseYmdOrThrow(fim!, 'dataFim'));
-    const end = fim
-      ? endOfUtcDay(parseYmdOrThrow(fim, 'dataFim'))
-      : endOfUtcDay(
-          new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)),
-        );
+    const start = startOfUtcDay(parseYmdOrThrow(inicio, 'dataInicio'));
+    const end = endOfUtcDay(parseYmdOrThrow(fim, 'dataFim'));
 
     if (start.getTime() > end.getTime()) {
       throw new BadRequestException('dataInicio não pode ser posterior a dataFim.');

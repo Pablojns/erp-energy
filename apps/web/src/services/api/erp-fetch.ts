@@ -6,6 +6,12 @@ function createRequestId(): string {
   return generateUUID();
 }
 
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (error instanceof Error && error.name === 'AbortError') return true;
+  return false;
+}
+
 function nestErrorMessage(payload: unknown, fallbackStatus: number): string {
   if (
     typeof payload !== 'object' ||
@@ -44,13 +50,15 @@ export async function erpFetchJson<T>(
       },
     });
   } catch (error) {
-    clientLogger.error('Network error in ERP fetch', {
-      action: 'erp.fetch.network',
-      requestId,
-      path: `/api/erp/${path}`,
-      method: init?.method ?? 'GET',
-      error,
-    });
+    if (!isAbortError(error)) {
+      clientLogger.error('Network error in ERP fetch', {
+        action: 'erp.fetch.network',
+        requestId,
+        path: `/api/erp/${path}`,
+        method: init?.method ?? 'GET',
+        error,
+      });
+    }
     throw error;
   }
 

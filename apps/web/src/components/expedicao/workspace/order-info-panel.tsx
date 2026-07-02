@@ -106,8 +106,7 @@ export const OrderInfoPanel = forwardRef<
   const notaVenda = order.invoiceNumber?.trim() || null;
   const isFinalized =
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
-  const carrierLocked =
-    !isOrdersMode && Boolean(order.carrierId?.trim());
+  const carrierLocked = Boolean(order.carrierId?.trim());
   const fieldsReadOnly = isFinalized;
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);

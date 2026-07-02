@@ -232,7 +232,7 @@ export function ExpeditionWorkspace(props: {
               data.setPage(1);
               data.setAppliedFilters((f) => ({
                 ...f,
-                source: 'all',
+                source: 'WEG_MERCADO_ELETRONICO',
                 search: '',
               }));
               await data.refetchFromStart();
@@ -253,11 +253,19 @@ export function ExpeditionWorkspace(props: {
           <NewSiteOrderModal
             isOpen={siteOrderOpen}
             onClose={() => setSiteOrderOpen(false)}
-            onCreated={() => {
-              void data.refreshAll();
+            onCreated={async (created) => {
+              data.setStatusFilter('all');
+              data.setPage(1);
+              await data.refetchFromStart();
+              window.dispatchEvent(new Event('expedition-refresh'));
+              if (created?.id) {
+                setSelectedOrderId(created.id);
+                setActiveTab('detalhes');
+              }
               data.setToast({
                 variant: 'ok',
-                message: 'Pedido do site criado e estoque reservado.',
+                message:
+                  'Pedido do site criado, estoque reservado e enviado para separação.',
               });
             }}
           />

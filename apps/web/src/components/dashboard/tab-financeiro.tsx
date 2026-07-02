@@ -9,7 +9,7 @@ import {
 } from '@/src/components/dashboard/dual-monthly-chart';
 import { FinanceMetricsGrid, FinanceMetricsGridSkeleton } from '@/src/components/dashboard/metrics-grid';
 import { MetricCard, MetricCardSkeleton } from '@/src/components/dashboard/metric-card';
-import type { DateRange, FinanceiroDashboardData, MonthlyTableRow } from '@/src/components/dashboard/types';
+import type { DateRange, FinanceiroDashboardData, MonthlyOrdersPoint, MonthlyTableRow } from '@/src/components/dashboard/types';
 import {
   buildMonthlyTable,
   downloadCsv,
@@ -34,6 +34,7 @@ export function TabFinanceiro({ period, refreshKey }: TabFinanceiroProps) {
     pedidosSemNF: number;
     pedidosAtrasados: number;
   } | null>(null);
+  const [chartPoints, setChartPoints] = useState<MonthlyOrdersPoint[]>([]);
   const [table, setTable] = useState<MonthlyTableRow[]>([]);
   const [loadingFin, setLoadingFin] = useState(true);
   const [loadingChart, setLoadingChart] = useState(true);
@@ -67,15 +68,17 @@ export function TabFinanceiro({ period, refreshKey }: TabFinanceiroProps) {
     setLoadingChart(true);
     setErrorChart(null);
     try {
-      const points = await fetchMonthlyOrdersChart();
+      const points = await fetchMonthlyOrdersChart(period);
+      setChartPoints(points);
       setTable(buildMonthlyTable(points));
     } catch (e) {
+      setChartPoints([]);
       setTable([]);
       setErrorChart(e instanceof Error ? e.message : 'Erro ao carregar gráfico.');
     } finally {
       setLoadingChart(false);
     }
-  }, []);
+  }, [period.dataInicio, period.dataFim]);
 
   useEffect(() => {
     void loadFin();
@@ -129,9 +132,11 @@ export function TabFinanceiro({ period, refreshKey }: TabFinanceiroProps) {
         <DualMonthlyChartSkeleton />
       ) : errorChart ? (
         <p className="dash-section-error" role="alert">{errorChart}</p>
-      ) : table.length > 0 ? (
-        <DualMonthlyChart points={table} />
-      ) : null}
+      ) : chartPoints.length > 0 ? (
+        <DualMonthlyChart points={chartPoints} />
+      ) : (
+        <DualMonthlyChart points={[]} />
+      )}
 
       {table.length > 0 ? (
         <div className="dash-card w-full p-4 md:p-6">
