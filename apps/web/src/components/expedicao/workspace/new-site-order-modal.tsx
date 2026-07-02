@@ -96,6 +96,72 @@ function lineNumberForIndex(index: number) {
   return (index + 1) * 10;
 }
 
+function normalizeProductSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function productNameWords(product: ProductOption): string[] {
+  return normalizeProductSearchText(product.name).split(/\s+/).filter(Boolean);
+}
+
+function productSearchWords(product: ProductOption): string[] {
+  const sku = normalizeProductSearchText(product.sku);
+  const nameWords = productNameWords(product);
+  return sku ? [sku, ...nameWords] : nameWords;
+}
+
+function tokenMatchesWord(token: string, word: string): boolean {
+  return word === token || word.startsWith(token);
+}
+
+function productMatchesSearch(product: ProductOption, query: string): boolean {
+  const normalizedQuery = normalizeProductSearchText(query);
+  if (!normalizedQuery) return true;
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const words = productSearchWords(product);
+  return tokens.every((token) => words.some((word) => tokenMatchesWord(token, word)));
+}
+
+function compareProductsByName(a: ProductOption, b: ProductOption): number {
+  return (
+    a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }) ||
+    a.sku.localeCompare(b.sku, 'pt-BR', { sensitivity: 'base' })
+  );
+}
+
+function productSearchRank(product: ProductOption, query: string): number {
+  const normalizedQuery = normalizeProductSearchText(query);
+  if (!normalizedQuery) return 0;
+
+  const nameWords = productNameWords(product);
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const firstToken = queryTokens[0] ?? '';
+  const firstWord = nameWords[0] ?? '';
+
+  if (firstToken && firstWord && tokenMatchesWord(firstToken, firstWord)) {
+    return 0;
+  }
+
+  return 1;
+}
+
+function sortProductsForSearch(products: ProductOption[], query: string): ProductOption[] {
+  const normalizedQuery = normalizeProductSearchText(query);
+  const matches = normalizedQuery
+    ? products.filter((product) => productMatchesSearch(product, query))
+    : [...products];
+
+  return matches.sort((a, b) => {
+    if (!normalizedQuery) return compareProductsByName(a, b);
+    return productSearchRank(a, query) - productSearchRank(b, query) || compareProductsByName(a, b);
+  });
+}
+
 function buildFieldErrors(
   externalOrderNumber: string,
   requestedDeliveryDate: string,
@@ -271,6 +337,8 @@ export function NewSiteOrderModal(props: {
   const [carrierId, setCarrierId] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<OrderItemForm[]>([newItemRow()]);
+  const [productSearch, setProductSearch] = useState<Record<string, string>>({});
+  const [openProductDropdown, setOpenProductDropdown] = useState<string | null>(null);
 
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -328,6 +396,8 @@ export function NewSiteOrderModal(props: {
     setCarrierId('');
     setNotes('');
     setItems([newItemRow()]);
+    setProductSearch({});
+    setOpenProductDropdown(null);
     setShowCreateCustomer(false);
     setNewCustomerName('');
     setNewCustomerEmail('');
@@ -650,7 +720,8 @@ export function NewSiteOrderModal(props: {
               <button
                 type="button"
                 onClick={() => {
-                  setItems((prev) => [...prev, newItemRow()]);
+                  const row = newItemRow();
+                  setItems((prev) => [...prev, row]);
                   clearFieldError('items');
                   setSubmitError(null);
                 }}
@@ -677,6 +748,9 @@ export function NewSiteOrderModal(props: {
                 const rowErrors = fieldErrors.itemRows?.[row.key];
                 const selectedProduct = productById(row.productId);
                 const lineNo = lineNumberForIndex(index);
+                const searchQuery = productSearch[row.key] ?? '';
+                const filteredProducts = sortProductsForSearch(products, searchQuery);
+                const showDropdown = openProductDropdown === row.key;
 
                 return (
                   <div key={row.key}>
@@ -701,29 +775,80 @@ export function NewSiteOrderModal(props: {
                           className={`${fieldClass()} cursor-default font-mono text-sm opacity-80`}
                         />
                       </div>
-                      <div className="min-w-0">
-                        <select
-                          value={row.productId}
+                      <div className="relative min-w-0">
+                        <input
+                          type="search"
+                          value={searchQuery}
                           onChange={(e) => {
                             const value = e.target.value;
+                            setProductSearch((prev) => ({
+                              ...prev,
+                              [row.key]: value,
+                            }));
                             setItems((prev) =>
                               prev.map((it) =>
-                                it.key === row.key ? { ...it, productId: value } : it,
+                                it.key === row.key ? { ...it, productId: '' } : it,
                               ),
                             );
+                            setOpenProductDropdown(row.key);
                             clearItemRowError(row.key, 'productId');
                             setSubmitError(null);
                           }}
-                          className={fieldClass(Boolean(rowErrors?.productId))}
+                          onFocus={() => setOpenProductDropdown(row.key)}
+                          onBlur={() => {
+                            window.setTimeout(() => {
+                              setOpenProductDropdown((current) =>
+                                current === row.key ? null : current,
+                              );
+                            }, 150);
+                          }}
+                          placeholder="Buscar produto (ex.: polo p)"
                           disabled={saving || loadingOptions}
-                        >
-                          <option value="">Selecione o produto</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          className={fieldClass(Boolean(rowErrors?.productId))}
+                          autoComplete="off"
+                        />
+                        {showDropdown && filteredProducts.length > 0 ? (
+                          <ul
+                            className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] py-1 shadow-lg"
+                            role="listbox"
+                          >
+                            {filteredProducts.map((p) => (
+                              <li key={p.id} role="option" aria-selected={p.id === row.productId}>
+                                <button
+                                  type="button"
+                                  className="w-full px-3 py-2 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--input-bg)]"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setItems((prev) =>
+                                      prev.map((it) =>
+                                        it.key === row.key
+                                          ? { ...it, productId: p.id }
+                                          : it,
+                                      ),
+                                    );
+                                    setProductSearch((prev) => ({
+                                      ...prev,
+                                      [row.key]: `${p.sku} — ${p.name}`,
+                                    }));
+                                    setOpenProductDropdown(null);
+                                    clearItemRowError(row.key, 'productId');
+                                    setSubmitError(null);
+                                  }}
+                                >
+                                  <span className="font-mono text-xs text-[var(--text-muted)]">
+                                    {p.sku}
+                                  </span>
+                                  <span className="mt-0.5 block text-sm">{p.name}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {showDropdown && searchQuery.trim() && filteredProducts.length === 0 ? (
+                          <p className="absolute z-20 mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-muted)] shadow-lg">
+                            Nenhum produto encontrado
+                          </p>
+                        ) : null}
                         <FieldError message={rowErrors?.productId} />
                       </div>
                       <div>
@@ -751,13 +876,20 @@ export function NewSiteOrderModal(props: {
                       <div className="flex items-start justify-end sm:justify-center">
                         <button
                           type="button"
-                          onClick={() =>
-                            setItems((prev) =>
-                              prev.length <= 1
-                                ? prev
-                                : prev.filter((it) => it.key !== row.key),
-                            )
-                          }
+                          onClick={() => {
+                            setItems((prev) => {
+                              if (prev.length <= 1) return prev;
+                              return prev.filter((it) => it.key !== row.key);
+                            });
+                            setProductSearch((prev) => {
+                              const next = { ...prev };
+                              delete next[row.key];
+                              return next;
+                            });
+                            if (openProductDropdown === row.key) {
+                              setOpenProductDropdown(null);
+                            }
+                          }}
                           disabled={saving || items.length <= 1}
                           className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-rose-500/30 text-lg leading-none text-rose-400 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"
                           title="Remover item"
