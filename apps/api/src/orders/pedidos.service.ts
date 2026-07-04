@@ -7,6 +7,7 @@ import {
   Prisma,
   StockMovementType,
 } from '@erp/database';
+import PDFDocument from 'pdfkit';
 import { AuditService } from '../common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -555,9 +556,138 @@ export class PedidosService {
     return this.orders.updateOrderCarrier(order.id, userId, carrierId);
   }
 
-  async attachNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
+  async updateVolumes(numeroPed: string, volumes: number, _userId: string) {
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroPed.trim() },
+      select: { id: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    if (
+      order.status === OrderStatus.FINALIZADO ||
+      order.status === OrderStatus.EXPEDIDO
+    ) {
+      throw new BadRequestException(
+        'Volumes não podem ser alterados em pedido finalizado.',
+      );
+    }
+
+    return this.prisma.client.order.update({
+      where: { id: order.id },
+      data: { volumes },
+    });
+  }
+
+  async gerarEtiquetaPdf(
+    numeroPed: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        carrier: { select: { name: true } },
+        items: { select: { sku: true, description: true, quantity: true } },
+      },
+    });
+
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const totalVolumes =
+      order.volumes != null && order.volumes >= 1 ? order.volumes : 1;
+    const pedidoNum =
+      order.externalOrderNumber?.trim() || order.code?.trim() || trimmed;
+    const receiver = order.receiverName?.trim() || '—';
+    const unloading = order.unloadingPoint?.trim() || '—';
+    const nf = order.invoiceNumber?.trim() || '—';
+
+    const CM = 72 / 2.54;
+    const labelW = 10 * CM;
+    const labelH = 6 * CM;
+    const pad = 12;
+    const innerW = labelW - pad * 2;
+
+    const doc = new PDFDocument({ autoFirstPage: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      for (let vol = 1; vol <= totalVolumes; vol++) {
+        doc.addPage({ size: [labelW, labelH], margin: 0 });
+
+        let y = pad;
+
+        doc
+          .fontSize(15)
+          .font('Helvetica-Bold')
+          .text('DESTINATÁRIO', pad, y, { width: innerW, lineBreak: false });
+        y += 22;
+
+        doc.fontSize(11).font('Helvetica-Bold').text('Pedido: ', pad, y, {
+          continued: true,
+          lineBreak: false,
+        });
+        doc.font('Helvetica').text(pedidoNum, { lineBreak: false });
+
+        const nfText = `NF: ${nf}`;
+        doc.fontSize(13).font('Helvetica-Bold');
+        const nfW = doc.widthOfString(nfText);
+        doc.text(nfText, labelW - pad - nfW, y - 1, { lineBreak: false });
+        y += 20;
+
+        doc.fontSize(11).font('Helvetica-Bold').text('Recebedor:', pad, y, {
+          width: innerW,
+          lineBreak: false,
+        });
+        y += 14;
+        doc.fontSize(16).font('Helvetica-Bold').text(receiver, pad, y, {
+          width: innerW,
+          lineBreak: false,
+        });
+        y += 22;
+
+        doc.fontSize(11).font('Helvetica-Bold').text('Ponto de descarga:', pad, y, {
+          width: innerW,
+          lineBreak: false,
+        });
+        y += 14;
+        doc.fontSize(15).font('Helvetica-Bold').text(unloading, pad, y, {
+          width: innerW,
+          height: labelH - y - 28,
+        });
+
+        const volY = labelH - pad - 22;
+        doc
+          .fontSize(20)
+          .font('Helvetica-Bold')
+          .text(`VOLUMES: ${vol}/${totalVolumes}`, pad, volY, {
+            width: innerW,
+            align: 'center',
+            lineBreak: false,
+          });
+      }
+
+      doc.end();
+    });
+
+    return {
+      buffer,
+      filename: pedidoNum.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_') || 'pedido',
+    };
+  }
+
+  async attachNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -569,7 +699,7 @@ export class PedidosService {
     if (!/^\d{1,9}$/.test(nf)) {
       throw new BadRequestException('NF-e deve ter de 1 a 9 dígitos numéricos.');
     }
-    return this.orders.generateExitFromInvoice(order.id, userId, { invoiceNumber: nf });
+    return this.orders.attachInvoice(order.id, userId, { invoiceNumber: nf });
   }
 
   async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {

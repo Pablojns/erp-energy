@@ -108,6 +108,8 @@ model User {
   userPermissions      UserPermission[]
   createdTasks         Task[]                @relation("TaskCreatedBy")
   assignedTasks        Task[]                @relation("TaskAssignedTo")
+  purchaseRequestsMade     PurchaseRequest[] @relation("PurchaseRequestedBy")
+  purchaseRequestsResolved PurchaseRequest[] @relation("PurchaseResolvedBy")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -223,6 +225,7 @@ model Product {
   orderItems        OrderItem[]
   stockMovements    StockMovement[]
   stockReservations StockReservation[]
+  purchaseRequests  PurchaseRequest[]
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
@@ -722,4 +725,46 @@ model Despesa {
 
   @@index([categoria])
   @@index([data])
+}
+
+model PurchaseRequest {
+  id              String    @id @default(uuid()) @db.Uuid
+  type            String    // WEG_CONTRATO | VENDA_EXTERNA | MARKETPLACE
+  status          String    @default("SOLICITADO") // SOLICITADO | COMPRADO | RECUSADO
+  priority        String    @default("NORMAL") // URGENTE | NORMAL
+
+  // Campos WEG contrato
+  productId       String?   @db.Uuid
+  product         Product?  @relation(fields: [productId], references: [id])
+  suggestedQty    Int?
+
+  // Campos venda externa / marketplace
+  sku             String?
+  itemName        String?
+  quantity        Int?
+  clientDeadline  DateTime?
+  link            String?
+  logoPlaceholder String? // campo reservado para logo futura
+  logoKey         String?
+  supplierName    String?
+  itemPrice       Decimal?  @db.Decimal(12, 2)
+  engravingPrice  Decimal?  @db.Decimal(12, 2)
+  saleOrderRef    String?
+  expectedArrival DateTime?
+
+  // Campos comuns
+  observation     String?
+  requestedById   String    @db.Uuid
+  requestedBy     User      @relation("PurchaseRequestedBy", fields: [requestedById], references: [id])
+
+  // Campos de resolução
+  resolvedById    String?   @db.Uuid
+  resolvedBy      User?     @relation("PurchaseResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt      DateTime?
+  purchasedAt     DateTime?
+  purchaseValue   Decimal?  @db.Decimal(12, 2)
+  refusalReason   String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }

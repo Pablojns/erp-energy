@@ -12,6 +12,7 @@ import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosController } from './pedidos.controller';
 import { PedidosService } from './pedidos.service';
+import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, StockModule, PermissionsModule],
@@ -21,6 +22,7 @@ import { PedidosService } from './pedidos.service';
     CarrierResolverService,
     OrderImportService,
     PedidosService,
+    PedidosEtiquetaService,
     NfAutomaticoService,
     NfQueueService,
     AuditService,

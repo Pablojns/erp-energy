@@ -16,11 +16,13 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Req,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { OrderImportService } from './order-import.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -35,9 +37,11 @@ import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
+import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
+import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
 import { AuditService } from '../common/audit.service';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
 
@@ -47,6 +51,7 @@ export class PedidosController {
   constructor(
     private readonly orderImportService: OrderImportService,
     private readonly pedidos: PedidosService,
+    private readonly pedidosEtiqueta: PedidosEtiquetaService,
     private readonly nfAutomaticoService: NfAutomaticoService,
     private readonly nfQueueService: NfQueueService,
     private readonly audit: AuditService,
@@ -214,6 +219,20 @@ export class PedidosController {
     );
   }
 
+  @Patch(':numeroPed/volumes')
+  updateVolumes(
+    @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdatePedidoVolumesDto,
+  ) {
+    if (!user.roles.includes('ADMIN') && !user.roles.includes('OPERADOR')) {
+      throw new ForbiddenException(
+        'Apenas administradores e operadores podem editar volumes.',
+      );
+    }
+    return this.pedidos.updateVolumes(numeroPed, dto.volumes, user.id);
+  }
+
   @Post(':numeroPed/nf')
   @RequirePermission('expedicao', 'emitir_nf')
   attachNf(
@@ -330,6 +349,20 @@ export class PedidosController {
   @Get('nf-fila')
   async listarFila() {
     return this.nfQueueService.listarJobs();
+  }
+
+  @Get(':numeroPed/etiqueta')
+  async etiqueta(
+    @Param('numeroPed') numeroPed: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { buffer, filename } =
+      await this.pedidosEtiqueta.generatePdf(numeroPed);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="etiqueta-${filename}.pdf"`,
+    });
+    return new StreamableFile(buffer);
   }
 
   @Get(':numeroPed')

@@ -35,6 +35,8 @@ function isAllowedPath(path: string): boolean {
     /^chat(\/|$)/i.test(path) ||
     /^api\/financeiro(\/|$)/i.test(path) ||
     /^financeiro(\/|$)/i.test(path) ||
+    /^api\/compras(\/|$)/i.test(path) ||
+    /^compras(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -61,6 +63,9 @@ function resolveUpstreamPath(segments: string[]): string {
     return `api/${path}`;
   }
   if (/^financeiro(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^compras(\/|$)/i.test(path)) {
     return `api/${path}`;
   }
   return path;
@@ -108,23 +113,47 @@ async function proxy(request: NextRequest, segments: string[]) {
   };
 
   if (method !== 'GET' && method !== 'HEAD') {
-    const body = await request.text();
-    if (body.length > 0) {
-      init.body = body;
-      if (!headers.has('content-type')) {
-        headers.set('content-type', 'application/json');
+    if (incomingCt?.includes('multipart/form-data')) {
+      const body = await request.arrayBuffer();
+      if (body.byteLength > 0) {
+        init.body = body;
+      }
+    } else {
+      const body = await request.text();
+      if (body.length > 0) {
+        init.body = body;
+        if (!headers.has('content-type')) {
+          headers.set('content-type', 'application/json');
+        }
       }
     }
   }
 
   const upstream = await fetch(target, init);
-  const text = await upstream.text();
   const outHeaders = new Headers();
   const ct = upstream.headers.get('content-type');
   if (ct) {
     outHeaders.set('content-type', ct);
   }
+  const contentDisposition = upstream.headers.get('content-disposition');
+  if (contentDisposition) {
+    outHeaders.set('content-disposition', contentDisposition);
+  }
 
+  const isBinary =
+    (ct?.includes('application/pdf') ?? false) ||
+    (ct?.includes('application/octet-stream') ?? false) ||
+    (ct?.startsWith('image/') ?? false);
+
+  if (isBinary) {
+    const body = await upstream.arrayBuffer();
+    return new NextResponse(body, {
+      status: upstream.status,
+      headers: outHeaders,
+    });
+  }
+
+  const text = await upstream.text();
   return new NextResponse(text, {
     status: upstream.status,
     headers: outHeaders,

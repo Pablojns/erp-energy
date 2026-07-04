@@ -1,0 +1,83 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { JwtGuard } from '../auth/jwt.guard';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
+import { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
+import { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
+import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
+import { PurchaseRequestService } from './purchase-request.service';
+
+@Controller('api/compras')
+@UseGuards(JwtGuard)
+export class PurchaseRequestController {
+  constructor(private readonly purchaseRequests: PurchaseRequestService) {}
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('logo'))
+  criar(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePurchaseRequestDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.purchaseRequests.criar(user.id, dto, file);
+  }
+
+  @Get()
+  listar(@Query() query: ListPurchaseRequestsQueryDto) {
+    return this.purchaseRequests.listar(query);
+  }
+
+  @Get(':id')
+  buscarPorId(@Param('id', ParseUUIDPipe) id: string) {
+    return this.purchaseRequests.buscarPorId(id);
+  }
+
+  @Patch(':id/status')
+  atualizarStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseRequestStatusDto,
+  ) {
+    return this.purchaseRequests.atualizarStatus(id, dto.status);
+  }
+
+  @Patch(':id/comprado')
+  marcarComprado(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ResolvePurchaseRequestDto,
+  ) {
+    return this.purchaseRequests.marcarComprado(id, user.id, dto);
+  }
+
+  @Patch(':id/recusar')
+  recusar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ResolvePurchaseRequestDto,
+  ) {
+    return this.purchaseRequests.recusar(id, user.id, dto);
+  }
+
+  @Delete(':id')
+  deletar(@Param('id', ParseUUIDPipe) id: string) {
+    return this.purchaseRequests.deletar(id);
+  }
+}

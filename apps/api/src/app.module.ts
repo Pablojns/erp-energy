@@ -15,8 +15,10 @@ import { FinanceiroModule } from './financeiro/financeiro.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
 import { OrderModule } from './orders/order.module';
+import { ComprasModule } from './compras/compras.module';
 import { ProductModule } from './product/product.module';
 import { StockModule } from './stock/stock.module';
+import { StorageModule } from './storage/storage.module';
 import { buildNestPinoParams } from './common/logger/pino-options';
 import { RequestContextInterceptor } from './common/logger/request-context.interceptor';
 import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
@@ -47,11 +49,13 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     ProductModule,
     StockModule,
     OrderModule,
+    ComprasModule,
     CadastrosModule,
     DashboardModule,
     ChatModule,
     FinanceiroModule,
     PermissionsModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [

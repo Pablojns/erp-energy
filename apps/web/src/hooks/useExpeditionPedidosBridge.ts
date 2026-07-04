@@ -224,14 +224,17 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
           body: JSON.stringify({ invoiceNumber: nf }),
         });
       } else {
-        await erpFetchJson(`orders/${id}/generate-exit`, {
+        await erpFetchJson(`orders/${id}/attach-invoice`, {
           method: 'POST',
           body: JSON.stringify({ invoiceNumber: nf }),
         });
       }
       await refreshAll();
       window.dispatchEvent(new Event('expedition-refresh'));
-      setToast({ variant: 'ok', message: 'NF-e vinculada com sucesso!' });
+      setToast({
+        variant: 'ok',
+        message: 'NF-e vinculada. Imprima a etiqueta para confirmar a saída.',
+      });
       return true;
     } catch (e) {
       setToast({
@@ -534,24 +537,36 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   };
 }
 
-/** Mescla campos de workflow da fila (sempre atualizada) sobre o cache de detalhe. */
+/** Mescla campos de workflow da fila sobre o detalhe, priorizando o status mais recente. */
 function mergeListOrderIntoDetail(pedido: OrderDto, fromList: OrderDto): OrderDto {
+  const pedidoUpdated = pedido.updatedAt
+    ? new Date(pedido.updatedAt).getTime()
+    : 0;
+  const listUpdated = fromList.updatedAt
+    ? new Date(fromList.updatedAt).getTime()
+    : 0;
+  const detailIsNewer = pedidoUpdated >= listUpdated;
+
   return {
     ...pedido,
-    status: fromList.status,
+    status: detailIsNewer ? pedido.status : fromList.status,
     priority: fromList.priority,
-    volumes: fromList.volumes,
-    notaRemessa: fromList.notaRemessa,
-    notaRemessaConfirmada: fromList.notaRemessaConfirmada,
-    carrierId: fromList.carrierId,
-    carrierName: fromList.carrierName,
-    invoiceNumber: fromList.invoiceNumber,
-    invoiceStatus: fromList.invoiceStatus,
+    volumes: fromList.volumes ?? pedido.volumes,
+    notaRemessa: fromList.notaRemessa ?? pedido.notaRemessa,
+    notaRemessaConfirmada: fromList.notaRemessaConfirmada ?? pedido.notaRemessaConfirmada,
+    carrierId: fromList.carrierId ?? pedido.carrierId,
+    carrierName: fromList.carrierName ?? pedido.carrierName,
+    invoiceNumber: detailIsNewer
+      ? pedido.invoiceNumber
+      : (fromList.invoiceNumber ?? pedido.invoiceNumber),
+    invoiceStatus: detailIsNewer
+      ? pedido.invoiceStatus
+      : (fromList.invoiceStatus ?? pedido.invoiceStatus),
     mercadoEletronicoStatus: fromList.mercadoEletronicoStatus,
     contaAzulStatus: fromList.contaAzulStatus,
     physicalReservationActive: fromList.physicalReservationActive,
     stockReserveBlocked: fromList.stockReserveBlocked,
-    updatedAt: fromList.updatedAt,
+    updatedAt: detailIsNewer ? pedido.updatedAt : fromList.updatedAt,
   };
 }
 

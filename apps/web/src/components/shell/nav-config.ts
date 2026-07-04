@@ -1,6 +1,7 @@
 export type NavIconName =
   | 'layoutDashboard'
   | 'truck'
+  | 'shoppingCart'
   | 'package'
   | 'users'
   | 'wallet'
@@ -20,6 +21,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { href: '/app/expedicao', label: 'Expedição', iconName: 'truck' },
   { href: '/app/estoque', label: 'Estoque', iconName: 'package' },
   { href: '/app/crm', label: 'CRM', iconName: 'users' },
+  { href: '/app/compras', label: 'Compras', iconName: 'shoppingCart' },
   { href: '/app/financeiro', label: 'Financeiro', iconName: 'wallet' },
   { href: '/app/chat', label: 'Chat', iconName: 'messageSquare' },
   { href: '/app/configuracoes', label: 'Configurações', iconName: 'settings' },

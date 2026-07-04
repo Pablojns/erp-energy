@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2, Pencil } from 'lucide-react';
+import { CalendarDays, Loader2, Pencil, Tag } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -70,6 +70,7 @@ export const OrderInfoPanel = forwardRef<
     onNotaRemessaSaved?: (value: string | null) => void;
     onVolumesSaved?: () => void;
     onVolumesValidityChange?: (valid: boolean) => void;
+    hideVolumes?: boolean;
     onStatusChanged?: () => void;
     onToggleUrgent?: () => void | Promise<void>;
     showFinalizeVolumesHint?: boolean;
@@ -85,6 +86,7 @@ export const OrderInfoPanel = forwardRef<
     onNotaRemessaSaved,
     onVolumesSaved,
     onVolumesValidityChange,
+    hideVolumes = false,
     onStatusChanged,
     onToggleUrgent,
     showFinalizeVolumesHint = false,
@@ -130,6 +132,10 @@ export const OrderInfoPanel = forwardRef<
   const [savingVolumes, setSavingVolumes] = useState(false);
   const [volumesError, setVolumesError] = useState<string | null>(null);
   const lastSavedVolumesRef = useRef<number | null>(order.volumes ?? null);
+  const [emittingEtiqueta, setEmittingEtiqueta] = useState(false);
+  const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
+
+  const canEmitEtiqueta = order.status === 'FINALIZADO';
 
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
@@ -276,7 +282,7 @@ export const OrderInfoPanel = forwardRef<
     setVolumesError(null);
 
     try {
-      await erpFetchJson(pedidoApiUrl(numeroPed, 'status'), {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'volumes'), {
         method: 'PATCH',
         body: JSON.stringify({ volumes: value }),
       });
@@ -288,6 +294,48 @@ export const OrderInfoPanel = forwardRef<
       return false;
     } finally {
       setSavingVolumes(false);
+    }
+  };
+
+  const handleEmitEtiqueta = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setEtiquetaError('Número do pedido inválido.');
+      return;
+    }
+
+    setEmittingEtiqueta(true);
+    setEtiquetaError(null);
+
+    try {
+      const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, 'etiqueta')}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let message = 'Não foi possível gerar a etiqueta.';
+        try {
+          const body = JSON.parse(text) as { message?: string | string[] };
+          if (body.message) {
+            message = Array.isArray(body.message)
+              ? body.message.join(' · ')
+              : body.message;
+          }
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setEtiquetaError(
+        err instanceof Error ? err.message : 'Não foi possível gerar a etiqueta.',
+      );
+    } finally {
+      setEmittingEtiqueta(false);
     }
   };
 
@@ -356,6 +404,24 @@ export const OrderInfoPanel = forwardRef<
               Editar pedido
             </button>
           ) : null}
+          {canEmitEtiqueta ? (
+            <button
+              type="button"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleEmitEtiqueta()}
+              disabled={emittingEtiqueta}
+            >
+              {emittingEtiqueta ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Tag className="h-3.5 w-3.5" />
+              )}
+              Imprimir Etiqueta
+            </button>
+          ) : null}
+          {etiquetaError ? (
+            <p className="basis-full text-xs text-red-500">{etiquetaError}</p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
           <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
@@ -423,50 +489,52 @@ export const OrderInfoPanel = forwardRef<
               )}
             </HeaderField>
 
-            <HeaderField label="Volumes:">
-              {isOrdersMode || fieldsReadOnly ? (
-                <span>
-                  {order.volumes != null && order.volumes >= 1
-                    ? `${order.volumes} volume${order.volumes > 1 ? 's' : ''}`
-                    : '—'}
-                </span>
-              ) : (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      inputMode="numeric"
-                      value={volumesInput}
-                      onChange={(e) => {
-                        setVolumesInput(e.target.value);
-                        setVolumesError(null);
-                      }}
-                      onBlur={() => {
-                        const parsed = parseVolumesInput(volumesInput);
-                        if (parsed !== null) {
-                          void saveVolumes(parsed);
-                        }
-                      }}
-                      disabled={savingVolumes}
-                      placeholder="Mín. 1"
-                      className={inputClassName}
-                    />
-                    {savingVolumes ? (
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+            {!hideVolumes ? (
+              <HeaderField label="Volumes:">
+                {isOrdersMode || fieldsReadOnly ? (
+                  <span>
+                    {order.volumes != null && order.volumes >= 1
+                      ? `${order.volumes} volume${order.volumes > 1 ? 's' : ''}`
+                      : '—'}
+                  </span>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={volumesInput}
+                        onChange={(e) => {
+                          setVolumesInput(e.target.value);
+                          setVolumesError(null);
+                        }}
+                        onBlur={() => {
+                          const parsed = parseVolumesInput(volumesInput);
+                          if (parsed !== null) {
+                            void saveVolumes(parsed);
+                          }
+                        }}
+                        disabled={savingVolumes}
+                        placeholder="Mín. 1"
+                        className={inputClassName}
+                      />
+                      {savingVolumes ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+                      ) : null}
+                    </div>
+                    {volumesError ? (
+                      <p className="mt-1 text-xs text-red-500">{volumesError}</p>
+                    ) : showFinalizeVolumesHint ? (
+                      <p className="mt-1 text-xs text-[var(--color-text-secondary,var(--text-secondary))]">
+                        Obrigatório para finalizar.
+                      </p>
                     ) : null}
-                  </div>
-                  {volumesError ? (
-                    <p className="mt-1 text-xs text-red-500">{volumesError}</p>
-                  ) : showFinalizeVolumesHint ? (
-                    <p className="mt-1 text-xs text-[var(--color-text-secondary,var(--text-secondary))]">
-                      Obrigatório para finalizar.
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </HeaderField>
+                  </>
+                )}
+              </HeaderField>
+            ) : null}
 
             <HeaderField label="Nota de Venda (NF):">
               {fieldsReadOnly ? (

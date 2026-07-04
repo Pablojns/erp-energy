@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   Shield,
+  ShoppingCart,
   Truck,
   Users,
   Wallet,
@@ -25,6 +26,7 @@ import { MAIN_NAV_ITEMS, type NavIconName } from './nav-config';
 const NAV_ICONS: Record<NavIconName, LucideIcon> = {
   layoutDashboard: LayoutDashboard,
   truck: Truck,
+  shoppingCart: ShoppingCart,
   package: Package,
   users: Users,
   wallet: Wallet,
