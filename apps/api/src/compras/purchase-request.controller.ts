@@ -10,11 +10,14 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
@@ -43,6 +46,23 @@ export class PurchaseRequestController {
   @Get()
   listar(@Query() query: ListPurchaseRequestsQueryDto) {
     return this.purchaseRequests.listar(query);
+  }
+
+  @Get(':id/logo')
+  async buscarLogo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { stream, contentType, contentLength, filename } =
+      await this.purchaseRequests.buscarLogo(id);
+
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${filename}"`,
+      ...(contentLength != null ? { 'Content-Length': String(contentLength) } : {}),
+    });
+
+    return new StreamableFile(stream);
   }
 
   @Get(':id')

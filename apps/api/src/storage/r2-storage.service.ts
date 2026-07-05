@@ -7,6 +7,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { Readable } from 'stream';
 
 @Injectable()
 export class R2StorageService {
@@ -46,6 +47,29 @@ export class R2StorageService {
       }),
       { expiresIn },
     );
+  }
+
+  async getObject(key: string): Promise<{
+    body: Readable;
+    contentType: string;
+    contentLength?: number;
+  }> {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+
+    if (!response.Body) {
+      throw new Error('Arquivo vazio no storage.');
+    }
+
+    return {
+      body: response.Body as Readable,
+      contentType: response.ContentType ?? 'application/octet-stream',
+      contentLength: response.ContentLength,
+    };
   }
 
   async delete(key: string): Promise<void> {

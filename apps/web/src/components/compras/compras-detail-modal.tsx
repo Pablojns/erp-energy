@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, Loader2, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, Loader2, Trash2 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { fetchPurchaseDetail } from './compras-api';
 import { ComprasDetailField, ComprasModalShell } from './compras-modal-shell';
@@ -26,6 +26,7 @@ export function ComprasDetailModal(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [downloadingLogo, setDownloadingLogo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +64,37 @@ export function ComprasDetailModal(props: {
   };
 
   const canResolve = row?.status === 'SOLICITADO';
+  const logoSrc = row?.logoKey ? `/api/erp/compras/${row.id}/logo` : null;
+
+  const handleOpenLogo = () => {
+    if (!logoSrc) return;
+    window.open(logoSrc, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDownloadLogo = async () => {
+    if (!logoSrc || !row) return;
+    setDownloadingLogo(true);
+    setError(null);
+    try {
+      const response = await fetch(logoSrc, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('Falha ao baixar logo.');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = row.logoKey?.split('/').pop() ?? `logo-${row.id}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao baixar logo.');
+    } finally {
+      setDownloadingLogo(false);
+    }
+  };
 
   return (
     <ComprasModalShell title="Detalhe da Solicitação" onClose={props.onClose} size="lg">
@@ -98,26 +130,39 @@ export function ComprasDetailModal(props: {
             <ComprasDetailField label="Motivo recusa" value={row.refusalReason ?? '—'} wide />
           </div>
 
-          {row.logoUrl ? (
+          {logoSrc ? (
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm font-medium text-white/70">Logo</p>
-                <a
-                  href={row.logoUrl}
-                  download
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Download
-                </a>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenLogo}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Abrir imagem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadLogo()}
+                    disabled={downloadingLogo}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+                  >
+                    {downloadingLogo ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Download
+                  </button>
+                </div>
               </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={row.logoUrl}
+                src={logoSrc}
                 alt="Logo da solicitação"
-                className="mx-auto max-h-48 rounded-xl border border-white/10 object-contain"
+                className="mx-auto max-h-[200px] rounded-xl border border-white/10 object-contain"
               />
             </div>
           ) : null}

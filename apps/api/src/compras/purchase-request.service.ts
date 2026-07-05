@@ -281,6 +281,29 @@ export class PurchaseRequestService {
     return this.serialize(updated, true);
   }
 
+  async buscarLogo(id: string) {
+    const row = await this.prisma.client.purchaseRequest.findUnique({
+      where: { id },
+      select: { logoKey: true },
+    });
+    if (!row) {
+      throw new NotFoundException('Solicitação de compra não encontrada.');
+    }
+    if (!row.logoKey) {
+      throw new NotFoundException('Logo não encontrada para esta solicitação.');
+    }
+
+    const object = await this.r2.getObject(row.logoKey);
+    const filename = row.logoKey.split('/').pop() ?? 'logo';
+
+    return {
+      stream: object.body,
+      contentType: object.contentType,
+      contentLength: object.contentLength,
+      filename,
+    };
+  }
+
   async deletar(id: string) {
     const row = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
