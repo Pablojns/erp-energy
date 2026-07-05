@@ -129,12 +129,6 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    void this.notifications.createForAdmins(
-      'Login detectado',
-      `Usuário ${user.name} (${user.email}) logou de IP ${clientIp ?? 'desconhecido'}.`,
-      'login',
-    );
-
     return this.buildAuthResponse(user);
   }
 
