@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@erp/database';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { R2StorageService } from '../storage/r2-storage.service';
 import {
   CreatePurchaseRequestDto,
@@ -53,6 +54,7 @@ export class PurchaseRequestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly r2: R2StorageService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async criar(
@@ -102,6 +104,8 @@ export class PurchaseRequestService {
         include: PURCHASE_REQUEST_INCLUDE,
       });
 
+      this.notifyCompraCriada(created);
+
       return this.serialize(created);
     }
 
@@ -132,6 +136,8 @@ export class PurchaseRequestService {
       },
       include: PURCHASE_REQUEST_INCLUDE,
     });
+
+    this.notifyCompraCriada(created);
 
     return this.serialize(created);
   }
@@ -298,6 +304,28 @@ export class PurchaseRequestService {
       include: PURCHASE_REQUEST_INCLUDE,
     });
 
+    const itemLabel = this.itemDisplayName(updated);
+    if (existing.status !== status && status === 'EXPEDIDO') {
+      void this.notifications.createForPermission(
+        'notificacoes',
+        'receber_compras',
+        'Item expedido pelo fornecedor',
+        `${itemLabel} foi expedido — solicite coleta`,
+        'compra_expedida',
+        '/app/compras',
+      );
+    }
+    if (existing.status !== status && status === 'RECEBIDO') {
+      void this.notifications.createForPermission(
+        'notificacoes',
+        'receber_compras',
+        'Item recebido',
+        `${itemLabel} chegou — separe os pedidos pendentes`,
+        'compra_recebida',
+        '/app/compras',
+      );
+    }
+
     return this.serialize(updated, true);
   }
 
@@ -355,6 +383,22 @@ export class PurchaseRequestService {
 
     await this.prisma.client.purchaseRequest.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private itemDisplayName(row: PurchaseRequestRow): string {
+    return row.itemName?.trim() || row.product?.name?.trim() || 'Item';
+  }
+
+  private notifyCompraCriada(created: PurchaseRequestRow): void {
+    const itemLabel = this.itemDisplayName(created);
+    void this.notifications.createForPermission(
+      'notificacoes',
+      'receber_compras',
+      'Nova solicitação de compra',
+      `${created.requestedBy.name} solicitou: ${itemLabel}`,
+      'compra_criada',
+      '/app/compras',
+    );
   }
 
   private buildCommonFields(userId: string, dto: CreatePurchaseRequestDto) {
