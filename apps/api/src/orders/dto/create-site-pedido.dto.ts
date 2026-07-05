@@ -30,12 +30,6 @@ export class CreateSitePedidoDto {
   @MaxLength(18)
   deliveryCnpj?: string;
 
-  @IsUUID('4', { message: 'Recebedor inválido.' })
-  receiverId!: string;
-
-  @IsUUID('4', { message: 'Ponto de descarga inválido.' })
-  unloadingPointId!: string;
-
   @IsUUID('4', { message: 'Transportadora inválida.' })
   carrierId!: string;
 

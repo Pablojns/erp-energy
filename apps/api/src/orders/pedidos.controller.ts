@@ -129,6 +129,20 @@ export class PedidosController {
     return this.pedidos.excluirDadosTitular(documento, user.id);
   }
 
+  @Delete('saidas/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteSaida(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem excluir saídas.',
+      );
+    }
+    return this.pedidos.deleteSaida(user.id, id);
+  }
+
   @Delete(':numeroPed')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('expedicao', 'deletar_pedido')
@@ -141,7 +155,7 @@ export class PedidosController {
         'Apenas administradores podem excluir pedidos.',
       );
     }
-    return this.pedidos.deleteManual(user.id, numeroPed);
+    return this.pedidos.deleteManual(user.id, decodeURIComponent(numeroPed));
   }
 
   @Get('fila')
@@ -167,20 +181,6 @@ export class PedidosController {
   @Get('saidas/:id')
   detalheSaida(@Param('id', ParseUUIDPipe) id: string) {
     return this.pedidos.findSaidaById(id);
-  }
-
-  @Delete('saidas/:id')
-  @HttpCode(HttpStatus.OK)
-  deleteSaida(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    if (!user.roles.includes('ADMIN')) {
-      throw new ForbiddenException(
-        'Apenas administradores podem excluir saídas.',
-      );
-    }
-    return this.pedidos.deleteSaida(user.id, id);
   }
 
   @Get('transportadoras')

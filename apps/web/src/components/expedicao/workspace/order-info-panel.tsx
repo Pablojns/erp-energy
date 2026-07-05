@@ -96,6 +96,7 @@ export const OrderInfoPanel = forwardRef<
   } = props;
 
   const isOrdersMode = panelMode === 'orders';
+  const isSiteOrder = order.source === 'SITE';
 
   const numero = orderDisplayNumber(order);
   const overdue = getOverdueDays(order);
@@ -438,19 +439,36 @@ export const OrderInfoPanel = forwardRef<
       </div>
 
       <div className="exp-wb-order-header-body !mt-1.5 !gap-1.5">
-        <div className="exp-wb-order-header-block !p-3">
-          <div className="exp-wb-order-header-row !gap-2">
-            <HeaderPair label="Comprador" value={cnpj} />
-            <HeaderPair label="Endereço" value={address} align="end" />
+        {isSiteOrder ? (
+          <div className="exp-wb-order-header-block !p-3">
+            <div className="exp-wb-order-header-row !gap-2">
+              <HeaderPair label="Cliente" value={displayOrDash(order.customerName)} />
+              <HeaderPair
+                label="Endereço"
+                value={formatDeliveryAddressDisplay(
+                  order.deliveryAddress ?? order.unloadingPoint,
+                )}
+                align="end"
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="exp-wb-order-header-block !p-3">
+              <div className="exp-wb-order-header-row !gap-2">
+                <HeaderPair label="Comprador" value={cnpj} />
+                <HeaderPair label="Endereço" value={address} align="end" />
+              </div>
+            </div>
 
-        <div className="exp-wb-order-header-block !p-3">
-          <div className="exp-wb-order-header-row !gap-2">
-            <HeaderPair label="Recebedor" value={receiver} />
-            <HeaderPair label="Ponto de descarga" value={point} align="end" />
-          </div>
-        </div>
+            <div className="exp-wb-order-header-block !p-3">
+              <div className="exp-wb-order-header-row !gap-2">
+                <HeaderPair label="Recebedor" value={receiver} />
+                <HeaderPair label="Ponto de descarga" value={point} align="end" />
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="exp-wb-order-header-block !p-3">
           <div className="exp-wb-order-header-obs gap-1">
@@ -489,7 +507,7 @@ export const OrderInfoPanel = forwardRef<
               )}
             </HeaderField>
 
-            {!hideVolumes ? (
+            {!hideVolumes && !isSiteOrder ? (
               <HeaderField label="Volumes:">
                 {isOrdersMode || fieldsReadOnly ? (
                   <span>
@@ -565,55 +583,57 @@ export const OrderInfoPanel = forwardRef<
               )}
             </HeaderField>
 
-            <HeaderField label="Nota de Remessa:">
-              {fieldsReadOnly ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>{notaRemessa.trim() || '—'}</span>
-                  {order.notaRemessaConfirmada ? (
-                    <span className="exp-wb-line-status exp-wb-line-status--recebido">
-                      Confirmada
-                    </span>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-1.5">
-                    <input
-                      type="text"
-                      value={notaRemessa}
-                      onChange={(e) => {
-                        setNotaRemessa(e.target.value);
-                        setNotaRemessaError(null);
-                      }}
-                      onBlur={() => void saveNotaRemessa()}
-                      disabled={savingNotaRemessa}
-                      placeholder="Número da remessa"
-                      className={inputClassName}
-                    />
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={notaRemessaConfirmada}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setNotaRemessaConfirmada(checked);
-                          void saveNotaRemessa({ confirmed: checked });
-                        }}
-                        disabled={savingNotaRemessa}
-                        className="h-4 w-4 accent-[var(--accent)]"
-                      />
-                      Confirmar nota de remessa
-                    </label>
+            {!isSiteOrder ? (
+              <HeaderField label="Nota de Remessa:">
+                {fieldsReadOnly ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{notaRemessa.trim() || '—'}</span>
+                    {order.notaRemessaConfirmada ? (
+                      <span className="exp-wb-line-status exp-wb-line-status--recebido">
+                        Confirmada
+                      </span>
+                    ) : null}
                   </div>
-                  {savingNotaRemessa ? (
-                    <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" />
-                  ) : null}
-                  {notaRemessaError ? (
-                    <p className="mt-1 text-xs text-red-500">{notaRemessaError}</p>
-                  ) : null}
-                </>
-              )}
-            </HeaderField>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <input
+                        type="text"
+                        value={notaRemessa}
+                        onChange={(e) => {
+                          setNotaRemessa(e.target.value);
+                          setNotaRemessaError(null);
+                        }}
+                        onBlur={() => void saveNotaRemessa()}
+                        disabled={savingNotaRemessa}
+                        placeholder="Número da remessa"
+                        className={inputClassName}
+                      />
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
+                        <input
+                          type="checkbox"
+                          checked={notaRemessaConfirmada}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setNotaRemessaConfirmada(checked);
+                            void saveNotaRemessa({ confirmed: checked });
+                          }}
+                          disabled={savingNotaRemessa}
+                          className="h-4 w-4 accent-[var(--accent)]"
+                        />
+                        Confirmar nota de remessa
+                      </label>
+                    </div>
+                    {savingNotaRemessa ? (
+                      <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" />
+                    ) : null}
+                    {notaRemessaError ? (
+                      <p className="mt-1 text-xs text-red-500">{notaRemessaError}</p>
+                    ) : null}
+                  </>
+                )}
+              </HeaderField>
+            ) : null}
           </div>
         </div>
       </div>

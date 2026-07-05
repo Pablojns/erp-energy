@@ -752,13 +752,7 @@ export class OrderService {
       throw new ConflictException('Já existe pedido com este número.');
     }
 
-    const [receiver, unloadingPoint, customer, carrier] = await Promise.all([
-      this.prisma.client.receiver.findUnique({
-        where: { id: dto.receiverId },
-      }),
-      this.prisma.client.unloadingPoint.findUnique({
-        where: { id: dto.unloadingPointId },
-      }),
+    const [customer, carrier] = await Promise.all([
       this.prisma.client.customer.findUnique({
         where: { id: dto.customerId },
       }),
@@ -767,12 +761,6 @@ export class OrderService {
       }),
     ]);
 
-    if (!receiver?.isActive) {
-      throw new BadRequestException('Recebedor inválido ou inativo.');
-    }
-    if (!unloadingPoint?.isActive) {
-      throw new BadRequestException('Ponto de descarga inválido ou inativo.');
-    }
     if (!customer?.isActive) {
       throw new BadRequestException('Cliente inválido ou inativo.');
     }
@@ -874,8 +862,8 @@ export class OrderService {
           customerDocument,
           deliveryCnpj,
           deliveryAddress: customer.deliveryAddress?.trim() || null,
-          receiverName: receiver.name.trim(),
-          unloadingPoint: unloadingPoint.name.trim(),
+          receiverName: customer.name.trim(),
+          unloadingPoint: customer.deliveryAddress?.trim() || null,
           notes: dto.notes?.trim() || null,
           status: OrderStatus.NOVO,
           invoiceStatus: InvoiceStatus.NOT_FOUND,

@@ -84,6 +84,46 @@ async function loadActiveProducts(): Promise<ProductOption[]> {
   return all;
 }
 
+function formatCepInput(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+function cepDigits(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 8);
+}
+
+function buildDeliveryAddress(parts: {
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  cep: string;
+}): string {
+  const line1 = [parts.street.trim(), parts.number.trim()].filter(Boolean).join(', ');
+  const segments = [
+    line1,
+    parts.complement.trim() || null,
+    parts.neighborhood.trim() || null,
+    parts.city.trim() && parts.state.trim()
+      ? `${parts.city.trim()}/${parts.state.trim()}`
+      : parts.city.trim() || parts.state.trim() || null,
+    parts.cep.trim() ? `CEP ${formatCepInput(parts.cep)}` : null,
+  ].filter(Boolean);
+  return segments.join(' - ');
+}
+
+type ViaCepResponse = {
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+  erro?: boolean;
+};
+
 function newItemRow(): OrderItemForm {
   return {
     key: generateUUID(),
@@ -326,8 +366,6 @@ export function NewSiteOrderModal(props: {
 
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [customers, setCustomers] = useState<CadastroOption[]>([]);
-  const [defaultReceiverId, setDefaultReceiverId] = useState('');
-  const [defaultUnloadingPointId, setDefaultUnloadingPointId] = useState('');
   const [carriers, setCarriers] = useState<CadastroOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
 
@@ -342,8 +380,16 @@ export function NewSiteOrderModal(props: {
 
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerCep, setNewCustomerCep] = useState('');
+  const [newCustomerStreet, setNewCustomerStreet] = useState('');
+  const [newCustomerNumber, setNewCustomerNumber] = useState('');
+  const [newCustomerComplement, setNewCustomerComplement] = useState('');
+  const [newCustomerNeighborhood, setNewCustomerNeighborhood] = useState('');
+  const [newCustomerCity, setNewCustomerCity] = useState('');
+  const [newCustomerState, setNewCustomerState] = useState('');
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [loadingCep, setLoadingCep] = useState(false);
   const [creatingCustomer, setCreatingCustomer] = useState(false);
 
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
@@ -400,8 +446,16 @@ export function NewSiteOrderModal(props: {
     setOpenProductDropdown(null);
     setShowCreateCustomer(false);
     setNewCustomerName('');
+    setNewCustomerCep('');
+    setNewCustomerStreet('');
+    setNewCustomerNumber('');
+    setNewCustomerComplement('');
+    setNewCustomerNeighborhood('');
+    setNewCustomerCity('');
+    setNewCustomerState('');
     setNewCustomerEmail('');
     setNewCustomerPhone('');
+    setLoadingCep(false);
     setFieldErrors({});
     setSubmitError(null);
   }, []);
@@ -412,15 +466,11 @@ export function NewSiteOrderModal(props: {
     setLoadingOptions(true);
     void Promise.all([
       loadActiveCadastro('cadastros/customers'),
-      loadActiveCadastro('cadastros/receivers'),
-      loadActiveCadastro('cadastros/unloading-points'),
       loadActiveCadastro('cadastros/carriers'),
       loadActiveProducts(),
     ])
-      .then(([cust, recv, unload, carr, prods]) => {
+      .then(([cust, carr, prods]) => {
         setCustomers(cust);
-        setDefaultReceiverId(recv[0]?.id ?? '');
-        setDefaultUnloadingPointId(unload[0]?.id ?? '');
         setCarriers(
           carr.filter((c) =>
             SITE_CARRIER_NAMES.includes(
@@ -436,12 +486,57 @@ export function NewSiteOrderModal(props: {
       .finally(() => setLoadingOptions(false));
   }, [isOpen, resetForm]);
 
+  const handleCepBlur = async () => {
+    const digits = cepDigits(newCustomerCep);
+    if (digits.length !== 8) return;
+
+    setLoadingCep(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return;
+      const data = (await res.json()) as ViaCepResponse;
+      if (data.erro) return;
+      if (data.logradouro) setNewCustomerStreet(data.logradouro);
+      if (data.bairro) setNewCustomerNeighborhood(data.bairro);
+      if (data.localidade) setNewCustomerCity(data.localidade);
+      if (data.uf) setNewCustomerState(data.uf);
+    } catch {
+      /* preenchimento manual se ViaCEP falhar */
+    } finally {
+      setLoadingCep(false);
+    }
+  };
+
   const handleCreateCustomer = async () => {
     const name = newCustomerName.trim();
     if (!name) {
       setSubmitError('Informe o nome do cliente.');
       return;
     }
+    if (cepDigits(newCustomerCep).length !== 8) {
+      setSubmitError('Informe um CEP válido.');
+      return;
+    }
+    if (!newCustomerStreet.trim() || !newCustomerNumber.trim()) {
+      setSubmitError('Informe rua e número do endereço.');
+      return;
+    }
+    if (!newCustomerNeighborhood.trim() || !newCustomerCity.trim() || !newCustomerState.trim()) {
+      setSubmitError('Informe bairro, cidade e estado.');
+      return;
+    }
+
+    const deliveryAddress = buildDeliveryAddress({
+      street: newCustomerStreet,
+      number: newCustomerNumber,
+      complement: newCustomerComplement,
+      neighborhood: newCustomerNeighborhood,
+      city: newCustomerCity,
+      state: newCustomerState,
+      cep: newCustomerCep,
+    });
+
     setCreatingCustomer(true);
     setSubmitError(null);
     try {
@@ -449,6 +544,7 @@ export function NewSiteOrderModal(props: {
         method: 'POST',
         body: JSON.stringify({
           name,
+          deliveryAddress,
           email: newCustomerEmail.trim() || undefined,
           phone: newCustomerPhone.trim() || undefined,
         }),
@@ -457,6 +553,13 @@ export function NewSiteOrderModal(props: {
       setCustomerId(created.id);
       setShowCreateCustomer(false);
       setNewCustomerName('');
+      setNewCustomerCep('');
+      setNewCustomerStreet('');
+      setNewCustomerNumber('');
+      setNewCustomerComplement('');
+      setNewCustomerNeighborhood('');
+      setNewCustomerCity('');
+      setNewCustomerState('');
       setNewCustomerEmail('');
       setNewCustomerPhone('');
       clearFieldError('customerId');
@@ -482,13 +585,6 @@ export function NewSiteOrderModal(props: {
       return;
     }
 
-    if (!defaultReceiverId || !defaultUnloadingPointId) {
-      setSubmitError(
-        'Cadastre ao menos um recebedor e um ponto de descarga antes de criar pedidos do site.',
-      );
-      return;
-    }
-
     const productIds = items.map((i) => i.productId);
     if (new Set(productIds).size !== productIds.length) {
       setSubmitError('Não repita o mesmo produto em mais de um item.');
@@ -510,8 +606,6 @@ export function NewSiteOrderModal(props: {
           customerId,
           deliveryCnpj,
           carrierId,
-          receiverId: defaultReceiverId,
-          unloadingPointId: defaultUnloadingPointId,
           notes: notes.trim() || undefined,
           items: items.map((row) => ({
             productId: row.productId,
@@ -645,6 +739,73 @@ export function NewSiteOrderModal(props: {
                     className={fieldClass()}
                     disabled={creatingCustomer}
                   />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={newCustomerCep}
+                      onChange={(e) => setNewCustomerCep(formatCepInput(e.target.value))}
+                      onBlur={() => void handleCepBlur()}
+                      placeholder="CEP *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer || loadingCep}
+                    />
+                    <input
+                      type="text"
+                      value={newCustomerStreet}
+                      onChange={(e) => setNewCustomerStreet(e.target.value)}
+                      placeholder="Rua *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer || loadingCep}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      type="text"
+                      value={newCustomerNumber}
+                      onChange={(e) => setNewCustomerNumber(e.target.value)}
+                      placeholder="Número *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer}
+                    />
+                    <input
+                      type="text"
+                      value={newCustomerComplement}
+                      onChange={(e) => setNewCustomerComplement(e.target.value)}
+                      placeholder="Complemento"
+                      className={fieldClass()}
+                      disabled={creatingCustomer}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <input
+                      type="text"
+                      value={newCustomerNeighborhood}
+                      onChange={(e) => setNewCustomerNeighborhood(e.target.value)}
+                      placeholder="Bairro *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer || loadingCep}
+                    />
+                    <input
+                      type="text"
+                      value={newCustomerCity}
+                      onChange={(e) => setNewCustomerCity(e.target.value)}
+                      placeholder="Cidade *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer || loadingCep}
+                    />
+                    <input
+                      type="text"
+                      value={newCustomerState}
+                      onChange={(e) => setNewCustomerState(e.target.value.toUpperCase().slice(0, 2))}
+                      placeholder="Estado *"
+                      className={fieldClass()}
+                      disabled={creatingCustomer || loadingCep}
+                    />
+                  </div>
+                  {loadingCep ? (
+                    <p className="text-xs text-[var(--text-secondary)]">Buscando CEP…</p>
+                  ) : null}
                   <input
                     type="email"
                     value={newCustomerEmail}
@@ -664,7 +825,7 @@ export function NewSiteOrderModal(props: {
                   <button
                     type="button"
                     onClick={() => void handleCreateCustomer()}
-                    disabled={creatingCustomer}
+                    disabled={creatingCustomer || loadingCep}
                     className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                   >
                     {creatingCustomer ? 'Salvando…' : 'Salvar cliente'}
