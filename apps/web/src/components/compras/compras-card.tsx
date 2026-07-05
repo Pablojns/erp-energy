@@ -7,10 +7,12 @@ import type { PurchaseRequest } from './compras-types';
 import { TYPE_LABEL } from './compras-types';
 import { ComprasBadge } from './compras-modal-shell';
 import {
+  calcPurchaseTotalFromRow,
   displayName,
   displayQty,
   formatDate,
   formatMoney,
+  formatMoneyNumber,
   priorityBadgeClass,
   typeBadgeClass,
 } from './compras-utils';
@@ -91,6 +93,8 @@ export function ComprasCard(props: {
         Qtd. <span className="font-semibold text-white">{displayQty(row)}</span>
         {' · '}
         Preço <span className="font-semibold text-white">{formatMoney(row.itemPrice)}</span>
+        {' · '}
+        Total <span className="font-semibold text-white">{formatMoneyNumber(calcPurchaseTotalFromRow(row))}</span>
       </p>
       <p className="mt-2 text-[11px] text-white/40">
         {row.requestedBy.name} · {formatDate(row.createdAt)}

@@ -100,10 +100,6 @@ export class CreatePurchaseRequestDto {
   saleOrderRef?: string;
 
   @IsOptional()
-  @IsDateString()
-  expectedArrival?: string;
-
-  @IsOptional()
   @IsString()
   @MaxLength(2000)
   observation?: string;

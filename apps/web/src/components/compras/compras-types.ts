@@ -24,12 +24,20 @@ export type ProductLite = {
   internalCode?: string;
   stockQty: number;
   minStock: number;
+  price?: string;
 };
 
 export type SupplierLite = {
   id: string;
   name: string;
   isActive: boolean;
+};
+
+export type PurchaseRequestImage = {
+  id: string;
+  imageKey: string;
+  url: string | null;
+  createdAt: string;
 };
 
 export type PurchaseRequest = {
@@ -46,8 +54,7 @@ export type PurchaseRequest = {
   clientDeadline: string | null;
   link: string | null;
   logoPlaceholder: string | null;
-  logoKey: string | null;
-  logoUrl: string | null;
+  images: PurchaseRequestImage[];
   supplierName: string | null;
   itemPrice: string | null;
   engravingPrice: string | null;

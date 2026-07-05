@@ -14,8 +14,8 @@ import {
 import type { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import type { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
 
-const LOGO_MAX_BYTES = 5 * 1024 * 1024;
-const LOGO_SIGNED_URL_TTL = 3600;
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_SIGNED_URL_TTL = 3600;
 
 const PURCHASE_REQUEST_INCLUDE = {
   product: {
@@ -27,6 +27,10 @@ const PURCHASE_REQUEST_INCLUDE = {
       stockQty: true,
       minStock: true,
     },
+  },
+  images: {
+    select: { id: true, imageKey: true, createdAt: true },
+    orderBy: { createdAt: 'asc' as const },
   },
   requestedBy: { select: { id: true, name: true, email: true } },
   resolvedBy: { select: { id: true, name: true, email: true } },
@@ -54,10 +58,10 @@ export class PurchaseRequestService {
   async criar(
     userId: string,
     dto: CreatePurchaseRequestDto,
-    file?: Express.Multer.File,
+    files?: Express.Multer.File[],
   ) {
-    const logoKey = await this.uploadLogoIfPresent(file);
-    const common = this.buildCommonFields(userId, dto, logoKey);
+    const imageKeys = await this.uploadImages(files ?? []);
+    const common = this.buildCommonFields(userId, dto);
 
     if (dto.type === PurchaseRequestType.WEG_CONTRATO) {
       if (!dto.productId?.trim()) {
@@ -66,7 +70,12 @@ export class PurchaseRequestService {
 
       const product = await this.prisma.client.product.findUnique({
         where: { id: dto.productId.trim() },
-        select: { id: true, minStock: true, stockQty: true },
+        select: {
+          id: true,
+          minStock: true,
+          stockQty: true,
+          supplier: { select: { name: true } },
+        },
       });
       if (!product) {
         throw new NotFoundException('Produto não encontrado.');
@@ -74,6 +83,10 @@ export class PurchaseRequestService {
 
       const gap = product.minStock - product.stockQty;
       const suggestedQty = Math.max(1, dto.suggestedQty ?? gap);
+      const supplierName =
+        product.supplier?.name?.trim() ||
+        dto.supplierName?.trim() ||
+        null;
 
       const created = await this.prisma.client.purchaseRequest.create({
         data: {
@@ -81,6 +94,10 @@ export class PurchaseRequestService {
           type: dto.type,
           productId: product.id,
           suggestedQty,
+          supplierName,
+          images: {
+            create: imageKeys.map((imageKey) => ({ imageKey })),
+          },
         },
         include: PURCHASE_REQUEST_INCLUDE,
       });
@@ -109,6 +126,9 @@ export class PurchaseRequestService {
           ? new Date(dto.clientDeadline)
           : null,
         link: dto.link?.trim() || null,
+        images: {
+          create: imageKeys.map((imageKey) => ({ imageKey })),
+        },
       },
       include: PURCHASE_REQUEST_INCLUDE,
     });
@@ -281,20 +301,35 @@ export class PurchaseRequestService {
     return this.serialize(updated, true);
   }
 
-  async buscarLogo(id: string) {
-    const row = await this.prisma.client.purchaseRequest.findUnique({
+  async atualizarChegada(id: string, expectedArrival: string) {
+    const existing = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
-      select: { logoKey: true },
+      select: { id: true },
     });
-    if (!row) {
+    if (!existing) {
       throw new NotFoundException('Solicitação de compra não encontrada.');
     }
-    if (!row.logoKey) {
-      throw new NotFoundException('Logo não encontrada para esta solicitação.');
+
+    const updated = await this.prisma.client.purchaseRequest.update({
+      where: { id },
+      data: { expectedArrival: new Date(expectedArrival) },
+      include: PURCHASE_REQUEST_INCLUDE,
+    });
+
+    return this.serialize(updated, true);
+  }
+
+  async buscarImagem(id: string, imageId: string) {
+    const image = await this.prisma.client.purchaseRequestImage.findFirst({
+      where: { id: imageId, purchaseRequestId: id },
+      select: { imageKey: true },
+    });
+    if (!image) {
+      throw new NotFoundException('Imagem não encontrada para esta solicitação.');
     }
 
-    const object = await this.r2.getObject(row.logoKey);
-    const filename = row.logoKey.split('/').pop() ?? 'logo';
+    const object = await this.r2.getObject(image.imageKey);
+    const filename = image.imageKey.split('/').pop() ?? 'imagem';
 
     return {
       stream: object.body,
@@ -307,31 +342,27 @@ export class PurchaseRequestService {
   async deletar(id: string) {
     const row = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
-      select: { id: true, logoKey: true },
+      select: {
+        id: true,
+        images: { select: { imageKey: true } },
+      },
     });
     if (!row) {
       throw new NotFoundException('Solicitação de compra não encontrada.');
     }
 
-    if (row.logoKey) {
-      await this.r2.delete(row.logoKey);
-    }
+    await Promise.all(row.images.map((image) => this.r2.delete(image.imageKey)));
 
     await this.prisma.client.purchaseRequest.delete({ where: { id } });
     return { ok: true };
   }
 
-  private buildCommonFields(
-    userId: string,
-    dto: CreatePurchaseRequestDto,
-    logoKey: string | null,
-  ) {
+  private buildCommonFields(userId: string, dto: CreatePurchaseRequestDto) {
     return {
       priority: dto.priority ?? 'NORMAL',
       status: 'SOLICITADO',
       observation: dto.observation?.trim() || null,
       requestedById: userId,
-      logoKey,
       supplierName: dto.supplierName?.trim() || null,
       itemPrice:
         dto.itemPrice != null ? new Prisma.Decimal(dto.itemPrice) : null,
@@ -340,33 +371,30 @@ export class PurchaseRequestService {
           ? new Prisma.Decimal(dto.engravingPrice)
           : null,
       saleOrderRef: dto.saleOrderRef?.trim() || null,
-      expectedArrival: dto.expectedArrival
-        ? new Date(dto.expectedArrival)
-        : null,
     };
   }
 
-  private async uploadLogoIfPresent(
-    file?: Express.Multer.File,
-  ): Promise<string | null> {
-    if (!file?.buffer?.length) {
-      return null;
+  private async uploadImages(
+    files: Express.Multer.File[],
+  ): Promise<string[]> {
+    const keys: string[] = [];
+    for (const file of files) {
+      if (!file?.buffer?.length) continue;
+      this.assertImageFile(file);
+      const ext = this.extensionFromFile(file);
+      const key = `compras/${randomUUID()}.${ext}`;
+      await this.r2.upload(key, file.buffer, file.mimetype);
+      keys.push(key);
     }
-
-    this.assertImageFile(file);
-
-    const ext = this.extensionFromFile(file);
-    const key = `compras/${randomUUID()}.${ext}`;
-    await this.r2.upload(key, file.buffer, file.mimetype);
-    return key;
+    return keys;
   }
 
   private assertImageFile(file: Express.Multer.File) {
-    if (file.size > LOGO_MAX_BYTES) {
-      throw new BadRequestException('Logo deve ter no máximo 5MB.');
+    if (file.size > IMAGE_MAX_BYTES) {
+      throw new BadRequestException('Cada imagem deve ter no máximo 5MB.');
     }
     if (!file.mimetype?.startsWith('image/')) {
-      throw new BadRequestException('Logo deve ser uma imagem.');
+      throw new BadRequestException('Envie apenas arquivos de imagem.');
     }
   }
 
@@ -382,11 +410,17 @@ export class PurchaseRequestService {
     return 'jpg';
   }
 
-  private async serialize(row: PurchaseRequestRow, withLogoUrl = false) {
-    let logoUrl: string | null = null;
-    if (withLogoUrl && row.logoKey) {
-      logoUrl = await this.r2.getSignedUrl(row.logoKey, LOGO_SIGNED_URL_TTL);
-    }
+  private async serialize(row: PurchaseRequestRow, withImageUrls = false) {
+    const images = await Promise.all(
+      row.images.map(async (image) => ({
+        id: image.id,
+        imageKey: image.imageKey,
+        url: withImageUrls
+          ? await this.r2.getSignedUrl(image.imageKey, IMAGE_SIGNED_URL_TTL)
+          : null,
+        createdAt: image.createdAt.toISOString(),
+      })),
+    );
 
     return {
       id: row.id,
@@ -402,8 +436,7 @@ export class PurchaseRequestService {
       clientDeadline: row.clientDeadline?.toISOString() ?? null,
       link: row.link,
       logoPlaceholder: row.logoPlaceholder,
-      logoKey: row.logoKey,
-      logoUrl,
+      images,
       supplierName: row.supplierName,
       itemPrice: row.itemPrice?.toString() ?? null,
       engravingPrice: row.engravingPrice?.toString() ?? null,

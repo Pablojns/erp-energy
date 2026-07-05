@@ -12,11 +12,11 @@ import {
   Query,
   Res,
   StreamableFile,
-  UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
@@ -24,6 +24,7 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
+import { UpdatePurchaseRequestChegadaDto } from './dto/update-purchase-request-chegada.dto';
 import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
 import { PurchaseRequestService } from './purchase-request.service';
 
@@ -34,13 +35,13 @@ export class PurchaseRequestController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('logo'))
+  @UseInterceptors(FilesInterceptor('images', 10))
   criar(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreatePurchaseRequestDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
-    return this.purchaseRequests.criar(user.id, dto, file);
+    return this.purchaseRequests.criar(user.id, dto, files);
   }
 
   @Get()
@@ -48,13 +49,14 @@ export class PurchaseRequestController {
     return this.purchaseRequests.listar(query);
   }
 
-  @Get(':id/logo')
-  async buscarLogo(
+  @Get(':id/imagem/:imageId')
+  async buscarImagem(
     @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const { stream, contentType, contentLength, filename } =
-      await this.purchaseRequests.buscarLogo(id);
+      await this.purchaseRequests.buscarImagem(id, imageId);
 
     res.set({
       'Content-Type': contentType,
@@ -76,6 +78,14 @@ export class PurchaseRequestController {
     @Body() dto: UpdatePurchaseRequestStatusDto,
   ) {
     return this.purchaseRequests.atualizarStatus(id, dto.status);
+  }
+
+  @Patch(':id/chegada')
+  atualizarChegada(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseRequestChegadaDto,
+  ) {
+    return this.purchaseRequests.atualizarChegada(id, dto.expectedArrival);
   }
 
   @Patch(':id/comprado')

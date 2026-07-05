@@ -12,9 +12,24 @@ import type {
   PurchaseType,
   SupplierLite,
 } from './compras-types';
-import { fieldClass, productMatchesSearch } from './compras-utils';
+import { fieldClass, formatMoneyNumber, productMatchesSearch } from './compras-utils';
 
-const LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGES = 10;
+
+type ImageDraft = {
+  id: string;
+  file: File;
+  preview: string;
+};
+
+function createImageDraft(file: File): ImageDraft {
+  return {
+    id: crypto.randomUUID(),
+    file,
+    preview: URL.createObjectURL(file),
+  };
+}
 
 export function ComprasNewRequestModal(props: {
   onClose: () => void;
@@ -32,19 +47,26 @@ export function ComprasNewRequestModal(props: {
   const [supplierName, setSupplierName] = useState('');
   const [sku, setSku] = useState('');
   const [itemName, setItemName] = useState('');
-  const [quantity, setQuantity] = useState('1');
+  const [quantity, setQuantity] = useState('');
   const [clientDeadline, setClientDeadline] = useState('');
   const [link, setLink] = useState('');
   const [itemPrice, setItemPrice] = useState('');
   const [engravingPrice, setEngravingPrice] = useState('');
-  const [expectedArrival, setExpectedArrival] = useState('');
   const [saleOrderRef, setSaleOrderRef] = useState('');
   const [observation, setObservation] = useState('');
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [imageDrafts, setImageDrafts] = useState<ImageDraft[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
+
+  const isWeg = type === 'WEG_CONTRATO';
+  const isMarketplace = type === 'MARKETPLACE';
+
+  const handleTypeChange = (nextType: PurchaseType) => {
+    setType(nextType);
+    setItemPrice('');
+    setQuantity('');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -77,49 +99,79 @@ export function ComprasNewRequestModal(props: {
 
   useEffect(() => {
     return () => {
-      if (logoPreview) URL.revokeObjectURL(logoPreview);
+      imageDrafts.forEach((draft) => URL.revokeObjectURL(draft.preview));
     };
-  }, [logoPreview]);
+  }, [imageDrafts]);
 
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
   useEffect(() => {
     if (!selectedProduct) return;
     setSuggestedQty(String(Math.max(1, selectedProduct.minStock - selectedProduct.stockQty)));
+    if (selectedProduct.price) {
+      setItemPrice(selectedProduct.price);
+    }
   }, [selectedProduct]);
+
+  const lineQty = isWeg ? Number(suggestedQty) : Number(quantity);
+  const calculatedTotal = useMemo(() => {
+    const price = itemPrice ? Number(itemPrice) : 0;
+    if (!Number.isFinite(lineQty) || lineQty <= 0 || !Number.isFinite(price) || price <= 0) {
+      return null;
+    }
+    return lineQty * price;
+  }, [itemPrice, lineQty]);
 
   const filteredProducts = useMemo(
     () => products.filter((product) => productMatchesSearch(product, productSearch)),
     [productSearch, products],
   );
 
-  const handleLogoChange = (file: File | null) => {
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-    if (!file) {
-      setLogoFile(null);
-      setLogoPreview(null);
-      return;
+  const addImages = (files: FileList | null) => {
+    if (!files?.length) return;
+
+    const nextErrors: string[] = [];
+    const nextDrafts: ImageDraft[] = [];
+
+    for (const file of Array.from(files)) {
+      if (imageDrafts.length + nextDrafts.length >= MAX_IMAGES) {
+        nextErrors.push(`Máximo de ${MAX_IMAGES} imagens.`);
+        break;
+      }
+      if (!file.type.startsWith('image/')) {
+        nextErrors.push(`${file.name}: selecione uma imagem.`);
+        continue;
+      }
+      if (file.size > IMAGE_MAX_BYTES) {
+        nextErrors.push(`${file.name}: máximo 10MB.`);
+        continue;
+      }
+      nextDrafts.push(createImageDraft(file));
     }
-    if (!file.type.startsWith('image/')) {
-      setErrors((prev) => ({ ...prev, logo: 'Selecione uma imagem.' }));
-      return;
+
+    if (nextDrafts.length) {
+      setImageDrafts((current) => [...current, ...nextDrafts]);
     }
-    if (file.size > LOGO_MAX_BYTES) {
-      setErrors((prev) => ({ ...prev, logo: 'Logo deve ter no máximo 5MB.' }));
-      return;
-    }
+
     setErrors((prev) => {
       const next = { ...prev };
-      delete next.logo;
+      if (nextErrors.length) next.images = nextErrors[0];
+      else delete next.images;
       return next;
     });
-    setLogoFile(file);
-    setLogoPreview(URL.createObjectURL(file));
+  };
+
+  const removeImage = (id: string) => {
+    setImageDrafts((current) => {
+      const draft = current.find((item) => item.id === id);
+      if (draft) URL.revokeObjectURL(draft.preview);
+      return current.filter((item) => item.id !== id);
+    });
   };
 
   const validate = () => {
     const next: Record<string, string> = {};
-    if (type === 'WEG_CONTRATO') {
+    if (isWeg) {
       if (!productId) next.productId = 'Selecione um produto.';
       if (!Number.isInteger(Number(suggestedQty)) || Number(suggestedQty) < 1) {
         next.suggestedQty = 'Informe uma quantidade mínima de 1.';
@@ -137,13 +189,16 @@ export function ComprasNewRequestModal(props: {
   const appendCommonFields = (formData: FormData) => {
     formData.set('type', type);
     formData.set('priority', priority);
-    if (supplierName.trim()) formData.set('supplierName', supplierName.trim());
+    if (!isWeg && supplierName.trim()) {
+      formData.set('supplierName', supplierName.trim());
+    }
     if (itemPrice) formData.set('itemPrice', itemPrice);
-    if (engravingPrice) formData.set('engravingPrice', engravingPrice);
-    if (expectedArrival) formData.set('expectedArrival', expectedArrival);
-    if (saleOrderRef.trim()) formData.set('saleOrderRef', saleOrderRef.trim());
+    if (!isWeg && engravingPrice) formData.set('engravingPrice', engravingPrice);
+    if (isMarketplace && saleOrderRef.trim()) {
+      formData.set('saleOrderRef', saleOrderRef.trim());
+    }
     if (observation.trim()) formData.set('observation', observation.trim());
-    if (logoFile) formData.set('logo', logoFile);
+    imageDrafts.forEach((draft) => formData.append('images', draft.file));
   };
 
   const submit = async () => {
@@ -154,7 +209,7 @@ export function ComprasNewRequestModal(props: {
       const formData = new FormData();
       appendCommonFields(formData);
 
-      if (type === 'WEG_CONTRATO') {
+      if (isWeg) {
         formData.set('productId', productId);
         formData.set('suggestedQty', suggestedQty);
       } else {
@@ -221,6 +276,53 @@ export function ComprasNewRequestModal(props: {
     </label>
   );
 
+  const imagesField = (
+    <div>
+      <span className="mb-1 block text-sm font-medium text-white/70">
+        Imagens (opcional, até {MAX_IMAGES}, max 10MB cada)
+      </span>
+      <div className="rounded-xl border border-dashed border-white/15 bg-white/5 p-3">
+        <div className="flex flex-wrap gap-3">
+          {imageDrafts.map((draft) => (
+            <div key={draft.id} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={draft.preview}
+                alt="Preview"
+                className="h-24 w-24 rounded-lg border border-white/10 object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => removeImage(draft.id)}
+                className="absolute -right-2 -top-2 rounded-full bg-black/80 p-1 text-white"
+                aria-label="Remover imagem"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+          {imageDrafts.length < MAX_IMAGES ? (
+            <label className="inline-flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-white/10 bg-black/20 text-xs text-white/60 transition hover:bg-white/10">
+              <ImagePlus className="h-5 w-5" />
+              Adicionar
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  addImages(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+      </div>
+      {errors.images ? <p className="mt-1 text-xs text-rose-300">{errors.images}</p> : null}
+    </div>
+  );
+
   return (
     <ComprasModalShell title="Nova Solicitação" onClose={onClose} size="lg">
       <div className="space-y-4">
@@ -235,7 +337,7 @@ export function ComprasNewRequestModal(props: {
             <button
               key={value}
               type="button"
-              onClick={() => setType(value)}
+              onClick={() => handleTypeChange(value)}
               className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
                 type === value ? activeClass : 'border-white/10 bg-white/5 text-white/70'
               }`}
@@ -245,7 +347,7 @@ export function ComprasNewRequestModal(props: {
           ))}
         </div>
 
-        {type === 'WEG_CONTRATO' ? (
+        {isWeg ? (
           <div className="space-y-3">
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-white/70">Produto</span>
@@ -290,7 +392,6 @@ export function ComprasNewRequestModal(props: {
                 <p className="mt-1 text-xs text-rose-300">{errors.suggestedQty}</p>
               ) : null}
             </label>
-            {supplierField}
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -337,80 +438,97 @@ export function ComprasNewRequestModal(props: {
               />
             </label>
             <div className="sm:col-span-2">{supplierField}</div>
-            <div className="sm:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-white/70">Logo (opcional, max 5MB)</span>
-              <div className="flex flex-wrap items-start gap-3 rounded-xl border border-dashed border-white/15 bg-white/5 p-3">
-                {logoPreview ? (
-                  <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logoPreview} alt="Preview logo" className="h-24 w-24 rounded-lg object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => handleLogoChange(null)}
-                      className="absolute -right-2 -top-2 rounded-full bg-black/80 p-1 text-white"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10">
-                    <ImagePlus className="h-4 w-4" />
-                    Selecionar imagem
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleLogoChange(e.target.files?.[0] ?? null)}
-                    />
-                  </label>
-                )}
-              </div>
-              {errors.logo ? <p className="mt-1 text-xs text-rose-300">{errors.logo}</p> : null}
-            </div>
           </div>
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-white/70">Preço item</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={itemPrice}
-              onChange={(e) => setItemPrice(e.target.value)}
-              className={fieldClass()}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-white/70">Preço gravação</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={engravingPrice}
-              onChange={(e) => setEngravingPrice(e.target.value)}
-              className={fieldClass()}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-white/70">Data prevista chegada</span>
-            <input
-              type="date"
-              value={expectedArrival}
-              onChange={(e) => setExpectedArrival(e.target.value)}
-              className={fieldClass()}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-white/70">Referência pedido venda</span>
-            <input
-              value={saleOrderRef}
-              onChange={(e) => setSaleOrderRef(e.target.value)}
-              className={fieldClass()}
-            />
-          </label>
+          {isWeg ? (
+            <div className="sm:col-span-2">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="min-w-[10rem] flex-1">
+                  <span className="mb-1 block text-sm font-medium text-white/70">Preço item</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={itemPrice}
+                    onChange={(e) => setItemPrice(e.target.value)}
+                    className={fieldClass()}
+                  />
+                </label>
+                <div className="flex shrink-0 items-center gap-1.5 pb-2.5">
+                  <span className="text-sm text-white/70">
+                    Total:{' '}
+                    <span className="font-semibold text-white">
+                      {formatMoneyNumber(calculatedTotal)}
+                    </span>
+                  </span>
+                  <span
+                    title="Quantidade × preço item (não salvo)"
+                    className="cursor-help text-sm text-white/45"
+                    aria-label="Quantidade × preço item (não salvo)"
+                  >
+                    ⓘ
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-white/70">Preço item</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={itemPrice}
+                  onChange={(e) => setItemPrice(e.target.value)}
+                  className={fieldClass()}
+                  placeholder="0,00"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-white/70">Preço gravação</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={engravingPrice}
+                  onChange={(e) => setEngravingPrice(e.target.value)}
+                  className={fieldClass()}
+                  placeholder="0,00"
+                />
+              </label>
+              <div className="flex items-center gap-1.5 sm:col-span-2">
+                <span className="text-sm text-white/70">
+                  Total:{' '}
+                  <span className="font-semibold text-white">
+                    {formatMoneyNumber(calculatedTotal)}
+                  </span>
+                </span>
+                <span
+                  title="Quantidade × preço item (não salvo)"
+                  className="cursor-help text-sm text-white/45"
+                  aria-label="Quantidade × preço item (não salvo)"
+                >
+                  ⓘ
+                </span>
+              </div>
+            </>
+          )}
+          {isMarketplace ? (
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-sm font-medium text-white/70">Referência pedido venda</span>
+              <input
+                value={saleOrderRef}
+                onChange={(e) => setSaleOrderRef(e.target.value)}
+                className={fieldClass()}
+              />
+            </label>
+          ) : null}
         </div>
+
+        {!isWeg ? imagesField : null}
 
         <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
           <div>

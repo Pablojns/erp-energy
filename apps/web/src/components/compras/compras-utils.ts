@@ -74,6 +74,29 @@ export function displayQty(row: PurchaseRequest) {
     : row.quantity ?? 1;
 }
 
+export function calcPurchaseTotal(
+  type: PurchaseType,
+  qty: number | null | undefined,
+  itemPrice: string | null | undefined,
+): number | null {
+  const quantity = qty ?? 0;
+  const price = itemPrice ? Number(itemPrice) : 0;
+  if (quantity <= 0 || !Number.isFinite(price) || price <= 0) return null;
+  return quantity * price;
+}
+
+export function calcPurchaseTotalFromRow(row: PurchaseRequest): number | null {
+  return calcPurchaseTotal(row.type, displayQty(row), row.itemPrice);
+}
+
+export function formatMoneyNumber(value: number | null) {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+}
+
 export function kanbanColumnForStatus(status: PurchaseStatus): KanbanColumnId | null {
   if (status === 'RECUSADO') return null;
   if (status === 'COMPRADO') return 'PEDIDO_ENVIADO_APROVADO';
@@ -89,4 +112,8 @@ export function fieldClass(invalid?: boolean) {
       ? 'border-rose-500/70 bg-rose-500/10 text-white'
       : 'border-white/10 bg-white/5 text-white'
   }`;
+}
+
+export function purchaseImageSrc(requestId: string, imageId: string) {
+  return `/api/erp/compras/${requestId}/imagem/${imageId}`;
 }
