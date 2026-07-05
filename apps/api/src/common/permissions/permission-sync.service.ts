@@ -18,6 +18,14 @@ export class PermissionSyncService implements OnModuleInit {
     private readonly prisma: PrismaService,
   ) {}
 
+  private readonly extraPermissions: RequiredPermission[] = [
+    { module: 'notificacoes', action: 'receber_estoque' },
+    { module: 'notificacoes', action: 'receber_expedicao' },
+    { module: 'notificacoes', action: 'receber_financeiro' },
+    { module: 'notificacoes', action: 'receber_compras' },
+    { module: 'notificacoes', action: 'receber_crm' },
+  ];
+
   async onModuleInit(): Promise<void> {
     const controllers = this.discovery.getControllers();
     const seen = new Set<string>();
@@ -59,6 +67,27 @@ export class PermissionSyncService implements OnModuleInit {
         });
         synced += 1;
       }
+    }
+
+    for (const meta of this.extraPermissions) {
+      const key = `${meta.module}:${meta.action}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      await this.prisma.client.permission.upsert({
+        where: {
+          module_action: {
+            module: meta.module,
+            action: meta.action,
+          },
+        },
+        create: {
+          module: meta.module,
+          action: meta.action,
+        },
+        update: {},
+      });
+      synced += 1;
     }
 
     this.logger.info('Permissions synced from controllers', { synced });

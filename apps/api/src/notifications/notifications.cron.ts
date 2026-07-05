@@ -56,8 +56,8 @@ export class NotificationsCron {
 
       const label = order.externalOrderNumber ?? order.code;
       await this.notifications.createForPermission(
-        'expedicao',
-        'ver_pedidos',
+        'notificacoes',
+        'receber_expedicao',
         'Pedido atrasado',
         `O pedido ${label} está com entrega prevista vencida.`,
         type,
@@ -92,8 +92,8 @@ export class NotificationsCron {
     }
 
     await this.notifications.createForPermission(
-      'estoque',
-      'ver_movimentacoes',
+      'notificacoes',
+      'receber_estoque',
       'Estoque crítico',
       `${count} produtos com estoque crítico`,
       type,
@@ -124,8 +124,8 @@ export class NotificationsCron {
 
       const label = order.externalOrderNumber ?? order.code;
       await this.notifications.createForPermission(
-        'expedicao',
-        'emitir_nf',
+        'notificacoes',
+        'receber_expedicao',
         'Pedido sem NF',
         `O pedido ${label} está finalizado há mais de 3 dias sem nota fiscal.`,
         type,
