@@ -284,7 +284,7 @@ export class PurchaseRequestService {
     return this.serialize(updated, true);
   }
 
-  async atualizarStatus(id: string, status: string) {
+  async atualizarStatus(id: string, status: string, userId: string) {
     const existing = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
       select: { id: true, status: true },
@@ -305,6 +305,39 @@ export class PurchaseRequestService {
     });
 
     const itemLabel = this.itemDisplayName(updated);
+    if (existing.status !== status && status === 'PEDIDO_ENVIADO_APROVADO') {
+      void this.notifications.createForPermissionExcluding(
+        'notificacoes',
+        'receber_compras',
+        'Pedido enviado ao fornecedor',
+        `${itemLabel} foi enviado/aprovado`,
+        'compra_enviada',
+        '/app/compras',
+        userId,
+      );
+    }
+    if (existing.status !== status && status === 'PEDIDO_PAGO') {
+      void this.notifications.createForPermissionExcluding(
+        'notificacoes',
+        'receber_compras',
+        'Pedido pago',
+        `${itemLabel} foi pago`,
+        'compra_paga',
+        '/app/compras',
+        userId,
+      );
+    }
+    if (existing.status !== status && status === 'LAYOUT_APROVADO') {
+      void this.notifications.createForPermissionExcluding(
+        'notificacoes',
+        'receber_compras',
+        'Layout aprovado',
+        `${itemLabel} teve layout aprovado — produção pode iniciar`,
+        'compra_layout_aprovado',
+        '/app/compras',
+        userId,
+      );
+    }
     if (existing.status !== status && status === 'EXPEDIDO') {
       void this.notifications.createForPermission(
         'notificacoes',

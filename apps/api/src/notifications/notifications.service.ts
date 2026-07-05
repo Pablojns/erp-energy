@@ -43,6 +43,28 @@ export class NotificationsService {
     );
   }
 
+  async createForPermissionExcluding(
+    permissionModule: string,
+    permissionAction: string,
+    title: string,
+    message: string,
+    type: string,
+    link: string | undefined,
+    excludeUserId: string,
+  ): Promise<void> {
+    const userIds = await this.resolvePermissionRecipients(
+      permissionModule,
+      permissionAction,
+    );
+    userIds.delete(excludeUserId);
+
+    await Promise.all(
+      [...userIds].map((id) =>
+        this.create(id, title, message, type, link),
+      ),
+    );
+  }
+
   async createForAdmins(
     title: string,
     message: string,

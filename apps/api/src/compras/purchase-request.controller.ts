@@ -75,9 +75,10 @@ export class PurchaseRequestController {
   @Patch(':id/status')
   atualizarStatus(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePurchaseRequestStatusDto,
   ) {
-    return this.purchaseRequests.atualizarStatus(id, dto.status);
+    return this.purchaseRequests.atualizarStatus(id, dto.status, user.id);
   }
 
   @Patch(':id/chegada')
