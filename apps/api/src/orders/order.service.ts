@@ -2424,7 +2424,7 @@ export class OrderService {
         return [{ status: dir }, { priority: 'asc' }];
       case 'createdAt':
       default:
-        return [{ priority: 'asc' }, { orderDate: 'desc' }, { createdAt: 'desc' }];
+        return [{ createdAt: 'desc' }, { priority: 'asc' }];
     }
   }
 

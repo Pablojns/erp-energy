@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
@@ -27,6 +28,10 @@ type CarrierOption = { id: string; name: string; isActive: boolean };
 
 function fieldClass() {
   return 'w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]';
+}
+
+function readOnlyFieldClass() {
+  return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
 }
 
 export function AdminOrderEditModal(props: {
@@ -106,6 +111,13 @@ export function AdminOrderEditModal(props: {
   const numeroPed = numeroPedFromOrder(order);
   if (!numeroPed) return null;
 
+  const isSimpleCustomerLayout =
+    order.source === 'SITE' || order.source === 'VENDA_EXTERNA';
+  const orderNumberDisplay = order.externalOrderNumber ?? order.code;
+  const deliveryAddressDisplay = formatDeliveryAddressDisplay(
+    order.deliveryAddress ?? order.unloadingPoint,
+  );
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -181,69 +193,104 @@ export function AdminOrderEditModal(props: {
             </p>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Recebedor</span>
-              <input className={fieldClass()} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Ponto de descarga</span>
-              <input className={fieldClass()} value={unloadingPoint} onChange={(e) => setUnloadingPoint(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">CNPJ comprador</span>
-              <input className={fieldClass()} value={deliveryCnpj} onChange={(e) => setDeliveryCnpj(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data pedido</span>
-              <input type="date" className={fieldClass()} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data entrega</span>
-              <input type="date" className={fieldClass()} value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Valor total</span>
-              <input className={fieldClass()} value={totalValue} onChange={(e) => setTotalValue(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status</span>
-              <select className={fieldClass()} value={status} onChange={(e) => setStatus(e.target.value)}>
-                {ORDER_STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Prioridade</span>
-              <input type="number" min={1} max={5} className={fieldClass()} value={priority} onChange={(e) => setPriority(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Transportadora</span>
-              <PremiumSelect value={carrierId} onChange={setCarrierId} options={carrierOptions} placeholder="Selecionar…" />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status ME</span>
-              <input className={fieldClass()} value={mercadoEletronicoStatus} onChange={(e) => setMercadoEletronicoStatus(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status CA</span>
-              <input className={fieldClass()} value={contaAzulStatus} onChange={(e) => setContaAzulStatus(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Nota de venda</span>
-              <input className={fieldClass()} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-            </label>
-          </div>
+          {isSimpleCustomerLayout ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Número do pedido</span>
+                  <input className={readOnlyFieldClass()} readOnly value={orderNumberDisplay} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data entrega</span>
+                  <input
+                    type="date"
+                    className={fieldClass()}
+                    value={requestedDeliveryDate}
+                    onChange={(e) => setRequestedDeliveryDate(e.target.value)}
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Cliente</span>
+                  <input className={readOnlyFieldClass()} readOnly value={order.customerName} />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Endereço</span>
+                  <input className={readOnlyFieldClass()} readOnly value={deliveryAddressDisplay} />
+                </label>
+              </div>
 
-          <label className="mt-3 block">
-            <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Observações WEG</span>
-            <textarea className={`${fieldClass()} min-h-[72px]`} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </label>
-          <label className="mt-3 block">
-            <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Obs. expedição</span>
-            <textarea className={`${fieldClass()} min-h-[72px]`} value={obsExpedicao} onChange={(e) => setObsExpedicao(e.target.value)} />
-          </label>
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Observação</span>
+                <textarea className={`${fieldClass()} min-h-[72px]`} value={notes} onChange={(e) => setNotes(e.target.value)} />
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Recebedor</span>
+                  <input className={fieldClass()} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Ponto de descarga</span>
+                  <input className={fieldClass()} value={unloadingPoint} onChange={(e) => setUnloadingPoint(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">CNPJ comprador</span>
+                  <input className={fieldClass()} value={deliveryCnpj} onChange={(e) => setDeliveryCnpj(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data pedido</span>
+                  <input type="date" className={fieldClass()} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data entrega</span>
+                  <input type="date" className={fieldClass()} value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Valor total</span>
+                  <input className={fieldClass()} value={totalValue} onChange={(e) => setTotalValue(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status</span>
+                  <select className={fieldClass()} value={status} onChange={(e) => setStatus(e.target.value)}>
+                    {ORDER_STATUSES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Prioridade</span>
+                  <input type="number" min={1} max={5} className={fieldClass()} value={priority} onChange={(e) => setPriority(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Transportadora</span>
+                  <PremiumSelect value={carrierId} onChange={setCarrierId} options={carrierOptions} placeholder="Selecionar…" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status ME</span>
+                  <input className={fieldClass()} value={mercadoEletronicoStatus} onChange={(e) => setMercadoEletronicoStatus(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status CA</span>
+                  <input className={fieldClass()} value={contaAzulStatus} onChange={(e) => setContaAzulStatus(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Nota de venda</span>
+                  <input className={fieldClass()} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                </label>
+              </div>
+
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Observações WEG</span>
+                <textarea className={`${fieldClass()} min-h-[72px]`} value={notes} onChange={(e) => setNotes(e.target.value)} />
+              </label>
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Obs. expedição</span>
+                <textarea className={`${fieldClass()} min-h-[72px]`} value={obsExpedicao} onChange={(e) => setObsExpedicao(e.target.value)} />
+              </label>
+            </>
+          )}
 
           <h3 className="mt-5 mb-2 text-sm font-semibold text-[var(--text-primary)]">Itens</h3>
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
@@ -254,7 +301,9 @@ export function AdminOrderEditModal(props: {
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">Item</th>
                   <th className="px-2 py-2 text-left">Qtd</th>
-                  <th className="px-2 py-2 text-left">Status item</th>
+                  {!isSimpleCustomerLayout ? (
+                    <th className="px-2 py-2 text-left">Status item</th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -282,17 +331,19 @@ export function AdminOrderEditModal(props: {
                         setItems(next);
                       }} />
                     </td>
-                    <td className="px-2 py-2">
-                      <select className={fieldClass()} value={it.mercadoEletronicoItemStatus} onChange={(e) => {
-                        const next = [...items];
-                        next[idx] = { ...it, mercadoEletronicoItemStatus: e.target.value };
-                        setItems(next);
-                      }}>
-                        {ITEM_STATUS_OPTIONS.map((opt) => (
-                          <option key={opt || 'empty'} value={opt}>{opt || '—'}</option>
-                        ))}
-                      </select>
-                    </td>
+                    {!isSimpleCustomerLayout ? (
+                      <td className="px-2 py-2">
+                        <select className={fieldClass()} value={it.mercadoEletronicoItemStatus} onChange={(e) => {
+                          const next = [...items];
+                          next[idx] = { ...it, mercadoEletronicoItemStatus: e.target.value };
+                          setItems(next);
+                        }}>
+                          {ITEM_STATUS_OPTIONS.map((opt) => (
+                            <option key={opt || 'empty'} value={opt}>{opt || '—'}</option>
+                          ))}
+                        </select>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

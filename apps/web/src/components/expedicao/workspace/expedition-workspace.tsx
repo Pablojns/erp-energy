@@ -116,7 +116,7 @@ export function ExpeditionWorkspace(props: {
       selectedOrderId={selectedOrderId}
       onSelectOrder={setSelectedOrderId}
       onOrderChosen={() => setActiveTab('detalhes')}
-      title={mode === 'orders' ? 'Pedidos' : 'Fila de Pedidos p/ Separação'}
+      title={mode === 'separation' ? 'Fila de Pedidos p/ Separação' : undefined}
       sourceFilter={mode === 'orders' ? sourceFilter : undefined}
       onSourceFilterChange={mode === 'orders' ? setSourceFilter : undefined}
       onNewOrder={

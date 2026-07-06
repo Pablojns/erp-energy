@@ -5,12 +5,12 @@ import {
   Download,
   Filter,
   Loader2,
+  MoreVertical,
   RefreshCw,
   Search,
 } from 'lucide-react';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
 import {
-  PedidosOrderStatusFilters,
   pedidosStatusFilterLabel,
   pedidosStatusFilterTone,
 } from '@/src/components/expedicao/workspace/pedidos-order-status-filters';
@@ -36,12 +36,58 @@ type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
   'all',
   'novo',
+  'atrasado',
+  'urgente',
+  'parcial',
+  'pronto_separacao',
   'em_separacao',
   'aguardando_nf',
   'finalizado',
   'cancelado',
-  'parcial',
 ];
+
+const HEADER_STATUS_FILTERS: Array<{ id: StatusFilterId; label: string }> = [
+  { id: 'all', label: 'Todos' },
+  { id: 'novo', label: 'Novo' },
+  { id: 'atrasado', label: 'Atrasados' },
+  { id: 'urgente', label: 'Urgentes' },
+  { id: 'parcial', label: 'Parcial' },
+  { id: 'pronto_separacao', label: 'Reservado' },
+  { id: 'em_separacao', label: 'Em Separação' },
+  { id: 'aguardando_nf', label: 'Aguardando NF' },
+  { id: 'finalizado', label: 'Finalizado' },
+  { id: 'cancelado', label: 'Cancelado' },
+];
+
+function headerStatusFilterLabel(id: StatusFilterId): string {
+  return HEADER_STATUS_FILTERS.find((f) => f.id === id)?.label ?? pedidosStatusFilterLabel(id);
+}
+
+function headerStatusFilterTone(id: StatusFilterId): string | undefined {
+  if (id === 'atrasado') return 'atrasado';
+  if (id === 'pronto_separacao') return 'pronto_separacao';
+  return pedidosStatusFilterTone(id);
+}
+
+function headerStatusFilterStyle(id: StatusFilterId, active: boolean) {
+  if (id === 'atrasado') {
+    return {
+      background: '#b45309',
+      color: 'var(--color-text-inverse)',
+      border: 'none',
+      ...(active
+        ? {
+            boxShadow:
+              '0 0 0 2px var(--bg-card), 0 0 0 4px color-mix(in srgb, var(--bg-card) 35%, transparent)',
+          }
+        : {}),
+    };
+  }
+  if (id === 'pronto_separacao') {
+    return pedidosStatusBadgeStyle('novo', active);
+  }
+  return pedidosStatusBadgeStyle(headerStatusFilterTone(id), active);
+}
 
 const EXPEDITION_PEDIDOS_FILTER_KEY = 'erp.filters.expedicao.pedidos';
 
@@ -126,6 +172,8 @@ export function OrderQueue(props: {
   const [activeCustomFilterId, setActiveCustomFilterId] = useState<string | null>(
     null,
   );
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
@@ -135,11 +183,11 @@ export function OrderQueue(props: {
       badges.push({
         key: `status:${data.statusFilter}`,
         label: isPedidosMode
-          ? pedidosStatusFilterLabel(data.statusFilter)
+          ? headerStatusFilterLabel(data.statusFilter)
           : data.statusFilter,
-        tone: isPedidosMode ? pedidosStatusFilterTone(data.statusFilter) : undefined,
+        tone: isPedidosMode ? headerStatusFilterTone(data.statusFilter) : undefined,
         style: isPedidosMode
-          ? pedidosStatusBadgeStyle(data.statusFilter, true)
+          ? headerStatusFilterStyle(data.statusFilter, true)
           : undefined,
       });
     }
@@ -205,6 +253,17 @@ export function OrderQueue(props: {
 
   const selectedForPrintCount = selectedForPrintIds.size;
   const selectedForRemovalCount = selectedForRemovalIds.size;
+
+  useEffect(() => {
+    if (!mobileActionsOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!mobileMenuRef.current?.contains(e.target as Node)) {
+        setMobileActionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [mobileActionsOpen]);
 
   useEffect(() => {
     if (!isPedidosMode || !data.ordersHasMore) return;
@@ -306,89 +365,172 @@ export function OrderQueue(props: {
     />
   );
 
+  const handleStatusFilterChange = (id: StatusFilterId) => {
+    data.setPage(1);
+    setActiveCustomFilterId(null);
+    data.setStatusFilter(id);
+  };
+
+  const periodFilterNode = (
+    <div className="[&_.exp-period-filter-btn--preset]:hidden">
+      <PedidosPeriodFilter
+        dateFrom={data.appliedFilters.orderDateFrom}
+        dateTo={data.appliedFilters.orderDateTo}
+        onChange={(from, to) => {
+          data.setPage(1);
+          data.setAppliedFilters((f) => ({
+            ...f,
+            orderDateFrom: from,
+            orderDateTo: to,
+          }));
+        }}
+      />
+    </div>
+  );
+
+  const filtersButton = (
+    <button
+      type="button"
+      className={`exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
+      onClick={() => setFiltersOpen((v) => !v)}
+    >
+      <Filter className="h-4 w-4" aria-hidden />
+      Filtros
+      {filterBadges.length > 0 ? (
+        <span className="exp-queue-header-btn-count">{filterBadges.length}</span>
+      ) : null}
+    </button>
+  );
+
+  const refreshButton = onRefresh ? (
+    <button
+      type="button"
+      className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8 !px-2.5 !py-1.5 !text-xs"
+      onClick={onRefresh}
+      aria-label="Atualizar fila"
+    >
+      <RefreshCw className={`h-4 w-4 ${data.ordersLoading ? 'animate-spin' : ''}`} />
+    </button>
+  ) : null;
+
+  const primaryActionButtons = (
+    <>
+      {onImportWeg ? (
+        <button
+          type="button"
+          className="exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs"
+          onClick={onImportWeg}
+        >
+          Importar WEG
+        </button>
+      ) : null}
+      {onNewOrder ? (
+        <button
+          type="button"
+          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
+          onClick={onNewOrder}
+        >
+          + Novo Pedido
+        </button>
+      ) : null}
+      {onNewSiteOrder ? (
+        <button
+          type="button"
+          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
+          onClick={onNewSiteOrder}
+        >
+          Novo Pedido Site
+        </button>
+      ) : null}
+      {onNewVendaExterna ? (
+        <button
+          type="button"
+          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
+          onClick={onNewVendaExterna}
+        >
+          Nova Venda Externa
+        </button>
+      ) : null}
+    </>
+  );
+
   return (
     <aside className="exp-queue-panel flex h-full min-h-0 flex-1 flex-col">
       <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)] !px-2 !py-1.5">
-        <div className="exp-queue-header-row !mb-1.5 !gap-2">
-          <h2 className="exp-queue-panel-title text-sm">{title}</h2>
-          <div className="exp-queue-header-actions !gap-2">
-            {isPedidosMode ? (
-              <PedidosPeriodFilter
-                dateFrom={data.appliedFilters.orderDateFrom}
-                dateTo={data.appliedFilters.orderDateTo}
-                onChange={(from, to) => {
-                  data.setPage(1);
-                  data.setAppliedFilters((f) => ({
-                    ...f,
-                    orderDateFrom: from,
-                    orderDateTo: to,
-                  }));
-                }}
-              />
-            ) : null}
-            {onRefresh ? (
-              <button
-                type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8 !px-2.5 !py-1.5 !text-xs"
-                onClick={onRefresh}
-                aria-label="Atualizar fila"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${data.ordersLoading ? 'animate-spin' : ''}`}
-                />
-              </button>
-            ) : null}
-            {isPedidosMode ? (
-              <button
-                type="button"
-                className={`exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
-                onClick={() => setFiltersOpen((v) => !v)}
-              >
-                <Filter className="h-4 w-4" aria-hidden />
-                Filtros
-                {filterBadges.length > 0 ? (
-                  <span className="exp-queue-header-btn-count">{filterBadges.length}</span>
+        {isPedidosMode ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1 overflow-x-auto erp-scrollbar">
+                <div className="flex w-max items-center gap-1.5 pr-1">
+                  {HEADER_STATUS_FILTERS.map((f) => {
+                    const on = data.statusFilter === f.id;
+                    const tone = headerStatusFilterTone(f.id);
+                    const coloredStyle = headerStatusFilterStyle(f.id, on);
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => handleStatusFilterChange(f.id)}
+                        className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition ${
+                          on
+                            ? ''
+                            : tone
+                              ? ''
+                              : 'border-[var(--exp-border)] bg-[var(--input-bg)] text-[var(--text-primary)] hover:brightness-105'
+                        }${tone === 'urgente' && on ? ' animate-pulse' : ''}`}
+                        style={coloredStyle}
+                      >
+                        {f.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="hidden shrink-0 items-center gap-1 lg:flex">
+                {filtersButton}
+                {periodFilterNode}
+                {primaryActionButtons}
+                {refreshButton}
+              </div>
+
+              <div className="relative shrink-0 lg:hidden" ref={mobileMenuRef}>
+                <button
+                  type="button"
+                  className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8"
+                  onClick={() => setMobileActionsOpen((v) => !v)}
+                  aria-label="Menu de ações"
+                  aria-expanded={mobileActionsOpen}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+                {mobileActionsOpen ? (
+                  <div className="absolute right-0 top-full z-50 mt-1 flex min-w-[12.5rem] flex-col gap-1 rounded-lg border border-[var(--exp-border)] bg-[var(--bg-card)] p-1.5 shadow-xl">
+                    <div className="px-1 py-1">{filtersButton}</div>
+                    <div className="border-t border-[var(--exp-border)] px-1 py-1">
+                      {periodFilterNode}
+                    </div>
+                    <div className="flex flex-col gap-1 border-t border-[var(--exp-border)] px-1 py-1">
+                      {primaryActionButtons}
+                    </div>
+                    {refreshButton ? (
+                      <div className="border-t border-[var(--exp-border)] px-1 py-1">
+                        {refreshButton}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
-              </button>
-            ) : null}
-            {onImportWeg ? (
-              <button
-                type="button"
-                className="exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs"
-                onClick={onImportWeg}
-              >
-                Importar WEG
-              </button>
-            ) : null}
-            {onNewOrder ? (
-              <button
-                type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-                onClick={onNewOrder}
-              >
-                + Novo Pedido
-              </button>
-            ) : null}
-            {onNewSiteOrder ? (
-              <button
-                type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-                onClick={onNewSiteOrder}
-              >
-                Novo Pedido Site
-              </button>
-            ) : null}
-            {onNewVendaExterna ? (
-              <button
-                type="button"
-                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-                onClick={onNewVendaExterna}
-              >
-                Nova Venda Externa
-              </button>
-            ) : null}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="exp-queue-header-row !mb-1.5 !gap-2">
+            {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
+            <div className="exp-queue-header-actions !gap-2">
+              {refreshButton}
+            </div>
+          </div>
+        )}
 
         {isPedidosMode && sourceFilter && onSourceFilterChange ? (
           <div className="mt-1.5 flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
@@ -437,7 +579,7 @@ export function OrderQueue(props: {
             onClearAll={handleClearAll}
             presetValue={presetValue}
             hideFilterButton
-            hideSavedPresetsList
+            hideSavedPresetsList={false}
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
             savedFiltersVersion={savedFiltersVersion}
@@ -466,31 +608,9 @@ export function OrderQueue(props: {
               </div>
             }
           >
-            <PedidosOrderStatusFilters
-              active={data.statusFilter}
-              activeCustomFilterId={activeCustomFilterId}
-              storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
-              savedFiltersVersion={savedFiltersVersion}
-              onSavedFiltersChange={() => {
-                setSavedFiltersVersion((v) => v + 1);
-                if (activeCustomFilterId) {
-                  setActiveCustomFilterId(null);
-                }
-              }}
-              onChange={(id) => {
-                data.setPage(1);
-                setActiveCustomFilterId(null);
-                data.setStatusFilter(id);
-              }}
-              onApplyCustomFilter={(preset, filterId) => {
-                setActiveCustomFilterId(filterId);
-                applyPedidosPreset(
-                  { statusFilter: preset.statusFilter ?? 'all' },
-                  data,
-                );
-                setFiltersOpen(false);
-              }}
-            />
+            <p className="text-xs text-[var(--text-secondary)]">
+              Busque por pedido, cliente ou SKU. Filtros salvos aparecem abaixo.
+            </p>
           </ErpFilterBar>
         ) : null}
       </div>
