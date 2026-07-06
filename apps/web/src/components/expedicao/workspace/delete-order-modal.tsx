@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 const brl = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -39,7 +39,7 @@ export function DeleteOrderModal(props: {
   const numero = orderDisplayNumber(order);
   const receiver = order.receiverName?.trim() || '—';
   const valor = formatCurrency(order.totalValue);
-  const numeroPed = numeroPedFromOrder(order);
+  const numeroPed = (order.externalOrderNumber || order.code).replace(/^#/, '');
   const canSubmit = Boolean(numeroPed);
 
   const handleClose = () => {
