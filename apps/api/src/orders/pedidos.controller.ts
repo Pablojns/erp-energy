@@ -165,7 +165,10 @@ export class PedidosController {
         'Apenas administradores podem excluir pedidos.',
       );
     }
-    return this.pedidos.deleteManual(user.id, decodeURIComponent(numeroPed));
+    return this.pedidos.deleteManual(
+      user.id,
+      decodeURIComponent(numeroPed).replace(/^#/, ''),
+    );
   }
 
   @Get('fila')

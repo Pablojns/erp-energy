@@ -47,6 +47,10 @@ type FormFieldErrors = {
   itemRows?: Record<string, ItemRowErrors>;
 };
 
+function normalizeExternalOrderNumber(value: string) {
+  return value.replace(/^#/, '');
+}
+
 function fieldClass(invalid?: boolean) {
   return `w-full rounded-lg border px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)] ${
     invalid
@@ -601,7 +605,7 @@ export function NewSiteOrderModal(props: {
       const created = await erpFetchJson<Record<string, unknown>>('api/pedidos/site', {
         method: 'POST',
         body: JSON.stringify({
-          externalOrderNumber: externalOrderNumber.trim(),
+          externalOrderNumber: normalizeExternalOrderNumber(externalOrderNumber.trim()),
           requestedDeliveryDate: requestedDeliveryDate.trim(),
           customerId,
           deliveryCnpj,
@@ -674,7 +678,7 @@ export function NewSiteOrderModal(props: {
                   type="text"
                   value={externalOrderNumber}
                   onChange={(e) => {
-                    setExternalOrderNumber(e.target.value);
+                    setExternalOrderNumber(normalizeExternalOrderNumber(e.target.value));
                     clearFieldError('externalOrderNumber');
                     setSubmitError(null);
                   }}

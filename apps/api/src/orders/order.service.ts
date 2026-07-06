@@ -734,7 +734,7 @@ export class OrderService {
 
   /** Pedido originado no site — status NOVO; reserva feita pelo chamador. */
   async createSitePedido(userId: string, dto: CreateSitePedidoDto) {
-    const externalOrderNumber = dto.externalOrderNumber.trim();
+    const externalOrderNumber = dto.externalOrderNumber.trim().replace(/^#/, '');
     if (!externalOrderNumber) {
       throw new BadRequestException('Número do pedido no site é obrigatório.');
     }
