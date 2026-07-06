@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ImagePlus, Loader2, Plus, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { erpFetchFormData } from './compras-api';
 import { ComprasModalShell } from './compras-modal-shell';
 import type {
   ProductListResponse,
@@ -22,6 +21,86 @@ type ImageDraft = {
   file: File;
   preview: string;
 };
+
+type DuplicateConflictPayload = {
+  duplicate: true;
+  existingId: string;
+  currentQty: number;
+  itemName: string;
+};
+
+class PurchaseDuplicateError extends Error {
+  readonly payload: DuplicateConflictPayload;
+
+  constructor(payload: DuplicateConflictPayload) {
+    super('duplicate');
+    this.payload = payload;
+  }
+}
+
+function isDuplicateConflictPayload(value: unknown): value is DuplicateConflictPayload {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'duplicate' in value &&
+    value.duplicate === true &&
+    'existingId' in value &&
+    typeof value.existingId === 'string' &&
+    'currentQty' in value &&
+    typeof value.currentQty === 'number' &&
+    'itemName' in value &&
+    typeof value.itemName === 'string'
+  );
+}
+
+async function createPurchaseRequest(
+  formData: FormData,
+  force = false,
+): Promise<PurchaseRequest> {
+  const segmentsPath = force ? 'api/compras?force=true' : 'api/compras';
+  const path = segmentsPath
+    .replace(/^\//, '')
+    .replace(/^api\/erp\/?/, '')
+    .replace(/^api\//, '');
+
+  const res = await fetch(`/api/erp/${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'x-request-id': crypto.randomUUID(),
+    },
+    body: formData,
+  });
+
+  const text = await res.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = { message: text };
+    }
+  }
+
+  if (res.status === 409 && isDuplicateConflictPayload(body)) {
+    throw new PurchaseDuplicateError(body);
+  }
+
+  if (!res.ok) {
+    const message =
+      typeof body === 'object' &&
+      body !== null &&
+      'message' in body &&
+      body.message !== undefined
+        ? Array.isArray(body.message)
+          ? body.message.map((part) => String(part)).join(' · ')
+          : String(body.message)
+        : `Erro HTTP ${res.status}`;
+    throw new Error(message);
+  }
+
+  return body as PurchaseRequest;
+}
 
 function createImageDraft(file: File): ImageDraft {
   return {
@@ -58,6 +137,7 @@ export function ComprasNewRequestModal(props: {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<DuplicateConflictPayload | null>(null);
 
   const isWeg = type === 'WEG_CONTRATO';
   const isMarketplace = type === 'MARKETPLACE';
@@ -201,28 +281,62 @@ export function ComprasNewRequestModal(props: {
     imageDrafts.forEach((draft) => formData.append('images', draft.file));
   };
 
-  const submit = async () => {
-    if (!validate()) return;
+  const buildFormData = () => {
+    const formData = new FormData();
+    appendCommonFields(formData);
+
+    if (isWeg) {
+      formData.set('productId', productId);
+      formData.set('suggestedQty', suggestedQty);
+    } else {
+      if (sku.trim()) formData.set('sku', sku.trim());
+      formData.set('itemName', itemName.trim());
+      formData.set('quantity', quantity);
+      if (clientDeadline) formData.set('clientDeadline', clientDeadline);
+      if (link.trim()) formData.set('link', link.trim());
+    }
+
+    return formData;
+  };
+
+  const handleCreated = () => {
+    setDuplicatePrompt(null);
+    onCreated();
+  };
+
+  const updateExistingQuantity = async (payload: DuplicateConflictPayload) => {
+    const newQty = isWeg ? Number(suggestedQty) : Number(quantity);
     setSaving(true);
     setErrors({});
     try {
-      const formData = new FormData();
-      appendCommonFields(formData);
-
-      if (isWeg) {
-        formData.set('productId', productId);
-        formData.set('suggestedQty', suggestedQty);
-      } else {
-        if (sku.trim()) formData.set('sku', sku.trim());
-        formData.set('itemName', itemName.trim());
-        formData.set('quantity', quantity);
-        if (clientDeadline) formData.set('clientDeadline', clientDeadline);
-        if (link.trim()) formData.set('link', link.trim());
-      }
-
-      await erpFetchFormData<PurchaseRequest>('api/compras', formData);
-      onCreated();
+      await erpFetchJson<PurchaseRequest>(`api/compras/${payload.existingId}/quantidade`, {
+        method: 'PATCH',
+        body: JSON.stringify(
+          isWeg ? { suggestedQty: newQty } : { quantity: newQty },
+        ),
+      });
+      handleCreated();
     } catch (err) {
+      setErrors({
+        form: err instanceof Error ? err.message : 'Falha ao atualizar quantidade.',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submit = async (force = false) => {
+    if (!force && !validate()) return;
+    setSaving(true);
+    setErrors({});
+    try {
+      await createPurchaseRequest(buildFormData(), force);
+      handleCreated();
+    } catch (err) {
+      if (err instanceof PurchaseDuplicateError) {
+        setDuplicatePrompt(err.payload);
+        return;
+      }
       setErrors({ form: err instanceof Error ? err.message : 'Falha ao criar solicitação.' });
     } finally {
       setSaving(false);
@@ -323,7 +437,10 @@ export function ComprasNewRequestModal(props: {
     </div>
   );
 
+  const newQty = isWeg ? Number(suggestedQty) : Number(quantity);
+
   return (
+    <>
     <ComprasModalShell title="Nova Solicitação" onClose={onClose} size="lg">
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -579,5 +696,49 @@ export function ComprasNewRequestModal(props: {
         </button>
       </div>
     </ComprasModalShell>
+
+    {duplicatePrompt ? (
+      <ComprasModalShell
+        title="Solicitação duplicada"
+        onClose={() => setDuplicatePrompt(null)}
+        size="sm"
+      >
+        <p className="text-sm leading-relaxed text-white/75">
+          Já existe solicitação em aberto para{' '}
+          <span className="font-semibold text-white">{duplicatePrompt.itemName}</span> com quantidade{' '}
+          <span className="font-semibold text-white">{duplicatePrompt.currentQty}</span>. Deseja atualizar a
+          quantidade para <span className="font-semibold text-white">{newQty}</span> ou criar uma nova
+          solicitação mesmo assim?
+        </p>
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={() => setDuplicatePrompt(null)}
+            disabled={saving}
+            className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white/70"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit(true)}
+            disabled={saving}
+            className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/85"
+          >
+            Criar nova mesmo assim
+          </button>
+          <button
+            type="button"
+            onClick={() => void updateExistingQuantity(duplicatePrompt)}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Atualizar quantidade
+          </button>
+        </div>
+      </ComprasModalShell>
+    ) : null}
+    </>
   );
 }

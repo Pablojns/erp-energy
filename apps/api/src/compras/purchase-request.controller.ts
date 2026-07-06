@@ -25,6 +25,7 @@ import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
 import { UpdatePurchaseRequestChegadaDto } from './dto/update-purchase-request-chegada.dto';
+import { UpdatePurchaseRequestQuantityDto } from './dto/update-purchase-request-quantity.dto';
 import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
 import { PurchaseRequestService } from './purchase-request.service';
 
@@ -40,8 +41,14 @@ export class PurchaseRequestController {
     @CurrentUser() user: AuthUser,
     @Body() dto: CreatePurchaseRequestDto,
     @UploadedFiles() files?: Express.Multer.File[],
+    @Query('force') force?: string,
   ) {
-    return this.purchaseRequests.criar(user.id, dto, files);
+    return this.purchaseRequests.criar(
+      user.id,
+      dto,
+      files,
+      force === 'true',
+    );
   }
 
   @Get()
@@ -87,6 +94,14 @@ export class PurchaseRequestController {
     @Body() dto: UpdatePurchaseRequestChegadaDto,
   ) {
     return this.purchaseRequests.atualizarChegada(id, dto.expectedArrival);
+  }
+
+  @Patch(':id/quantidade')
+  atualizarQuantidade(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseRequestQuantityDto,
+  ) {
+    return this.purchaseRequests.atualizarQuantidade(id, dto);
   }
 
   @Patch(':id/comprado')

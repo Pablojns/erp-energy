@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -61,8 +63,8 @@ export class PurchaseRequestService {
     userId: string,
     dto: CreatePurchaseRequestDto,
     files?: Express.Multer.File[],
+    force = false,
   ) {
-    const imageKeys = await this.uploadImages(files ?? []);
     const common = this.buildCommonFields(userId, dto);
 
     if (dto.type === PurchaseRequestType.WEG_CONTRATO) {
@@ -74,6 +76,7 @@ export class PurchaseRequestService {
         where: { id: dto.productId.trim() },
         select: {
           id: true,
+          name: true,
           minStock: true,
           stockQty: true,
           supplier: { select: { name: true } },
@@ -82,6 +85,34 @@ export class PurchaseRequestService {
       if (!product) {
         throw new NotFoundException('Produto não encontrado.');
       }
+
+      if (!force) {
+        const existing = await this.prisma.client.purchaseRequest.findFirst({
+          where: {
+            type: PurchaseRequestType.WEG_CONTRATO,
+            status: 'SOLICITADO',
+            productId: product.id,
+          },
+          select: {
+            id: true,
+            suggestedQty: true,
+            product: { select: { name: true } },
+          },
+        });
+        if (existing) {
+          throw new HttpException(
+            {
+              duplicate: true,
+              existingId: existing.id,
+              currentQty: existing.suggestedQty ?? 0,
+              itemName: existing.product?.name?.trim() || product.name.trim(),
+            },
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+
+      const imageKeys = await this.uploadImages(files ?? []);
 
       const gap = product.minStock - product.stockQty;
       const suggestedQty = Math.max(1, dto.suggestedQty ?? gap);
@@ -118,6 +149,38 @@ export class PurchaseRequestService {
         'Informe nome do item e quantidade (mínimo 1).',
       );
     }
+
+    if (
+      !force &&
+      (dto.type === PurchaseRequestType.VENDA_EXTERNA ||
+        dto.type === PurchaseRequestType.MARKETPLACE)
+    ) {
+      const existing = await this.prisma.client.purchaseRequest.findFirst({
+        where: {
+          type: dto.type,
+          status: 'SOLICITADO',
+          itemName: { equals: itemName, mode: Prisma.QueryMode.insensitive },
+        },
+        select: {
+          id: true,
+          quantity: true,
+          itemName: true,
+        },
+      });
+      if (existing) {
+        throw new HttpException(
+          {
+            duplicate: true,
+            existingId: existing.id,
+            currentQty: existing.quantity ?? 0,
+            itemName: existing.itemName?.trim() || itemName,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+
+    const imageKeys = await this.uploadImages(files ?? []);
 
     const created = await this.prisma.client.purchaseRequest.create({
       data: {
@@ -358,6 +421,50 @@ export class PurchaseRequestService {
         '/app/compras',
       );
     }
+
+    return this.serialize(updated, true);
+  }
+
+  async atualizarQuantidade(
+    id: string,
+    dto: { suggestedQty?: number; quantity?: number },
+  ) {
+    const existing = await this.prisma.client.purchaseRequest.findUnique({
+      where: { id },
+      select: { id: true, status: true, type: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Solicitação de compra não encontrada.');
+    }
+    if (existing.status !== 'SOLICITADO') {
+      throw new BadRequestException(
+        'Apenas solicitações pendentes podem ter a quantidade atualizada.',
+      );
+    }
+
+    if (existing.type === PurchaseRequestType.WEG_CONTRATO) {
+      if (dto.suggestedQty == null || dto.suggestedQty < 1) {
+        throw new BadRequestException('Informe a quantidade sugerida (mínimo 1).');
+      }
+
+      const updated = await this.prisma.client.purchaseRequest.update({
+        where: { id },
+        data: { suggestedQty: dto.suggestedQty },
+        include: PURCHASE_REQUEST_INCLUDE,
+      });
+
+      return this.serialize(updated, true);
+    }
+
+    if (dto.quantity == null || dto.quantity < 1) {
+      throw new BadRequestException('Informe a quantidade (mínimo 1).');
+    }
+
+    const updated = await this.prisma.client.purchaseRequest.update({
+      where: { id },
+      data: { quantity: dto.quantity },
+      include: PURCHASE_REQUEST_INCLUDE,
+    });
 
     return this.serialize(updated, true);
   }
