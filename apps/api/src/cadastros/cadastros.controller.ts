@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -77,6 +78,16 @@ export class CadastrosController {
     return this.cadastros.toggleReceiver(id);
   }
 
+  @Delete('receivers/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteReceiver(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.deleteReceiver(id);
+  }
+
   @Get('unloading-points')
   @RequirePermission('cadastros', 'ver_cadastros')
   listUnloadingPoints() {
@@ -111,6 +122,16 @@ export class CadastrosController {
   ) {
     this.assertAdmin(user);
     return this.cadastros.toggleUnloadingPoint(id);
+  }
+
+  @Delete('unloading-points/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteUnloadingPoint(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.deleteUnloadingPoint(id);
   }
 
   @Get('carriers')
@@ -149,6 +170,16 @@ export class CadastrosController {
     return this.cadastros.toggleCarrier(id);
   }
 
+  @Delete('carriers/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteCarrier(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.deleteCarrier(id);
+  }
+
   @Get('suppliers')
   @RequirePermission('cadastros', 'ver_cadastros')
   listSuppliers() {
@@ -183,6 +214,16 @@ export class CadastrosController {
   ) {
     this.assertAdmin(user);
     return this.cadastros.toggleSupplier(id);
+  }
+
+  @Delete('suppliers/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteSupplier(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.deleteSupplier(id);
   }
 
   @Get('customers')
@@ -230,5 +271,15 @@ export class CadastrosController {
   ) {
     this.assertAdmin(user);
     return this.cadastros.toggleCustomer(id);
+  }
+
+  @Delete('customers/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteCustomer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.deleteCustomer(id);
   }
 }

@@ -81,8 +81,10 @@ export function OrderQueue(props: {
   title?: string;
   onNewOrder?: () => void;
   onNewSiteOrder?: () => void;
-  sourceFilter?: 'WEG' | 'SITE';
-  onSourceFilterChange?: (value: 'WEG' | 'SITE') => void;
+  onNewVendaExterna?: () => void;
+  onImportWeg?: () => void;
+  sourceFilter?: 'WEG' | 'SITE' | 'VENDA_EXTERNA';
+  onSourceFilterChange?: (value: 'WEG' | 'SITE' | 'VENDA_EXTERNA') => void;
   onRefresh?: () => void;
   isAdmin?: boolean;
   onEditOrder?: (order: OrderDto) => void;
@@ -97,6 +99,8 @@ export function OrderQueue(props: {
     title = 'Fila de Pedidos p/ Separação',
     onNewOrder,
     onNewSiteOrder,
+    onNewVendaExterna,
+    onImportWeg,
     sourceFilter,
     onSourceFilterChange,
     onRefresh,
@@ -347,6 +351,15 @@ export function OrderQueue(props: {
                 ) : null}
               </button>
             ) : null}
+            {onImportWeg ? (
+              <button
+                type="button"
+                className="exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs"
+                onClick={onImportWeg}
+              >
+                Importar WEG
+              </button>
+            ) : null}
             {onNewOrder ? (
               <button
                 type="button"
@@ -363,6 +376,15 @@ export function OrderQueue(props: {
                 onClick={onNewSiteOrder}
               >
                 Novo Pedido Site
+              </button>
+            ) : null}
+            {onNewVendaExterna ? (
+              <button
+                type="button"
+                className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
+                onClick={onNewVendaExterna}
+              >
+                Nova Venda Externa
               </button>
             ) : null}
           </div>
@@ -391,6 +413,17 @@ export function OrderQueue(props: {
               }
             >
               Site
+            </button>
+            <button
+              type="button"
+              onClick={() => onSourceFilterChange('VENDA_EXTERNA')}
+              className={
+                sourceFilter === 'VENDA_EXTERNA'
+                  ? 'relative rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-600 to-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(217,119,6,0.4)]'
+                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
+              }
+            >
+              Venda Externa
             </button>
           </div>
         ) : null}

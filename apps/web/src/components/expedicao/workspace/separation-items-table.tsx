@@ -21,6 +21,7 @@ export function SeparationItemsTable(props: {
 }) {
   const { order, data, mode = 'separation', onAfterAction } = props;
   const isOrdersMode = mode === 'orders';
+  const isVendaExterna = order.source === 'VENDA_EXTERNA';
   const stockByItemId = useOrderItemsStock(order.items);
   const receiptSummary = summarizeItemReceiptStatus(order.items);
 
@@ -51,8 +52,10 @@ export function SeparationItemsTable(props: {
             <col className="exp-wb-col-sku" />
             <col className="exp-wb-col-item" />
             <col className="exp-wb-col-qtd-pedida" />
-            <col className="exp-wb-col-qtd-estoque" />
-            {isOrdersMode ? <col className="exp-wb-col-item-status" /> : null}
+            {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
+            {isOrdersMode && isVendaExterna ? <col /> : null}
+            {isOrdersMode && isVendaExterna ? <col /> : null}
+            {isOrdersMode && !isVendaExterna ? <col className="exp-wb-col-item-status" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-sep-qty" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-status" /> : null}
             {!isOrdersMode ? <col className="exp-wb-col-action" /> : null}
@@ -63,8 +66,16 @@ export function SeparationItemsTable(props: {
               <th>SKU</th>
               <th>Item</th>
               <th className="text-center">Qtd</th>
-              <th className="text-center">Qtd Estoque</th>
-              {isOrdersMode ? <th className="text-center">Status item</th> : null}
+              {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
+              {isOrdersMode && isVendaExterna ? (
+                <th className="text-center">Preço unit.</th>
+              ) : null}
+              {isOrdersMode && isVendaExterna ? (
+                <th className="text-center">Total</th>
+              ) : null}
+              {isOrdersMode && !isVendaExterna ? (
+                <th className="text-center">Status item</th>
+              ) : null}
               {!isOrdersMode ? <th className="text-center">Qtd. separada</th> : null}
               {!isOrdersMode ? <th className="text-center">Status</th> : null}
               {!isOrdersMode ? <th className="text-center">Ação</th> : null}
@@ -81,6 +92,7 @@ export function SeparationItemsTable(props: {
                     order={order}
                     item={it}
                     stock={stock}
+                    hideStockColumn={isVendaExterna}
                     onConfirmLine={async (qty) => {
                       await data.markLineSeparated(order.id, it.id, qty);
                       onAfterAction?.();
@@ -92,21 +104,41 @@ export function SeparationItemsTable(props: {
               return (
                 <tr key={it.id}>
                   <td className="exp-wb-cell-linha text-xs">{it.lineNumber}</td>
-                  <td className="exp-wb-cell-sku text-xs">{it.sku}</td>
+                  <td className="exp-wb-cell-sku text-xs">{it.sku || '—'}</td>
                   <td className="exp-wb-cell-item text-xs" title={it.description}>
                     {it.description}
                   </td>
                   <td className="text-center">
                     <OrderItemOrderedQtyCell qty={it.quantity} />
                   </td>
-                  <td className="text-center">
-                    <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
-                  </td>
-                  <td className="text-center">
-                    <OrderItemReceiptStatusBadge
-                      status={it.mercadoEletronicoItemStatus}
-                    />
-                  </td>
+                  {!isVendaExterna ? (
+                    <td className="text-center">
+                      <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
+                    </td>
+                  ) : null}
+                  {isVendaExterna ? (
+                    <td className="text-center text-xs">
+                      {Number(it.unitPrice).toLocaleString('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                      })}
+                    </td>
+                  ) : null}
+                  {isVendaExterna ? (
+                    <td className="text-center text-xs">
+                      {Number(it.totalPrice).toLocaleString('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                      })}
+                    </td>
+                  ) : null}
+                  {!isVendaExterna ? (
+                    <td className="text-center">
+                      <OrderItemReceiptStatusBadge
+                        status={it.mercadoEletronicoItemStatus}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}

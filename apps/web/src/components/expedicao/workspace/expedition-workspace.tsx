@@ -6,6 +6,8 @@ import { Loader2 } from 'lucide-react';
 import { AdminOrderEditModal } from '@/src/components/expedicao/workspace/admin-order-edit-modal';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
 import { NewSiteOrderModal } from '@/src/components/expedicao/workspace/new-site-order-modal';
+import { NewVendaExternaModal } from '@/src/components/expedicao/workspace/new-venda-externa-modal';
+import { WegImportModal } from '@/src/components/expedicao/workspace/weg-import-modal';
 import { DeleteOrderModal } from '@/src/components/expedicao/workspace/delete-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
 import { SeparationWorkbench } from '@/src/components/expedicao/workspace/separation-workbench';
@@ -34,7 +36,9 @@ export function ExpeditionWorkspace(props: {
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [siteOrderOpen, setSiteOrderOpen] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE'>('WEG');
+  const [vendaExternaOpen, setVendaExternaOpen] = useState(false);
+  const [wegImportOpen, setWegImportOpen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE' | 'VENDA_EXTERNA'>('WEG');
   const prevSourceFilterRef = useRef(sourceFilter);
   const [adminEditOrder, setAdminEditOrder] = useState<OrderDto | null>(null);
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
@@ -76,7 +80,11 @@ export function ExpeditionWorkspace(props: {
   useEffect(() => {
     if (mode !== 'orders') return;
     const nextSource =
-      sourceFilter === 'WEG' ? 'WEG_MERCADO_ELETRONICO' : 'SITE';
+      sourceFilter === 'WEG'
+        ? 'WEG_MERCADO_ELETRONICO'
+        : sourceFilter === 'SITE'
+          ? 'SITE'
+          : 'VENDA_EXTERNA';
     data.setAppliedFilters((f) => {
       if (f.source === nextSource) return f;
       return { ...f, source: nextSource };
@@ -127,6 +135,18 @@ export function ExpeditionWorkspace(props: {
             }
           : undefined
       }
+      onNewVendaExterna={
+        mode === 'orders' && sourceFilter === 'VENDA_EXTERNA'
+          ? () => {
+              setVendaExternaOpen(true);
+            }
+          : undefined
+      }
+      onImportWeg={
+        mode === 'orders' && sourceFilter === 'WEG'
+          ? () => setWegImportOpen(true)
+          : undefined
+      }
       onRefresh={() => void data.refreshAll()}
       isAdmin={isAdmin}
       onEditOrder={
@@ -169,6 +189,15 @@ export function ExpeditionWorkspace(props: {
               <div className="mb-1.5 flex shrink-0 items-center gap-2">
                 <span className="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
                   SITE — Pedidos do E-commerce
+                </span>
+              </div>
+              {orderQueue}
+            </div>
+          ) : mode === 'orders' && sourceFilter === 'VENDA_EXTERNA' ? (
+            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-amber-500/30 bg-amber-500/5 p-2">
+              <div className="mb-1.5 flex shrink-0 items-center gap-2">
+                <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
+                  VENDA EXTERNA — Pedidos fora do estoque
                 </span>
               </div>
               {orderQueue}
@@ -267,6 +296,37 @@ export function ExpeditionWorkspace(props: {
                 message:
                   'Pedido do site criado, estoque reservado e enviado para separação.',
               });
+            }}
+          />
+          <NewVendaExternaModal
+            isOpen={vendaExternaOpen}
+            onClose={() => setVendaExternaOpen(false)}
+            onCreated={async (created) => {
+              data.setStatusFilter('all');
+              data.setPage(1);
+              data.setAppliedFilters((f) => ({
+                ...f,
+                source: 'VENDA_EXTERNA',
+                search: '',
+              }));
+              await data.refetchFromStart();
+              window.dispatchEvent(new Event('expedition-refresh'));
+              if (created?.id) {
+                setSelectedOrderId(created.id);
+                setActiveTab('detalhes');
+              }
+              data.setToast({
+                variant: 'ok',
+                message: 'Venda externa criada e adicionada à fila.',
+              });
+            }}
+          />
+          <WegImportModal
+            isOpen={wegImportOpen}
+            onClose={() => setWegImportOpen(false)}
+            onImported={() => {
+              void data.refetchFromStart();
+              window.dispatchEvent(new Event('expedition-refresh'));
             }}
           />
           <AdminOrderEditModal

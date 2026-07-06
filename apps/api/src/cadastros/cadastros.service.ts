@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
 import type { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
@@ -61,6 +63,23 @@ export class CadastrosService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private async safeDelete(
+    deleteFn: () => Promise<unknown>,
+    inUseMessage: string,
+  ) {
+    try {
+      await deleteFn();
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2003' || error.code === 'P2014')
+      ) {
+        throw new BadRequestException(inUseMessage);
+      }
+      throw error;
+    }
+  }
+
   // --- Receivers ---
 
   listReceivers() {
@@ -93,6 +112,15 @@ export class CadastrosService {
       data: { isActive: !row.isActive },
     });
     return this.serializeName(updated);
+  }
+
+  async deleteReceiver(id: string) {
+    await this.assertReceiverExists(id);
+    await this.safeDelete(
+      () => this.prisma.client.receiver.delete({ where: { id } }),
+      'Não é possível excluir: recebedor em uso.',
+    );
+    return { ok: true as const };
   }
 
   private async assertReceiverExists(id: string) {
@@ -135,6 +163,15 @@ export class CadastrosService {
     return this.serializeName(updated);
   }
 
+  async deleteUnloadingPoint(id: string) {
+    await this.assertUnloadingPointExists(id);
+    await this.safeDelete(
+      () => this.prisma.client.unloadingPoint.delete({ where: { id } }),
+      'Não é possível excluir: ponto de descarga em uso.',
+    );
+    return { ok: true as const };
+  }
+
   private async assertUnloadingPointExists(id: string) {
     const row = await this.prisma.client.unloadingPoint.findUnique({
       where: { id },
@@ -175,6 +212,15 @@ export class CadastrosService {
       data: { isActive: !row.isActive },
     });
     return this.serializeName(updated);
+  }
+
+  async deleteCarrier(id: string) {
+    await this.assertCarrierExists(id);
+    await this.safeDelete(
+      () => this.prisma.client.carrier.delete({ where: { id } }),
+      'Não é possível excluir: transportadora vinculada a pedidos.',
+    );
+    return { ok: true as const };
   }
 
   private async assertCarrierExists(id: string) {
@@ -223,6 +269,15 @@ export class CadastrosService {
       data: { isActive: !row.isActive },
     });
     return this.serializeSupplier(updated);
+  }
+
+  async deleteSupplier(id: string) {
+    await this.assertSupplierExists(id);
+    await this.safeDelete(
+      () => this.prisma.client.supplier.delete({ where: { id } }),
+      'Não é possível excluir: fornecedor vinculado a contas ou produtos.',
+    );
+    return { ok: true as const };
   }
 
   private async assertSupplierExists(id: string) {
@@ -281,6 +336,15 @@ export class CadastrosService {
       data: { isActive: !row.isActive },
     });
     return this.serializeCustomer(updated);
+  }
+
+  async deleteCustomer(id: string) {
+    await this.assertCustomerExists(id);
+    await this.safeDelete(
+      () => this.prisma.client.customer.delete({ where: { id } }),
+      'Não é possível excluir: cliente vinculado a pedidos, financeiro ou CRM.',
+    );
+    return { ok: true as const };
   }
 
   private async assertCustomerExists(id: string) {

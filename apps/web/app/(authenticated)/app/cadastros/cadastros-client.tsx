@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Power,
+  Trash2,
   Truck,
   UserCheck,
   Users,
@@ -41,9 +42,7 @@ type NameCadastro = {
   updatedAt: string;
 };
 
-type SupplierCadastro = NameCadastro & {
-  cnpj: string | null;
-};
+type SupplierCadastro = NameCadastro;
 
 type CustomerCadastro = NameCadastro & {
   cnpj: string | null;
@@ -103,7 +102,6 @@ const TABS: TabConfig[] = [
     entityLabel: 'Fornecedor',
     columns: [
       { key: 'name', header: 'Nome' },
-      { key: 'cnpj', header: 'CNPJ' },
       { key: 'status', header: 'Status' },
     ],
   },
@@ -251,7 +249,6 @@ function fieldInputClass() {
 
 type CadastroFormState = {
   name: string;
-  cnpj: string;
 };
 
 function buildCustomerFormValues(row: CustomerCadastro | null): CustomerFormValues {
@@ -362,7 +359,6 @@ function CadastroFormModal({
 }) {
   const [form, setForm] = useState<CadastroFormState>(() => ({
     name: row?.name ?? '',
-    cnpj: 'cnpj' in (row ?? {}) ? formatCpfCnpj((row as SupplierCadastro).cnpj ?? '') : '',
   }));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -372,25 +368,9 @@ function CadastroFormModal({
     return null;
   };
 
-  const buildBody = () => {
-    if (tab.id === 'suppliers') {
-      return {
-        name: form.name.trim(),
-        ...(form.cnpj.trim() ? { cnpj: form.cnpj.trim() } : {}),
-      };
-    }
-    return { name: form.name.trim() };
-  };
+  const buildBody = () => ({ name: form.name.trim() });
 
-  const buildEditBody = () => {
-    if (tab.id === 'suppliers') {
-      return {
-        name: form.name.trim(),
-        cnpj: form.cnpj.trim() || null,
-      };
-    }
-    return { name: form.name.trim() };
-  };
+  const buildEditBody = () => ({ name: form.name.trim() });
 
   const handleSubmit = async () => {
     const validationError = validate();
@@ -452,26 +432,141 @@ function CadastroFormModal({
         />
       </label>
 
-      {tab.id === 'suppliers' ? (
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium text-zinc-300">CNPJ</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={form.cnpj}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, cnpj: formatCpfCnpj(e.target.value) }));
-              setError(null);
-            }}
-            className={fieldInputClass()}
-            placeholder="00.000.000/0000-00"
-            maxLength={18}
-          />
-        </label>
-      ) : null}
-
       {error ? <p className="text-sm text-rose-400">{error}</p> : null}
     </ModalShell>
+  );
+}
+
+function DeleteCadastroModal({
+  tab,
+  row,
+  onClose,
+  onDeleted,
+}: {
+  tab: TabConfig;
+  row: CadastroRow;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClose = () => {
+    if (deleting) return;
+    onClose();
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await erpFetchJson(`${tab.apiPath}/${row.id}`, { method: 'DELETE' });
+      onDeleted();
+      handleClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao excluir registro.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60"
+        aria-label="Fechar"
+        onClick={handleClose}
+        disabled={deleting}
+      />
+      <div
+        className="relative w-full max-w-md rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        role="dialog"
+        aria-labelledby="delete-cadastro-title"
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <h2
+            id="delete-cadastro-title"
+            className="flex items-center gap-2 text-lg font-semibold text-zinc-100"
+          >
+            <Trash2 size={20} className="text-rose-400" />
+            Excluir {tab.entityLabel.toLowerCase()}
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={deleting}
+            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-5 py-5">
+          {step === 1 ? (
+            <p className="text-sm text-zinc-300">
+              Deseja excluir <strong className="text-zinc-100">&quot;{row.name}&quot;</strong>?
+              Esta ação não pode ser desfeita.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-300">
+              <strong className="text-rose-300">Tem certeza?</strong> Confirme a exclusão
+              permanente de <strong className="text-zinc-100">&quot;{row.name}&quot;</strong>.
+            </p>
+          )}
+          {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+        </div>
+
+        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+          {step === 1 ? (
+            <>
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setStep(2);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-rose-500"
+              >
+                Sim, excluir
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setStep(1);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleting ? 'Excluindo...' : 'Confirmar exclusão'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -487,6 +582,7 @@ function CadastroTable({
   const [error, setError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editRow, setEditRow] = useState<CadastroRow | null>(null);
+  const [deleteRow, setDeleteRow] = useState<CadastroRow | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -649,6 +745,15 @@ function CadastroTable({
                           <Power size={14} />
                           {row.isActive ? 'Inativar' : 'Ativar'}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteRow(row)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/10"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
+                          Excluir
+                        </button>
                       </div>
                     </td>
                   ) : null}
@@ -703,6 +808,19 @@ function CadastroTable({
             }}
           />
         )
+      ) : null}
+
+      {deleteRow ? (
+        <DeleteCadastroModal
+          tab={tab}
+          row={deleteRow}
+          onClose={() => setDeleteRow(null)}
+          onDeleted={() => {
+            setDeleteRow(null);
+            setToast('Registro excluído com sucesso.');
+            load();
+          }}
+        />
       ) : null}
     </div>
   );

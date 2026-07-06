@@ -18,6 +18,7 @@ import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
+import type { CreateVendaExternaPedidoDto } from './dto/create-venda-externa-pedido.dto';
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
@@ -88,6 +89,10 @@ export class PedidosService {
       `order:${orderId}`,
     );
     return order;
+  }
+
+  createVendaExterna(userId: string, dto: CreateVendaExternaPedidoDto) {
+    return this.orders.createVendaExterna(userId, dto);
   }
 
   /**

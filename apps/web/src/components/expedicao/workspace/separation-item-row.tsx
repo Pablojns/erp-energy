@@ -24,9 +24,10 @@ export function SeparationItemRow(props: {
   order: OrderDto;
   item: OrderItemDto;
   stock: OrderItemStockState;
+  hideStockColumn?: boolean;
   onConfirmLine: (qty: number) => void | Promise<void>;
 }) {
-  const { order, item, stock, onConfirmLine } = props;
+  const { order, item, stock, hideStockColumn = false, onConfirmLine } = props;
   const [confirming, setConfirming] = useState(false);
   const [qtyDraft, setQtyDraft] = useState<number>(() => defaultSeparationQty(item));
   const editable = order.status === 'EM_SEPARACAO';
@@ -57,9 +58,11 @@ export function SeparationItemRow(props: {
       <td className="text-center">
         <OrderItemOrderedQtyCell qty={item.quantity} />
       </td>
-      <td className="text-center">
-        <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
-      </td>
+      {!hideStockColumn ? (
+        <td className="text-center">
+          <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
+        </td>
+      ) : null}
       <td className="text-center">
         <input
           type="number"

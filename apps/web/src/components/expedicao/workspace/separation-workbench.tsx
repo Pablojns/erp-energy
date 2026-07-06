@@ -52,7 +52,10 @@ export function SeparationWorkbench(props: {
 
   const isFinalized =
     order?.status === 'FINALIZADO' || order?.status === 'EXPEDIDO';
-  const canEditVolumes = mode === 'separation' && !isFinalized;
+  const skipVolumesRequirement =
+    order?.source === 'VENDA_EXTERNA' || order?.source === 'SITE';
+  const canEditVolumes =
+    mode === 'separation' && !isFinalized && !skipVolumesRequirement;
 
   const saveVolumes = useCallback(
     async (value: number): Promise<boolean> => {
@@ -103,9 +106,11 @@ export function SeparationWorkbench(props: {
     const initial = order?.volumes ?? null;
     setVolumesInput(initial != null ? String(initial) : '');
     lastSavedVolumesRef.current = initial;
-    setVolumesValid(initial != null && initial >= 1);
+    const skipVolumes =
+      order?.source === 'VENDA_EXTERNA' || order?.source === 'SITE';
+    setVolumesValid(skipVolumes || (initial != null && initial >= 1));
     setVolumesError(null);
-  }, [order?.id, order?.volumes]);
+  }, [order?.id, order?.volumes, order?.source]);
 
   useEffect(() => {
     if (!canEditVolumes) return;

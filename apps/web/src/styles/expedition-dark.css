@@ -881,6 +881,25 @@
   border-color: rgba(167, 139, 250, 0.35);
 }
 
+.exp-queue-source-badge--venda-externa {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fcd34d;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.exp-queue-nf-pendente-badge {
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
 .exp-queue-card-title-block {
   display: flex;
   flex-direction: column;

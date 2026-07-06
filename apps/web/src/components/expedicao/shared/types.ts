@@ -2,6 +2,7 @@ export type OrderSource =
   | 'WEG_MERCADO_ELETRONICO'
   | 'ECOMMERCE'
   | 'SITE'
+  | 'VENDA_EXTERNA'
   | 'MANUAL';
 
 export type OrderStatus =

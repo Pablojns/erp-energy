@@ -16,6 +16,7 @@ import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
+import type { CreateVendaExternaPedidoDto } from './dto/create-venda-externa-pedido.dto';
 import type { CreateOrderDto } from './dto/create-order.dto';
 import type { CreateWegOrderDto } from './dto/create-wego-order.dto';
 import type { OrderQueryDto } from './dto/order-query.dto';
@@ -893,6 +894,127 @@ export class OrderService {
           status: order.status,
           source: 'site',
           reservedAutomatically: true,
+        },
+      });
+
+      return this.serializeOrder(order);
+    });
+  }
+
+  /** Pedido de venda externa — linhas livres, sem reserva de estoque. */
+  async createVendaExterna(userId: string, dto: CreateVendaExternaPedidoDto) {
+    const externalOrderNumber = dto.externalOrderNumber.trim();
+    if (!externalOrderNumber) {
+      throw new BadRequestException('Número do pedido é obrigatório.');
+    }
+
+    const deliveryRaw = dto.requestedDeliveryDate.trim();
+    const requestedDeliveryDate = new Date(`${deliveryRaw}T12:00:00.000Z`);
+    if (Number.isNaN(requestedDeliveryDate.getTime())) {
+      throw new BadRequestException('Data de entrega prevista inválida.');
+    }
+
+    const duplicate = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Já existe pedido com este número.');
+    }
+
+    const customer = await this.prisma.client.customer.findUnique({
+      where: { id: dto.customerId },
+    });
+    if (!customer?.isActive) {
+      throw new BadRequestException('Cliente inválido ou inativo.');
+    }
+
+    let carrierId: string | null = null;
+    if (dto.carrierId?.trim()) {
+      const carrier = await this.prisma.client.carrier.findUnique({
+        where: { id: dto.carrierId.trim() },
+      });
+      if (!carrier?.isActive) {
+        throw new BadRequestException('Transportadora inválida ou inativa.');
+      }
+      carrierId = carrier.id;
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      const code = await this.nextOrderCode(tx);
+      let subtotalDec = new Prisma.Decimal(0);
+      let lineNumber = 10;
+      const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+
+      for (const li of dto.items) {
+        const description = li.description.trim();
+        if (!description) {
+          throw new BadRequestException('Informe a descrição de todos os itens.');
+        }
+        const unitPrice = new Prisma.Decimal(Number(li.unitPrice).toFixed(2));
+        const totalLine = unitPrice.mul(li.quantity).toDecimalPlaces(2);
+        subtotalDec = subtotalDec.add(totalLine);
+
+        creates.push({
+          lineNumber,
+          sku: '',
+          description,
+          quantity: li.quantity,
+          reservedQuantity: 0,
+          unitPrice: unitPrice.toDecimalPlaces(2),
+          totalPrice: totalLine,
+          discount: new Prisma.Decimal(0),
+          stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+        });
+        lineNumber += 10;
+      }
+
+      const totalFixed = subtotalDec.toDecimalPlaces(2);
+      const customerDocument = customer.document?.trim() || null;
+      const deliveryAddress = customer.deliveryAddress?.trim() || null;
+
+      const order = await tx.order.create({
+        data: {
+          source: OrderSource.VENDA_EXTERNA,
+          code,
+          externalOrderNumber,
+          customerId: customer.id,
+          customerName: customer.name.trim(),
+          customerDocument,
+          deliveryCnpj: customerDocument,
+          deliveryAddress,
+          receiverName: customer.name.trim(),
+          unloadingPoint: deliveryAddress,
+          notaRemessa: dto.notaRemessa?.trim() || null,
+          notes: dto.notes?.trim() || null,
+          status: OrderStatus.NOVO,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          priority: 3,
+          orderDate: new Date(),
+          requestedDeliveryDate,
+          subtotal: totalFixed,
+          discount: new Prisma.Decimal(0),
+          total: totalFixed,
+          totalValue: totalFixed,
+          carrierId,
+          items: { create: creates },
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_CREATED',
+        entity: 'Order',
+        entityId: order.id,
+        changes: {
+          code: order.code,
+          externalOrderNumber,
+          lines: order.items.length,
+          subtotal: totalFixed.toString(),
+          status: order.status,
+          source: 'venda_externa',
+          reservedAutomatically: false,
         },
       });
 

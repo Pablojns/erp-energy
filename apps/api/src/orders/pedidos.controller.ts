@@ -31,6 +31,7 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
+import { CreateVendaExternaPedidoDto } from './dto/create-venda-externa-pedido.dto';
 import { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -86,6 +87,15 @@ export class PedidosController {
     @Body() dto: CreateSitePedidoDto,
   ) {
     return this.pedidos.createPedidoSite(user.id, dto);
+  }
+
+  @Post('venda-externa')
+  @HttpCode(HttpStatus.CREATED)
+  createVendaExterna(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateVendaExternaPedidoDto,
+  ) {
+    return this.pedidos.createVendaExterna(user.id, dto);
   }
 
   @Patch(':numeroPed')

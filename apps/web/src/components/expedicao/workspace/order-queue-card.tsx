@@ -57,6 +57,10 @@ export function OrderQueueCard(props: {
   const isManualUrgent = Boolean(order.isUrgentManual);
   const isMarked =
     (onTogglePrint && checkedForPrint) || (onToggleRemoval && checkedForRemoval);
+  const showNfPendente =
+    order.status === 'FINALIZADO' &&
+    Boolean(order.notaRemessa?.trim()) &&
+    !order.invoiceNumber?.trim();
 
   const handleCardKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -118,6 +122,10 @@ export function OrderQueueCard(props: {
                 <span className="exp-queue-source-badge exp-queue-source-badge--site text-xs">
                   SITE
                 </span>
+              ) : order.source === 'VENDA_EXTERNA' ? (
+                <span className="exp-queue-source-badge exp-queue-source-badge--venda-externa text-xs">
+                  VENDA EXTERNA
+                </span>
               ) : (
                 <span className="exp-queue-source-badge exp-queue-source-badge--weg text-xs">
                   WEG
@@ -137,6 +145,9 @@ export function OrderQueueCard(props: {
                 >
                   URGENTE
                 </span>
+              ) : null}
+              {showNfPendente ? (
+                <span className="exp-queue-nf-pendente-badge text-xs">NF PENDENTE</span>
               ) : null}
             </div>
           </div>

@@ -97,6 +97,8 @@ export const OrderInfoPanel = forwardRef<
 
   const isOrdersMode = panelMode === 'orders';
   const isSiteOrder = order.source === 'SITE';
+  const isVendaExternaOrder = order.source === 'VENDA_EXTERNA';
+  const isSimpleCustomerLayout = isSiteOrder || isVendaExternaOrder;
 
   const numero = orderDisplayNumber(order);
   const overdue = getOverdueDays(order);
@@ -439,7 +441,7 @@ export const OrderInfoPanel = forwardRef<
       </div>
 
       <div className="exp-wb-order-header-body !mt-1.5 !gap-1.5">
-        {isSiteOrder ? (
+        {isSimpleCustomerLayout ? (
           <div className="exp-wb-order-header-block !p-3">
             <div className="exp-wb-order-header-row !gap-2">
               <HeaderPair label="Cliente" value={displayOrDash(order.customerName)} />
@@ -507,7 +509,7 @@ export const OrderInfoPanel = forwardRef<
               )}
             </HeaderField>
 
-            {!hideVolumes && !isSiteOrder ? (
+            {!hideVolumes && !isSimpleCustomerLayout ? (
               <HeaderField label="Volumes:">
                 {isOrdersMode || fieldsReadOnly ? (
                   <span>
