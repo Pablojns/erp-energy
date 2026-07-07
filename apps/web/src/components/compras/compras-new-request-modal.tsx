@@ -151,18 +151,26 @@ export function ComprasNewRequestModal(props: {
   useEffect(() => {
     let cancelled = false;
     setLoadingProducts(true);
-    void erpFetchJson<ProductListResponse>(
-      'products?page=1&pageSize=100&status=active&sortBy=name&sortOrder=asc',
-    )
-      .then((res) => {
-        if (!cancelled) setProducts(res.data ?? []);
-      })
-      .catch(() => {
+    void (async () => {
+      try {
+        const allProducts: ProductListResponse['data'] = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+          const res = await erpFetchJson<ProductListResponse>(
+            `products?page=${page}&pageSize=100&status=active&sortBy=name&sortOrder=asc`,
+          );
+          allProducts.push(...(res.data ?? []));
+          totalPages = res.meta?.totalPages ?? 1;
+          page += 1;
+        } while (page <= totalPages);
+        if (!cancelled) setProducts(allProducts);
+      } catch {
         if (!cancelled) setProducts([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingProducts(false);
-      });
+      }
+    })();
 
     void erpFetchJson<SupplierLite[]>('cadastros/suppliers')
       .then((rows) => {
