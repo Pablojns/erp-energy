@@ -203,7 +203,14 @@ export function ComprasDetailModal(props: {
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <ComprasDetailField label="Tipo" value={TYPE_LABEL[row.type]} />
               <ComprasDetailField label="Prioridade" value={row.priority} />
-              <ComprasDetailField label="Fornecedor" value={row.supplierName ?? '—'} />
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-white/40">Fornecedor</p>
+                <p className="mt-1 break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
+                  {row.supplierName?.trim()
+                    ? renderObservationWithLinks(row.supplierName)
+                    : '—'}
+                </p>
+              </div>
               <ComprasDetailField label="SKU" value={row.product?.sku ?? row.sku ?? '—'} />
               <ComprasDetailField label="Descrição" value={displayName(row)} wide />
               {canEditQuantity ? (
