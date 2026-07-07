@@ -368,10 +368,11 @@ export class PurchaseRequestService {
     });
 
     const itemLabel = this.itemDisplayName(updated);
+    const comprasAction = this.comprasNotificationAction(updated.type);
     if (existing.status !== status && status === 'PEDIDO_ENVIADO_APROVADO') {
       void this.notifications.createForPermissionExcluding(
         'notificacoes',
-        'receber_compras',
+        comprasAction,
         'Pedido enviado ao fornecedor',
         `${itemLabel} foi enviado/aprovado`,
         'compra_enviada',
@@ -382,7 +383,7 @@ export class PurchaseRequestService {
     if (existing.status !== status && status === 'PEDIDO_PAGO') {
       void this.notifications.createForPermissionExcluding(
         'notificacoes',
-        'receber_compras',
+        comprasAction,
         'Pedido pago',
         `${itemLabel} foi pago`,
         'compra_paga',
@@ -393,7 +394,7 @@ export class PurchaseRequestService {
     if (existing.status !== status && status === 'LAYOUT_APROVADO') {
       void this.notifications.createForPermissionExcluding(
         'notificacoes',
-        'receber_compras',
+        comprasAction,
         'Layout aprovado',
         `${itemLabel} teve layout aprovado — produção pode iniciar`,
         'compra_layout_aprovado',
@@ -404,7 +405,7 @@ export class PurchaseRequestService {
     if (existing.status !== status && status === 'EXPEDIDO') {
       void this.notifications.createForPermission(
         'notificacoes',
-        'receber_compras',
+        comprasAction,
         'Item expedido pelo fornecedor',
         `${itemLabel} foi expedido — solicite coleta`,
         'compra_expedida',
@@ -414,7 +415,7 @@ export class PurchaseRequestService {
     if (existing.status !== status && status === 'RECEBIDO') {
       void this.notifications.createForPermission(
         'notificacoes',
-        'receber_compras',
+        comprasAction,
         'Item recebido',
         `${itemLabel} chegou — separe os pedidos pendentes`,
         'compra_recebida',
@@ -529,15 +530,22 @@ export class PurchaseRequestService {
     return row.itemName?.trim() || row.product?.name?.trim() || 'Item';
   }
 
+  private comprasNotificationAction(type: string): string {
+    return type === PurchaseRequestType.WEG_CONTRATO
+      ? 'receber_compras_weg'
+      : 'receber_compras';
+  }
+
   private notifyCompraCriada(created: PurchaseRequestRow): void {
     const itemLabel = this.itemDisplayName(created);
-    void this.notifications.createForPermission(
+    void this.notifications.createForPermissionExcluding(
       'notificacoes',
-      'receber_compras',
+      this.comprasNotificationAction(created.type),
       'Nova solicitação de compra',
       `${created.requestedBy.name} solicitou: ${itemLabel}`,
       'compra_criada',
       '/app/compras',
+      created.requestedById,
     );
   }
 

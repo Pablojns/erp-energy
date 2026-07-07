@@ -23,6 +23,7 @@ export class PermissionSyncService implements OnModuleInit {
     { module: 'notificacoes', action: 'receber_expedicao' },
     { module: 'notificacoes', action: 'receber_financeiro' },
     { module: 'notificacoes', action: 'receber_compras' },
+    { module: 'notificacoes', action: 'receber_compras_weg' },
     { module: 'notificacoes', action: 'receber_crm' },
   ];
 
