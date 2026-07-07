@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Download, Loader2, Save, Trash2, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { fetchPurchaseDetail } from './compras-api';
@@ -19,6 +19,39 @@ import {
   purchaseImageSrc,
 } from './compras-utils';
 
+const OBSERVATION_URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
+
+function renderObservationWithLinks(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(OBSERVATION_URL_PATTERN)) {
+    const url = match[0];
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(text.slice(lastIndex, index));
+    }
+    nodes.push(
+      <a
+        key={`${index}-${url}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-indigo-300 underline hover:text-indigo-200"
+      >
+        {url}
+      </a>,
+    );
+    lastIndex = index + url.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
 export function ComprasDetailModal(props: {
   rowId: string;
   isAdmin: boolean;
@@ -34,6 +67,8 @@ export function ComprasDetailModal(props: {
   const [lightboxImage, setLightboxImage] = useState<PurchaseRequestImage | null>(null);
   const [expectedArrival, setExpectedArrival] = useState('');
   const [savingArrival, setSavingArrival] = useState(false);
+  const [quantityInput, setQuantityInput] = useState('');
+  const [savingQuantity, setSavingQuantity] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +81,7 @@ export function ComprasDetailModal(props: {
           setExpectedArrival(
             detail.expectedArrival ? detail.expectedArrival.slice(0, 10) : '',
           );
+          setQuantityInput(String(displayQty(detail)));
         }
       })
       .catch((err) => {
@@ -77,6 +113,8 @@ export function ComprasDetailModal(props: {
 
   const canResolve = row?.status === 'SOLICITADO';
   const isWeg = row?.type === 'WEG_CONTRATO';
+  const canEditQuantity =
+    row != null && row.status !== 'COMPRADO' && row.status !== 'RECUSADO';
   const calculatedTotal = row ? calcPurchaseTotalFromRow(row) : null;
 
   const handleDownloadImage = async (image: PurchaseRequestImage) => {
@@ -125,6 +163,32 @@ export function ComprasDetailModal(props: {
     }
   };
 
+  const handleSaveQuantity = async () => {
+    if (!row) return;
+    const nextQty = Number(quantityInput);
+    if (!Number.isInteger(nextQty) || nextQty < 1) {
+      setError('Informe uma quantidade válida (mínimo 1).');
+      return;
+    }
+
+    setSavingQuantity(true);
+    setError(null);
+    try {
+      const updated = await erpFetchJson<PurchaseRequest>(`api/compras/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(
+          isWeg ? { suggestedQty: nextQty } : { quantity: nextQty },
+        ),
+      });
+      setRow(updated);
+      setQuantityInput(String(displayQty(updated)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar quantidade.');
+    } finally {
+      setSavingQuantity(false);
+    }
+  };
+
   return (
     <>
       <ComprasModalShell title="Detalhe da Solicitação" onClose={props.onClose} size="lg">
@@ -142,7 +206,37 @@ export function ComprasDetailModal(props: {
               <ComprasDetailField label="Fornecedor" value={row.supplierName ?? '—'} />
               <ComprasDetailField label="SKU" value={row.product?.sku ?? row.sku ?? '—'} />
               <ComprasDetailField label="Descrição" value={displayName(row)} wide />
-              <ComprasDetailField label="Quantidade" value={String(displayQty(row))} />
+              {canEditQuantity ? (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                    Quantidade
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={quantityInput}
+                      onChange={(e) => setQuantityInput(e.target.value)}
+                      className={fieldClass()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveQuantity()}
+                      disabled={savingQuantity || !quantityInput}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingQuantity ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      Salvar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <ComprasDetailField label="Quantidade" value={String(displayQty(row))} />
+              )}
               <ComprasDetailField label="Preço item" value={formatMoney(row.itemPrice)} />
               <ComprasDetailField label="Total" value={formatMoneyNumber(calculatedTotal)} />
               {!isWeg ? (
@@ -182,7 +276,14 @@ export function ComprasDetailModal(props: {
               {!isWeg ? (
                 <ComprasDetailField label="Ref. pedido venda" value={row.saleOrderRef ?? '—'} />
               ) : null}
-              <ComprasDetailField label="Observação" value={row.observation ?? '—'} wide />
+              <div className="sm:col-span-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-white/40">Observação</p>
+                <p className="mt-1 whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
+                  {row.observation?.trim()
+                    ? renderObservationWithLinks(row.observation)
+                    : '—'}
+                </p>
+              </div>
               <ComprasDetailField
                 label="Responsável pela requisição"
                 value={`${row.requestedBy.name} (${row.requestedBy.email})`}

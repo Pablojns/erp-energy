@@ -99,6 +99,11 @@ export function ComprasCard(props: {
       <p className="mt-2 text-[11px] text-white/40">
         {row.requestedBy.name} · {formatDate(row.createdAt)}
       </p>
+      {row.expectedArrival ? (
+        <p className="mt-0.5 text-[11px] text-white/40">
+          Previsão: {formatDate(row.expectedArrival)}
+        </p>
+      ) : null}
     </article>
   );
 }

@@ -436,9 +436,9 @@ export class PurchaseRequestService {
     if (!existing) {
       throw new NotFoundException('Solicitação de compra não encontrada.');
     }
-    if (existing.status !== 'SOLICITADO') {
+    if (existing.status === 'COMPRADO' || existing.status === 'RECUSADO') {
       throw new BadRequestException(
-        'Apenas solicitações pendentes podem ter a quantidade atualizada.',
+        'Solicitações compradas ou recusadas não podem ter a quantidade atualizada.',
       );
     }
 

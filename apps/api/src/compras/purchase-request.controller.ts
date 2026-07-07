@@ -96,6 +96,14 @@ export class PurchaseRequestController {
     return this.purchaseRequests.atualizarChegada(id, dto.expectedArrival);
   }
 
+  @Patch(':id')
+  atualizar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseRequestQuantityDto,
+  ) {
+    return this.purchaseRequests.atualizarQuantidade(id, dto);
+  }
+
   @Patch(':id/quantidade')
   atualizarQuantidade(
     @Param('id', ParseUUIDPipe) id: string,
