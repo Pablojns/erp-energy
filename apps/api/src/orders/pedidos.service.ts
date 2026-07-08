@@ -1280,6 +1280,7 @@ export class PedidosService {
               const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
               const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
               const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
+              const productId = await this.findProductIdBySku(tx, sku);
               await tx.orderItem.upsert({
                 where: {
                   orderId_lineNumber: { orderId: created.id, lineNumber: r.seq },
@@ -1297,6 +1298,7 @@ export class PedidosService {
                   missingQty: 0,
                   pickedQty: 0,
                   invoicedQty: 0,
+                  productId,
                   mercadoEletronicoItemStatus: meItemStatus,
                   stockStatus: OrderItemStockStatus.NAO_ANALISADO,
                 },
@@ -1307,6 +1309,7 @@ export class PedidosService {
                   unitPrice: unitPrice.toDecimalPlaces(2),
                   totalPrice,
                   mercadoEletronicoItemStatus: meItemStatus,
+                  ...(productId ? { productId } : {}),
                 },
               });
             }
@@ -1347,6 +1350,7 @@ export class PedidosService {
             const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
             const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
             const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
+            const productId = await this.findProductIdBySku(tx, sku);
             await tx.orderItem.upsert({
               where: { orderId_lineNumber: { orderId: existing.id, lineNumber: r.seq } },
               create: {
@@ -1362,6 +1366,7 @@ export class PedidosService {
                 missingQty: 0,
                 pickedQty: 0,
                 invoicedQty: 0,
+                productId,
                 mercadoEletronicoItemStatus: meItemStatus,
                 stockStatus: OrderItemStockStatus.NAO_ANALISADO,
               },
@@ -1372,6 +1377,7 @@ export class PedidosService {
                 unitPrice: unitPrice.toDecimalPlaces(2),
                 totalPrice,
                 mercadoEletronicoItemStatus: meItemStatus,
+                ...(productId ? { productId } : {}),
               },
             });
           }
@@ -1492,6 +1498,31 @@ export class PedidosService {
       'pedido_vinculado_urgente',
       link,
     );
+  }
+
+  private async findProductIdBySku(
+    tx: Prisma.TransactionClient,
+    sku: string,
+  ): Promise<string | null> {
+    const normalized = sku.trim();
+    if (!normalized) return null;
+
+    const found = await tx.product.findFirst({
+      where: {
+        OR: [
+          { sku: { equals: normalized, mode: Prisma.QueryMode.insensitive } },
+          {
+            internalCode: {
+              equals: normalized,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ],
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    return found?.id ?? null;
   }
 
   private serializeOrderExit(row: Prisma.OrderExitGetPayload<{

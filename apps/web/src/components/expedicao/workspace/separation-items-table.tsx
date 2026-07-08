@@ -7,7 +7,7 @@ import {
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
-import { summarizeItemReceiptStatus } from '@/src/components/expedicao/shared/order-helpers';
+import { summarizeItemReceiptStatus, resolveItemReceiptStatusForOrder } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
@@ -135,7 +135,7 @@ export function SeparationItemsTable(props: {
                   {!isVendaExterna ? (
                     <td className="text-center">
                       <OrderItemReceiptStatusBadge
-                        status={it.mercadoEletronicoItemStatus}
+                        status={resolveItemReceiptStatusForOrder(it, order.status)}
                       />
                     </td>
                   ) : null}

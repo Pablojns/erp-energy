@@ -1720,9 +1720,13 @@ export class OrderService {
         throw new ConflictException('Este pedido já possui saída registrada.');
       }
 
+      let movedUnits = 0;
+
       for (const it of before.items) {
-        if (!it.productId) continue;
-        const qtyOut = Math.max(0, it.pickedQty);
+        const productId = await this.resolveOrderItemProductId(tx, it);
+        if (!productId) continue;
+
+        const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
         const reservation = await tx.stockReservation.findUnique({
@@ -1733,7 +1737,7 @@ export class OrderService {
 
         const up = await tx.product.updateMany({
           where: {
-            id: it.productId,
+            id: productId,
             stockQty: { gte: qtyOut },
             reservedQty: { gte: decReserved },
           },
@@ -1748,9 +1752,11 @@ export class OrderService {
           );
         }
 
+        movedUnits += qtyOut;
+
         await tx.stockMovement.create({
           data: {
-            productId: it.productId,
+            productId,
             movementType: StockMovementType.SAIDA_EXPEDICAO,
             quantity: qtyOut,
             reference: inv,
@@ -1775,10 +1781,20 @@ export class OrderService {
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
+            productId,
+            pickedQty: it.pickedQty > 0 ? it.pickedQty : qtyOut,
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
             invoicedQty: qtyOut,
+            mercadoEletronicoItemStatus:
+              it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
         });
+      }
+
+      if (movedUnits === 0 && before.items.length > 0) {
+        throw new BadRequestException(
+          'Não foi possível baixar estoque: vincule os SKUs ao cadastro de produtos ou confirme as quantidades do pedido.',
+        );
       }
 
       const updated = await tx.order.update({
@@ -1851,10 +1867,13 @@ export class OrderService {
         throw new BadRequestException('Pedido sem número de NF.');
       }
 
-      for (const it of before.items) {
-        if (!it.productId) continue;
+      let movedUnits = 0;
 
-        const qtyOut = it.invoicedQty > 0 ? it.invoicedQty : it.pickedQty;
+      for (const it of before.items) {
+        const productId = await this.resolveOrderItemProductId(tx, it);
+        if (!productId) continue;
+
+        const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
         const r = await tx.stockReservation.findUnique({
@@ -1865,7 +1884,7 @@ export class OrderService {
 
         const up = await tx.product.updateMany({
           where: {
-            id: it.productId,
+            id: productId,
             stockQty: { gte: qtyOut },
             reservedQty: { gte: decReserved },
           },
@@ -1880,9 +1899,11 @@ export class OrderService {
           );
         }
 
+        movedUnits += qtyOut;
+
         await tx.stockMovement.create({
           data: {
-            productId: it.productId,
+            productId,
             movementType: StockMovementType.SAIDA_EXPEDICAO,
             quantity: qtyOut,
             reference: before.code,
@@ -1907,9 +1928,20 @@ export class OrderService {
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
+            productId,
+            pickedQty: it.pickedQty > 0 ? it.pickedQty : qtyOut,
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
+            invoicedQty: qtyOut,
+            mercadoEletronicoItemStatus:
+              it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
         });
+      }
+
+      if (movedUnits === 0 && before.items.length > 0) {
+        throw new BadRequestException(
+          'Não foi possível baixar estoque: vincule os SKUs ao cadastro de produtos ou confirme as quantidades do pedido.',
+        );
       }
 
       const updated = await tx.order.update({
@@ -2374,6 +2406,18 @@ export class OrderService {
                 },
               },
               {
+                invoiceNumber: {
+                  contains: term,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+              {
+                notaRemessa: {
+                  contains: term,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+              {
                 items: {
                   some: {
                     sku: {
@@ -2517,6 +2561,49 @@ export class OrderService {
     }
 
     return data;
+  }
+
+  private static resolveExitQuantity(item: {
+    quantity: number;
+    pickedQty: number;
+    invoicedQty: number;
+  }): number {
+    if (item.pickedQty > 0) return item.pickedQty;
+    if (item.invoicedQty > 0) return item.invoicedQty;
+    return item.quantity > 0 ? item.quantity : 0;
+  }
+
+  private async resolveOrderItemProductId(
+    tx: Tx,
+    item: { id: string; sku: string; productId: string | null },
+  ): Promise<string | null> {
+    if (item.productId) return item.productId;
+
+    const normalized = item.sku.trim();
+    if (!normalized) return null;
+
+    const found = await tx.product.findFirst({
+      where: {
+        OR: [
+          { sku: { equals: normalized, mode: Prisma.QueryMode.insensitive } },
+          {
+            internalCode: {
+              equals: normalized,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ],
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    if (!found) return null;
+
+    await tx.orderItem.update({
+      where: { id: item.id },
+      data: { productId: found.id },
+    });
+    return found.id;
   }
 
   private async nextOrderCode(tx: Tx): Promise<string> {

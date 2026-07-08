@@ -76,8 +76,11 @@ export function getItemReceiptStatusVisual(status: string | null | undefined): {
     .normalize('NFD')
     .replace(/\p{M}/gu, '');
 
-  if (normalized.includes('recebido')) {
-    return { label: 'Recebido', tone: 'recebido' };
+  if (normalized === 'ok' || normalized.includes('recebido')) {
+    return {
+      label: normalized === 'ok' ? 'OK' : 'Recebido',
+      tone: 'recebido',
+    };
   }
   if (normalized.includes('falta')) {
     return { label: 'Em falta', tone: 'em_falta' };
@@ -99,6 +102,22 @@ export function summarizeItemReceiptStatus(items: OrderItemDto[]): {
     else if (tone === 'em_falta') emFalta += 1;
   }
   return { recebidos, emFalta, total: items.length };
+}
+
+export function resolveItemReceiptStatusForOrder(
+  item: OrderItemDto,
+  orderStatus: string,
+): string | null | undefined {
+  const raw = item.mercadoEletronicoItemStatus?.trim();
+  if (raw) return raw;
+
+  if (orderStatus === 'FINALIZADO' || orderStatus === 'EXPEDIDO') {
+    const qty = item.quantity ?? 0;
+    const shipped = Math.max(item.pickedQty ?? 0, item.invoicedQty ?? 0);
+    if (qty > 0 && shipped >= qty) return 'OK';
+  }
+
+  return null;
 }
 
 export function getItemSeparationStatus(item: OrderItemDto): {
