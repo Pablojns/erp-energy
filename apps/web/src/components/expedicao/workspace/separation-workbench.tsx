@@ -12,7 +12,11 @@ import { SeparationItemsTable } from '@/src/components/expedicao/workspace/separ
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import {
+  normalizeInvoiceNumberDigits,
+  numeroPedFromOrder,
+  pedidoApiUrl,
+} from '@/src/services/api/pedidos-normalize';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
@@ -205,9 +209,7 @@ export function SeparationWorkbench(props: {
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-      const invoiceDigits = (order.invoiceNumber?.trim() ?? '')
-        .split('/')[0]
-        ?.replace(/\D/g, '');
+      const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
       if (invoiceDigits) {
         await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
           method: 'POST',

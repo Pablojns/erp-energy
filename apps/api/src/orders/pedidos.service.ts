@@ -451,11 +451,22 @@ export class PedidosService {
     return { ok: true };
   }
 
+  private normalizeInvoiceNumberDigits(raw: string): string {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+
+    let part = trimmed.split('/')[0]?.trim() ?? trimmed;
+    const dashMatch = part.match(/[-–—]\s*(.+)$/);
+    if (dashMatch?.[1]) {
+      part = dashMatch[1].trim();
+    }
+    return part.replace(/\D/g, '');
+  }
+
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {
     const raw = (dto.invoiceNumber ?? dto.nota_fiscal ?? '').trim();
     if (!raw) return '';
-    const beforeSeries = raw.split('/')[0]?.trim() ?? raw;
-    return beforeSeries.replace(/\D/g, '');
+    return this.normalizeInvoiceNumberDigits(raw);
   }
 
   private async nextOrderCode(tx: Prisma.TransactionClient): Promise<string> {
@@ -885,7 +896,7 @@ export class PedidosService {
     if (!nf) {
       const remessa = order.notaRemessa?.trim();
       if (remessa) {
-        nf = remessa;
+        nf = this.normalizeInvoiceNumberDigits(remessa) || remessa;
       }
     }
     if (!nf) {

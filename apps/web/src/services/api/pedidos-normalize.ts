@@ -153,6 +153,19 @@ function decimalToString(v: unknown): string {
   return String(v);
 }
 
+/** Extrai só os dígitos da NF (ex.: "1 - 1897" → "1897", "12345/1" → "12345"). */
+export function normalizeInvoiceNumberDigits(raw: string | null | undefined): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return '';
+
+  let part = trimmed.split('/')[0]?.trim() ?? trimmed;
+  const dashMatch = part.match(/[-–—]\s*(.+)$/);
+  if (dashMatch?.[1]) {
+    part = dashMatch[1].trim();
+  }
+  return part.replace(/\D/g, '');
+}
+
 export function numeroPedFromOrder(order: {
   externalOrderNumber?: string | null;
   code?: string;
