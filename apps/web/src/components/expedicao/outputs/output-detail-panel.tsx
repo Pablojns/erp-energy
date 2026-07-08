@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import { formatBrlDisplay, formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import type { OrderExitDto, OrderExitItemDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
@@ -66,9 +66,11 @@ function ItemStatusBadge(props: { item: OrderExitItemDto }) {
 
 export function OutputDetailPanel(props: {
   exit: OrderExitDto;
+  canDeleteExit?: boolean;
+  onDeleteExit?: () => void;
   onObsExpedicaoSaved?: (value: string | null) => void;
 }) {
-  const { exit, onObsExpedicaoSaved } = props;
+  const { exit, canDeleteExit, onDeleteExit, onObsExpedicaoSaved } = props;
   const [obsExpedicao, setObsExpedicao] = useState(exit.order.obsExpedicao ?? '');
   const [savingObs, setSavingObs] = useState(false);
   const [obsError, setObsError] = useState<string | null>(null);
@@ -131,6 +133,16 @@ export function OutputDetailPanel(props: {
           >
             {statusLabel(exit)}
           </span>
+          {canDeleteExit ? (
+            <button
+              type="button"
+              onClick={onDeleteExit}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-rose-400/40 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-500 transition hover:bg-rose-500/20"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Excluir saída
+            </button>
+          ) : null}
         </div>
       </header>
 

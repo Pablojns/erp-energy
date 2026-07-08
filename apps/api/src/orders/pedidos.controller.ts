@@ -155,15 +155,11 @@ export class PedidosController {
 
   @Delete('saidas/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('expedicao', 'confirmar_saida')
   deleteSaida(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!user.roles.includes('ADMIN')) {
-      throw new ForbiddenException(
-        'Apenas administradores podem excluir saídas.',
-      );
-    }
     return this.pedidos.deleteSaida(user.id, id);
   }
 

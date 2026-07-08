@@ -2236,7 +2236,7 @@ export class OrderService {
     if (ext) {
       clauses.push({
         externalOrderNumber: {
-          contains: ext,
+          startsWith: ext,
           mode: Prisma.QueryMode.insensitive,
         },
       });
@@ -2252,14 +2252,14 @@ export class OrderService {
     const cnpj = query.deliveryCnpj?.trim();
     if (cnpj) {
       clauses.push({
-        deliveryCnpj: { contains: cnpj, mode: Prisma.QueryMode.insensitive },
+        deliveryCnpj: { startsWith: cnpj, mode: Prisma.QueryMode.insensitive },
       });
     }
 
     const recv = query.receiverName?.trim();
     if (recv) {
       clauses.push({
-        receiverName: { contains: recv, mode: Prisma.QueryMode.insensitive },
+        receiverName: { startsWith: recv, mode: Prisma.QueryMode.insensitive },
       });
     }
 
@@ -2267,7 +2267,7 @@ export class OrderService {
     if (unload) {
       clauses.push({
         unloadingPoint: {
-          contains: unload,
+          startsWith: unload,
           mode: Prisma.QueryMode.insensitive,
         },
       });
@@ -2278,7 +2278,7 @@ export class OrderService {
       clauses.push({
         items: {
           some: {
-            sku: { contains: sku, mode: Prisma.QueryMode.insensitive },
+            sku: { startsWith: sku, mode: Prisma.QueryMode.insensitive },
           },
         },
       });
@@ -2294,7 +2294,7 @@ export class OrderService {
     const inv = query.invoiceNumber?.trim();
     if (inv) {
       clauses.push({
-        invoiceNumber: { contains: inv, mode: Prisma.QueryMode.insensitive },
+        invoiceNumber: { startsWith: inv, mode: Prisma.QueryMode.insensitive },
       });
     }
 
@@ -2368,82 +2368,144 @@ export class OrderService {
     const term = query.search?.trim();
     if (term) {
       where = {
-        AND: [
-          where,
+        AND: [where, OrderService.buildSmartSearchWhere(term)],
+      };
+    }
+
+    return where;
+  }
+
+  /** Busca inteligente: números curtos = NF; números longos = pedido; texto = prefixo. */
+  private static buildSmartSearchWhere(term: string): Prisma.OrderWhereInput {
+    const raw = term.trim();
+    if (!raw) return {};
+
+    const withoutHash = raw.startsWith('#') ? raw.slice(1).trim() : raw;
+    if (!withoutHash) return {};
+
+    const digitsOnly = /^\d+$/.test(withoutHash);
+    const invoiceMaxLen = 9;
+
+    if (digitsOnly && withoutHash.length <= invoiceMaxLen) {
+      return {
+        OR: [
           {
-            OR: [
-              {
-                code: { contains: term, mode: Prisma.QueryMode.insensitive },
-              },
-              {
-                externalOrderNumber: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                mercadoEletronicoNumber: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                customerName: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                receiverName: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                deliveryCnpj: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                invoiceNumber: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                notaRemessa: {
-                  contains: term,
-                  mode: Prisma.QueryMode.insensitive,
-                },
-              },
-              {
-                items: {
-                  some: {
-                    sku: {
-                      contains: term,
-                      mode: Prisma.QueryMode.insensitive,
-                    },
-                  },
-                },
-              },
-              {
-                items: {
-                  some: {
-                    description: {
-                      contains: term,
-                      mode: Prisma.QueryMode.insensitive,
-                    },
-                  },
-                },
-              },
-            ],
+            invoiceNumber: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            notaRemessa: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
           },
         ],
       };
     }
 
-    return where;
+    if (digitsOnly) {
+      return {
+        OR: [
+          {
+            externalOrderNumber: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            code: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            mercadoEletronicoNumber: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ],
+      };
+    }
+
+    const orClauses: Prisma.OrderWhereInput[] = [
+      {
+        receiverName: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        customerName: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        unloadingPoint: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        externalOrderNumber: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        code: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        mercadoEletronicoNumber: {
+          startsWith: withoutHash,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      },
+      {
+        items: {
+          some: {
+            sku: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        },
+      },
+      {
+        items: {
+          some: {
+            description: {
+              startsWith: withoutHash,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        },
+      },
+    ];
+
+    const cnpjDigits = withoutHash.replace(/\D/g, '');
+    if (cnpjDigits.length >= 3) {
+      orClauses.push({
+        deliveryCnpj: {
+          startsWith: cnpjDigits,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      });
+      orClauses.push({
+        customerDocument: {
+          startsWith: cnpjDigits,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      });
+    }
+
+    return { OR: orClauses };
   }
 
   private buildOrderBy(

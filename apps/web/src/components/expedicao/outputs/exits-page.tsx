@@ -4,13 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PaginatedOrderExits } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
+import { DeleteExitModal } from '@/src/components/expedicao/outputs/delete-exit-modal';
 import { OutputDetailPanel } from '@/src/components/expedicao/outputs/output-detail-panel';
 import {
   OutputsList,
   type ExitPeriod,
 } from '@/src/components/expedicao/outputs/outputs-list';
 
-export function ExitsPage() {
+export function ExitsPage(props: { isAdmin?: boolean }) {
+  const { isAdmin = false } = props;
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [period, setPeriod] = useState<ExitPeriod>('all');
@@ -19,6 +21,8 @@ export function ExitsPage() {
   const [payload, setPayload] = useState<PaginatedOrderExits | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -52,7 +56,7 @@ export function ExitsPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchDebounced, period, page]);
+  }, [searchDebounced, period, page, refreshKey]);
 
   useEffect(() => {
     if (!payload?.data?.length) {
@@ -110,11 +114,23 @@ export function ExitsPage() {
           ) : (
             <OutputDetailPanel
               exit={selected}
+              canDeleteExit={isAdmin}
+              onDeleteExit={() => setDeleteModalOpen(true)}
               onObsExpedicaoSaved={handleObsExpedicaoSaved}
             />
           )}
         </section>
       </div>
+
+      <DeleteExitModal
+        exit={selected}
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onDeleted={() => {
+          setSelectedId(null);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
     </div>
   );
 }

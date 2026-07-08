@@ -455,7 +455,7 @@ export function OrderQueue(props: {
                     data.setPage(1);
                     data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
                   }}
-                  placeholder="Buscar pedido, NF, SKU, cliente, recebedor..."
+                  placeholder="NF (ex: 1885), pedido, recebedor, SKU..."
                   className="exp-queue-search"
                 />
               </div>

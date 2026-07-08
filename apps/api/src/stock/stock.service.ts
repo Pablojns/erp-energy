@@ -1627,15 +1627,21 @@ export class StockService implements OnModuleInit {
 
     await tx.orderExit.delete({ where: { id: input.exitId } });
 
+    await tx.orderItem.updateMany({
+      where: { orderId: input.order.id },
+      data: { invoicedQty: 0 },
+    });
+
     const order = await tx.order.findUnique({
       where: { id: input.order.id },
-      select: { status: true },
+      select: { status: true, invoiceNumber: true },
     });
     if (order?.status === OrderStatus.FINALIZADO) {
+      const hasInvoice = Boolean(order.invoiceNumber?.trim());
       await tx.order.update({
         where: { id: input.order.id },
         data: {
-          status: OrderStatus.AGUARDANDO_NF,
+          status: hasInvoice ? OrderStatus.NF_ATRELADA : OrderStatus.AGUARDANDO_NF,
           shippedAt: null,
         },
       });
