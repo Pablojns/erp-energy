@@ -14,6 +14,7 @@ import {
   formatMoney,
   formatMoneyNumber,
   priorityBadgeClass,
+  purchaseUnitPrice,
   typeBadgeClass,
 } from './compras-utils';
 
@@ -94,7 +95,12 @@ export function ComprasCard(props: {
       <p className="mt-2 text-xs text-[var(--erp-fg-secondary)]">
         Qtd. <span className="font-semibold text-[var(--erp-fg)]">{displayQty(row)}</span>
         {' · '}
-        Preço <span className="font-semibold text-[var(--erp-fg)]">{formatMoney(row.itemPrice)}</span>
+        {row.type === 'WEG_CONTRATO' ? 'Base' : 'Preço'}{' '}
+        <span className="font-semibold text-[var(--erp-fg)]">
+          {row.type === 'WEG_CONTRATO'
+            ? formatMoneyNumber(Number(purchaseUnitPrice(row)))
+            : formatMoney(purchaseUnitPrice(row) || null)}
+        </span>
         {' · '}
         Total <span className="font-semibold text-[var(--erp-fg)]">{formatMoneyNumber(calcPurchaseTotalFromRow(row))}</span>
       </p>

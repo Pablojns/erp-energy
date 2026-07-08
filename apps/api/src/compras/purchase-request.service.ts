@@ -29,6 +29,7 @@ const PURCHASE_REQUEST_INCLUDE = {
       internalCode: true,
       stockQty: true,
       minStock: true,
+      cost: true,
     },
   },
   images: {
@@ -120,6 +121,8 @@ export class PurchaseRequestService {
         product.supplier?.name?.trim() ||
         dto.supplierName?.trim() ||
         null;
+
+      await this.syncWegProductBaseCost(product.id, dto.itemPrice);
 
       const created = await this.prisma.client.purchaseRequest.create({
         data: {
@@ -547,6 +550,16 @@ export class PurchaseRequestService {
       '/app/compras',
       created.requestedById,
     );
+  }
+
+  private async syncWegProductBaseCost(productId: string, itemPrice?: number) {
+    if (itemPrice == null || !Number.isFinite(itemPrice) || itemPrice < 0) {
+      return;
+    }
+    await this.prisma.client.product.update({
+      where: { id: productId },
+      data: { cost: new Prisma.Decimal(Number(itemPrice).toFixed(2)) },
+    });
   }
 
   private buildCommonFields(userId: string, dto: CreatePurchaseRequestDto) {

@@ -11,7 +11,12 @@ import type {
   PurchaseType,
   SupplierLite,
 } from './compras-types';
-import { fieldClass, formatMoneyNumber, productMatchesSearch } from './compras-utils';
+import {
+  fieldClass,
+  formatMoneyNumber,
+  productBaseCost,
+  productMatchesSearch,
+} from './compras-utils';
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGES = 10;
@@ -196,9 +201,7 @@ export function ComprasNewRequestModal(props: {
   useEffect(() => {
     if (!selectedProduct) return;
     setSuggestedQty(String(Math.max(1, selectedProduct.minStock - selectedProduct.stockQty)));
-    if (selectedProduct.price) {
-      setItemPrice(selectedProduct.price);
-    }
+    setItemPrice(productBaseCost(selectedProduct));
   }, [selectedProduct]);
 
   const lineQty = isWeg ? Number(suggestedQty) : Number(quantity);
@@ -280,8 +283,12 @@ export function ComprasNewRequestModal(props: {
     if (!isWeg && supplierName.trim()) {
       formData.set('supplierName', supplierName.trim());
     }
-    if (itemPrice) formData.set('itemPrice', itemPrice);
-    if (!isWeg && engravingPrice) formData.set('engravingPrice', engravingPrice);
+    if (isWeg) {
+      formData.set('itemPrice', itemPrice.trim() || '0');
+    } else if (itemPrice) {
+      formData.set('itemPrice', itemPrice);
+    }
+    if (engravingPrice) formData.set('engravingPrice', engravingPrice);
     if (isMarketplace && saleOrderRef.trim()) {
       formData.set('saleOrderRef', saleOrderRef.trim());
     }
@@ -497,7 +504,8 @@ export function ComprasNewRequestModal(props: {
                   >
                     <span className="font-semibold">{product.sku}</span> — {product.name}
                     <span className="ml-2 text-xs text-white/45">
-                      Estoque {product.stockQty} · Mín. {product.minStock}
+                      Estoque {product.stockQty} · Mín. {product.minStock} · Base{' '}
+                      {formatMoneyNumber(Number(productBaseCost(product)))}
                     </span>
                   </button>
                 ))}
@@ -569,9 +577,9 @@ export function ComprasNewRequestModal(props: {
         <div className="grid gap-3 sm:grid-cols-2">
           {isWeg ? (
             <div className="sm:col-span-2">
-              <div className="flex flex-wrap items-end gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="min-w-[10rem] flex-1">
-                  <span className="mb-1 block text-sm font-medium text-white/70">Preço item</span>
+                  <span className="mb-1 block text-sm font-medium text-white/70">Preço base WEG</span>
                   <input
                     type="number"
                     min={0}
@@ -579,9 +587,24 @@ export function ComprasNewRequestModal(props: {
                     value={itemPrice}
                     onChange={(e) => setItemPrice(e.target.value)}
                     className={fieldClass()}
+                    placeholder="0,00"
                   />
                 </label>
-                <div className="flex shrink-0 items-center gap-1.5 pb-2.5">
+                <label className="min-w-[10rem] flex-1">
+                  <span className="mb-1 block text-sm font-medium text-white/70">
+                    Preço gravação
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={engravingPrice}
+                    onChange={(e) => setEngravingPrice(e.target.value)}
+                    className={fieldClass()}
+                    placeholder="Julia preencher"
+                  />
+                </label>
+                <div className="flex items-center gap-1.5 sm:col-span-2">
                   <span className="text-sm text-white/70">
                     Total:{' '}
                     <span className="font-semibold text-white">
@@ -589,9 +612,9 @@ export function ComprasNewRequestModal(props: {
                     </span>
                   </span>
                   <span
-                    title="Quantidade × preço item (não salvo)"
+                    title="Quantidade × preço base. O preço base é salvo no produto do estoque."
                     className="cursor-help text-sm text-white/45"
-                    aria-label="Quantidade × preço item (não salvo)"
+                    aria-label="Quantidade × preço base. O preço base é salvo no produto do estoque."
                   >
                     ⓘ
                   </span>

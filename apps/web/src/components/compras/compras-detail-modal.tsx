@@ -16,6 +16,7 @@ import {
   formatDateTime,
   formatMoney,
   formatMoneyNumber,
+  purchaseUnitPrice,
   purchaseImageSrc,
 } from './compras-utils';
 
@@ -244,14 +245,19 @@ export function ComprasDetailModal(props: {
               ) : (
                 <ComprasDetailField label="Quantidade" value={String(displayQty(row))} />
               )}
-              <ComprasDetailField label="Preço item" value={formatMoney(row.itemPrice)} />
+              <ComprasDetailField
+                label={isWeg ? 'Preço base WEG' : 'Preço item'}
+                value={
+                  isWeg
+                    ? formatMoneyNumber(Number(purchaseUnitPrice(row)))
+                    : formatMoney(purchaseUnitPrice(row) || null)
+                }
+              />
               <ComprasDetailField label="Total" value={formatMoneyNumber(calculatedTotal)} />
-              {!isWeg ? (
-                <ComprasDetailField
-                  label="Preço gravação"
-                  value={formatMoney(row.engravingPrice)}
-                />
-              ) : null}
+              <ComprasDetailField
+                label="Preço gravação"
+                value={formatMoney(row.engravingPrice)}
+              />
               <ComprasDetailField label="Entrega cliente" value={formatDate(row.clientDeadline)} />
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-white/40">

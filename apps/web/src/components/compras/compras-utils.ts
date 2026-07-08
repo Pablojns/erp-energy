@@ -83,8 +83,35 @@ export function calcPurchaseTotal(
   return quantity * price;
 }
 
+export function productBaseCost(product: ProductLite | null | undefined): string {
+  const raw = product?.cost?.trim();
+  if (raw && Number.isFinite(Number(raw))) return raw;
+  return '0';
+}
+
+export function purchaseUnitPrice(row: PurchaseRequest): string {
+  if (row.type === 'WEG_CONTRATO') {
+    const fromProduct = row.product?.cost?.trim();
+    if (fromProduct && Number.isFinite(Number(fromProduct))) return fromProduct;
+    const fromRequest = row.itemPrice?.trim();
+    if (fromRequest && Number.isFinite(Number(fromRequest))) return fromRequest;
+    return '0';
+  }
+  return row.itemPrice?.trim() ?? '';
+}
+
 export function calcPurchaseTotalFromRow(row: PurchaseRequest): number | null {
-  return calcPurchaseTotal(row.type, displayQty(row), row.itemPrice);
+  return calcPurchaseTotal(row.type, displayQty(row), purchaseUnitPrice(row));
+}
+
+export function calcEngravingTotalFromRow(row: PurchaseRequest): number | null {
+  return calcPurchaseTotal(row.type, displayQty(row), row.engravingPrice);
+}
+
+export function calcPaidTotalFromRow(row: PurchaseRequest): number | null {
+  const value = row.purchaseValue ? Number(row.purchaseValue) : 0;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
 }
 
 export function formatMoneyNumber(value: number | null) {

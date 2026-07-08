@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, Filter, Plus, Search } from 'lucide-react';
 import { fetchPurchaseRequests } from './compras-api';
+import { ComprasDashboard } from './compras-dashboard';
 import { ComprasDetailModal } from './compras-detail-modal';
 import { ComprasKanbanBoard } from './compras-kanban-board';
 import { ComprasNewRequestModal } from './compras-new-request-modal';
@@ -10,6 +11,7 @@ import { ComprasResolveModal } from './compras-resolve-modal';
 import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
 
 export function ComprasWorkspace(props: { isAdmin: boolean }) {
+  const [activeView, setActiveView] = useState<'dashboard' | 'compras'>('dashboard');
   const [search, setSearch] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
@@ -37,9 +39,11 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         params.set('page', '1');
         params.set('pageSize', '100');
         const cleanSearch = search.trim();
-        if (cleanSearch) params.set('search', cleanSearch);
-        if (typeFilter !== 'all') params.set('type', typeFilter);
-        if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+        if (activeView === 'compras') {
+          if (cleanSearch) params.set('search', cleanSearch);
+          if (typeFilter !== 'all') params.set('type', typeFilter);
+          if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+        }
 
         const data = await fetchPurchaseRequests(params);
         if (!controller.signal.aborted) setRows(data);
@@ -59,7 +63,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [priorityFilter, refreshToken, search, typeFilter]);
+  }, [activeView, priorityFilter, refreshToken, search, typeFilter]);
 
   const handleStatusChanged = (updated: PurchaseRequest) => {
     setRows((current) => {
@@ -77,9 +81,36 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   return (
     <div className="erp-module-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col px-4 py-4 sm:px-6">
       <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <h1 className="erp-module-title">Compras</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="erp-module-title">Compras</h1>
+          <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveView('dashboard')}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                activeView === 'dashboard'
+                  ? 'bg-white text-slate-950'
+                  : 'text-[var(--erp-fg-secondary)] hover:bg-white/10 hover:text-[var(--erp-fg)]'
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('compras')}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                activeView === 'compras'
+                  ? 'bg-white text-slate-950'
+                  : 'text-[var(--erp-fg-secondary)] hover:bg-white/10 hover:text-[var(--erp-fg)]'
+              }`}
+            >
+              Compras
+            </button>
+          </div>
+        </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-initial">
+        {activeView === 'compras' ? (
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-initial">
           <div className="relative min-w-[min(100%,20rem)] flex-1 sm:flex-initial">
             <Search className="pointer-events-none absolute left-3 top-1/2 erp-icon-sm -translate-y-1/2 text-[var(--erp-fg-muted)]" />
             <input
@@ -134,22 +165,36 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação
           </button>
-        </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
+          >
+            <Plus className="erp-icon-sm" aria-hidden />
+            Nova Solicitação
+          </button>
+        )}
       </header>
 
       {error ? (
         <div className="erp-alert-danger mb-3 shrink-0">{error}</div>
       ) : null}
 
-      <section className="erp-module-panel min-h-0 flex-1 overflow-hidden p-3">
-        <ComprasKanbanBoard
-          rows={rows}
-          loading={loading}
-          onOpenCard={(row) => setDetailId(row.id)}
-          onStatusChanged={handleStatusChanged}
-          onError={setError}
-        />
-      </section>
+      {activeView === 'dashboard' ? (
+        <ComprasDashboard rows={rows} loading={loading} />
+      ) : (
+        <section className="erp-module-panel min-h-0 flex-1 overflow-hidden p-3">
+          <ComprasKanbanBoard
+            rows={rows}
+            loading={loading}
+            onOpenCard={(row) => setDetailId(row.id)}
+            onStatusChanged={handleStatusChanged}
+            onError={setError}
+          />
+        </section>
+      )}
 
       {newOpen ? (
         <ComprasNewRequestModal

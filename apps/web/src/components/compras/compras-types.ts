@@ -24,7 +24,10 @@ export type ProductLite = {
   internalCode?: string;
   stockQty: number;
   minStock: number;
+  /** Preço de venda (não usar em Compras WEG). */
   price?: string;
+  /** Preço base / custo pago ao fornecedor. */
+  cost?: string | null;
 };
 
 export type SupplierLite = {
