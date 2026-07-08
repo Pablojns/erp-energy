@@ -452,7 +452,10 @@ export class PedidosService {
   }
 
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {
-    return (dto.invoiceNumber ?? dto.nota_fiscal ?? '').trim();
+    const raw = (dto.invoiceNumber ?? dto.nota_fiscal ?? '').trim();
+    if (!raw) return '';
+    const beforeSeries = raw.split('/')[0]?.trim() ?? raw;
+    return beforeSeries.replace(/\D/g, '');
   }
 
   private async nextOrderCode(tx: Prisma.TransactionClient): Promise<string> {

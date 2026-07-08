@@ -23,6 +23,7 @@ type AuthedSocket = Socket & { data: { user?: AuthUser } };
   cors: {
     origin: [
       'http://localhost:3000',
+      'https://erp-energy.vercel.app',
       'https://erp-energy-web.vercel.app',
       'http://174.138.41.33:3000',
     ],

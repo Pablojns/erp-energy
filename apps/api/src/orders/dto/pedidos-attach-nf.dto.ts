@@ -1,6 +1,6 @@
+import { Transform } from 'class-transformer';
 import {
   IsDateString,
-  IsNumberString,
   IsOptional,
   IsString,
   MaxLength,
@@ -13,8 +13,13 @@ export class PedidosAttachNfDto {
   nota_fiscal?: string;
 
   @IsOptional()
-  @IsNumberString()
-  @MaxLength(9)
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined
+      ? undefined
+      : String(value).trim(),
+  )
+  @IsString()
+  @MaxLength(64)
   invoiceNumber?: string;
 
   @IsOptional()

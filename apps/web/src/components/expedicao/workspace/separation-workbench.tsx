@@ -205,11 +205,13 @@ export function SeparationWorkbench(props: {
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-      const invoiceNumber = order.invoiceNumber?.trim();
-      if (invoiceNumber) {
+      const invoiceDigits = (order.invoiceNumber?.trim() ?? '')
+        .split('/')[0]
+        ?.replace(/\D/g, '');
+      if (invoiceDigits) {
         await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
           method: 'POST',
-          body: JSON.stringify({ invoiceNumber }),
+          body: JSON.stringify({ invoiceNumber: invoiceDigits }),
         });
       } else {
         const ok = await data.attachRemessaExit(order.id);

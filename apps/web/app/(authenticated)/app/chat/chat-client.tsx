@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, MessageSquarePlus, Send, X } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import type { AuthUser } from '@/src/services/api/auth';
-import { API_BASE_URL } from '@/src/services/api/config';
+import { getChatSocketBaseUrl } from '@/src/services/api/config';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { isAuthDisabled } from '@/src/services/auth/bypass';
 
@@ -114,7 +114,7 @@ export function ChatClient(props: {
   }, [refreshRooms]);
 
   useEffect(() => {
-    const socket = io(`${API_BASE_URL}/chat`, {
+    const socket = io(`${getChatSocketBaseUrl()}/chat`, {
       auth: isAuthDisabled() ? {} : { token: wsToken },
       transports: ['websocket'],
     });
