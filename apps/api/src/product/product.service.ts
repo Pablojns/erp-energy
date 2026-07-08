@@ -33,7 +33,13 @@ export type ProductWithCategory = Product & {
     color: string | null;
     active: boolean;
   } | null;
+  supplier?: { id: string; name: string } | null;
 };
+
+const PRODUCT_INCLUDE = {
+  productCategory: true,
+  supplier: { select: { id: true, name: true } },
+} as const satisfies Prisma.ProductInclude;
 
 @Injectable()
 export class ProductService {
@@ -86,6 +92,9 @@ export class ProductService {
       reservedQty: product.reservedQty,
       availableQty: product.stockQty - product.reservedQty,
       isActive: product.isActive,
+      supplierId: product.supplierId ?? null,
+      supplierName: product.supplier?.name ?? null,
+      supplier: product.supplier ?? null,
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString(),
     };
@@ -241,7 +250,7 @@ export class ProductService {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { productCategory: true } as Prisma.ProductInclude,
+      include: PRODUCT_INCLUDE,
     });
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -260,7 +269,7 @@ export class ProductService {
   async findOne(id: string) {
     const product = await this.prisma.client.product.findUnique({
       where: { id },
-      include: { productCategory: true } as Prisma.ProductInclude,
+      include: PRODUCT_INCLUDE,
     });
     if (!product) {
       throw new NotFoundException('Produto não encontrado.');

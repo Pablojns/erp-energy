@@ -7,6 +7,10 @@ import { ComprasDashboard } from './compras-dashboard';
 import { ComprasDetailModal } from './compras-detail-modal';
 import { ComprasKanbanBoard } from './compras-kanban-board';
 import { ComprasNewRequestModal } from './compras-new-request-modal';
+import {
+  ComprasPeriodFilter,
+  getCurrentMonthRange,
+} from './compras-period-filter';
 import { ComprasResolveModal } from './compras-resolve-modal';
 import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
 
@@ -16,6 +20,8 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | PurchasePriority>('all');
+  const [dateFrom, setDateFrom] = useState(() => getCurrentMonthRange().from);
+  const [dateTo, setDateTo] = useState(() => getCurrentMonthRange().to);
   const [rows, setRows] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +35,11 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
+  const handlePeriodChange = useCallback((from: string, to: string) => {
+    setDateFrom(from);
+    setDateTo(to);
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
@@ -38,8 +49,11 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         const params = new URLSearchParams();
         params.set('page', '1');
         params.set('pageSize', '100');
-        const cleanSearch = search.trim();
+        if (dateFrom.trim()) params.set('startDate', dateFrom.trim());
+        if (dateTo.trim()) params.set('endDate', dateTo.trim());
+
         if (activeView === 'compras') {
+          const cleanSearch = search.trim();
           if (cleanSearch) params.set('search', cleanSearch);
           if (typeFilter !== 'all') params.set('type', typeFilter);
           if (priorityFilter !== 'all') params.set('priority', priorityFilter);
@@ -63,7 +77,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeView, priorityFilter, refreshToken, search, typeFilter]);
+  }, [activeView, dateFrom, dateTo, priorityFilter, refreshToken, search, typeFilter]);
 
   const handleStatusChanged = (updated: PurchaseRequest) => {
     setRows((current) => {
@@ -77,6 +91,52 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       return next;
     });
   };
+
+  const toolbarFilters = (
+    <>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((value) => !value)}
+          className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
+        >
+          <Filter className="erp-icon-sm" />
+          Filtros
+          <ChevronDown className="erp-icon-sm" />
+        </button>
+
+        {filtersOpen ? (
+          <div className="erp-module-card absolute right-0 top-12 z-20 w-[min(92vw,20rem)] p-3 shadow-lg">
+            <FilterSelect
+              label="Tipo"
+              value={typeFilter}
+              onChange={(value) => setTypeFilter(value as typeof typeFilter)}
+            >
+              <option value="all">Todos</option>
+              <option value="WEG_CONTRATO">WEG</option>
+              <option value="VENDA_EXTERNA">Venda Externa</option>
+              <option value="MARKETPLACE">Marketplace</option>
+            </FilterSelect>
+            <FilterSelect
+              label="Prioridade"
+              value={priorityFilter}
+              onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
+            >
+              <option value="all">Todas</option>
+              <option value="URGENTE">Urgente</option>
+              <option value="NORMAL">Normal</option>
+            </FilterSelect>
+          </div>
+        ) : null}
+      </div>
+
+      <ComprasPeriodFilter
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onChange={handlePeriodChange}
+      />
+    </>
+  );
 
   return (
     <div className="erp-module-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col px-4 py-4 sm:px-6">
@@ -109,53 +169,20 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
           </div>
         </div>
 
-        {activeView === 'compras' ? (
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-initial">
-          <div className="relative min-w-[min(100%,20rem)] flex-1 sm:flex-initial">
-            <Search className="pointer-events-none absolute left-3 top-1/2 erp-icon-sm -translate-y-1/2 text-[var(--erp-fg-muted)]" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por item, SKU, produto..."
-              className="erp-module-input pl-9"
-            />
-          </div>
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+          {activeView === 'compras' ? (
+            <div className="relative min-w-[min(100%,16rem)] flex-1 sm:max-w-[20rem] sm:flex-initial">
+              <Search className="pointer-events-none absolute left-3 top-1/2 erp-icon-sm -translate-y-1/2 text-[var(--erp-fg-muted)]" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por item, SKU, produto..."
+                className="erp-module-input pl-9"
+              />
+            </div>
+          ) : null}
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((value) => !value)}
-              className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
-            >
-              <Filter className="erp-icon-sm" />
-              Filtros
-              <ChevronDown className="erp-icon-sm" />
-            </button>
-
-            {filtersOpen ? (
-              <div className="erp-module-card absolute right-0 top-12 z-20 w-[min(92vw,20rem)] p-3 shadow-lg">
-                <FilterSelect
-                  label="Tipo"
-                  value={typeFilter}
-                  onChange={(value) => setTypeFilter(value as typeof typeFilter)}
-                >
-                  <option value="all">Todos</option>
-                  <option value="WEG_CONTRATO">WEG</option>
-                  <option value="VENDA_EXTERNA">Venda Externa</option>
-                  <option value="MARKETPLACE">Marketplace</option>
-                </FilterSelect>
-                <FilterSelect
-                  label="Prioridade"
-                  value={priorityFilter}
-                  onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
-                >
-                  <option value="all">Todas</option>
-                  <option value="URGENTE">Urgente</option>
-                  <option value="NORMAL">Normal</option>
-                </FilterSelect>
-              </div>
-            ) : null}
-          </div>
+          {toolbarFilters}
 
           <button
             type="button"
@@ -165,17 +192,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação
           </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setNewOpen(true)}
-            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
-          >
-            <Plus className="erp-icon-sm" aria-hidden />
-            Nova Solicitação
-          </button>
-        )}
+        </div>
       </header>
 
       {error ? (

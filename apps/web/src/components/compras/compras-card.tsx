@@ -10,6 +10,7 @@ import {
   calcPurchaseTotalFromRow,
   displayName,
   displayQty,
+  displaySupplierName,
   formatDate,
   formatMoney,
   formatMoneyNumber,
@@ -89,8 +90,8 @@ export function ComprasCard(props: {
       </div>
 
       <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
-      {row.supplierName ? (
-        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{row.supplierName}</p>
+      {displaySupplierName(row) ? (
+        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{displaySupplierName(row)}</p>
       ) : null}
       <p className="mt-2 text-xs text-[var(--erp-fg-secondary)]">
         Qtd. <span className="font-semibold text-[var(--erp-fg)]">{displayQty(row)}</span>
@@ -125,8 +126,8 @@ export function ComprasCardPreview(props: { row: PurchaseRequest }) {
         <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
       </div>
       <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
-      {row.supplierName ? (
-        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{row.supplierName}</p>
+      {displaySupplierName(row) ? (
+        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{displaySupplierName(row)}</p>
       ) : null}
     </article>
   );

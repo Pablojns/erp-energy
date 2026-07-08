@@ -11,6 +11,7 @@ import {
   calcPurchaseTotalFromRow,
   displayName,
   displayQty,
+  displaySupplierName,
   fieldClass,
   formatDate,
   formatDateTime,
@@ -235,12 +236,22 @@ export function ComprasDetailModal(props: {
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-white/40">Fornecedor</p>
                 <p className="mt-1 break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
-                  {row.supplierName?.trim()
-                    ? renderObservationWithLinks(row.supplierName)
+                  {displaySupplierName(row)
+                    ? renderObservationWithLinks(displaySupplierName(row)!)
                     : '—'}
                 </p>
               </div>
-              <ComprasDetailField label="SKU" value={row.product?.sku ?? row.sku ?? '—'} />
+              {isWeg ? (
+                <>
+                  <ComprasDetailField label="SKU do produto" value={row.product?.sku ?? '—'} />
+                  <ComprasDetailField
+                    label="SKU do fornecedor"
+                    value={row.sku?.trim() ? row.sku : '—'}
+                  />
+                </>
+              ) : (
+                <ComprasDetailField label="SKU" value={row.sku ?? row.product?.sku ?? '—'} />
+              )}
               <ComprasDetailField label="Descrição" value={displayName(row)} wide />
               {canEditOpenRequest ? (
                 <div>

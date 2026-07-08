@@ -30,6 +30,7 @@ const PURCHASE_REQUEST_INCLUDE = {
       stockQty: true,
       minStock: true,
       cost: true,
+      supplier: { select: { id: true, name: true } },
     },
   },
   images: {
@@ -78,6 +79,7 @@ export class PurchaseRequestService {
         select: {
           id: true,
           name: true,
+          sku: true,
           minStock: true,
           stockQty: true,
           supplier: { select: { name: true } },
@@ -117,10 +119,13 @@ export class PurchaseRequestService {
 
       const gap = product.minStock - product.stockQty;
       const suggestedQty = Math.max(1, dto.suggestedQty ?? gap);
-      const supplierName =
-        product.supplier?.name?.trim() ||
-        dto.supplierName?.trim() ||
-        null;
+      const supplierName = await this.resolveSupplierName(
+        product.name,
+        product.sku,
+        product.supplier?.name,
+        dto.supplierName,
+      );
+      const supplierSku = dto.sku?.trim() || null;
 
       await this.syncWegProductBaseCost(product.id, dto.itemPrice);
 
@@ -131,6 +136,7 @@ export class PurchaseRequestService {
           productId: product.id,
           suggestedQty,
           supplierName,
+          sku: supplierSku,
           images: {
             create: imageKeys.map((imageKey) => ({ imageKey })),
           },
@@ -243,6 +249,18 @@ export class PurchaseRequestService {
           },
         },
       ];
+    }
+
+    const startDate = query.startDate?.trim();
+    const endDate = query.endDate?.trim();
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        where.createdAt.gte = new Date(`${startDate}T00:00:00.000Z`);
+      }
+      if (endDate) {
+        where.createdAt.lte = new Date(`${endDate}T23:59:59.999Z`);
+      }
     }
 
     const total = await this.prisma.client.purchaseRequest.count({ where });
@@ -626,6 +644,33 @@ export class PurchaseRequestService {
     }
   }
 
+  private async resolveSupplierName(
+    productName: string,
+    productSku: string,
+    linkedSupplierName?: string | null,
+    dtoSupplierName?: string | null,
+  ): Promise<string | null> {
+    const fromLink = linkedSupplierName?.trim();
+    if (fromLink) return fromLink;
+
+    const fromDto = dtoSupplierName?.trim();
+    if (fromDto) return fromDto;
+
+    const suppliers = await this.prisma.client.supplier.findMany({
+      where: { isActive: true },
+      select: { name: true },
+    });
+    const haystack = `${productName} ${productSku}`.toUpperCase();
+    const sorted = [...suppliers].sort((a, b) => b.name.length - a.name.length);
+    for (const supplier of sorted) {
+      const name = supplier.name.trim();
+      if (name.length >= 2 && haystack.includes(name.toUpperCase())) {
+        return name;
+      }
+    }
+    return null;
+  }
+
   private extensionFromFile(file: Express.Multer.File): string {
     const fromMime = MIME_EXT[file.mimetype];
     if (fromMime) return fromMime;
@@ -665,7 +710,10 @@ export class PurchaseRequestService {
       link: row.link,
       logoPlaceholder: row.logoPlaceholder,
       images,
-      supplierName: row.supplierName,
+      supplierName:
+        row.supplierName?.trim() ||
+        row.product?.supplier?.name?.trim() ||
+        null,
       itemPrice: row.itemPrice?.toString() ?? null,
       engravingPrice: row.engravingPrice?.toString() ?? null,
       saleOrderRef: row.saleOrderRef,

@@ -16,6 +16,7 @@ import {
   formatMoneyNumber,
   productBaseCost,
   productMatchesSearch,
+  resolveSupplierForProduct,
 } from './compras-utils';
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -129,6 +130,7 @@ export function ComprasNewRequestModal(props: {
   const [suggestedQty, setSuggestedQty] = useState('1');
   const [supplierMode, setSupplierMode] = useState<'select' | 'text'>('select');
   const [supplierName, setSupplierName] = useState('');
+  const [supplierSku, setSupplierSku] = useState('');
   const [sku, setSku] = useState('');
   const [itemName, setItemName] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -199,10 +201,14 @@ export function ComprasNewRequestModal(props: {
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
   useEffect(() => {
-    if (!selectedProduct) return;
+    if (!selectedProduct) {
+      setSupplierName('');
+      return;
+    }
     setSuggestedQty(String(Math.max(1, selectedProduct.minStock - selectedProduct.stockQty)));
     setItemPrice(productBaseCost(selectedProduct));
-  }, [selectedProduct]);
+    setSupplierName(resolveSupplierForProduct(selectedProduct, suppliers) ?? '');
+  }, [selectedProduct, suppliers]);
 
   const lineQty = isWeg ? Number(suggestedQty) : Number(quantity);
   const calculatedTotal = useMemo(() => {
@@ -285,6 +291,11 @@ export function ComprasNewRequestModal(props: {
     }
     if (isWeg) {
       formData.set('itemPrice', itemPrice.trim() || '0');
+      const resolvedSupplier =
+        supplierName.trim() ||
+        (selectedProduct ? resolveSupplierForProduct(selectedProduct, suppliers) : '');
+      if (resolvedSupplier) formData.set('supplierName', resolvedSupplier);
+      if (supplierSku.trim()) formData.set('sku', supplierSku.trim());
     } else if (itemPrice) {
       formData.set('itemPrice', itemPrice);
     }
@@ -490,13 +501,16 @@ export function ComprasNewRequestModal(props: {
                 placeholder={loadingProducts ? 'Carregando produtos...' : 'Buscar produto por SKU ou nome'}
               />
               <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-black/20">
-                {filteredProducts.slice(0, 50).map((product) => (
+                {filteredProducts.slice(0, 50).map((product) => {
+                  const productSupplier = resolveSupplierForProduct(product, suppliers);
+                  return (
                   <button
                     key={product.id}
                     type="button"
                     onClick={() => {
                       setProductId(product.id);
                       setProductSearch(`${product.sku} — ${product.name}`);
+                      setSupplierName(productSupplier ?? '');
                     }}
                     className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
                       product.id === productId ? 'bg-indigo-500/20 text-white' : 'text-white/75'
@@ -506,12 +520,48 @@ export function ComprasNewRequestModal(props: {
                     <span className="ml-2 text-xs text-white/45">
                       Estoque {product.stockQty} · Mín. {product.minStock} · Base{' '}
                       {formatMoneyNumber(Number(productBaseCost(product)))}
+                      {productSupplier ? ` · ${productSupplier}` : ''}
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
               {errors.productId ? <p className="mt-1 text-xs text-rose-300">{errors.productId}</p> : null}
             </label>
+            {selectedProduct ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-white/70">SKU do produto</span>
+                  <input
+                    readOnly
+                    value={selectedProduct.sku}
+                    className={`${fieldClass()} cursor-default opacity-90`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-white/70">
+                    SKU do fornecedor (opcional)
+                  </span>
+                  <input
+                    value={supplierSku}
+                    onChange={(e) => setSupplierSku(e.target.value)}
+                    className={fieldClass()}
+                    placeholder="Código no catálogo do fornecedor"
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-sm font-medium text-white/70">Fornecedor</span>
+                  <input
+                    readOnly
+                    value={supplierName || '—'}
+                    className={`${fieldClass()} cursor-default opacity-90`}
+                  />
+                  <p className="mt-1 text-xs text-white/45">
+                    Preenchido automaticamente pelo cadastro do estoque ou pelo nome do item.
+                  </p>
+                </label>
+              </div>
+            ) : null}
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-white/70">Quantidade sugerida</span>
               <input

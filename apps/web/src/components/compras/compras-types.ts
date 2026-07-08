@@ -28,6 +28,9 @@ export type ProductLite = {
   price?: string;
   /** Preço base / custo pago ao fornecedor. */
   cost?: string | null;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  supplier?: { id: string; name: string } | null;
 };
 
 export type SupplierLite = {
@@ -99,3 +102,17 @@ export const TYPE_LABEL: Record<PurchaseType, string> = {
   VENDA_EXTERNA: 'Venda Externa',
   MARKETPLACE: 'Marketplace',
 };
+
+const STATUS_LABEL_EXTRA: Record<'COMPRADO' | 'RECUSADO', string> = {
+  COMPRADO: 'Comprado',
+  RECUSADO: 'Recusado',
+};
+
+export function purchaseStatusLabel(status: PurchaseStatus): string {
+  const fromKanban = KANBAN_COLUMNS.find((column) => column.id === status);
+  if (fromKanban) return fromKanban.label;
+  if (status === 'COMPRADO' || status === 'RECUSADO') {
+    return STATUS_LABEL_EXTRA[status];
+  }
+  return status;
+}

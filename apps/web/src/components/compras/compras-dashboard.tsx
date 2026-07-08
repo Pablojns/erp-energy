@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { PurchaseRequest, PurchaseType } from './compras-types';
-import { TYPE_LABEL } from './compras-types';
+import { TYPE_LABEL, purchaseStatusLabel } from './compras-types';
 import {
   calcEngravingTotalFromRow,
   calcPaidTotalFromRow,
@@ -112,8 +112,8 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
           })}
         </div>
 
-        <div className="erp-module-card min-h-0 flex-1 overflow-hidden p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="erp-module-card flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+          <div className="mb-3 shrink-0 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-base font-semibold text-[var(--erp-fg)]">
                 Dashboard {TYPE_LABEL[selectedType]}
@@ -134,8 +134,8 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
             </div>
           </div>
 
-          <div className="min-h-0 overflow-auto rounded-2xl border border-white/10">
-            <div className="grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] bg-black/20 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--erp-fg-muted)]">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-white/10">
+            <div className="sticky top-0 z-10 grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] border-b border-white/10 bg-[var(--erp-surface-elevated)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--erp-fg-muted)] shadow-sm">
               <span>Item</span>
               <span>Qtd.</span>
               <span>{selectedType === 'WEG_CONTRATO' ? 'Preço base' : 'Preço item'}</span>
@@ -159,7 +159,14 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
                   <div>
                     <p className="font-medium text-[var(--erp-fg)]">{displayName(row)}</p>
                     <p className="text-xs text-[var(--erp-fg-muted)]">
-                      {row.product?.sku ?? row.sku ?? 'Sem SKU'} · {formatDate(row.createdAt)}
+                      {selectedType === 'WEG_CONTRATO'
+                        ? row.product?.sku ?? 'Sem SKU'
+                        : row.sku ?? row.product?.sku ?? 'Sem SKU'}
+                      {selectedType === 'WEG_CONTRATO' && row.sku
+                        ? ` · Forn. ${row.sku}`
+                        : ''}
+                      {' · '}
+                      {formatDate(row.createdAt)}
                     </p>
                   </div>
                   <span>{displayQty(row)}</span>
@@ -170,7 +177,7 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
                   </span>
                   <span>{formatMoney(row.engravingPrice)}</span>
                   <span>{formatMoney(row.purchaseValue)}</span>
-                  <span>{row.status}</span>
+                  <span>{purchaseStatusLabel(row.status)}</span>
                 </div>
               ))
             )}

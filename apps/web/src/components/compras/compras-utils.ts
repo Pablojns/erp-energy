@@ -5,6 +5,7 @@ import type {
   PurchaseRequest,
   PurchaseStatus,
   PurchaseType,
+  SupplierLite,
 } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
 
@@ -64,6 +65,38 @@ export function productMatchesSearch(product: ProductLite, query: string) {
 
 export function displayName(row: PurchaseRequest) {
   return row.product?.name ?? row.itemName ?? 'Item sem nome';
+}
+
+export function displaySupplierName(row: PurchaseRequest): string | null {
+  return (
+    row.supplierName?.trim() ||
+    row.product?.supplier?.name?.trim() ||
+    row.product?.supplierName?.trim() ||
+    null
+  );
+}
+
+export function resolveSupplierForProduct(
+  product: ProductLite,
+  suppliers: SupplierLite[],
+): string | null {
+  if (product.supplierName?.trim()) return product.supplierName.trim();
+
+  if (product.supplierId) {
+    const linked = suppliers.find((supplier) => supplier.id === product.supplierId);
+    if (linked) return linked.name;
+  }
+
+  const haystack = `${product.name} ${product.sku} ${product.internalCode ?? ''}`.toUpperCase();
+  const sorted = [...suppliers].sort((a, b) => b.name.length - a.name.length);
+  for (const supplier of sorted) {
+    const name = supplier.name.trim();
+    if (name.length >= 2 && haystack.includes(name.toUpperCase())) {
+      return name;
+    }
+  }
+
+  return null;
 }
 
 export function displayQty(row: PurchaseRequest) {

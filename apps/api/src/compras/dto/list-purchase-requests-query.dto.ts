@@ -1,15 +1,21 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsIn, IsOptional, IsString, Max, Min } from 'class-validator';
 import {
   PurchaseRequestPriority,
   PurchaseRequestType,
 } from './create-purchase-request.dto';
 
-export enum PurchaseRequestStatus {
-  SOLICITADO = 'SOLICITADO',
-  COMPRADO = 'COMPRADO',
-  RECUSADO = 'RECUSADO',
-}
+const PURCHASE_LIST_STATUSES = [
+  'SOLICITADO',
+  'PEDIDO_ENVIADO_APROVADO',
+  'PEDIDO_PAGO',
+  'LAYOUT_APROVADO',
+  'EM_PRODUCAO',
+  'EXPEDIDO',
+  'RECEBIDO',
+  'COMPRADO',
+  'RECUSADO',
+] as const;
 
 export class ListPurchaseRequestsQueryDto {
   @IsOptional()
@@ -17,8 +23,8 @@ export class ListPurchaseRequestsQueryDto {
   type?: PurchaseRequestType;
 
   @IsOptional()
-  @IsEnum(PurchaseRequestStatus)
-  status?: PurchaseRequestStatus;
+  @IsIn([...PURCHASE_LIST_STATUSES])
+  status?: string;
 
   @IsOptional()
   @IsEnum(PurchaseRequestPriority)
@@ -27,6 +33,14 @@ export class ListPurchaseRequestsQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 
   @IsOptional()
   @Type(() => Number)
