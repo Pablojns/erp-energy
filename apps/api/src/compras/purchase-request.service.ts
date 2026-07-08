@@ -431,7 +431,11 @@ export class PurchaseRequestService {
 
   async atualizarQuantidade(
     id: string,
-    dto: { suggestedQty?: number; quantity?: number },
+    dto: {
+      suggestedQty?: number;
+      quantity?: number;
+      engravingPrice?: number | null;
+    },
   ) {
     const existing = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
@@ -442,31 +446,50 @@ export class PurchaseRequestService {
     }
     if (existing.status === 'COMPRADO' || existing.status === 'RECUSADO') {
       throw new BadRequestException(
-        'Solicitações compradas ou recusadas não podem ter a quantidade atualizada.',
+        'Solicitações compradas ou recusadas não podem ser editadas.',
       );
     }
 
-    if (existing.type === PurchaseRequestType.WEG_CONTRATO) {
-      if (dto.suggestedQty == null || dto.suggestedQty < 1) {
+    const data: Prisma.PurchaseRequestUpdateInput = {};
+
+    if (dto.suggestedQty != null) {
+      if (existing.type !== PurchaseRequestType.WEG_CONTRATO) {
+        throw new BadRequestException(
+          'Quantidade sugerida só se aplica a solicitações WEG.',
+        );
+      }
+      if (dto.suggestedQty < 1) {
         throw new BadRequestException('Informe a quantidade sugerida (mínimo 1).');
       }
-
-      const updated = await this.prisma.client.purchaseRequest.update({
-        where: { id },
-        data: { suggestedQty: dto.suggestedQty },
-        include: PURCHASE_REQUEST_INCLUDE,
-      });
-
-      return this.serialize(updated, true);
+      data.suggestedQty = dto.suggestedQty;
     }
 
-    if (dto.quantity == null || dto.quantity < 1) {
-      throw new BadRequestException('Informe a quantidade (mínimo 1).');
+    if (dto.quantity != null) {
+      if (existing.type === PurchaseRequestType.WEG_CONTRATO) {
+        throw new BadRequestException(
+          'Use quantidade sugerida para solicitações WEG.',
+        );
+      }
+      if (dto.quantity < 1) {
+        throw new BadRequestException('Informe a quantidade (mínimo 1).');
+      }
+      data.quantity = dto.quantity;
+    }
+
+    if (dto.engravingPrice !== undefined) {
+      data.engravingPrice =
+        dto.engravingPrice == null
+          ? null
+          : new Prisma.Decimal(Number(dto.engravingPrice).toFixed(2));
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('Informe ao menos um campo para atualizar.');
     }
 
     const updated = await this.prisma.client.purchaseRequest.update({
       where: { id },
-      data: { quantity: dto.quantity },
+      data,
       include: PURCHASE_REQUEST_INCLUDE,
     });
 

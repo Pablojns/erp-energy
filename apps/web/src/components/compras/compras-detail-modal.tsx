@@ -70,6 +70,8 @@ export function ComprasDetailModal(props: {
   const [savingArrival, setSavingArrival] = useState(false);
   const [quantityInput, setQuantityInput] = useState('');
   const [savingQuantity, setSavingQuantity] = useState(false);
+  const [engravingPriceInput, setEngravingPriceInput] = useState('');
+  const [savingEngravingPrice, setSavingEngravingPrice] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +85,7 @@ export function ComprasDetailModal(props: {
             detail.expectedArrival ? detail.expectedArrival.slice(0, 10) : '',
           );
           setQuantityInput(String(displayQty(detail)));
+          setEngravingPriceInput(detail.engravingPrice ?? '');
         }
       })
       .catch((err) => {
@@ -114,7 +117,7 @@ export function ComprasDetailModal(props: {
 
   const canResolve = row?.status === 'SOLICITADO';
   const isWeg = row?.type === 'WEG_CONTRATO';
-  const canEditQuantity =
+  const canEditOpenRequest =
     row != null && row.status !== 'COMPRADO' && row.status !== 'RECUSADO';
   const calculatedTotal = row ? calcPurchaseTotalFromRow(row) : null;
 
@@ -161,6 +164,31 @@ export function ComprasDetailModal(props: {
       setError(err instanceof Error ? err.message : 'Falha ao salvar data prevista.');
     } finally {
       setSavingArrival(false);
+    }
+  };
+
+  const handleSaveEngravingPrice = async () => {
+    if (!row) return;
+    const trimmed = engravingPriceInput.trim();
+    const nextValue = trimmed === '' ? null : Number(trimmed);
+    if (nextValue != null && (!Number.isFinite(nextValue) || nextValue < 0)) {
+      setError('Informe um preço de gravação válido.');
+      return;
+    }
+
+    setSavingEngravingPrice(true);
+    setError(null);
+    try {
+      const updated = await erpFetchJson<PurchaseRequest>(`api/compras/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ engravingPrice: nextValue }),
+      });
+      setRow(updated);
+      setEngravingPriceInput(updated.engravingPrice ?? '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar preço de gravação.');
+    } finally {
+      setSavingEngravingPrice(false);
     }
   };
 
@@ -214,7 +242,7 @@ export function ComprasDetailModal(props: {
               </div>
               <ComprasDetailField label="SKU" value={row.product?.sku ?? row.sku ?? '—'} />
               <ComprasDetailField label="Descrição" value={displayName(row)} wide />
-              {canEditQuantity ? (
+              {canEditOpenRequest ? (
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-white/40">
                     Quantidade
@@ -254,10 +282,42 @@ export function ComprasDetailModal(props: {
                 }
               />
               <ComprasDetailField label="Total" value={formatMoneyNumber(calculatedTotal)} />
-              <ComprasDetailField
-                label="Preço gravação"
-                value={formatMoney(row.engravingPrice)}
-              />
+              {canEditOpenRequest ? (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                    Preço gravação
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={engravingPriceInput}
+                      onChange={(e) => setEngravingPriceInput(e.target.value)}
+                      className={fieldClass()}
+                      placeholder="Julia preencher"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveEngravingPrice()}
+                      disabled={savingEngravingPrice}
+                      className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
+                    >
+                      {savingEngravingPrice ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      Salvar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <ComprasDetailField
+                  label="Preço gravação"
+                  value={formatMoney(row.engravingPrice)}
+                />
+              )}
               <ComprasDetailField label="Entrega cliente" value={formatDate(row.clientDeadline)} />
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-white/40">
