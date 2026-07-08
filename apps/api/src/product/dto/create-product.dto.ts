@@ -64,4 +64,13 @@ export class CreateProductDto {
   @IsInt({ message: 'Estoque mínimo deve ser inteiro.' })
   @Min(0, { message: 'Estoque mínimo não pode ser negativo.' })
   minStock!: number;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'Fornecedor inválido.' })
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supplierSku?: string;
 }

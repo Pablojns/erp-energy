@@ -31,6 +31,8 @@ export type ProductLite = {
   supplierId?: string | null;
   supplierName?: string | null;
   supplier?: { id: string; name: string } | null;
+  /** SKU/código no catálogo do fornecedor. */
+  supplierSku?: string | null;
 };
 
 export type SupplierLite = {

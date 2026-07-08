@@ -151,8 +151,17 @@ type ProductDto = {
   reservedQty?: number;
   availableQty?: number;
   isActive: boolean;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  supplierSku?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type SupplierOption = {
+  id: string;
+  name: string;
+  isActive: boolean;
 };
 
 type Paginated<T> = {
@@ -622,6 +631,8 @@ type ProductFormState = {
   price: string;
   cost: string;
   minStock: string;
+  supplierId: string;
+  supplierSku: string;
 };
 
 const emptyForm: ProductFormState = {
@@ -631,6 +642,8 @@ const emptyForm: ProductFormState = {
   price: '',
   cost: '',
   minStock: '0',
+  supplierId: '',
+  supplierSku: '',
 };
 
 export function EstoqueWorkspace() {
@@ -743,6 +756,7 @@ export function EstoqueWorkspace() {
   const [productCategories, setProductCategories] = useState<ProductCategoryDto[]>(
     [],
   );
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
   const [movePresetProduct, setMovePresetProduct] = useState<ProductDto | null>(null);
@@ -922,6 +936,9 @@ export function EstoqueWorkspace() {
   useEffect(() => {
     if (tab === 'inventory' || tab === 'dashboard' || productModalOpen) {
       void loadCategories();
+      void erpFetchJson<SupplierOption[]>('cadastros/suppliers')
+        .then((rows) => setSuppliers(rows.filter((row) => row.isActive)))
+        .catch(() => setSuppliers([]));
     }
   }, [tab, productModalOpen, loadCategories]);
 
@@ -1194,6 +1211,8 @@ export function EstoqueWorkspace() {
       price: p.price,
       cost: p.cost ?? '',
       minStock: String(p.minStock),
+      supplierId: p.supplierId ?? '',
+      supplierSku: p.supplierSku ?? '',
     });
     setProductModalOpen(true);
   };
@@ -1247,6 +1266,15 @@ export function EstoqueWorkspace() {
         createPayload.cost = Number(costNum.toFixed(2));
       }
 
+      const supplierId = form.supplierId.trim();
+      if (supplierId.length > 0) {
+        createPayload.supplierId = supplierId;
+      }
+      const supplierSku = form.supplierSku.trim();
+      if (supplierSku.length > 0) {
+        createPayload.supplierSku = supplierSku;
+      }
+
       if (productModalMode === 'create') {
         await erpFetchJson('products', {
           method: 'POST',
@@ -1262,7 +1290,11 @@ export function EstoqueWorkspace() {
         };
         if (costStr.length > 0) {
           patch.cost = Number(parseMoneyToNumber(costStr).toFixed(2));
+        } else {
+          patch.cost = null;
         }
+        patch.supplierId = supplierId.length > 0 ? supplierId : null;
+        patch.supplierSku = supplierSku.length > 0 ? supplierSku : null;
 
         await erpFetchJson(`products/${editingProduct.id}`, {
           method: 'PATCH',
@@ -2358,10 +2390,14 @@ export function EstoqueWorkspace() {
             </p>
             <p className="mt-1 text-xs">
               <span className="text-[var(--text-secondary)]">Fornecedor:</span>{' '}
-              <span className="text-[var(--text-primary)]">{selectedInventoryProduct.category ?? 'Não informado'}</span>{' '}
+              <span className="text-[var(--text-primary)]">
+                {selectedInventoryProduct.supplierName?.trim() || 'Não informado'}
+              </span>
               <span className="mx-1 text-[var(--text-secondary)]">|</span>
-              <span className="text-[var(--text-secondary)]">Ponto:</span>{' '}
-              <span className="text-[var(--text-primary)]">MAT</span>
+              <span className="text-[var(--text-secondary)]">SKU fornecedor:</span>{' '}
+              <span className="text-[var(--text-primary)]">
+                {selectedInventoryProduct.supplierSku?.trim() || '—'}
+              </span>
             </p>
           </div>
           {isAdmin ? (
@@ -2376,6 +2412,12 @@ export function EstoqueWorkspace() {
             </button>
           ) : null}
         </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <GlowButton variant="secondary" onClick={() => openEditProduct(selectedInventoryProduct)}>
+          <Pencil className="h-4 w-4" />
+          Editar item
+        </GlowButton>
       </div>
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
         <span
@@ -3164,7 +3206,15 @@ export function EstoqueWorkspace() {
       {tab === 'inventory' ? (
         <div className="grid min-h-0 grid-cols-1 gap-4 overflow-hidden lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[38fr_62fr]">
           <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
-            <h3 className="shrink-0 text-lg font-semibold text-[var(--text-primary)] sm:text-xl">Visão Geral do Estoque - Lista de SKUs</h3>
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
+                Visão Geral do Estoque - Lista de SKUs
+              </h3>
+              <GlowButton variant="primary" onClick={openCreateProduct}>
+                <Plus className="h-4 w-4" />
+                Cadastrar item
+              </GlowButton>
+            </div>
             <ErpFilterBar<InventoryFilterPreset>
               storageKey={INVENTORY_FILTER_KEY}
               badges={inventoryFilterBadges}
@@ -3317,6 +3367,17 @@ export function EstoqueWorkspace() {
                     >
                       <button
                         type="button"
+                        onClick={() => {
+                          setProductMenuOpenId(null);
+                          openEditProduct(p);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-[var(--text-primary)] transition hover:bg-[var(--input-bg)]"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Editar item
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void toggleProductActive(p)}
                         className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition hover:bg-[var(--input-bg)] ${p.isActive ? 'text-amber-400' : 'text-emerald-400'}`}
                       >
@@ -3435,6 +3496,30 @@ export function EstoqueWorkspace() {
                   onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
+              </label>
+              <label className="block text-xs text-zinc-400 sm:col-span-1">
+                SKU do fornecedor
+                <input
+                  value={form.supplierSku}
+                  onChange={(e) => setForm((f) => ({ ...f, supplierSku: e.target.value }))}
+                  placeholder="Código no catálogo do fornecedor"
+                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
+                />
+              </label>
+              <label className="block text-xs text-zinc-400 sm:col-span-2">
+                Fornecedor
+                <select
+                  value={form.supplierId}
+                  onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
+                >
+                  <option value="">Selecione...</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <div className="sm:col-span-2">
                 <CategorySelect

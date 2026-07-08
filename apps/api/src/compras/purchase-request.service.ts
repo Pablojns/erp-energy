@@ -30,6 +30,7 @@ const PURCHASE_REQUEST_INCLUDE = {
       stockQty: true,
       minStock: true,
       cost: true,
+      supplierSku: true,
       supplier: { select: { id: true, name: true } },
     },
   },
@@ -80,6 +81,7 @@ export class PurchaseRequestService {
           id: true,
           name: true,
           sku: true,
+          supplierSku: true,
           minStock: true,
           stockQty: true,
           supplier: { select: { name: true } },
@@ -125,7 +127,8 @@ export class PurchaseRequestService {
         product.supplier?.name,
         dto.supplierName,
       );
-      const supplierSku = dto.sku?.trim() || null;
+      const supplierSku =
+        dto.sku?.trim() || product.supplierSku?.trim() || null;
 
       await this.syncWegProductBaseCost(product.id, dto.itemPrice);
 
@@ -703,7 +706,10 @@ export class PurchaseRequestService {
       productId: row.productId,
       product: row.product,
       suggestedQty: row.suggestedQty,
-      sku: row.sku,
+      sku:
+        row.type === 'WEG_CONTRATO'
+          ? row.sku?.trim() || row.product?.supplierSku?.trim() || null
+          : row.sku,
       itemName: row.itemName,
       quantity: row.quantity,
       clientDeadline: row.clientDeadline?.toISOString() ?? null,

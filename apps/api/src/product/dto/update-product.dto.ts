@@ -74,4 +74,14 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && `${v}`.trim() !== '')
+  @IsUUID('4')
+  supplierId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supplierSku?: string | null;
 }

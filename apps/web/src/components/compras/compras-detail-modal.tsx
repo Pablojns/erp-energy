@@ -246,7 +246,11 @@ export function ComprasDetailModal(props: {
                   <ComprasDetailField label="SKU do produto" value={row.product?.sku ?? '—'} />
                   <ComprasDetailField
                     label="SKU do fornecedor"
-                    value={row.sku?.trim() ? row.sku : '—'}
+                    value={
+                      row.sku?.trim() ||
+                      row.product?.supplierSku?.trim() ||
+                      '—'
+                    }
                   />
                 </>
               ) : (

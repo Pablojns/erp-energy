@@ -203,11 +203,13 @@ export function ComprasNewRequestModal(props: {
   useEffect(() => {
     if (!selectedProduct) {
       setSupplierName('');
+      setSupplierSku('');
       return;
     }
     setSuggestedQty(String(Math.max(1, selectedProduct.minStock - selectedProduct.stockQty)));
     setItemPrice(productBaseCost(selectedProduct));
     setSupplierName(resolveSupplierForProduct(selectedProduct, suppliers) ?? '');
+    setSupplierSku(selectedProduct.supplierSku?.trim() ?? '');
   }, [selectedProduct, suppliers]);
 
   const lineQty = isWeg ? Number(suggestedQty) : Number(quantity);
@@ -296,6 +298,9 @@ export function ComprasNewRequestModal(props: {
         (selectedProduct ? resolveSupplierForProduct(selectedProduct, suppliers) : '');
       if (resolvedSupplier) formData.set('supplierName', resolvedSupplier);
       if (supplierSku.trim()) formData.set('sku', supplierSku.trim());
+      else if (selectedProduct?.supplierSku?.trim()) {
+        formData.set('sku', selectedProduct.supplierSku.trim());
+      }
     } else if (itemPrice) {
       formData.set('itemPrice', itemPrice);
     }
@@ -511,6 +516,7 @@ export function ComprasNewRequestModal(props: {
                       setProductId(product.id);
                       setProductSearch(`${product.sku} — ${product.name}`);
                       setSupplierName(productSupplier ?? '');
+                      setSupplierSku(product.supplierSku?.trim() ?? '');
                     }}
                     className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
                       product.id === productId ? 'bg-indigo-500/20 text-white' : 'text-white/75'

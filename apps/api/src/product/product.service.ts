@@ -95,6 +95,7 @@ export class ProductService {
       supplierId: product.supplierId ?? null,
       supplierName: product.supplier?.name ?? null,
       supplier: product.supplier ?? null,
+      supplierSku: product.supplierSku?.trim() || null,
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString(),
     };
@@ -142,8 +143,10 @@ export class ProductService {
           minStock: dto.minStock,
           stockQty: 0,
           isActive: true,
+          supplierId: dto.supplierId?.trim() || null,
+          supplierSku: dto.supplierSku?.trim() || null,
         } as Prisma.ProductUncheckedCreateInput,
-        include: { productCategory: true } as Prisma.ProductInclude,
+        include: PRODUCT_INCLUDE,
       });
 
       await this.audit.log({
@@ -184,6 +187,7 @@ export class ProductService {
           { name: { contains: term, mode: 'insensitive' } },
           { internalCode: { contains: term, mode: 'insensitive' } },
           { sku: { contains: term, mode: 'insensitive' } },
+          { supplierSku: { contains: term, mode: 'insensitive' } },
           { category: { contains: term, mode: 'insensitive' } },
           {
             productCategory: {
@@ -334,12 +338,20 @@ export class ProductService {
       if (dto.isActive !== undefined) {
         data.isActive = dto.isActive;
       }
+      if (dto.supplierId !== undefined) {
+        data.supplierId = dto.supplierId?.trim() ? dto.supplierId.trim() : null;
+      }
+      if (dto.supplierSku !== undefined) {
+        data.supplierSku = dto.supplierSku?.trim() ? dto.supplierSku.trim() : null;
+      }
 
       const product = await this.prisma.client.product.update({
         where: { id },
         data,
-        include: { productCategory: true } as Prisma.ProductInclude,
+        include: PRODUCT_INCLUDE,
       });
+
+      await this.syncLinkedPurchaseRequests(product.id);
 
       await this.audit.log({
         userId,
@@ -420,6 +432,52 @@ export class ProductService {
     });
 
     return this.serialize(updated as ProductWithCategory);
+  }
+
+  private async syncLinkedPurchaseRequests(productId: string): Promise<void> {
+    const product = await this.prisma.client.product.findUnique({
+      where: { id: productId },
+      select: {
+        name: true,
+        sku: true,
+        supplierSku: true,
+        supplier: { select: { name: true } },
+      },
+    });
+    if (!product) return;
+
+    const supplierName =
+      product.supplier?.name?.trim() ||
+      (await this.matchSupplierFromText(`${product.name} ${product.sku}`));
+    const supplierSku = product.supplierSku?.trim() || null;
+
+    await this.prisma.client.purchaseRequest.updateMany({
+      where: {
+        productId,
+        type: 'WEG_CONTRATO',
+        status: { not: 'RECUSADO' },
+      },
+      data: {
+        supplierName,
+        sku: supplierSku,
+      },
+    });
+  }
+
+  private async matchSupplierFromText(text: string): Promise<string | null> {
+    const suppliers = await this.prisma.client.supplier.findMany({
+      where: { isActive: true },
+      select: { name: true },
+    });
+    const haystack = text.toUpperCase();
+    const sorted = [...suppliers].sort((a, b) => b.name.length - a.name.length);
+    for (const supplier of sorted) {
+      const name = supplier.name.trim();
+      if (name.length >= 2 && haystack.includes(name.toUpperCase())) {
+        return name;
+      }
+    }
+    return null;
   }
 
   private async ensureExists(id: string) {

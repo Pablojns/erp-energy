@@ -225,6 +225,8 @@ model Product {
   isActive          Boolean          @default(true)
   supplierId        String?          @db.Uuid
   supplier          Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  /// SKU/código do item no catálogo do fornecedor (ex.: código XBZ).
+  supplierSku       String?
   orderItems        OrderItem[]
   stockMovements    StockMovement[]
   stockReservations StockReservation[]
