@@ -75,18 +75,18 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   };
 
   return (
-    <div className="flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col px-3 py-3 text-white sm:px-4 lg:px-6">
+    <div className="erp-module-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col px-4 py-4 sm:px-6">
       <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">Compras</h1>
+        <h1 className="erp-module-title">Compras</h1>
 
         <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-initial">
           <div className="relative min-w-[min(100%,20rem)] flex-1 sm:flex-initial">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 erp-icon-sm -translate-y-1/2 text-[var(--erp-fg-muted)]" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por item, SKU, produto..."
-              className="h-10 w-full rounded-xl border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400/50"
+              className="erp-module-input pl-9"
             />
           </div>
 
@@ -94,15 +94,15 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             <button
               type="button"
               onClick={() => setFiltersOpen((value) => !value)}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
+              className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
             >
-              <Filter className="h-4 w-4" />
+              <Filter className="erp-icon-sm" />
               Filtros
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="erp-icon-sm" />
             </button>
 
             {filtersOpen ? (
-              <div className="absolute right-0 top-12 z-20 w-[min(92vw,20rem)] rounded-2xl border border-white/10 bg-[#10131c] p-3 shadow-2xl">
+              <div className="erp-module-card absolute right-0 top-12 z-20 w-[min(92vw,20rem)] p-3 shadow-lg">
                 <FilterSelect
                   label="Tipo"
                   value={typeFilter}
@@ -129,21 +129,19 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-400"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
           >
-            <Plus className="h-4 w-4" aria-hidden />
+            <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação
           </button>
         </div>
       </header>
 
       {error ? (
-        <div className="mb-3 shrink-0 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
-          {error}
-        </div>
+        <div className="erp-alert-danger mb-3 shrink-0">{error}</div>
       ) : null}
 
-      <section className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-black/20">
+      <section className="erp-module-panel min-h-0 flex-1 overflow-hidden p-3">
         <ComprasKanbanBoard
           rows={rows}
           loading={loading}
@@ -202,11 +200,11 @@ function FilterSelect(props: {
 }) {
   return (
     <label className="mb-3 block last:mb-0">
-      <span className="mb-1 block text-xs font-medium text-white/55">{props.label}</span>
+      <span className="erp-label-caps mb-1 block">{props.label}</span>
       <select
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
+        className="erp-module-input"
       >
         {props.children}
       </select>

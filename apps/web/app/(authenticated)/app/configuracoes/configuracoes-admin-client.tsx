@@ -86,7 +86,7 @@ export function ConfiguracoesAdminClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex w-fit gap-1 rounded-xl border border-white/10 bg-[#121724] p-1">
+      <div className="erp-tab-group w-fit">
         <TabButton
           active={activeTab === 'users'}
           onClick={() => setActiveTab('users')}
@@ -101,7 +101,7 @@ export function ConfiguracoesAdminClient() {
         />
       </div>
 
-      <section className="min-h-[320px] overflow-hidden rounded-2xl border border-white/10 bg-[#121724]">
+      <section className="erp-module-card min-h-[320px] overflow-hidden">
         {activeTab === 'users' ? <UsersTable /> : <InactiveProductsTable />}
       </section>
     </div>
@@ -123,11 +123,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-        active
-          ? 'bg-blue-600 text-white shadow'
-          : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-      }`}
+      className={`erp-tab ${active ? 'erp-tab--active' : ''}`}
     >
       {icon}
       {label}
@@ -247,7 +243,7 @@ function UsersTable() {
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+            className="inline-flex items-center gap-2 rounded-lg erp-focus-ring erp-btn erp-btn-primary erp-btn--sm"
           >
             <RefreshCw size={14} />
             Tentar novamente
@@ -371,7 +367,7 @@ function UsersTableToolbar(props: { onNew: () => void }) {
       <button
         type="button"
         onClick={props.onNew}
-        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+        className="inline-flex items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
       >
         <Plus size={16} />
         Novo Usuário
@@ -434,7 +430,7 @@ function EditUserModal(props: {
         disabled={saving}
       />
       <div
-        className="relative flex h-full w-full flex-col overflow-hidden bg-[#121724] sm:h-auto sm:max-h-[min(90vh,800px)] sm:max-w-2xl sm:rounded-xl sm:border sm:border-white/10 sm:shadow-xl"
+        className="relative flex h-full w-full flex-col overflow-hidden erp-module-card sm:h-auto sm:max-h-[min(90vh,800px)] sm:max-w-2xl sm:shadow-xl"
         role="dialog"
         aria-labelledby="edit-user-title"
       >
@@ -456,26 +452,18 @@ function EditUserModal(props: {
           </button>
         </div>
 
-        <div className="flex gap-1 border-b border-white/10 px-4 py-2">
+        <div className="erp-tab-group mx-4 my-2 border-0 bg-transparent p-0">
           <button
             type="button"
             onClick={() => setActiveTab('dados')}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-              activeTab === 'dados'
-                ? 'bg-blue-600 text-white'
-                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-            }`}
+            className={`erp-tab ${activeTab === 'dados' ? 'erp-tab--active' : ''}`}
           >
             Dados
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('permissoes')}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-              activeTab === 'permissoes'
-                ? 'bg-blue-600 text-white'
-                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-            }`}
+            className={`erp-tab ${activeTab === 'permissoes' ? 'erp-tab--active' : ''}`}
           >
             Permissões
           </button>
@@ -493,7 +481,7 @@ function EditUserModal(props: {
                     setName(e.target.value);
                     setError(null);
                   }}
-                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full erp-module-input"
                 />
               </label>
               <label className="block text-sm">
@@ -505,7 +493,7 @@ function EditUserModal(props: {
                     setEmail(e.target.value);
                     setError(null);
                   }}
-                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full erp-module-input"
                 />
               </label>
               <label className="block text-sm">
@@ -516,7 +504,7 @@ function EditUserModal(props: {
                     setRole(e.target.value as UserRole);
                     setError(null);
                   }}
-                  className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full erp-module-input"
                 >
                   <option value="OPERADOR">OPERADOR</option>
                   <option value="ADMIN">ADMIN</option>
@@ -547,7 +535,7 @@ function EditUserModal(props: {
               type="button"
               onClick={() => void handleSubmit()}
               disabled={saving}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
@@ -617,7 +605,7 @@ function ResetPasswordModal(props: {
             setPassword(e.target.value);
             setError(null);
           }}
-          className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full erp-module-input"
           placeholder="Mínimo 6 caracteres"
           autoComplete="new-password"
           autoFocus
@@ -649,7 +637,7 @@ function ModalShell(props: {
         disabled={saving}
       />
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        className="relative w-full max-w-md overflow-hidden erp-module-card shadow-xl"
         role="dialog"
       >
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -680,7 +668,7 @@ function ModalShell(props: {
             type="button"
             onClick={onConfirm}
             disabled={saving}
-            className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:cursor-not-allowed disabled:opacity-50"
           >
             {confirmLabel}
           </button>
@@ -746,7 +734,7 @@ function NewUserModal(props: {
         disabled={saving}
       />
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        className="relative w-full max-w-md overflow-hidden erp-module-card shadow-xl"
         role="dialog"
         aria-labelledby="new-user-title"
       >
@@ -777,7 +765,7 @@ function NewUserModal(props: {
                 setForm((f) => ({ ...f, name: e.target.value }));
                 setError(null);
               }}
-              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full erp-module-input"
               placeholder="Nome completo"
               autoFocus
             />
@@ -794,7 +782,7 @@ function NewUserModal(props: {
                 setForm((f) => ({ ...f, email: e.target.value }));
                 setError(null);
               }}
-              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full erp-module-input"
               placeholder="usuario@empresa.com"
             />
           </label>
@@ -810,7 +798,7 @@ function NewUserModal(props: {
                 setForm((f) => ({ ...f, password: e.target.value }));
                 setError(null);
               }}
-              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full erp-module-input"
               placeholder="Mínimo 6 caracteres"
               autoComplete="new-password"
             />
@@ -826,7 +814,7 @@ function NewUserModal(props: {
                 setForm((f) => ({ ...f, role: e.target.value as UserRole }));
                 setError(null);
               }}
-              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full erp-module-input"
             >
               <option value="OPERADOR">OPERADOR</option>
               <option value="ADMIN">ADMIN</option>
@@ -849,7 +837,7 @@ function NewUserModal(props: {
             type="button"
             onClick={() => void handleSubmit()}
             disabled={saving}
-            className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? 'Criando...' : 'Confirmar'}
           </button>

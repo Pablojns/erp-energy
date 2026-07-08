@@ -142,6 +142,7 @@ type OrderSerializeSource = {
     code: string;
     externalOrderNumber: string | null;
   } | null;
+  exits?: Array<{ trackingCode: string | null }>;
   createdAt: Date;
   updatedAt: Date;
   items: OrderItemSerializeSource[];
@@ -975,7 +976,7 @@ export class OrderService {
 
       const order = await tx.order.create({
         data: {
-          source: OrderSource.VENDA_EXTERNA,
+          source: 'VENDA_EXTERNA' as OrderSource,
           code,
           externalOrderNumber,
           customerId: customer.id,
@@ -2447,6 +2448,10 @@ export class OrderService {
           externalOrderNumber: true,
         },
       },
+      exits: {
+        select: { trackingCode: true },
+        take: 1,
+      },
       stockReservations: {
         select: { id: true },
         take: 1,
@@ -2819,6 +2824,7 @@ export class OrderService {
       volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
+      trackingCode: row.exits?.[0]?.trackingCode ?? null,
       linkedOrderId: row.linkedOrderId,
       isUrgentManual: row.isUrgentManual,
       linkedOrderDisplayNumber,

@@ -157,11 +157,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-        active
-          ? 'bg-blue-600 text-white shadow'
-          : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-      }`}
+      className={`erp-tab ${active ? 'erp-tab--active' : ''}`}
     >
       {icon}
       {label}
@@ -198,7 +194,7 @@ function ModalShell({
         disabled={saving}
       />
       <div
-        className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-xl ${
+        className={`erp-modal-panel relative flex max-h-[92vh] w-full flex-col overflow-hidden ${
           wide ? 'max-w-lg' : 'max-w-md'
         }`}
         role="dialog"
@@ -233,7 +229,7 @@ function ModalShell({
             type="button"
             onClick={onConfirm}
             disabled={saving}
-            className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:cursor-not-allowed disabled:opacity-50"
           >
             {confirmLabel}
           </button>
@@ -244,7 +240,7 @@ function ModalShell({
 }
 
 function fieldInputClass() {
-  return 'w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500';
+  return 'erp-module-input';
 }
 
 type CadastroFormState = {
@@ -481,7 +477,7 @@ function DeleteCadastroModal({
         disabled={deleting}
       />
       <div
-        className="relative w-full max-w-md rounded-xl border border-white/10 bg-[#121724] shadow-xl"
+        className="erp-module-card relative w-full max-w-md shadow-xl"
         role="dialog"
         aria-labelledby="delete-cadastro-title"
       >
@@ -676,7 +672,7 @@ function CadastroTable({
               setEditRow(null);
               setModalMode('create');
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
           >
             <Plus size={16} />
             Novo
@@ -832,7 +828,7 @@ export function CadastrosClient({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex w-full flex-wrap gap-1 rounded-xl border border-white/10 bg-[#121724] p-1">
+      <div className="erp-tab-group w-full flex-wrap">
         {TABS.map((item) => (
           <TabButton
             key={item.id}
@@ -844,7 +840,7 @@ export function CadastrosClient({ isAdmin }: { isAdmin: boolean }) {
         ))}
       </div>
 
-      <section className="min-h-[320px] overflow-hidden rounded-2xl border border-white/10 bg-[#121724]">
+      <section className="erp-module-card min-h-[320px] overflow-hidden">
         <CadastroTable key={activeTab} tab={tab} isAdmin={isAdmin} />
       </section>
     </div>

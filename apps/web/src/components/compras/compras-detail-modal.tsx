@@ -230,7 +230,7 @@ export function ComprasDetailModal(props: {
                       type="button"
                       onClick={() => void handleSaveQuantity()}
                       disabled={savingQuantity || !quantityInput}
-                      className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                      className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
                     >
                       {savingQuantity ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -268,7 +268,7 @@ export function ComprasDetailModal(props: {
                     type="button"
                     onClick={() => void handleSaveArrival()}
                     disabled={savingArrival || !expectedArrival}
-                    className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                    className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
                   >
                     {savingArrival ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

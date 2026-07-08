@@ -364,6 +364,7 @@ model OrderExit {
   invoiceNumber String   @db.VarChar(64)
   invoiceValue  Decimal  @db.Decimal(12, 2)
   exitDate      DateTime @default(now())
+  romaneioAt    DateTime?
   carrierName   String?  @db.VarChar(120)
   trackingCode  String?  @db.VarChar(120)
   order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)

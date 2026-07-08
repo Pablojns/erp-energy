@@ -7,7 +7,7 @@ export default async function CadastrosPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-white/10 bg-[#121724] p-6">
+      <section className="erp-module-card p-6">
         <h2 className="text-2xl font-semibold text-zinc-100">Cadastros</h2>
         <p className="mt-2 text-sm text-zinc-400">
           Recebedores, pontos de descarga, transportadoras, fornecedores e clientes.

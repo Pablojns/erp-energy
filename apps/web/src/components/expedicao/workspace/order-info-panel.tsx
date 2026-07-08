@@ -137,8 +137,13 @@ export const OrderInfoPanel = forwardRef<
   const lastSavedVolumesRef = useRef<number | null>(order.volumes ?? null);
   const [emittingEtiqueta, setEmittingEtiqueta] = useState(false);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
+  const [trackingCodeInput, setTrackingCodeInput] = useState(order.trackingCode ?? '');
+  const [savingTrackingCode, setSavingTrackingCode] = useState(false);
+  const [trackingCodeError, setTrackingCodeError] = useState<string | null>(null);
+  const lastSavedTrackingCodeRef = useRef(order.trackingCode ?? '');
 
   const canEmitEtiqueta = order.status === 'FINALIZADO';
+  const canEditTrackingCode = order.status === 'FINALIZADO';
 
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
@@ -160,6 +165,13 @@ export const OrderInfoPanel = forwardRef<
     lastSavedVolumesRef.current = initial;
     setVolumesError(null);
   }, [order.id, order.volumes]);
+
+  useEffect(() => {
+    const initial = order.trackingCode ?? '';
+    setTrackingCodeInput(initial);
+    lastSavedTrackingCodeRef.current = initial;
+    setTrackingCodeError(null);
+  }, [order.id, order.trackingCode]);
 
   useEffect(() => {
     if (isOrdersMode) return;
@@ -297,6 +309,40 @@ export const OrderInfoPanel = forwardRef<
       return false;
     } finally {
       setSavingVolumes(false);
+    }
+  };
+
+  const saveTrackingCode = async () => {
+    const trimmed = trackingCodeInput.trim();
+    const lastPersisted = lastSavedTrackingCodeRef.current.trim();
+
+    if (trimmed === lastPersisted && !savingTrackingCode) {
+      return;
+    }
+
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setTrackingCodeError('Número do pedido inválido.');
+      return;
+    }
+
+    setSavingTrackingCode(true);
+    setTrackingCodeError(null);
+    const previous = lastSavedTrackingCodeRef.current;
+
+    try {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'rastreio'), {
+        method: 'PATCH',
+        body: JSON.stringify({ trackingCode: trimmed }),
+      });
+      lastSavedTrackingCodeRef.current = trimmed;
+      setTrackingCodeInput(trimmed);
+      onStatusChanged?.();
+    } catch {
+      setTrackingCodeInput(previous);
+      setTrackingCodeError('Não foi possível salvar o código de rastreio.');
+    } finally {
+      setSavingTrackingCode(false);
     }
   };
 
@@ -584,6 +630,39 @@ export const OrderInfoPanel = forwardRef<
                 </>
               )}
             </HeaderField>
+
+            {canEditTrackingCode ? (
+              <HeaderField label="Código de Rastreio:">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={trackingCodeInput}
+                    onChange={(e) => {
+                      setTrackingCodeInput(e.target.value);
+                      setTrackingCodeError(null);
+                    }}
+                    disabled={savingTrackingCode}
+                    placeholder="Digite o código"
+                    className={inputClassName}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[var(--border-color)] px-2 py-1.5 text-xs font-semibold text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void saveTrackingCode()}
+                    disabled={savingTrackingCode}
+                  >
+                    {savingTrackingCode ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      'Salvar'
+                    )}
+                  </button>
+                </div>
+                {trackingCodeError ? (
+                  <p className="mt-1 text-xs text-red-500">{trackingCodeError}</p>
+                ) : null}
+              </HeaderField>
+            ) : null}
 
             {!isSiteOrder ? (
               <HeaderField label="Nota de Remessa:">

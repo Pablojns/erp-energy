@@ -5,7 +5,7 @@
   --dash-text-muted: var(--text-muted);
   --dash-border: var(--border-color);
   --dash-shadow: var(--erp-card-shadow, 0 1px 3px rgba(0, 0, 0, 0.12));
-  --dash-accent: #2563eb;
+  --dash-accent: var(--accent);
   --dash-success: #16a34a;
   --dash-warning: #d97706;
   --dash-danger: #dc2626;

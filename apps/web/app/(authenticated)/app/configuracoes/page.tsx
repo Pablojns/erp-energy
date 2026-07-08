@@ -18,7 +18,7 @@ export default async function ConfiguracoesPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-white/10 bg-[#121724] p-6">
+      <section className="erp-module-card p-6">
         <h2 className="text-2xl font-semibold text-zinc-100">
           Configurações do Sistema
         </h2>

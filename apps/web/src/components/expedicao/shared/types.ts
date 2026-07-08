@@ -84,6 +84,7 @@ export type OrderDto = {
   volumes: number | null;
   carrierId: string | null;
   carrierName: string | null;
+  trackingCode?: string | null;
   status: OrderStatus;
   priority: number;
   mercadoEletronicoStatus: string | null;
@@ -224,6 +225,7 @@ export type OrderExitDto = {
   invoiceNumber: string;
   invoiceValue: string;
   exitDate: string;
+  romaneioAt: string | null;
   carrierName: string | null;
   trackingCode: string | null;
   punctuality: 'ON_TIME' | 'LATE';

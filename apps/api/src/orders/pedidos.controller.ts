@@ -39,6 +39,7 @@ import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
+import { GenerateRomaneioDto } from './dto/generate-romaneio.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
@@ -96,6 +97,19 @@ export class PedidosController {
     @Body() dto: CreateVendaExternaPedidoDto,
   ) {
     return this.pedidos.createVendaExterna(user.id, dto);
+  }
+
+  @Post('romaneio')
+  async gerarRomaneio(
+    @Body() dto: GenerateRomaneioDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.pedidos.gerarRomaneioPdf(dto.orderIds);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="romaneio-coleta.pdf"',
+    });
+    return new StreamableFile(buffer);
   }
 
   @Patch(':numeroPed')
@@ -244,6 +258,14 @@ export class PedidosController {
       );
     }
     return this.pedidos.updateVolumes(numeroPed, dto.volumes, user.id);
+  }
+
+  @Patch(':numeroPed/rastreio')
+  updateRastreio(
+    @Param('numeroPed') numeroPed: string,
+    @Body() dto: { trackingCode: string },
+  ) {
+    return this.pedidos.updateRastreio(numeroPed, dto.trackingCode ?? '');
   }
 
   @Post(':numeroPed/nf')

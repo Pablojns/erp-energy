@@ -4,9 +4,9 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 export default function AuditoriaPage() {
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-white/10 bg-[#121724] p-6">
-        <h2 className="text-2xl font-semibold text-zinc-100">Auditoria</h2>
-        <p className="mt-2 text-sm text-zinc-400">
+      <section className="erp-module-card p-6">
+        <h2 className="erp-module-title">Auditoria</h2>
+        <p className="erp-module-subtitle mt-2">
           Rastreabilidade completa de eventos, alteracoes e acoes críticas.
         </p>
       </section>
@@ -61,12 +61,12 @@ export default function AuditoriaPage() {
         ]}
       />
 
-      <div className="rounded-2xl border border-white/10 bg-[#121724] p-5">
+      <div className="erp-module-card p-5">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-zinc-300">Integridade de logs</p>
+          <p className="erp-text-sm text-[var(--erp-fg-secondary)]">Integridade de logs</p>
           <StatusBadge label="Saudavel" tone="success" />
         </div>
-        <p className="mt-2 text-xs text-zinc-500">
+        <p className="mt-2 erp-text-xs text-[var(--erp-fg-muted)]">
           Arquitetura pronta para trilha de auditoria detalhada por entidade e usuário.
         </p>
       </div>

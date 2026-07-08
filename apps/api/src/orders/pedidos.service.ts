@@ -584,6 +584,34 @@ export class PedidosService {
     });
   }
 
+  async updateRastreio(numeroPed: string, trackingCode: string) {
+    const trimmedNumero = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [
+          { externalOrderNumber: trimmedNumero },
+          { code: trimmedNumero },
+        ],
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const exit = await this.prisma.client.orderExit.findUnique({
+      where: { orderId: order.id },
+      select: { id: true },
+    });
+    if (!exit) throw new NotFoundException('Saída do pedido não encontrada.');
+
+    await this.prisma.client.orderExit.update({
+      where: { id: exit.id },
+      data: { trackingCode: trackingCode.trim() || null },
+    });
+
+    return this.orders.findOne(order.id);
+  }
+
   async gerarEtiquetaPdf(
     numeroPed: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
@@ -685,6 +713,142 @@ export class PedidosService {
       buffer,
       filename: pedidoNum.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_') || 'pedido',
     };
+  }
+
+  async gerarRomaneioPdf(orderIds: string[]): Promise<Buffer> {
+    const uniqueIds = [...new Set(orderIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Informe ao menos um pedido.');
+    }
+
+    const orders = await this.prisma.client.order.findMany({
+      where: { id: { in: uniqueIds } },
+      include: {
+        carrier: { select: { name: true } },
+        items: { select: { sku: true, description: true, quantity: true } },
+      },
+    });
+
+    if (orders.length === 0) {
+      throw new NotFoundException('Nenhum pedido encontrado.');
+    }
+
+    const byId = new Map(orders.map((order) => [order.id, order]));
+    const rows = uniqueIds
+      .map((id) => byId.get(id))
+      .filter((order): order is (typeof orders)[number] => order != null);
+
+    const todayLabel = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(new Date());
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const left = doc.page.margins.left;
+      const colWidths = [pageWidth * 0.7, pageWidth * 0.3];
+      const colX = [left, left + colWidths[0]];
+      const headers = ['Nota Fiscal', 'Volumes'];
+
+      const drawHeader = (startY: number) => {
+        doc
+          .fontSize(16)
+          .font('Helvetica-Bold')
+          .text('ROMANEIO DE COLETA — Energy Brands', left, startY, {
+            width: pageWidth,
+            align: 'center',
+          });
+        doc
+          .fontSize(11)
+          .font('Helvetica')
+          .text(`Data atual: ${todayLabel}`, left, startY + 24, {
+            width: pageWidth,
+            align: 'center',
+          });
+        doc.text('Transportadora: São Miguel', left, startY + 42, {
+          width: pageWidth,
+          align: 'center',
+        });
+        return startY + 72;
+      };
+
+      const drawTableHeader = (y: number) => {
+        doc.fontSize(10).font('Helvetica-Bold');
+        headers.forEach((header, index) => {
+          doc.text(header, colX[index], y, {
+            width: colWidths[index] - 4,
+            lineBreak: false,
+          });
+        });
+        const lineY = y + 16;
+        doc.moveTo(left, lineY).lineTo(left + pageWidth, lineY).stroke();
+        return lineY + 10;
+      };
+
+      const drawFooter = () => {
+        const footerY = doc.page.height - doc.page.margins.bottom - 30;
+        doc.fontSize(10).font('Helvetica');
+        doc.text(
+          'Assinatura do coletador: ___________________________',
+          left,
+          footerY,
+        );
+      };
+
+      let y = drawHeader(50);
+      y = drawTableHeader(y);
+
+      for (const order of rows) {
+        if (y > doc.page.height - doc.page.margins.bottom - 70) {
+          drawFooter();
+          doc.addPage();
+          y = drawTableHeader(doc.page.margins.top);
+        }
+
+        const invoiceNumber = order.invoiceNumber?.trim() || '—';
+        const volumes =
+          order.volumes != null && order.volumes >= 1
+            ? String(order.volumes)
+            : '—';
+        const values = [invoiceNumber, volumes];
+
+        doc.fontSize(10).font('Helvetica');
+        const rowHeight = Math.max(
+          ...values.map((value, index) =>
+            doc.heightOfString(value, { width: colWidths[index] - 4 }),
+          ),
+          14,
+        );
+
+        values.forEach((value, index) => {
+          doc.text(value, colX[index], y, {
+            width: colWidths[index] - 4,
+          });
+        });
+        y += rowHeight + 8;
+      }
+
+      drawFooter();
+      doc.end();
+    });
+
+    const now = new Date();
+    await this.prisma.client.orderExit.updateMany({
+      where: { orderId: { in: uniqueIds } },
+      data: {
+        romaneioAt: now,
+      } as unknown as Prisma.OrderExitUpdateManyMutationInput,
+    });
+
+    return buffer;
   }
 
   async attachNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
@@ -1331,12 +1495,14 @@ export class PedidosService {
       ? Math.ceil((row.exitDate.getTime() - requested.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
     const orderCarrierName = row.order.carrier?.name ?? null;
+    const rowWithRomaneio = row as typeof row & { romaneioAt?: Date | null };
     return {
       id: row.id,
       orderId: row.orderId,
       invoiceNumber: row.invoiceNumber,
       invoiceValue: row.invoiceValue.toString(),
       exitDate: row.exitDate.toISOString(),
+      romaneioAt: rowWithRomaneio.romaneioAt?.toISOString() ?? null,
       carrierName: row.carrierName ?? orderCarrierName,
       trackingCode: row.trackingCode,
       punctuality: diffDays > 0 ? 'LATE' : 'ON_TIME',

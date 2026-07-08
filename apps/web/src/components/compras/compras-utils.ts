@@ -8,16 +8,14 @@ import type {
 } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
 
-export function typeBadgeClass(type: PurchaseType) {
-  if (type === 'WEG_CONTRATO') return 'border-blue-400/40 bg-blue-500/15 text-blue-200';
-  if (type === 'VENDA_EXTERNA') return 'border-orange-400/40 bg-orange-500/15 text-orange-200';
-  return 'border-purple-400/40 bg-purple-500/15 text-purple-200';
+export function typeBadgeClass(type: PurchaseType): 'info' | 'warning' | 'accent' {
+  if (type === 'WEG_CONTRATO') return 'info';
+  if (type === 'VENDA_EXTERNA') return 'warning';
+  return 'accent';
 }
 
-export function priorityBadgeClass(priority: PurchasePriority) {
-  return priority === 'URGENTE'
-    ? 'border-red-400/40 bg-red-500/15 text-red-200'
-    : 'border-zinc-400/30 bg-zinc-500/15 text-zinc-200';
+export function priorityBadgeClass(priority: PurchasePriority): 'danger' | 'neutral' {
+  return priority === 'URGENTE' ? 'danger' : 'neutral';
 }
 
 export function formatDate(value: string | null) {
@@ -107,11 +105,7 @@ export function kanbanColumnForStatus(status: PurchaseStatus): KanbanColumnId | 
 }
 
 export function fieldClass(invalid?: boolean) {
-  return `w-full rounded-xl border px-3 py-2 text-sm outline-none transition focus:ring-2 focus:ring-indigo-400/50 ${
-    invalid
-      ? 'border-rose-500/70 bg-rose-500/10 text-white'
-      : 'border-white/10 bg-white/5 text-white'
-  }`;
+  return `erp-module-input ${invalid ? 'border-[color-mix(in_srgb,var(--erp-danger)_70%,transparent)] bg-[var(--erp-danger-soft)]' : ''}`;
 }
 
 export function purchaseImageSrc(requestId: string, imageId: string) {

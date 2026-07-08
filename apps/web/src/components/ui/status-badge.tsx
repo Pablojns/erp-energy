@@ -23,7 +23,7 @@ type StatusBadgeProps = {
 export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
   return (
     <span
-      className={`inline-flex max-w-full items-center rounded-lg px-2.5 py-1 text-[11px] font-semibold leading-none tracking-wide ring-1 ring-inset ${TONE_CLASSES[tone]}`}
+      className={`erp-badge inline-flex max-w-full items-center rounded-md px-2 py-0.5 text-xs font-semibold leading-none tracking-wide ring-1 ring-inset ${TONE_CLASSES[tone]}`}
     >
       {label}
     </span>

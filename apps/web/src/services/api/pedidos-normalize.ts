@@ -46,6 +46,7 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
         : null,
     carrierId: raw.carrierId ? String(raw.carrierId) : null,
     carrierName: raw.carrierName ? String(raw.carrierName) : null,
+    trackingCode: raw.trackingCode ? String(raw.trackingCode) : null,
     status: (raw.status as OrderDto['status']) ?? 'NOVO',
     priority: Number(raw.priority ?? 3),
     mercadoEletronicoStatus: raw.mercadoEletronicoStatus

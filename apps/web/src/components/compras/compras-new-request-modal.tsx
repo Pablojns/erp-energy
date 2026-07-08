@@ -697,7 +697,7 @@ export function ComprasNewRequestModal(props: {
           type="button"
           onClick={() => void submit()}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="inline-flex items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:opacity-60"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Criar Solicitação
@@ -739,7 +739,7 @@ export function ComprasNewRequestModal(props: {
             type="button"
             onClick={() => void updateExistingQuantity(duplicatePrompt)}
             disabled={saving}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--md disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Atualizar quantidade

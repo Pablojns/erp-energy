@@ -16,6 +16,7 @@ import {
   useExpeditionPedidosBridge,
   useExpeditionSelectedPedido,
 } from '@/src/hooks/useExpeditionPedidosBridge';
+import { useExpedicaoHeaderActions } from '@/src/components/expedicao/layout/expedicao-header-actions-context';
 
 export type ExpeditionWorkspaceMode = 'orders' | 'separation';
 
@@ -161,6 +162,108 @@ export function ExpeditionWorkspace(props: {
     />
   );
 
+  const { setTopActions, setBelowSubnavActions } = useExpedicaoHeaderActions();
+
+  useEffect(() => {
+    // Limpamos ao desmontar o workspace (evita ações "presas" em outra rota da expedição).
+    return () => {
+      setTopActions(null);
+      setBelowSubnavActions(null);
+    };
+  }, [setBelowSubnavActions, setTopActions]);
+
+  useEffect(() => {
+    if (mode !== 'orders') {
+      setTopActions(null);
+      setBelowSubnavActions(null);
+      return;
+    }
+
+    const secondaryBtnClass =
+      'inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/20 bg-transparent px-3 py-1.5 text-sm font-semibold text-[var(--text-primary)] transition hover:bg-white/5';
+    const primaryBtnClass =
+      'inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-500';
+
+    const handleNewOrder = () => {
+      if (mode !== 'orders') return;
+      if (sourceFilter === 'WEG') {
+        if (onNewOrder) return onNewOrder();
+        setEditOrder(null);
+        setNewOrderOpen(true);
+        return;
+      }
+      if (sourceFilter === 'SITE') {
+        setSiteOrderOpen(true);
+        return;
+      }
+      setVendaExternaOpen(true);
+    };
+
+    setTopActions(
+      <div className="flex w-full items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button type="button" className={primaryBtnClass} onClick={handleNewOrder}>
+            {sourceFilter === 'WEG'
+              ? '+ Novo Pedido'
+              : sourceFilter === 'SITE'
+                ? 'Novo Pedido Site'
+                : 'Nova Venda Externa'}
+          </button>
+        </div>
+
+        {sourceFilter === 'WEG' ? (
+          <button
+            type="button"
+            className={secondaryBtnClass}
+            onClick={() => setWegImportOpen(true)}
+          >
+            Importar WEG
+          </button>
+        ) : (
+          <div />
+        )}
+      </div>,
+    );
+
+    setBelowSubnavActions(
+      <div className="flex w-full items-center gap-2">
+        <button
+          type="button"
+          className={
+            sourceFilter === 'WEG'
+              ? primaryBtnClass
+              : secondaryBtnClass
+          }
+          onClick={() => setSourceFilter('WEG')}
+        >
+          WEG
+        </button>
+        <button
+          type="button"
+          className={
+            sourceFilter === 'SITE'
+              ? primaryBtnClass
+              : secondaryBtnClass
+          }
+          onClick={() => setSourceFilter('SITE')}
+        >
+          Site
+        </button>
+        <button
+          type="button"
+          className={
+            sourceFilter === 'VENDA_EXTERNA'
+              ? primaryBtnClass
+              : secondaryBtnClass
+          }
+          onClick={() => setSourceFilter('VENDA_EXTERNA')}
+        >
+          Venda Externa
+        </button>
+      </div>,
+    );
+  }, [mode, onNewOrder, setBelowSubnavActions, setTopActions, sourceFilter]);
+
   return (
     <div className="flex h-[calc(100dvh-11.5rem)] min-h-0 w-full flex-col gap-2 overflow-hidden px-2 pt-2 pb-2 max-lg:h-[calc(100dvh-14.5rem)]">
       <div className="exp-mobile-tabs flex shrink-0 lg:hidden">
@@ -184,27 +287,7 @@ export function ExpeditionWorkspace(props: {
         <div
           className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col ${activeTab === 'fila' ? 'block' : 'hidden'} lg:block`}
         >
-          {mode === 'orders' && sourceFilter === 'SITE' ? (
-            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-blue-500/30 bg-blue-500/5 p-2">
-              <div className="mb-1.5 flex shrink-0 items-center gap-2">
-                <span className="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
-                  SITE — Pedidos do E-commerce
-                </span>
-              </div>
-              {orderQueue}
-            </div>
-          ) : mode === 'orders' && sourceFilter === 'VENDA_EXTERNA' ? (
-            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-amber-500/30 bg-amber-500/5 p-2">
-              <div className="mb-1.5 flex shrink-0 items-center gap-2">
-                <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
-                  VENDA EXTERNA — Pedidos fora do estoque
-                </span>
-              </div>
-              {orderQueue}
-            </div>
-          ) : (
-            orderQueue
-          )}
+          {orderQueue}
         </div>
         <div className={`exp-page-col-workbench w-full ${activeTab === 'detalhes' ? 'block' : 'hidden'} lg:block`}>
           {detailLoading && !displayOrder ? (

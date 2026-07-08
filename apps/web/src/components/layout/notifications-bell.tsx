@@ -153,7 +153,7 @@ export function NotificationsBell() {
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-3 w-[min(100vw-1.5rem,380px)] origin-top-right overflow-hidden rounded-xl border border-white/10 bg-[#121724] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.65)]">
+        <div className="erp-module-card absolute right-0 z-50 mt-3 w-[min(100vw-1.5rem,380px)] origin-top-right overflow-hidden shadow-lg">
           <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <p className="text-sm font-semibold text-white">Notificações</p>
             {unreadCount > 0 ? (

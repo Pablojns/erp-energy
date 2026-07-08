@@ -6,7 +6,7 @@ import { CalendarDays } from 'lucide-react';
 import { DualDateCalendar } from '@/src/components/expedicao/workspace/dual-date-calendar';
 
 function formatPeriodLabel(from: string, to: string): string {
-  if (!from.trim() && !to.trim()) return 'Período Específico';
+  if (!from.trim() && !to.trim()) return 'Período';
   const fmt = (iso: string) => {
     if (!iso.trim()) return null;
     const [y, m, d] = iso.split('-');
@@ -18,7 +18,7 @@ function formatPeriodLabel(from: string, to: string): string {
   if (a && b) return `${a} — ${b}`;
   if (a) return `A partir de ${a}`;
   if (b) return `Até ${b}`;
-  return 'Período Específico';
+  return 'Período';
 }
 
 type PopoverPos = { top: number; left: number };

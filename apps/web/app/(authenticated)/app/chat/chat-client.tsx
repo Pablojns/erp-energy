@@ -231,16 +231,16 @@ export function ChatClient(props: {
   };
 
   return (
-    <div className="flex h-[calc(100dvh-7rem)] min-h-0 overflow-hidden rounded-2xl border border-white/10 bg-[#121724]">
-      <aside className="flex w-full max-w-xs shrink-0 flex-col border-r border-white/10">
-        <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
-          <h1 className="text-sm font-semibold text-zinc-100">Chat</h1>
+    <div className="erp-module-card flex h-[calc(100dvh-7rem)] min-h-0 overflow-hidden">
+      <aside className="flex w-full max-w-xs shrink-0 flex-col border-r border-[var(--erp-border)]">
+        <div className="flex items-center justify-between border-b border-[var(--erp-border)] px-4 py-3">
+          <h1 className="erp-text-sm font-semibold text-[var(--erp-fg)]">Chat</h1>
           <button
             type="button"
             onClick={() => void openNewConversation()}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-[#0d1320] px-2 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-blue-500/40 hover:text-white"
+            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--sm"
           >
-            <MessageSquarePlus className="h-3.5 w-3.5" />
+            <MessageSquarePlus className="erp-icon-sm" />
             Nova conversa
           </button>
         </div>
@@ -264,7 +264,7 @@ export function ChatClient(props: {
                       type="button"
                       onClick={() => void selectRoom(room)}
                       className={`w-full px-3 py-3 text-left transition ${
-                        active ? 'bg-blue-500/10' : 'hover:bg-white/5'
+                        active ? 'bg-[var(--erp-accent-soft)]' : 'hover:bg-[var(--erp-bg-hover)]'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -292,9 +292,9 @@ export function ChatClient(props: {
       <section className="flex min-w-0 flex-1 flex-col">
         {selectedRoom ? (
           <>
-            <header className="shrink-0 border-b border-white/10 px-4 py-3">
+            <header className="shrink-0 border-b border-[var(--erp-border)] px-4 py-3">
               <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/20 text-xs font-semibold text-blue-300">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--erp-accent-soft)] text-xs font-semibold text-[var(--erp-accent)]">
                   {initials(selectedRoom.displayName)}
                 </span>
                 <div>
@@ -342,8 +342,8 @@ export function ChatClient(props: {
                         <div
                           className={`rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
                             isMine
-                              ? 'bg-blue-600 text-white'
-                              : 'border border-white/10 bg-[#0d1320] text-zinc-200'
+                              ? 'bg-[var(--accent)] text-[var(--color-text-inverse)]'
+                              : 'border border-[var(--erp-border)] bg-[var(--erp-bg-muted)] text-[var(--erp-fg)]'
                           }`}
                         >
                           {message.content}
@@ -381,7 +381,7 @@ export function ChatClient(props: {
                 <button
                   type="submit"
                   disabled={sending || !input.trim()}
-                  className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md h-[42px] w-[42px] shrink-0 p-0 disabled:cursor-not-allowed disabled:opacity-50"
                   aria-label="Enviar mensagem"
                 >
                   {sending ? (
@@ -411,7 +411,7 @@ export function ChatClient(props: {
 
       {usersOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl border border-white/10 bg-[#121724] shadow-xl">
+          <div className="erp-module-card flex max-h-[80vh] w-full max-w-md flex-col shadow-xl">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <h3 className="text-sm font-semibold text-zinc-100">Nova conversa</h3>
               <button
@@ -441,7 +441,7 @@ export function ChatClient(props: {
                         onClick={() => void startDirectChat(user.id)}
                         className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/5"
                       >
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600/20 text-xs font-semibold text-blue-300">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--erp-accent-soft)] text-xs font-semibold text-[var(--erp-accent)]">
                           {initials(user.name)}
                         </span>
                         <span>

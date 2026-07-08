@@ -50,7 +50,7 @@ function PermissionSwitch({
       disabled={disabled}
       onClick={onToggle}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 ${
-        granted ? 'bg-blue-600' : 'bg-zinc-600'
+        granted ? 'bg-[var(--accent)]' : 'bg-[var(--erp-bg-muted)]'
       }`}
     >
       <span
@@ -211,7 +211,7 @@ export function UserPermissionsPanel({
           <button
             type="button"
             onClick={load}
-            className="mt-3 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--sm mt-3"
           >
             Tentar novamente
           </button>
@@ -230,7 +230,7 @@ export function UserPermissionsPanel({
               return (
                 <section
                   key={module}
-                  className="overflow-hidden rounded-xl border border-white/10 bg-[#121724]"
+                  className="erp-module-card overflow-hidden"
                 >
                   <button
                     type="button"

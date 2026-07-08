@@ -14,7 +14,7 @@ export default function CrmPage() {
         href="http://174.138.41.33:3003"
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+        className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
       >
         Abrir CRM novamente
       </a>

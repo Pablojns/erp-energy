@@ -76,31 +76,33 @@ export function ComprasCard(props: {
       {...attributes}
       {...dragListeners}
       onClick={handleClick}
-      className={`cursor-pointer rounded-xl border border-white/10 bg-[#0d1018] p-3 shadow-lg transition ${
-        dragging ? 'opacity-40' : 'hover:border-indigo-400/40 hover:bg-white/[0.04]'
+      className={`erp-module-card cursor-pointer p-3 transition ${
+        dragging
+          ? 'opacity-40'
+          : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
       }`}
     >
       <div className="mb-2 flex flex-wrap gap-1.5">
-        <ComprasBadge className={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
-        <ComprasBadge className={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
+        <ComprasBadge tone={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
+        <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
       </div>
 
-      <h3 className="line-clamp-2 text-sm font-semibold text-white">{displayName(row)}</h3>
+      <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
       {row.supplierName ? (
-        <p className="mt-1 truncate text-xs text-white/50">{row.supplierName}</p>
+        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{row.supplierName}</p>
       ) : null}
-      <p className="mt-2 text-xs text-white/60">
-        Qtd. <span className="font-semibold text-white">{displayQty(row)}</span>
+      <p className="mt-2 text-xs text-[var(--erp-fg-secondary)]">
+        Qtd. <span className="font-semibold text-[var(--erp-fg)]">{displayQty(row)}</span>
         {' · '}
-        Preço <span className="font-semibold text-white">{formatMoney(row.itemPrice)}</span>
+        Preço <span className="font-semibold text-[var(--erp-fg)]">{formatMoney(row.itemPrice)}</span>
         {' · '}
-        Total <span className="font-semibold text-white">{formatMoneyNumber(calcPurchaseTotalFromRow(row))}</span>
+        Total <span className="font-semibold text-[var(--erp-fg)]">{formatMoneyNumber(calcPurchaseTotalFromRow(row))}</span>
       </p>
-      <p className="mt-2 text-[11px] text-white/40">
+      <p className="mt-2 text-xs text-[var(--erp-fg-muted)]">
         {row.requestedBy.name} · {formatDate(row.createdAt)}
       </p>
       {row.expectedArrival ? (
-        <p className="mt-0.5 text-[11px] text-white/40">
+        <p className="mt-0.5 text-xs text-[var(--erp-fg-muted)]">
           Previsão: {formatDate(row.expectedArrival)}
         </p>
       ) : null}
@@ -111,14 +113,14 @@ export function ComprasCard(props: {
 export function ComprasCardPreview(props: { row: PurchaseRequest }) {
   const { row } = props;
   return (
-    <article className="w-[260px] rotate-2 rounded-xl border border-indigo-400/50 bg-[#121722] p-3 shadow-2xl">
+    <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3 shadow-2xl">
       <div className="mb-2 flex flex-wrap gap-1.5">
-        <ComprasBadge className={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
-        <ComprasBadge className={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
+        <ComprasBadge tone={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
+        <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
       </div>
-      <h3 className="line-clamp-2 text-sm font-semibold text-white">{displayName(row)}</h3>
+      <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
       {row.supplierName ? (
-        <p className="mt-1 truncate text-xs text-white/50">{row.supplierName}</p>
+        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{row.supplierName}</p>
       ) : null}
     </article>
   );

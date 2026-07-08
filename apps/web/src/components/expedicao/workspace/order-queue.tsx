@@ -5,7 +5,6 @@ import {
   Download,
   Filter,
   Loader2,
-  MoreVertical,
   RefreshCw,
   Search,
 } from 'lucide-react';
@@ -119,6 +118,18 @@ const SEPARATION_SECTIONS = [
   { id: 'aguardando_nf' as const, label: 'Aguardando NF' },
 ] as const;
 
+/* Header padrão (todas as abas): botões px-3 py-1.5 text-sm */
+const HEADER_BTN_SECONDARY =
+  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-transparent px-3 py-1.5 text-sm font-medium text-[var(--text-primary)] transition hover:bg-white/5';
+const HEADER_BTN_PRIMARY =
+  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-500';
+
+/* Pills de status: text-xs px-3 py-1; ativa azul sólido, inativa borda sutil */
+const STATUS_PILL_ACTIVE =
+  'shrink-0 whitespace-nowrap rounded-md border border-transparent bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition';
+const STATUS_PILL_INACTIVE =
+  'shrink-0 whitespace-nowrap rounded-md border border-white/20 bg-transparent px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]';
+
 export function OrderQueue(props: {
   data: OrdersData;
   selectedOrderId: string | null;
@@ -172,8 +183,6 @@ export function OrderQueue(props: {
   const [activeCustomFilterId, setActiveCustomFilterId] = useState<string | null>(
     null,
   );
-  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
-  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
@@ -253,17 +262,6 @@ export function OrderQueue(props: {
 
   const selectedForPrintCount = selectedForPrintIds.size;
   const selectedForRemovalCount = selectedForRemovalIds.size;
-
-  useEffect(() => {
-    if (!mobileActionsOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!mobileMenuRef.current?.contains(e.target as Node)) {
-        setMobileActionsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [mobileActionsOpen]);
 
   useEffect(() => {
     if (!isPedidosMode || !data.ordersHasMore) return;
@@ -372,7 +370,7 @@ export function OrderQueue(props: {
   };
 
   const periodFilterNode = (
-    <div className="[&_.exp-period-filter-btn--preset]:hidden">
+    <div className="flex items-center gap-1.5 [&_.exp-period-filter-btn]:inline-flex [&_.exp-period-filter-btn]:shrink-0 [&_.exp-period-filter-btn]:items-center [&_.exp-period-filter-btn]:justify-center [&_.exp-period-filter-btn]:gap-1.5 [&_.exp-period-filter-btn]:rounded-lg [&_.exp-period-filter-btn]:border [&_.exp-period-filter-btn]:border-white/20 [&_.exp-period-filter-btn]:bg-transparent [&_.exp-period-filter-btn]:px-3 [&_.exp-period-filter-btn]:py-1.5 [&_.exp-period-filter-btn]:text-sm [&_.exp-period-filter-btn]:font-medium [&_.exp-period-filter-btn]:text-[var(--text-primary)] [&_.exp-period-filter-btn:hover]:bg-white/5 [&_.exp-period-filter-btn--active]:border-transparent [&_.exp-period-filter-btn--active]:bg-blue-600 [&_.exp-period-filter-btn--active]:font-semibold [&_.exp-period-filter-btn--active]:text-white [&_.exp-period-filter-btn--active]:hover:bg-blue-500">
       <PedidosPeriodFilter
         dateFrom={data.appliedFilters.orderDateFrom}
         dateTo={data.appliedFilters.orderDateTo}
@@ -391,7 +389,7 @@ export function OrderQueue(props: {
   const filtersButton = (
     <button
       type="button"
-      className={`exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs ${filtersOpen ? 'exp-queue-header-btn--open' : ''}`}
+      className={`${HEADER_BTN_SECONDARY} ${filtersOpen ? 'bg-white/5' : ''}`}
       onClick={() => setFiltersOpen((v) => !v)}
     >
       <Filter className="h-4 w-4" aria-hidden />
@@ -405,7 +403,7 @@ export function OrderQueue(props: {
   const refreshButton = onRefresh ? (
     <button
       type="button"
-      className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8 !px-2.5 !py-1.5 !text-xs"
+      className={`${HEADER_BTN_SECONDARY} !px-2`}
       onClick={onRefresh}
       aria-label="Atualizar fila"
     >
@@ -413,163 +411,9 @@ export function OrderQueue(props: {
     </button>
   ) : null;
 
-  const primaryActionButtons = (
-    <>
-      {onImportWeg ? (
-        <button
-          type="button"
-          className="exp-queue-header-btn !h-auto !px-2.5 !py-1.5 !text-xs"
-          onClick={onImportWeg}
-        >
-          Importar WEG
-        </button>
-      ) : null}
-      {onNewOrder ? (
-        <button
-          type="button"
-          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-          onClick={onNewOrder}
-        >
-          + Novo Pedido
-        </button>
-      ) : null}
-      {onNewSiteOrder ? (
-        <button
-          type="button"
-          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-          onClick={onNewSiteOrder}
-        >
-          Novo Pedido Site
-        </button>
-      ) : null}
-      {onNewVendaExterna ? (
-        <button
-          type="button"
-          className="exp-queue-header-btn exp-queue-header-btn--primary !h-auto !px-2.5 !py-1.5 !text-xs"
-          onClick={onNewVendaExterna}
-        >
-          Nova Venda Externa
-        </button>
-      ) : null}
-    </>
-  );
-
   return (
     <aside className="exp-queue-panel flex h-full min-h-0 flex-1 flex-col">
       <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)] !px-2 !py-1.5">
-        {isPedidosMode ? (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1 overflow-x-auto erp-scrollbar">
-                <div className="flex w-max items-center gap-1.5 pr-1">
-                  {HEADER_STATUS_FILTERS.map((f) => {
-                    const on = data.statusFilter === f.id;
-                    const tone = headerStatusFilterTone(f.id);
-                    const coloredStyle = headerStatusFilterStyle(f.id, on);
-                    return (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => handleStatusFilterChange(f.id)}
-                        className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition ${
-                          on
-                            ? ''
-                            : tone
-                              ? ''
-                              : 'border-[var(--exp-border)] bg-[var(--input-bg)] text-[var(--text-primary)] hover:brightness-105'
-                        }${tone === 'urgente' && on ? ' animate-pulse' : ''}`}
-                        style={coloredStyle}
-                      >
-                        {f.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="hidden shrink-0 items-center gap-1 lg:flex">
-                {filtersButton}
-                {periodFilterNode}
-                {primaryActionButtons}
-                {refreshButton}
-              </div>
-
-              <div className="relative shrink-0 lg:hidden" ref={mobileMenuRef}>
-                <button
-                  type="button"
-                  className="exp-queue-header-btn exp-queue-header-btn--icon !h-8 !w-8"
-                  onClick={() => setMobileActionsOpen((v) => !v)}
-                  aria-label="Menu de ações"
-                  aria-expanded={mobileActionsOpen}
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </button>
-                {mobileActionsOpen ? (
-                  <div className="absolute right-0 top-full z-50 mt-1 flex min-w-[12.5rem] flex-col gap-1 rounded-lg border border-[var(--exp-border)] bg-[var(--bg-card)] p-1.5 shadow-xl">
-                    <div className="px-1 py-1">{filtersButton}</div>
-                    <div className="border-t border-[var(--exp-border)] px-1 py-1">
-                      {periodFilterNode}
-                    </div>
-                    <div className="flex flex-col gap-1 border-t border-[var(--exp-border)] px-1 py-1">
-                      {primaryActionButtons}
-                    </div>
-                    {refreshButton ? (
-                      <div className="border-t border-[var(--exp-border)] px-1 py-1">
-                        {refreshButton}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="exp-queue-header-row !mb-1.5 !gap-2">
-            {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
-            <div className="exp-queue-header-actions !gap-2">
-              {refreshButton}
-            </div>
-          </div>
-        )}
-
-        {isPedidosMode && sourceFilter && onSourceFilterChange ? (
-          <div className="mt-1.5 flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-            <button
-              type="button"
-              onClick={() => onSourceFilterChange('WEG')}
-              className={
-                sourceFilter === 'WEG'
-                  ? 'relative rounded-lg border border-blue-400/30 bg-gradient-to-r from-blue-600 to-blue-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(37,99,235,0.4)]'
-                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
-              }
-            >
-              WEG
-            </button>
-            <button
-              type="button"
-              onClick={() => onSourceFilterChange('SITE')}
-              className={
-                sourceFilter === 'SITE'
-                  ? 'relative rounded-lg border border-blue-400/30 bg-gradient-to-r from-blue-600 to-blue-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(37,99,235,0.4)]'
-                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
-              }
-            >
-              Site
-            </button>
-            <button
-              type="button"
-              onClick={() => onSourceFilterChange('VENDA_EXTERNA')}
-              className={
-                sourceFilter === 'VENDA_EXTERNA'
-                  ? 'relative rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-600 to-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(217,119,6,0.4)]'
-                  : 'relative rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-xs font-semibold text-zinc-400 transition-all duration-150 hover:border-white/20 hover:text-zinc-200'
-              }
-            >
-              Venda Externa
-            </button>
-          </div>
-        ) : null}
-
         {isPedidosMode ? (
           <ErpFilterBar<ExpeditionPedidosPreset>
             storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
@@ -592,6 +436,15 @@ export function OrderQueue(props: {
               setActiveCustomFilterId(null);
               applyPedidosPreset(preset, data);
             }}
+            leadingToolbar={
+              <div className="mb-1.5 flex w-full basis-full items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2 overflow-x-auto erp-scrollbar">
+                  {filtersButton}
+                  {periodFilterNode}
+                </div>
+                {refreshButton ? <div className="shrink-0">{refreshButton}</div> : null}
+              </div>
+            }
             searchSlot={
               <div className="exp-queue-search-wrap erp-filter-search-slot">
                 <Search className="exp-queue-search-icon" aria-hidden />
@@ -608,11 +461,41 @@ export function OrderQueue(props: {
               </div>
             }
           >
-            <p className="text-xs text-[var(--text-secondary)]">
-              Busque por pedido, cliente ou SKU. Filtros salvos aparecem abaixo.
-            </p>
+            <div className="space-y-3">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Status
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {HEADER_STATUS_FILTERS.map((f) => {
+                    const on = data.statusFilter === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => handleStatusFilterChange(f.id)}
+                        className={on ? STATUS_PILL_ACTIVE : STATUS_PILL_INACTIVE}
+                      >
+                        {f.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Busque por pedido, cliente ou SKU. Filtros salvos aparecem abaixo.
+              </p>
+            </div>
           </ErpFilterBar>
-        ) : null}
+        ) : (
+          <div className="exp-queue-header-row !mb-1.5 !gap-2">
+            {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
+            <div className="exp-queue-header-actions !gap-2">
+              {refreshButton}
+            </div>
+          </div>
+        )}
+
       </div>
 
       {isPedidosMode ? (

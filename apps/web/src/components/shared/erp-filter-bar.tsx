@@ -25,6 +25,8 @@ type ErpFilterBarProps<T> = {
   onClearAll: () => void;
   presetValue: T;
   onApplyPreset: (value: T) => void;
+  /** Conteúdo antes dos badges/painel (ex.: botões Filtros / Período no cabeçalho). */
+  leadingToolbar?: React.ReactNode;
   children: React.ReactNode;
   searchSlot?: React.ReactNode;
   panelTitle?: string;
@@ -67,6 +69,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
     onCreateFilter,
     savedFiltersVersion = 0,
     hideSavedPresetsList = false,
+    leadingToolbar,
   } = props;
 
   const [openInternal, setOpenInternal] = useState(false);
@@ -111,8 +114,8 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
 
   return (
     <div className={`erp-filter-bar ${hideFilterButton ? 'erp-filter-bar--header-btn' : ''}`}>
-      {searchSlot}
       <div className="erp-filter-bar-controls" ref={wrapRef}>
+        {leadingToolbar}
         {!hideFilterButton ? (
           <button
             type="button"
@@ -242,6 +245,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
           </div>
         ) : null}
       </div>
+      {searchSlot}
     </div>
   );
 }

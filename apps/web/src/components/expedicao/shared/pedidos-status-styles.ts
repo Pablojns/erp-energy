@@ -5,7 +5,7 @@ import type { OrderStatus, StatusFilterId } from '@/src/components/expedicao/sha
 /** Cores fixas de badge — contraste com texto branco em claro/escuro. */
 export const PEDIDOS_STATUS_BG: Partial<Record<StatusFilterId, string>> = {
   novo: '#2563eb',
-  em_separacao: '#7c3aed',
+  em_separacao: '#2563eb',
   aguardando_nf: '#ea580c',
   finalizado: '#16a34a',
   parcial: '#ca8a04',

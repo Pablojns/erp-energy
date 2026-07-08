@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../src/styles/design-system.css";
 @import "../src/styles/expedition-theme.css";
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -28,8 +29,8 @@ img, video, svg { max-width: 100%; height: auto; }
   --color-background-secondary: #f8fafc;
   --color-text-inverse: #ffffff;
   --color-overlay: rgba(15, 23, 42, 0.55);
-  --accent: #5b5ef4;
-  --accent-hover: #4a4dd4;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
   --danger: #dc2626;
   --success: #16a34a;
   --warning: #d97706;
@@ -60,8 +61,8 @@ img, video, svg { max-width: 100%; height: auto; }
   --color-background-secondary: #0f172a;
   --color-text-inverse: #ffffff;
   --color-overlay: rgba(2, 6, 23, 0.72);
-  --accent: #5b5ef4;
-  --accent-hover: #4a4dd4;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
   --danger: #ef4444;
   --success: #22c55e;
   --warning: #f59e0b;
@@ -144,8 +145,8 @@ textarea {
   --erp-border-strong: color-mix(in srgb, var(--border-color) 80%, var(--text-primary));
   --erp-border-focus: color-mix(in srgb, var(--accent) 55%, transparent);
 
-  --erp-accent: #38bdf8;
-  --erp-accent-soft: rgba(56, 189, 248, 0.18);
+  --erp-accent: var(--accent);
+  --erp-accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --erp-accent-violet: rgba(139, 92, 246, 0.22);
   --erp-success: #34d399;
   --erp-success-soft: rgba(16, 185, 129, 0.14);
@@ -310,8 +311,8 @@ html:not(.dark),
   --color-erp-fg-secondary: var(--erp-fg-secondary);
   --color-erp-fg-muted: var(--erp-fg-muted);
   --color-erp-border: color-mix(in srgb, var(--erp-border) 100%, transparent);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 html {
@@ -323,7 +324,7 @@ html {
 body {
   background: var(--bg-primary);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
   transition:
     background-color 0.35s ease,
     color 0.35s ease;
@@ -482,7 +483,7 @@ body {
 
 .erp-kpi-value {
   margin-top: 0.375rem;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-family: var(--font-inter), ui-monospace, monospace;
   font-size: 1.5rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -871,18 +872,16 @@ body {
 
 /* Buttons */
 .erp-btn-primary {
-  border: 1px solid color-mix(in srgb, var(--erp-accent) 35%, transparent);
-  background: linear-gradient(
-    to right,
-    #7c3aed,
-    #4f46e5,
-    #0ea5e9
-  );
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent);
   color: var(--color-text-inverse);
   box-shadow:
-    0 0 32px -6px var(--erp-glow-violet),
-    0 0 28px -8px var(--erp-glow-blue),
-    inset 0 1px 0 0 color-mix(in srgb, var(--color-text-inverse) 20%, transparent);
+    0 1px 2px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 1px 0 0 color-mix(in srgb, var(--color-text-inverse) 15%, transparent);
+}
+
+.erp-btn-primary:hover {
+  background: var(--accent-hover);
 }
 
 [data-theme='light'] .erp-btn-primary {
@@ -1940,7 +1939,12 @@ body {
 }
 
 .exp-light-subnav-link--active {
-  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
-  color: #4338ca;
-  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.2);
+  background: var(--erp-accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.dark .exp-light-subnav-link--active,
+[data-theme='dark'] .exp-light-subnav-link--active {
+  color: #93c5fd;
 }

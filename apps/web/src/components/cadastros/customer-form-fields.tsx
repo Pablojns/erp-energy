@@ -145,7 +145,7 @@ export function CustomerFormFields(props: {
             type="button"
             onClick={() => void handleCepSearch()}
             disabled={disabled || cepLoading || digitsOnly(values.address.cep).length !== 8}
-            className="inline-flex h-[38px] items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md inline-flex h-[38px] items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {cepLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
