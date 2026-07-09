@@ -1382,12 +1382,19 @@ export class PedidosService {
             const urgentMatch = await this.findMatchingUrgentManualOrder(
               tx,
               orderData.deliveryCnpj ?? null,
-              items.map((r) => r.sku.trim()).filter(Boolean),
+              items
+                .map((r) => ({
+                  sku: r.sku.trim(),
+                  quantity: r.quantidade,
+                }))
+                .filter((row) => row.sku),
             );
 
             if (urgentMatch) {
               orderData.linkedOrderId = urgentMatch.id;
               orderData.status = OrderStatus.AGUARDANDO_NF;
+              orderData.notaRemessa = urgentMatch.notaRemessa;
+              orderData.carrierId = urgentMatch.carrierId;
             }
 
             // Gera code (mesma regra do ERP)
@@ -1547,14 +1554,41 @@ export class PedidosService {
     return digits.length > 0 ? digits : null;
   }
 
+  private aggregateSkuQuantities(
+    items: Array<{ sku: string; quantity: number }>,
+  ): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const item of items) {
+      const sku = item.sku.trim();
+      if (!sku) continue;
+      map.set(sku, (map.get(sku) ?? 0) + item.quantity);
+    }
+    return map;
+  }
+
+  private skuQuantityMapsMatch(
+    manual: Map<string, number>,
+    imported: Map<string, number>,
+  ): boolean {
+    if (manual.size === 0 || manual.size !== imported.size) return false;
+    for (const [sku, qty] of manual) {
+      if (imported.get(sku) !== qty) return false;
+    }
+    return true;
+  }
+
   private async findMatchingUrgentManualOrder(
     tx: Prisma.TransactionClient,
-    deliveryCnpj: string | null,
-    skus: string[],
-  ): Promise<{ id: string } | null> {
-    const cnpjDigits = this.normalizeCnpjDigits(deliveryCnpj);
-    const skuSet = new Set(skus.map((s) => s.trim()).filter(Boolean));
-    if (!cnpjDigits || skuSet.size === 0) return null;
+    importedCnpj: string | null,
+    importedItems: Array<{ sku: string; quantity: number }>,
+  ): Promise<{
+    id: string;
+    notaRemessa: string | null;
+    carrierId: string | null;
+  } | null> {
+    const importedCnpjDigits = this.normalizeCnpjDigits(importedCnpj);
+    const importedSkuQty = this.aggregateSkuQuantities(importedItems);
+    if (!importedCnpjDigits || importedSkuQty.size === 0) return null;
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const candidates = await tx.order.findMany({
@@ -1563,24 +1597,36 @@ export class PedidosService {
         linkedOrderId: null,
         source: OrderSource.MANUAL,
         createdAt: { gte: thirtyDaysAgo },
-        deliveryCnpj: { not: null },
+        customerDocument: { not: null },
       },
-      include: {
-        items: { select: { sku: true } },
+      select: {
+        id: true,
+        customerDocument: true,
+        notaRemessa: true,
+        carrierId: true,
+        items: { select: { sku: true, quantity: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     for (const candidate of candidates) {
-      if (this.normalizeCnpjDigits(candidate.deliveryCnpj) !== cnpjDigits) {
+      if (
+        this.normalizeCnpjDigits(candidate.customerDocument) !==
+        importedCnpjDigits
+      ) {
         continue;
       }
-      const hasCommonSku = candidate.items.some((item) =>
-        skuSet.has(item.sku.trim()),
-      );
-      if (hasCommonSku) {
-        return { id: candidate.id };
+
+      const manualSkuQty = this.aggregateSkuQuantities(candidate.items);
+      if (!this.skuQuantityMapsMatch(manualSkuQty, importedSkuQty)) {
+        continue;
       }
+
+      return {
+        id: candidate.id,
+        notaRemessa: candidate.notaRemessa,
+        carrierId: candidate.carrierId,
+      };
     }
 
     return null;
