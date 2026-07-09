@@ -134,8 +134,16 @@ export type ExpeditionSummary = {
   rupturaPedidos?: number;
 };
 
+export type PedidosFilterField =
+  | ''
+  | 'invoiceNumber'
+  | 'receiverName'
+  | 'unloadingPoint';
+
 export type FilterFormState = {
   search: string;
+  filterField: PedidosFilterField;
+  filterValue: string;
   source: 'all' | OrderSource;
   invoiceStatus: 'all' | InvoiceStatus;
   externalOrderNumber: string;

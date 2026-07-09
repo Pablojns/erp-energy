@@ -77,6 +77,10 @@ export function buildFilterParams(opts: {
   if (f.deliveryDateTo.trim())
     params.set('deliveryDateTo', f.deliveryDateTo.trim());
   if (opts.searchDebounced.trim()) params.set('search', opts.searchDebounced.trim());
+  if (f.filterField && f.filterValue.trim()) {
+    params.set('filterField', f.filterField);
+    params.set('filterValue', f.filterValue.trim());
+  }
 
   if (opts.mode === 'separation' && opts.separationSubFilter === 'urgente') {
     params.set('status', 'urgent');

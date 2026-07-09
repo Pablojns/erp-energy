@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  X,
 } from 'lucide-react';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
 import {
@@ -20,7 +21,7 @@ import {
 import { PedidosPeriodFilter } from '@/src/components/expedicao/workspace/pedidos-period-filter';
 import { RemoveFromSeparationModal } from '@/src/components/expedicao/workspace/remove-from-separation-modal';
 import { pedidosStatusBadgeStyle } from '@/src/components/expedicao/shared/pedidos-status-styles';
-import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
+import type { PedidosFilterField, StatusFilterId } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
@@ -89,6 +90,31 @@ function headerStatusFilterStyle(id: StatusFilterId, active: boolean) {
 }
 
 const EXPEDITION_PEDIDOS_FILTER_KEY = 'erp.filters.expedicao.pedidos';
+
+const PEDIDOS_FIELD_FILTER_OPTIONS: Array<{
+  value: PedidosFilterField;
+  label: string;
+  placeholder: string;
+}> = [
+  { value: 'invoiceNumber', label: 'Nota Fiscal', placeholder: 'Digite a NF...' },
+  { value: 'receiverName', label: 'Recebedor', placeholder: 'Digite o recebedor...' },
+  {
+    value: 'unloadingPoint',
+    label: 'Ponto de Descarga',
+    placeholder: 'Digite o ponto de descarga...',
+  },
+];
+
+function pedidosFieldFilterLabel(field: PedidosFilterField): string {
+  return PEDIDOS_FIELD_FILTER_OPTIONS.find((o) => o.value === field)?.label ?? field;
+}
+
+function pedidosFieldFilterPlaceholder(field: PedidosFilterField): string {
+  return (
+    PEDIDOS_FIELD_FILTER_OPTIONS.find((o) => o.value === field)?.placeholder ??
+    'Digite o valor...'
+  );
+}
 
 function normalizePedidosStatusFilter(id: string): StatusFilterId {
   if (id === 'cotacao') return 'all';
@@ -204,6 +230,12 @@ export function OrderQueue(props: {
     if (q) {
       badges.push({ key: 'search', label: `Busca: ${q}` });
     }
+    if (data.appliedFilters.filterField && data.appliedFilters.filterValue.trim()) {
+      badges.push({
+        key: 'fieldFilter',
+        label: `${pedidosFieldFilterLabel(data.appliedFilters.filterField)}: ${data.appliedFilters.filterValue.trim()}`,
+      });
+    }
     if (data.appliedFilters.orderDateFrom.trim()) {
       badges.push({
         key: 'dateFrom',
@@ -239,6 +271,10 @@ export function OrderQueue(props: {
       data.setAppliedFilters((f) => ({ ...f, search: '' }));
       return;
     }
+    if (key === 'fieldFilter') {
+      data.setAppliedFilters((f) => ({ ...f, filterField: '', filterValue: '' }));
+      return;
+    }
     if (key === 'dateFrom') {
       data.setAppliedFilters((f) => ({ ...f, orderDateFrom: '' }));
       return;
@@ -255,6 +291,8 @@ export function OrderQueue(props: {
     data.setAppliedFilters((f) => ({
       ...f,
       search: '',
+      filterField: '',
+      filterValue: '',
       orderDateFrom: '',
       orderDateTo: '',
     }));
@@ -446,18 +484,79 @@ export function OrderQueue(props: {
               </div>
             }
             searchSlot={
-              <div className="exp-queue-search-wrap erp-filter-search-slot">
-                <Search className="exp-queue-search-icon" aria-hidden />
-                <input
-                  type="search"
-                  value={data.appliedFilters.search}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
+                  <Search className="exp-queue-search-icon" aria-hidden />
+                  <input
+                    type="search"
+                    value={data.appliedFilters.search}
+                    onChange={(e) => {
+                      data.setPage(1);
+                      data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
+                    }}
+                    placeholder="Número do pedido..."
+                    className="exp-queue-search"
+                  />
+                </div>
+                <select
+                  value={data.appliedFilters.filterField}
                   onChange={(e) => {
                     data.setPage(1);
-                    data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
+                    const next = e.target.value as PedidosFilterField;
+                    data.setAppliedFilters((f) => ({
+                      ...f,
+                      filterField: next,
+                      filterValue: next ? f.filterValue : '',
+                    }));
                   }}
-                  placeholder="NF (ex: 1885), pedido, recebedor, SKU..."
-                  className="exp-queue-search"
-                />
+                  className="h-9 min-w-[9.5rem] shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  aria-label="Filtrar por campo"
+                >
+                  <option value="">Filtrar por...</option>
+                  {PEDIDOS_FIELD_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {data.appliedFilters.filterField ? (
+                  <>
+                    <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
+                      <input
+                        type="search"
+                        value={data.appliedFilters.filterValue}
+                        onChange={(e) => {
+                          data.setPage(1);
+                          data.setAppliedFilters((f) => ({
+                            ...f,
+                            filterValue: e.target.value,
+                          }));
+                        }}
+                        placeholder={pedidosFieldFilterPlaceholder(
+                          data.appliedFilters.filterField,
+                        )}
+                        className="exp-queue-search !pl-3"
+                        aria-label={`Valor do filtro ${pedidosFieldFilterLabel(data.appliedFilters.filterField)}`}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        data.setPage(1);
+                        data.setAppliedFilters((f) => ({
+                          ...f,
+                          filterField: '',
+                          filterValue: '',
+                        }));
+                      }}
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
+                      aria-label="Limpar filtro selecionado"
+                      title="Limpar filtro"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </>
+                ) : null}
               </div>
             }
           >

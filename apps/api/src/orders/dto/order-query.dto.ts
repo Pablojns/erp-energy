@@ -133,11 +133,23 @@ export class OrderQueryDto {
   @IsString()
   deliveryDateTo?: string;
 
-  /** Busca ampla em código, número externo, ME, SKU (item), recebedor, CNPJ */
+  /** Busca por número de pedido (externalOrderNumber / code). */
   @IsOptional()
   @IsString()
   @MaxLength(200)
   search?: string;
+
+  /** Campo específico para filtro complementar à busca. */
+  @IsOptional()
+  @IsString()
+  @IsIn(['invoiceNumber', 'receiverName', 'unloadingPoint'])
+  filterField?: string;
+
+  /** Valor do filtro específico (contains). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  filterValue?: string;
 
   @IsOptional()
   @IsString()

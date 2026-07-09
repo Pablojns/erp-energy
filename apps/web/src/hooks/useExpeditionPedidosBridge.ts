@@ -41,12 +41,21 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     source: opts.initialOrderSource ?? INITIAL_FILTERS.source,
   }));
   const [searchDebounced, setSearchDebounced] = useState('');
+  const [filterValueDebounced, setFilterValueDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [sum, setSum] = useState<ExpeditionSummary | null>(null);
   const [sumLoading, setSumLoading] = useState(true);
 
   const infiniteScroll = mode === 'expedition';
+
+  const appliedFiltersForApi = useMemo(
+    () => ({
+      ...appliedFilters,
+      filterValue: filterValueDebounced,
+    }),
+    [appliedFilters, filterValueDebounced],
+  );
 
   const {
     pedidos: fetchedOrders,
@@ -59,7 +68,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   } = usePedidos({
     statusFilter,
     search: searchDebounced,
-    appliedFilters,
+    appliedFilters: appliedFiltersForApi,
     page,
     pageSize: 25,
     mode,
@@ -101,6 +110,14 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     );
     return () => clearTimeout(t);
   }, [appliedFilters.search]);
+
+  useEffect(() => {
+    const t = setTimeout(
+      () => setFilterValueDebounced(appliedFilters.filterValue.trim()),
+      360,
+    );
+    return () => clearTimeout(t);
+  }, [appliedFilters.filterValue]);
 
   const loadSummary = useCallback(async () => {
     setSumLoading(true);

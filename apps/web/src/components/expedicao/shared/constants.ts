@@ -6,6 +6,8 @@ import type { FilterFormState, StatusFilterId } from '@/src/components/expedicao
 
 export const INITIAL_FILTERS: FilterFormState = {
   search: '',
+  filterField: '',
+  filterValue: '',
   source: 'all',
   invoiceStatus: 'all',
   externalOrderNumber: '',
