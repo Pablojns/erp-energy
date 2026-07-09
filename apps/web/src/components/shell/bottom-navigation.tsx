@@ -4,27 +4,32 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, MessageSquare, Menu, Package, Truck, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { MAIN_NAV_ITEMS } from '@/src/components/shell/nav-config';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 
 function isNavActive(pathname: string, href: string): boolean {
   if (href === '/app') return pathname === '/app';
   return pathname.startsWith(href);
 }
 
-const PRIMARY_ITEMS = [
-  { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/app/expedicao', label: 'Expedição', icon: Truck },
-  { href: '/app/estoque', label: 'Estoque', icon: Package },
-  { href: '/app/chat', label: 'Chat', icon: MessageSquare },
-] as const;
-
 export function BottomNavigation() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { mainNavItems } = useNavPermissions();
+
+  const primaryItems = useMemo(
+    () =>
+      [
+        { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
+        { href: '/app/expedicao', label: 'Expedição', icon: Truck },
+        { href: '/app/estoque', label: 'Estoque', icon: Package },
+        { href: '/app/chat', label: 'Chat', icon: MessageSquare },
+      ].filter((item) => mainNavItems.some((nav) => nav.href === item.href)),
+    [mainNavItems],
+  );
 
   const overflowItems = useMemo(
-    () => MAIN_NAV_ITEMS.filter((item) => !PRIMARY_ITEMS.some((p) => p.href === item.href)),
-    [],
+    () => mainNavItems.filter((item) => !primaryItems.some((p) => p.href === item.href)),
+    [mainNavItems, primaryItems],
   );
 
   return (
@@ -67,7 +72,7 @@ export function BottomNavigation() {
 
       <nav className="fixed inset-x-0 bottom-0 z-[60] h-[60px] border-t border-white/10 bg-[#0d0f14] lg:hidden">
         <ul className="mx-auto grid h-full max-w-[640px] grid-cols-5">
-          {PRIMARY_ITEMS.map((item) => {
+          {primaryItems.map((item) => {
             const active = isNavActive(pathname, item.href);
             const Icon = item.icon;
             return (

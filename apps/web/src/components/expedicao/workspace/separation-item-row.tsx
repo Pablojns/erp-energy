@@ -10,8 +10,7 @@ import {
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 
 function defaultSeparationQty(item: OrderItemDto): number {
-  const picked = item.pickedQty ?? 0;
-  return picked > 0 ? picked : item.quantity;
+  return item.pickedQty ?? 0;
 }
 
 function lineStatusLabel(qty: number, ordered: number): string {
@@ -43,9 +42,8 @@ export function SeparationItemRow(props: {
   }, [item.id, item.pickedQty, item.quantity]);
 
   const handleConfirm = () => {
-    const qtyToSend = qtyClamped > 0 ? qtyClamped : item.quantity;
     setConfirming(true);
-    void Promise.resolve(onConfirmLine(qtyToSend)).finally(() => setConfirming(false));
+    void Promise.resolve(onConfirmLine(qtyClamped)).finally(() => setConfirming(false));
   };
 
   return (

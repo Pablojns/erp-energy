@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2, Pencil, Tag } from 'lucide-react';
+import { CalendarDays, Loader2, Pencil, Tag, Trash2 } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -15,6 +15,7 @@ import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
 
 type CarrierOption = {
   id: string;
@@ -136,6 +137,7 @@ export const OrderInfoPanel = forwardRef<
   const [volumesError, setVolumesError] = useState<string | null>(null);
   const lastSavedVolumesRef = useRef<number | null>(order.volumes ?? null);
   const [emittingEtiqueta, setEmittingEtiqueta] = useState(false);
+  const [cancellingEtiqueta, setCancellingEtiqueta] = useState(false);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
   const [trackingCodeInput, setTrackingCodeInput] = useState(order.trackingCode ?? '');
   const [savingTrackingCode, setSavingTrackingCode] = useState(false);
@@ -143,6 +145,9 @@ export const OrderInfoPanel = forwardRef<
   const lastSavedTrackingCodeRef = useRef(order.trackingCode ?? '');
 
   const canEmitEtiqueta = order.status === 'FINALIZADO';
+  const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
+  const canCancelCorreiosEtiqueta =
+    isCorreiosOrder && Boolean(order.trackingCode?.trim());
   const canEditTrackingCode = order.status === 'FINALIZADO';
 
   useEffect(() => {
@@ -357,7 +362,8 @@ export const OrderInfoPanel = forwardRef<
     setEtiquetaError(null);
 
     try {
-      const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, 'etiqueta')}`, {
+      const etiquetaEndpoint = isCorreiosOrder ? 'etiqueta-correios' : 'etiqueta';
+      const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, etiquetaEndpoint)}`, {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -379,12 +385,49 @@ export const OrderInfoPanel = forwardRef<
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      onStatusChanged?.();
     } catch (err) {
       setEtiquetaError(
         err instanceof Error ? err.message : 'Não foi possível gerar a etiqueta.',
       );
     } finally {
       setEmittingEtiqueta(false);
+    }
+  };
+
+  const handleCancelCorreiosEtiqueta = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setEtiquetaError('Número do pedido inválido.');
+      return;
+    }
+
+    const tracking = order.trackingCode?.trim();
+    if (!tracking) return;
+
+    const confirmed = window.confirm(
+      `Cancelar a etiqueta Correios ${tracking}?\n\nA pré-postagem será cancelada no site dos Correios e o código de rastreio será removido do pedido.`,
+    );
+    if (!confirmed) return;
+
+    setCancellingEtiqueta(true);
+    setEtiquetaError(null);
+
+    try {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'etiqueta-correios'), {
+        method: 'DELETE',
+      });
+      setTrackingCodeInput('');
+      lastSavedTrackingCodeRef.current = '';
+      onStatusChanged?.();
+    } catch (err) {
+      setEtiquetaError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível cancelar a etiqueta Correios.',
+      );
+    } finally {
+      setCancellingEtiqueta(false);
     }
   };
 
@@ -458,7 +501,7 @@ export const OrderInfoPanel = forwardRef<
               type="button"
               className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => void handleEmitEtiqueta()}
-              disabled={emittingEtiqueta}
+              disabled={emittingEtiqueta || cancellingEtiqueta}
             >
               {emittingEtiqueta ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -466,6 +509,21 @@ export const OrderInfoPanel = forwardRef<
                 <Tag className="h-3.5 w-3.5" />
               )}
               Imprimir Etiqueta
+            </button>
+          ) : null}
+          {canCancelCorreiosEtiqueta ? (
+            <button
+              type="button"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleCancelCorreiosEtiqueta()}
+              disabled={cancellingEtiqueta || emittingEtiqueta}
+            >
+              {cancellingEtiqueta ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Cancelar Etiqueta
             </button>
           ) : null}
           {etiquetaError ? (

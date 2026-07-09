@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   InvoiceStatus,
   OrderItemStockStatus,
@@ -9,6 +10,8 @@ import {
 } from '@erp/database';
 import PDFDocument from 'pdfkit';
 import { AuditService } from '../common/audit.service';
+import { parseStoredDeliveryAddress } from '../common/delivery-address';
+import { CorreiosService } from '../correios/correios.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
@@ -54,6 +57,8 @@ export class PedidosService {
     private readonly audit: AuditService,
     private readonly carrierResolver: CarrierResolverService,
     private readonly notifications: NotificationsService,
+    private readonly correiosService: CorreiosService,
+    private readonly config: ConfigService,
   ) {}
 
   async createManual(userId: string, dto: CreateManualPedidoDto) {
@@ -722,6 +727,317 @@ export class PedidosService {
     });
 
     return this.orders.findOne(order.id);
+  }
+
+  async gerarEtiquetaCorreios(
+    numeroPed: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        carrier: { select: { name: true } },
+        items: { select: { description: true, sku: true }, take: 5 },
+      },
+    });
+
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const pedidoNum =
+      order.externalOrderNumber?.trim() || order.code?.trim() || trimmed;
+    const filename =
+      `correios-${pedidoNum}`.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_') ||
+      'correios-pedido';
+
+    const exit = await this.prisma.client.orderExit.findUnique({
+      where: { orderId: order.id },
+      select: { id: true, trackingCode: true },
+    });
+    const trackingExistente =
+      exit?.trackingCode?.trim() || order.trackingCode?.trim() || '';
+
+    if (trackingExistente) {
+      const prePostagemExistente =
+        await this.correiosService.buscarPrePostagemPorCodigoObjeto(
+          trackingExistente,
+        );
+      const prePostagemId =
+        typeof prePostagemExistente?.id === 'string'
+          ? prePostagemExistente.id
+          : null;
+      const podeReimprimir =
+        prePostagemExistente?.statusAtual === 2 ||
+        prePostagemExistente?.descStatusAtual === 'Pré-postado';
+
+      if (prePostagemId && podeReimprimir) {
+        const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
+        return { buffer, filename };
+      }
+    }
+
+    const carrierName = order.carrier?.name ?? '';
+    const codigoServico = this.mapCarrierToCorreiosService(carrierName);
+    const remetente = await this.buildRemetenteCorreios();
+    const destinatario = this.parseDestinatarioFromOrder(order);
+    const descricaoConteudo =
+      order.items
+        .map((item) => item.description?.trim() || item.sku?.trim())
+        .filter(Boolean)
+        .join(', ')
+        .slice(0, 200) || 'Mercadorias';
+
+    const prePostagem = await this.correiosService.criarPrePostagem({
+      remetente,
+      destinatario,
+      numeroNotaFiscal: order.invoiceNumber?.trim() || undefined,
+      objeto: {
+        codigoServico,
+        pesoGramas: 0,
+        comprimento: 0,
+        largura: 0,
+        altura: 0,
+        descricaoConteudo,
+      },
+    });
+
+    const prePostagemId =
+      prePostagem?.id ?? prePostagem?.idPrePostagem ?? prePostagem?.idRecibo;
+    if (!prePostagemId) {
+      throw new BadRequestException(
+        'Correios não retornou o ID da pré-postagem.',
+      );
+    }
+
+    const buffer = await this.correiosService.gerarRotulo([String(prePostagemId)]);
+
+    const codigoRastreio =
+      typeof prePostagem?.codigoObjeto === 'string'
+        ? prePostagem.codigoObjeto.trim()
+        : '';
+    if (codigoRastreio) {
+      if (exit) {
+        await this.prisma.client.orderExit.update({
+          where: { id: exit.id },
+          data: { trackingCode: codigoRastreio },
+        });
+      } else {
+        await this.prisma.client.order.update({
+          where: { id: order.id },
+          data: { trackingCode: codigoRastreio },
+        });
+      }
+    }
+
+    return { buffer, filename };
+  }
+
+  async cancelarEtiquetaCorreios(numeroPed: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        carrier: { select: { name: true } },
+      },
+    });
+
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    this.mapCarrierToCorreiosService(order.carrier?.name ?? '');
+
+    const exit = await this.prisma.client.orderExit.findUnique({
+      where: { orderId: order.id },
+      select: { id: true, trackingCode: true },
+    });
+
+    const trackingCode =
+      exit?.trackingCode?.trim() || order.trackingCode?.trim() || '';
+    if (!trackingCode) {
+      throw new BadRequestException(
+        'Pedido sem etiqueta Correios para cancelar.',
+      );
+    }
+
+    const prePostagem =
+      await this.correiosService.buscarPrePostagemPorCodigoObjeto(trackingCode);
+    const prePostagemId =
+      typeof prePostagem?.id === 'string' ? prePostagem.id : null;
+    if (!prePostagemId) {
+      throw new NotFoundException(
+        'Pré-postagem não encontrada nos Correios para este rastreio.',
+      );
+    }
+
+    await this.correiosService.cancelarPrePostagem(prePostagemId);
+
+    if (exit) {
+      await this.prisma.client.orderExit.update({
+        where: { id: exit.id },
+        data: { trackingCode: null },
+      });
+    } else {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: { trackingCode: null },
+      });
+    }
+
+    return {
+      ok: true,
+      message: 'Etiqueta Correios cancelada com sucesso.',
+      codigoObjeto: trackingCode,
+    };
+  }
+
+  private mapCarrierToCorreiosService(carrierName: string): string {
+    const upper = carrierName.toUpperCase();
+    if (upper.includes('MINI ENVIOS')) {
+      return this.config.get<string>('CORREIOS_CODIGO_MINI_ENVIOS') ?? '04227';
+    }
+    if (upper.includes('SEDEX')) {
+      return this.config.get<string>('CORREIOS_CODIGO_SEDEX') ?? '03220';
+    }
+    if (upper.includes('PAC')) {
+      return this.config.get<string>('CORREIOS_CODIGO_PAC') ?? '03298';
+    }
+    throw new BadRequestException(
+      'Transportadora não suportada para etiqueta Correios. Use PAC, SEDEX ou MINI ENVIOS.',
+    );
+  }
+
+  private async buildRemetenteCorreios() {
+    const cep = (this.config.get<string>('CORREIOS_CEP_ORIGEM') ?? '').replace(
+      /\D/g,
+      '',
+    );
+    if (cep.length !== 8) {
+      throw new BadRequestException('CORREIOS_CEP_ORIGEM inválido ou ausente.');
+    }
+
+    let cepData: Record<string, string> = {};
+    try {
+      cepData = (await this.correiosService.buscarCep(cep)) as Record<
+        string,
+        string
+      >;
+    } catch {
+      /* usa fallback abaixo */
+    }
+
+    return {
+      nome: 'Energy Brands',
+      cpfCnpj: this.config.get<string>('CORREIOS_USUARIO') ?? '',
+      cep,
+      logradouro: cepData.logradouro ?? cepData.end ?? 'Endereço remetente',
+      numero: 'S/N',
+      bairro: cepData.bairro ?? '',
+      cidade: cepData.localidade ?? cepData.cidade ?? '',
+      uf: cepData.uf ?? '',
+    };
+  }
+
+  private parseDestinatarioFromOrder(order: {
+    receiverName: string | null;
+    customerName: string;
+    customerDocument: string | null;
+    deliveryCnpj: string | null;
+    deliveryAddress: string | null;
+    deliveryCity: string | null;
+    deliveryState: string | null;
+    unloadingPoint: string | null;
+  }) {
+    const nome =
+      order.receiverName?.trim() || order.customerName?.trim() || 'Destinatário';
+    const cpfCnpj =
+      order.customerDocument?.replace(/\D/g, '') ||
+      order.deliveryCnpj?.replace(/\D/g, '') ||
+      '';
+
+    const structured =
+      parseStoredDeliveryAddress(order.deliveryAddress) ??
+      parseStoredDeliveryAddress(order.unloadingPoint);
+    if (structured) {
+      return {
+        nome,
+        cpfCnpj,
+        cep: structured.cep,
+        logradouro: structured.logradouro,
+        numero: structured.numero,
+        complemento: structured.complemento,
+        bairro: structured.bairro,
+        cidade: structured.cidade,
+        uf: structured.uf,
+      };
+    }
+
+    const addressRaw =
+      order.deliveryAddress?.trim() || order.unloadingPoint?.trim() || '';
+
+    const cepMatch = addressRaw.match(/CEP\s*([\d.-]+)/i);
+    const cep = cepMatch?.[1]?.replace(/\D/g, '') ?? '';
+    if (cep.length !== 8) {
+      throw new BadRequestException(
+        'Pedido sem CEP do destinatário para etiqueta Correios.',
+      );
+    }
+
+    const withoutCep = addressRaw.replace(/\s*-\s*CEP\s*[\d.-]+/i, '').trim();
+    const segments = withoutCep
+      .split(' - ')
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    let cidade = order.deliveryCity?.trim() ?? '';
+    let uf = order.deliveryState?.trim().toUpperCase() ?? '';
+    let logradouro = '';
+    let numero = 'S/N';
+    let complemento = '';
+    let bairro = '';
+
+    if (segments.length > 0) {
+      const last = segments[segments.length - 1];
+      const cityState = last.match(/^(.+)\/([A-Za-z]{2})$/);
+      if (cityState) {
+        if (!cidade) cidade = cityState[1].trim();
+        if (!uf) uf = cityState[2].trim().toUpperCase();
+        segments.pop();
+      }
+    }
+
+    if (segments[0]) {
+      const streetParts = segments[0].split(',').map((part) => part.trim());
+      logradouro = streetParts[0] ?? '';
+      if (streetParts[1]) numero = streetParts[1];
+    }
+    if (segments.length >= 3) {
+      complemento = segments[1] ?? '';
+      bairro = segments.slice(2).join(' - ');
+    } else if (segments[1]) {
+      bairro = segments[1];
+    }
+
+    if (!logradouro || !cidade || !uf) {
+      throw new BadRequestException(
+        'Endereço do destinatário incompleto para etiqueta Correios.',
+      );
+    }
+
+    return {
+      nome,
+      cpfCnpj,
+      cep,
+      logradouro,
+      numero,
+      complemento,
+      bairro,
+      cidade,
+      uf,
+    };
   }
 
   async gerarEtiquetaPdf(

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, FileText, Loader2, PackageOpen, Tag } from 'lucide-react';
+import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
 import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-panel';
 import { ConcluirModal } from '@/src/components/expedicao/workspace/concluir-modal';
@@ -143,25 +144,16 @@ export function SeparationWorkbench(props: {
     },
     { complete: 0, partial: 0, pending: 0 },
   );
-  const finalLotStatus = itemCounts.pending === 0 && itemCounts.partial === 0 ? 'COMPLETO' : 'PARCIAL';
-  const allItemsConfirmed =
-    order.items.length > 0 &&
-    order.items.every((it) => (it.pickedQty ?? 0) > 0);
+  const finalLotStatus =
+    itemCounts.pending === 0 && itemCounts.partial === 0 ? 'COMPLETO' : 'PARCIAL';
   const hasAnySeparatedQty = order.items.some((it) => (it.pickedQty ?? 0) > 0);
-  const canFinalizeSeparation = allItemsConfirmed;
+  const canFinalizeSeparation = hasAnySeparatedQty;
 
   const handleFinalizeSeparation = async () => {
     if (!hasAnySeparatedQty) {
       data.setToast({
         variant: 'err',
-        message: 'Confirme ao menos um item antes de finalizar',
-      });
-      return;
-    }
-    if (!allItemsConfirmed) {
-      data.setToast({
-        variant: 'err',
-        message: 'Confirme todos os itens antes de finalizar a separação.',
+        message: 'Confirme ao menos um item com quantidade maior que zero antes de finalizar.',
       });
       return;
     }
@@ -185,9 +177,17 @@ export function SeparationWorkbench(props: {
 
     setPrintingEtiqueta(true);
     try {
-      const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, 'etiqueta')}`, {
-        credentials: 'include',
-      });
+      const useCorreiosEtiqueta = isCorreiosCarrier(order.carrierName);
+      const etiquetaEndpoint = useCorreiosEtiqueta
+        ? 'etiqueta-correios'
+        : 'etiqueta';
+
+      const res = await fetch(
+        `/api/erp/${pedidoApiUrl(numeroPed, etiquetaEndpoint)}`,
+        {
+          credentials: 'include',
+        },
+      );
       if (!res.ok) {
         const text = await res.text();
         let message = 'Não foi possível gerar a etiqueta.';
@@ -396,7 +396,7 @@ export function SeparationWorkbench(props: {
                     ? 'Informe quantos volumes serão enviados'
                     : canFinalizeSeparation
                       ? undefined
-                      : 'Confirme todos os itens antes de finalizar'
+                      : 'Confirme ao menos um item com quantidade maior que zero'
                 }
                 onClick={() => void handleFinalizeSeparation()}
               >

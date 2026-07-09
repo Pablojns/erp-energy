@@ -374,7 +374,15 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         });
       }
       await refreshAll();
-      setToast({ variant: 'ok', message: 'Item confirmado.' });
+      setToast({
+        variant: 'ok',
+        message:
+          qtyLine === 0
+            ? 'Item marcado como pendente.'
+            : qtyLine >= (item?.quantity ?? 0)
+              ? 'Item confirmado (completo).'
+              : 'Item confirmado (parcial).',
+      });
     } catch (e) {
       setToast({
         variant: 'err',

@@ -19,7 +19,8 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { MAIN_NAV_ITEMS, type NavIconName } from '@/src/components/shell/nav-config';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
+import { type NavIconName } from '@/src/components/shell/nav-config';
 
 const NAV_ICONS: Record<NavIconName, LucideIcon> = {
   layoutDashboard: LayoutDashboard,
@@ -42,6 +43,7 @@ function isNavActive(pathname: string, href: string): boolean {
 export function MobileNavDrawer() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { mainNavItems } = useNavPermissions();
 
   return (
     <>
@@ -90,7 +92,7 @@ export function MobileNavDrawer() {
 
             <nav className="erp-scrollbar flex-1 overflow-y-auto p-3" aria-label="Módulos">
               <ul className="space-y-1">
-                {MAIN_NAV_ITEMS.map((item) => {
+                {mainNavItems.map((item) => {
                   const active = isNavActive(pathname, item.href);
                   const Icon = NAV_ICONS[item.iconName];
                   return (

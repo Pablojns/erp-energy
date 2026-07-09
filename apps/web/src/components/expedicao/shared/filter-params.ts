@@ -1,4 +1,5 @@
-import type { FilterFormState, StatusFilterId } from '@/src/components/expedicao/shared/types';
+import type { FilterFormState, OrderDto, StatusFilterId } from '@/src/components/expedicao/shared/types';
+import { orderMatchesParcialFilter } from '@/src/components/expedicao/shared/order-helpers';
 
 export function applyStatusFilter(
   filter: StatusFilterId,
@@ -26,7 +27,7 @@ export function applyStatusFilter(
       params.set('status', 'AGUARDANDO_NF');
       break;
     case 'parcial':
-      params.set('status', 'PARCIAL');
+      // Filtragem por lote parcial é feita no cliente (pickedQty por linha).
       break;
     case 'aguardando_estoque':
       params.set('workspace', 'pendencies');
@@ -97,6 +98,7 @@ export function clientRefineOrders<
     priority: number;
     unidadesFaltantes?: number;
     requestedDeliveryDate?: string | null;
+    items?: OrderDto['items'];
   },
 >(
   orders: T[],
@@ -108,11 +110,14 @@ export function clientRefineOrders<
   if (statusFilter === 'novo') {
     list = list.filter((o) => o.status === 'NOVO' || o.status === 'ANALISADO');
   }
+  if (statusFilter === 'parcial') {
+    list = list.filter((o) => orderMatchesParcialFilter(o as unknown as OrderDto));
+  }
   if (statusFilter === 'atrasado' && isOverdue) {
     list = list.filter(isOverdue);
   }
   if (separationSubFilter === 'parcial') {
-    list = list.filter((o) => o.status === 'PARCIAL');
+    list = list.filter((o) => orderMatchesParcialFilter(o as unknown as OrderDto));
   }
   if (separationSubFilter === 'sem_estoque') {
     list = list.filter((o) => (o.unidadesFaltantes ?? 0) > 0);

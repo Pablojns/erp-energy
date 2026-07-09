@@ -19,6 +19,18 @@ export class PermissionSyncService implements OnModuleInit {
   ) {}
 
   private readonly extraPermissions: RequiredPermission[] = [
+    { module: 'dashboard', action: 'ver_modulo' },
+    { module: 'expedicao', action: 'ver_modulo' },
+    { module: 'expedicao', action: 'ver_pedidos' },
+    { module: 'expedicao', action: 'ver_separacao' },
+    { module: 'expedicao', action: 'ver_saidas' },
+    { module: 'expedicao', action: 'ver_romaneio' },
+    { module: 'estoque', action: 'ver_modulo' },
+    { module: 'compras', action: 'ver_modulo' },
+    { module: 'financeiro', action: 'ver_modulo' },
+    { module: 'cadastros', action: 'ver_modulo' },
+    { module: 'crm', action: 'ver_modulo' },
+    { module: 'chat', action: 'ver_modulo' },
     { module: 'notificacoes', action: 'receber_estoque' },
     { module: 'notificacoes', action: 'receber_expedicao' },
     { module: 'notificacoes', action: 'receber_financeiro' },

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export function ConcluirModal(props: {
@@ -48,28 +47,57 @@ export function ConcluirModal(props: {
           </p>
         </div>
 
-        <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-            Itens separados
-          </p>
-          <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-sm">
-            {items.map((item) => {
-              const picked = item.pickedQty ?? 0;
-              return (
-                <li
-                  key={item.id}
-                  className="flex items-start justify-between gap-3 text-[var(--text-primary)]"
-                >
-                  <span className="min-w-0 flex-1 truncate" title={item.description}>
-                    {item.description}
-                  </span>
-                  <span className="shrink-0 font-medium tabular-nums">
-                    {picked} / {item.quantity}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+        <div className="mt-4 space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] p-3">
+          {items.some((item) => (item.pickedQty ?? 0) > 0) ? (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                Itens neste lote
+              </p>
+              <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-sm">
+                {items
+                  .filter((item) => (item.pickedQty ?? 0) > 0)
+                  .map((item) => {
+                    const picked = item.pickedQty ?? 0;
+                    const lineStatus =
+                      picked >= item.quantity ? 'completo' : 'parcial';
+                    return (
+                      <li
+                        key={item.id}
+                        className="flex items-start justify-between gap-3 text-[var(--text-primary)]"
+                      >
+                        <span className="min-w-0 flex-1 truncate" title={item.description}>
+                          {item.description}
+                        </span>
+                        <span
+                          className={`shrink-0 font-medium tabular-nums ${
+                            lineStatus === 'parcial' ? 'text-amber-500' : ''
+                          }`}
+                        >
+                          {picked} / {item.quantity}
+                        </span>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          ) : null}
+
+          {items.some((item) => (item.pickedQty ?? 0) === 0) ? (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                Itens pendentes (não vão neste lote)
+              </p>
+              <ul className="mt-2 max-h-32 space-y-1.5 overflow-y-auto text-sm text-[var(--text-secondary)]">
+                {items
+                  .filter((item) => (item.pickedQty ?? 0) === 0)
+                  .map((item) => (
+                    <li key={item.id} className="truncate" title={item.description}>
+                      {item.description} — 0 / {item.quantity}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-4 space-y-1 text-sm text-[var(--text-primary)]">
@@ -77,16 +105,19 @@ export function ConcluirModal(props: {
           <p className={partial > 0 ? 'font-semibold text-amber-500' : ''}>
             ~ Itens parciais: {partial}
           </p>
-          <p>○ Itens pendentes: {pending}</p>
+          <p className={pending > 0 ? 'font-semibold text-[var(--text-secondary)]' : ''}>
+            ○ Itens pendentes: {pending}
+          </p>
           <p className="pt-2 text-[var(--text-secondary)]">
             Status final:{' '}
             <span className="inline-flex rounded-full border border-[var(--border-color)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-primary)]">
               {finalStatus}
             </span>
           </p>
-          {partial > 0 ? (
+          {finalStatus === 'PARCIAL' ? (
             <p className="text-xs text-amber-600 dark:text-amber-300">
-              Itens parciais serão registrados nas observações do pedido.
+              Este lote é parcial. Itens pendentes ou com quantidade incompleta
+              permanecem no pedido para envio futuro e aparecem no filtro Parcial.
             </p>
           ) : null}
         </div>

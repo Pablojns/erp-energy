@@ -273,6 +273,12 @@ export function getOrderSendState(order: OrderDto): 'none' | 'partial' | 'comple
   return 'none';
 }
 
+/** Pedido com lote parcial ou itens ainda não enviados na separação. */
+export function orderMatchesParcialFilter(order: OrderDto): boolean {
+  if (order.status === 'PARCIAL') return true;
+  return getOrderSendState(order) === 'partial';
+}
+
 export type OrderWorkflowStatusColor =
   | 'novo'
   | 'em_separacao'
@@ -300,6 +306,9 @@ export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
     order.status === 'NF_ATRELADA' ||
     order.status === 'SEPARADO'
   ) {
+    if (getOrderSendState(order) === 'partial') {
+      return { label: 'PARCIAL', color: 'parcial' };
+    }
     return { label: 'AGUARDANDO NF', color: 'aguardando_nf' };
   }
   if (order.status === 'EM_SEPARACAO') {

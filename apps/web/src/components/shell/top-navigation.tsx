@@ -17,11 +17,12 @@ import {
   Wallet,
 } from 'lucide-react';
 import { LogoutButton } from '@/src/components/auth/logout-button';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
 import { MobileNavDrawer } from '@/src/components/shell/mobile-nav-drawer';
 import { ThemeToggle } from '@/src/components/theme/theme-toggle';
 import type { AuthUser } from '@/src/services/api/auth';
-import { MAIN_NAV_ITEMS, type NavIconName } from './nav-config';
+import { type NavIconName } from './nav-config';
 
 const NAV_ICONS: Record<NavIconName, LucideIcon> = {
   layoutDashboard: LayoutDashboard,
@@ -49,6 +50,7 @@ type TopNavigationProps = {
 
 export function TopNavigation({ user }: TopNavigationProps) {
   const pathname = usePathname();
+  const { mainNavItems } = useNavPermissions();
 
   return (
     <header className="erp-header fixed left-0 right-0 top-0 z-50 backdrop-saturate-150">
@@ -83,7 +85,7 @@ export function TopNavigation({ user }: TopNavigationProps) {
           className="scrollbar-hide erp-scrollbar hidden flex-1 items-stretch justify-start gap-2 overflow-x-auto py-0.5 sm:justify-center sm:gap-2.5 sm:px-1 lg:flex"
           aria-label="Módulos"
         >
-          {MAIN_NAV_ITEMS.map((item) => {
+          {mainNavItems.map((item) => {
             const active = isNavActive(pathname, item.href);
             const Icon = NAV_ICONS[item.iconName];
             return (

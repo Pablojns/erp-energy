@@ -396,6 +396,26 @@ export class PedidosController {
     return new StreamableFile(buffer);
   }
 
+  @Get(':numeroPed/etiqueta-correios')
+  async etiquetaCorreios(
+    @Param('numeroPed') numeroPed: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { buffer, filename } =
+      await this.pedidos.gerarEtiquetaCorreios(numeroPed);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="etiqueta-${filename}.pdf"`,
+    });
+    return new StreamableFile(buffer);
+  }
+
+  @Delete(':numeroPed/etiqueta-correios')
+  @HttpCode(HttpStatus.OK)
+  cancelarEtiquetaCorreios(@Param('numeroPed') numeroPed: string) {
+    return this.pedidos.cancelarEtiquetaCorreios(numeroPed);
+  }
+
   @Get(':numeroPed')
   async detalhe(
     @Param('numeroPed') numeroPed: string,

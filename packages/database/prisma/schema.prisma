@@ -310,6 +310,8 @@ model Order {
   notaRemessaConfirmada   Boolean             @default(false)
   /// Quantidade de volumes para expedição (preenchido na separação)
   volumes                 Int?
+  /// Código de rastreio Correios (fallback quando ainda não existe OrderExit)
+  trackingCode            String?             @db.VarChar(120)
   status                  OrderStatus         @default(NOVO)
   priority                Int                 @default(3)
   mercadoEletronicoStatus String?

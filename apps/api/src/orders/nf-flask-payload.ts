@@ -4,12 +4,14 @@ export function buildNfFlaskPayload(
   pedido: any,
   opcoes?: { volume?: string; transportadora?: string },
 ) {
-  const itens = (pedido?.items || pedido?.orderItems || []).map((item: any) => ({
-    seq: String(item.lineNumber || item.seq || 10),
-    sku: item.sku,
-    nome: item.description || item.nome || item.sku,
-    quantidade: item.pickedQty ?? item.quantity,
-  }));
+  const itens = (pedido?.items || pedido?.orderItems || [])
+    .map((item: any) => ({
+      seq: String(item.lineNumber || item.seq || 10),
+      sku: item.sku,
+      nome: item.description || item.nome || item.sku,
+      quantidade: item.pickedQty ?? 0,
+    }))
+    .filter((item: { quantidade: number }) => item.quantidade > 0);
 
   return {
     pedidos: [

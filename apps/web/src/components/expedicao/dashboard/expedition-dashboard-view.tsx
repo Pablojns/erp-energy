@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { GlassCard } from '@/src/components/shell/glass-card';
-import { isOrderOverdue } from '@/src/components/expedicao/shared/order-helpers';
+import { isOrderOverdue, orderMatchesParcialFilter } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, PaginatedOrders, StatusFilterId } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
@@ -115,7 +115,7 @@ export function ExpeditionDashboardView() {
       },
       {
         label: 'Parciais',
-        value: orders.filter((o) => o.status === 'PARCIAL').length,
+        value: orders.filter((o) => orderMatchesParcialFilter(o)).length,
         hint: 'em revisão',
         filter: 'parcial',
       },

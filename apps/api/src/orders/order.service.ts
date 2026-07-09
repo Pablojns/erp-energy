@@ -118,6 +118,7 @@ type OrderSerializeSource = {
   notaRemessa: string | null;
   notaRemessaConfirmada?: boolean;
   volumes?: number | null;
+  trackingCode?: string | null;
   status: OrderStatus;
   priority: number;
   mercadoEletronicoStatus: string | null;
@@ -1527,13 +1528,31 @@ export class OrderService {
       }
 
       const lines = await tx.orderItem.findMany({ where: { orderId } });
-      for (const it of lines) {
-        if (it.pickedQty === 0 && it.reservedQuantity > 0) {
-          await tx.orderItem.update({
-            where: { id: it.id },
-            data: { pickedQty: it.reservedQuantity },
-          });
-        }
+      const hasPickedQty = lines.some((it) => it.pickedQty > 0);
+      if (!hasPickedQty) {
+        throw new BadRequestException(
+          'Confirme ao menos um item com quantidade maior que zero antes de finalizar a separação.',
+        );
+      }
+
+      const partialLines = lines.filter(
+        (it) => it.pickedQty > 0 && it.pickedQty < it.quantity,
+      );
+      const pendingLines = lines.filter((it) => it.pickedQty === 0);
+      const obsParts: string[] = [];
+      if (partialLines.length > 0) {
+        obsParts.push(
+          `Separação parcial: ${partialLines
+            .map((it) => `${it.sku} (${it.pickedQty}/${it.quantity})`)
+            .join(', ')}`,
+        );
+      }
+      if (pendingLines.length > 0) {
+        obsParts.push(
+          `Itens pendentes neste lote: ${pendingLines
+            .map((it) => `${it.sku} (0/${it.quantity})`)
+            .join(', ')}`,
+        );
       }
 
       const data = OrderService.patchDataForStatus(OrderStatus.SEPARADO, {
@@ -1541,6 +1560,12 @@ export class OrderService {
         invoicedAt: before.invoicedAt,
         invoiceStatus: before.invoiceStatus,
       });
+      if (obsParts.length > 0) {
+        const stamp = new Date().toLocaleString('pt-BR');
+        const block = `[${stamp}] ${obsParts.join(' | ')}`;
+        const prev = before.obsExpedicao?.trim();
+        data.obsExpedicao = prev ? `${prev}\n${block}` : block;
+      }
 
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
@@ -2632,7 +2657,8 @@ export class OrderService {
   }): number {
     if (item.pickedQty > 0) return item.pickedQty;
     if (item.invoicedQty > 0) return item.invoicedQty;
-    return item.quantity > 0 ? item.quantity : 0;
+    // Itens pendentes (sem separado/faturado) não devem gerar baixa de saída.
+    return 0;
   }
 
   private async resolveOrderItemProductId(
@@ -2973,7 +2999,7 @@ export class OrderService {
       volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
-      trackingCode: row.exits?.[0]?.trackingCode ?? null,
+      trackingCode: row.exits?.[0]?.trackingCode ?? row.trackingCode ?? null,
       linkedOrderId: row.linkedOrderId,
       isUrgentManual: row.isUrgentManual,
       linkedOrderDisplayNumber,

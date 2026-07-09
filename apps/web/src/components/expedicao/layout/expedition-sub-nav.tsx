@@ -3,25 +3,27 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BarChart3, ClipboardList, FileText, Truck, Zap } from 'lucide-react';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 
-const TABS = [
-  { href: '/app/expedicao', label: 'Dashboard', icon: BarChart3, exact: true },
-  { href: '/app/expedicao/pedidos', label: 'Pedidos', icon: ClipboardList, exact: true },
-  { href: '/app/expedicao/separacao', label: 'Separação', icon: Zap, exact: true },
-  { href: '/app/expedicao/saidas', label: 'Saídas', icon: Truck, exact: true },
-  { href: '/app/expedicao/romaneio', label: 'Romaneio', icon: FileText, exact: true },
-] as const;
+const SUB_NAV_ICONS = {
+  '/app/expedicao': BarChart3,
+  '/app/expedicao/pedidos': ClipboardList,
+  '/app/expedicao/separacao': Zap,
+  '/app/expedicao/saidas': Truck,
+  '/app/expedicao/romaneio': FileText,
+} as const;
 
 export function ExpeditionSubNav() {
   const pathname = usePathname();
+  const { expeditionSubNavItems } = useNavPermissions();
 
   return (
     <nav className="erp-subnav" aria-label="Módulo Expedição">
-      {TABS.map((t) => {
+      {expeditionSubNavItems.map((t) => {
         const active = t.exact
           ? pathname === t.href
           : pathname.startsWith(t.href);
-        const Icon = t.icon;
+        const Icon = SUB_NAV_ICONS[t.href as keyof typeof SUB_NAV_ICONS];
         return (
           <Link
             key={t.href}

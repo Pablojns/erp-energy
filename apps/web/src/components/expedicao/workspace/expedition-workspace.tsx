@@ -103,7 +103,11 @@ export function ExpeditionWorkspace(props: {
   }, [data.refreshAll]);
 
   const openOrderEdit = (order: OrderDto) => {
-    if (order.source === 'WEG_MERCADO_ELETRONICO') {
+    if (
+      order.source === 'WEG_MERCADO_ELETRONICO' ||
+      order.source === 'SITE' ||
+      order.source === 'VENDA_EXTERNA'
+    ) {
       setAdminEditOrder(order);
       return;
     }
