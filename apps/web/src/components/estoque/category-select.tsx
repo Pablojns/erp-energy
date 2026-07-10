@@ -3,6 +3,7 @@
 import {
   ChevronDown,
   Loader2,
+  Pencil,
   Plus,
   Search,
   X,
@@ -72,6 +73,10 @@ export function CategorySelect({
   const [createName, setCreateName] = useState('');
   const [createColor, setCreateColor] = useState('#8b5cf6');
   const [createSaving, setCreateSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('#8b5cf6');
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -143,7 +148,7 @@ export function CategorySelect({
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [open, mounted, updatePanelPosition, filtered.length, createOpen]);
+  }, [open, mounted, updatePanelPosition, filtered.length, createOpen, editingId]);
 
   useEffect(() => {
     if (!open || !mounted) return;
@@ -162,6 +167,9 @@ export function CategorySelect({
     setCreateOpen(false);
     setCreateName('');
     setCreateColor('#8b5cf6');
+    setEditingId(null);
+    setEditName('');
+    setEditColor('#8b5cf6');
   }, []);
 
   useEffect(() => {
@@ -231,6 +239,51 @@ export function CategorySelect({
       );
     } finally {
       setCreateSaving(false);
+    }
+  };
+
+  const startEditCategory = useCallback((category: CategorySelectDto) => {
+    setCreateOpen(false);
+    setCreateName('');
+    setCreateColor('#8b5cf6');
+    setEditingId(category.id);
+    setEditName(category.name);
+    setEditColor(category.color ?? '#8b5cf6');
+    onError?.(null);
+  }, [onError]);
+
+  const cancelEditCategory = useCallback(() => {
+    setEditingId(null);
+    setEditName('');
+    setEditColor('#8b5cf6');
+  }, []);
+
+  const saveEditCategory = async () => {
+    if (!editingId) return;
+    const nm = editName.trim();
+    if (!nm) {
+      onError?.('Informe o nome da categoria.');
+      return;
+    }
+    setEditSaving(true);
+    onError?.(null);
+    try {
+      const body: Record<string, string> = { name: nm };
+      const hex = normalizeHex(editColor);
+      if (hex) body.color = hex;
+      await erpFetchJson<CategorySelectDto>(`product-categories/${editingId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      await onRefreshCategories();
+      onError?.(null);
+      cancelEditCategory();
+    } catch (e) {
+      onError?.(
+        e instanceof Error ? e.message : 'Erro ao editar categoria.',
+      );
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -317,49 +370,62 @@ export function CategorySelect({
               const col = c.color ?? undefined;
               return (
                 <li key={c.id} role="presentation">
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={isSel}
-                    onClick={() => pickCategory(c.id)}
+                  <div
                     className={[
-                      'group flex w-full max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all duration-150',
-                      isSel
-                        ? 'border-violet-400/55 bg-gradient-to-r from-violet-500/25 to-blue-600/14 text-white shadow-[0_0_22px_-10px_rgba(139,92,246,0.55)]'
+                      'group flex w-full max-w-full items-center gap-1 rounded-xl border transition-all duration-150',
+                      value.trim() === c.id
+                        ? 'border-violet-400/55 bg-gradient-to-r from-violet-500/25 to-blue-600/14 shadow-[0_0_22px_-10px_rgba(139,92,246,0.55)]'
                         : 'border-white/[0.1] bg-white/[0.03] hover:border-white/[0.2] hover:bg-white/[0.08]',
                     ].join(' ')}
                     style={
-                      col && !isSel
-                        ? {
-                            borderColor: `${col}44`,
-                          }
-                        : col && isSel
+                      col && value.trim() !== c.id
+                        ? { borderColor: `${col}44` }
+                        : col && value.trim() === c.id
                           ? { borderColor: `${col}99` }
                           : undefined
                     }
                   >
-                    {col ? (
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full ring-[1px] ring-black/40 shadow-[0_0_12px_-2px_rgba(0,0,0,0.5)] transition group-hover:scale-110"
-                        style={{ backgroundColor: col }}
-                        aria-hidden
-                      />
-                    ) : (
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-600 ring-[1px] ring-black/30" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-zinc-100">
-                      {c.name}
-                    </span>
-                    {isSel ? (
-                      <span className="shrink-0 text-[11px] text-violet-200/95">
-                        ●
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg p-2 text-zinc-500 transition hover:bg-white/[0.08] hover:text-violet-200"
+                      aria-label={`Editar categoria ${c.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditCategory(c);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isSel}
+                      onClick={() => pickCategory(c.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-1 py-2 pr-3 text-left"
+                    >
+                      {col ? (
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full ring-[1px] ring-black/40 shadow-[0_0_12px_-2px_rgba(0,0,0,0.5)] transition group-hover:scale-110"
+                          style={{ backgroundColor: col }}
+                          aria-hidden
+                        />
+                      ) : (
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-600 ring-[1px] ring-black/30" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-zinc-100">
+                        {c.name}
                       </span>
-                    ) : (
-                      <span className="shrink-0 text-[11px] text-zinc-600 opacity-0 transition group-hover:opacity-100">
-                        Selecionar
-                      </span>
-                    )}
-                  </button>
+                      {isSel ? (
+                        <span className="shrink-0 text-[11px] text-violet-200/95">
+                          ●
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-[11px] text-zinc-600 opacity-0 transition group-hover:opacity-100">
+                          Selecionar
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -367,19 +433,89 @@ export function CategorySelect({
         )}
       </div>
 
-      {!createOpen ? (
+      {!createOpen && !editingId ? (
         <div className="border-t border-white/[0.08] p-2">
           <button
             type="button"
             onClick={() => {
               setCreateOpen(true);
               setCreateName('');
+              cancelEditCategory();
             }}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/35 bg-gradient-to-r from-violet-500/[0.12] to-blue-600/[0.1] px-3 py-2.5 text-[13px] font-semibold text-violet-50 transition hover:border-violet-400/55 hover:from-violet-500/[0.2] hover:to-blue-600/[0.16] hover:shadow-[0_0_24px_-12px_rgba(139,92,246,0.45)] active:scale-[0.98]"
           >
             <Plus className="h-4 w-4" aria-hidden />
             Nova categoria
           </button>
+        </div>
+      ) : editingId ? (
+        <div className="space-y-2 border-t border-violet-400/20 bg-zinc-950/40 px-3 py-3 transition-opacity duration-200">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Editar categoria
+            </span>
+            <button
+              type="button"
+              className="rounded-lg p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+              aria-label="Fechar formulário de edição"
+              onClick={cancelEditCategory}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            placeholder="Nome único da categoria"
+            className="w-full rounded-xl border border-white/[0.12] bg-zinc-950/98 px-3 py-2 text-[13px] text-white outline-none placeholder:text-zinc-600 focus:border-violet-400/45 focus:ring-[3px] focus:ring-violet-500/22"
+          />
+          <label className="flex items-center gap-2">
+            <input
+              type="color"
+              value={
+                /^#[0-9A-Fa-f]{6}$/i.test(editColor.trim())
+                  ? editColor.trim()
+                  : '#8b5cf6'
+              }
+              onChange={(e) => setEditColor(e.target.value)}
+              className="h-9 w-12 cursor-pointer overflow-hidden rounded-lg border border-white/[0.14] bg-zinc-900 p-0.5 shadow-inner"
+              aria-label="Cor da categoria"
+            />
+            <input
+              value={editColor}
+              onChange={(e) => setEditColor(e.target.value)}
+              placeholder="#8b5cf6"
+              className="min-w-0 flex-1 rounded-xl border border-white/[0.1] bg-zinc-950/90 px-2.5 py-1.5 font-mono text-xs text-white outline-none focus:border-violet-400/45 focus:ring-2 focus:ring-violet-500/22"
+            />
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              disabled={editSaving}
+              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+              onClick={cancelEditCategory}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={editSaving}
+              onClick={() => void saveEditCategory()}
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-400/35 bg-gradient-to-br from-violet-500/[0.3] to-blue-600/[0.2] px-3 py-2 text-[12px] font-bold text-white shadow-[0_0_20px_-10px_rgba(139,92,246,0.5)] hover:border-violet-400/55 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {editSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Salvando
+                </>
+              ) : (
+                <>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Salvar alterações
+                </>
+              )}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-2 border-t border-violet-400/20 bg-zinc-950/40 px-3 py-3 transition-opacity duration-200">
