@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import {
   InvoiceStatus,
@@ -37,6 +38,8 @@ import {
   resolveOrderStatusFromPlanilha,
   type PedidosImportSummary,
 } from './pedidos-import';
+import { orderStockReference } from './order-domain';
+import { parseNfFlaskResult } from './nf-flask-payload';
 
 function mapStatusItemToStockStatus(v: StatusItemValue): OrderItemStockStatus {
   if (v === 'completo') return OrderItemStockStatus.COMPLETO;
@@ -211,13 +214,14 @@ export class PedidosService {
           },
         });
 
+        const orderRef = orderStockReference(order);
         await tx.stockMovement.create({
           data: {
             productId,
             movementType: StockMovementType.RESERVA,
             quantity: qty,
-            reference: order.code,
-            notes: `Reserva pedido site ${order.code}`,
+            reference: orderRef,
+            notes: `Reserva pedido site ${orderRef}`,
             movedById: userId,
           },
         });
@@ -1297,6 +1301,105 @@ export class PedidosService {
       throw new BadRequestException('NF-e deve ter de 1 a 9 dígitos numéricos.');
     }
     return this.orders.attachInvoice(order.id, userId, { invoiceNumber: nf });
+  }
+
+  async gerarNfFlask(numeroPed: string, userId: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      include: {
+        items: {
+          orderBy: { lineNumber: 'asc' },
+          include: {
+            product: { select: { sku: true, name: true } },
+          },
+        },
+        carrier: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const numeroPedRef = order.externalOrderNumber?.trim() || order.code;
+    const estado =
+      order.deliveryState?.trim().toUpperCase() ||
+      parseStoredDeliveryAddress(order.deliveryAddress)?.uf ||
+      parseStoredDeliveryAddress(order.unloadingPoint)?.uf ||
+      null;
+    const payload = {
+      pedidos: [
+        {
+          numeroPed: numeroPedRef,
+          cnpj: order.deliveryCnpj ?? '',
+          itens: order.items.map((item) => ({
+            seq: item.lineNumber,
+            sku: item.product?.sku ?? item.sku,
+            nome: item.product?.name ?? item.description,
+            quantidade: item.pickedQty > 0 ? item.pickedQty : item.quantity,
+          })),
+          pontoDescarga: order.unloadingPoint ?? '',
+          recebedor: order.receiverName ?? '',
+          volume: order.volumes != null ? String(order.volumes) : '',
+          transportadora: order.carrier?.name ?? null,
+          estado,
+        },
+      ],
+    };
+
+    let resultado: unknown;
+    try {
+      const { data } = await axios.post('http://localhost:5000/emitir-nf', payload, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      resultado = data;
+    } catch (error: unknown) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data
+          ? JSON.stringify(error.response.data).slice(0, 300)
+          : error instanceof Error
+            ? error.message
+            : 'Falha ao chamar robô Flask';
+      throw new InternalServerErrorException(`Erro ao emitir NF: ${message}`);
+    }
+
+    const parsed = parseNfFlaskResult(numeroPedRef, resultado);
+    const numeroNF =
+      parsed.ok
+        ? parsed.numeroNota
+        : (() => {
+            if (!resultado || typeof resultado !== 'object') return null;
+            const row = resultado as Record<string, unknown>;
+            if (row.numeroNF != null) return String(row.numeroNF);
+            const sucesso = Array.isArray(row.sucesso) ? row.sucesso[0] : null;
+            if (sucesso && typeof sucesso === 'object') {
+              const s = sucesso as Record<string, unknown>;
+              if (s.numeroNF != null) return String(s.numeroNF);
+              if (s.nota != null) return String(s.nota);
+            }
+            return null;
+          })();
+
+    if (!numeroNF) {
+      const erro =
+        !parsed.ok && 'erro' in parsed
+          ? parsed.erro
+          : 'Robô Flask não retornou número da NF';
+      throw new InternalServerErrorException(`Erro ao emitir NF: ${erro}`);
+    }
+
+    const updated = await this.orders.attachInvoice(order.id, userId, {
+      invoiceNumber: numeroNF,
+    });
+
+    return {
+      success: true,
+      numeroPed: trimmed,
+      numeroNF,
+      resultado,
+      order: updated,
+    };
   }
 
   async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {

@@ -28,6 +28,7 @@ import {
   ORDER_STATUS_EXPEDITION_CHAIN,
   ORDER_STATUS_VALUES,
   WEG_TAB_ORDER_SOURCES,
+  orderStockReference,
 } from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { AppLogger } from '../common/logger/app-logger';
@@ -1369,6 +1370,7 @@ export class OrderService {
         );
       }
 
+      const orderRef = orderStockReference(order);
       const resCount = await tx.stockReservation.count({
         where: { orderId: order.id },
       });
@@ -1376,7 +1378,7 @@ export class OrderService {
         await this.releaseReservations(
           tx,
           userId,
-          order.code,
+          orderRef,
           order.id,
           order.items.map((it) => ({
             id: it.id,
@@ -1389,7 +1391,7 @@ export class OrderService {
       await this.flexibleAnalyzeAndReserve(
         tx,
         userId,
-        order.code,
+        orderRef,
         order.id,
         order.items,
       );

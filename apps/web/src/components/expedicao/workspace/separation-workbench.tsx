@@ -29,6 +29,13 @@ function parseVolumesInput(raw: string): number | null {
   return n;
 }
 
+type GerarNfFlaskResponse = {
+  success?: boolean;
+  numeroNF?: string;
+  numeroNota?: string;
+  resultado?: { log?: string[] };
+};
+
 export function SeparationWorkbench(props: {
   order: OrderDto | null;
   data: OrdersData;
@@ -39,6 +46,11 @@ export function SeparationWorkbench(props: {
 }) {
   const { order, data, mode = 'orders', onAfterAction, isAdmin = false, onEditOrder } = props;
   const [nfModalOpen, setNfModalOpen] = useState(false);
+  const [nfFlaskModalOpen, setNfFlaskModalOpen] = useState(false);
+  const [nfFlaskLoading, setNfFlaskLoading] = useState(false);
+  const [nfFlaskLogs, setNfFlaskLogs] = useState<string[]>([]);
+  const [nfFlaskError, setNfFlaskError] = useState<string | null>(null);
+  const [nfFlaskSuccess, setNfFlaskSuccess] = useState<string | null>(null);
   const [concluirModalOpen, setConcluirModalOpen] = useState(false);
   const [concluding, setConcluding] = useState(false);
   const [exitGenerated, setExitGenerated] = useState(false);
@@ -102,7 +114,20 @@ export function SeparationWorkbench(props: {
   useEffect(() => {
     setExitGenerated(false);
     setReadyForEtiqueta(false);
+    setNfFlaskModalOpen(false);
   }, [order?.id]);
+
+  useEffect(() => {
+    if (mode !== 'separation' || !order) return;
+    const awaitingNfWithoutInvoice =
+      order.status === 'AGUARDANDO_NF' && !order.invoiceNumber?.trim();
+    if (!awaitingNfWithoutInvoice) return;
+    setNfFlaskModalOpen(true);
+    setNfFlaskLoading(false);
+    setNfFlaskLogs([]);
+    setNfFlaskError(null);
+    setNfFlaskSuccess(null);
+  }, [mode, order?.id, order?.status, order?.invoiceNumber]);
 
   useEffect(() => {
     const initial = order?.volumes ?? null;
@@ -166,6 +191,67 @@ export function SeparationWorkbench(props: {
       return;
     }
     setConcluirModalOpen(true);
+  };
+
+  const openNfFlaskModal = () => {
+    setNfFlaskModalOpen(true);
+    setNfFlaskLoading(false);
+    setNfFlaskLogs([]);
+    setNfFlaskError(null);
+    setNfFlaskSuccess(null);
+  };
+
+  const runGerarNfFlask = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      data.setToast({ variant: 'err', message: 'Número do pedido inválido.' });
+      return;
+    }
+
+    setNfFlaskLoading(true);
+    setNfFlaskLogs([]);
+    setNfFlaskError(null);
+    setNfFlaskSuccess(null);
+
+    try {
+      const res = await erpFetchJson<GerarNfFlaskResponse>(
+        pedidoApiUrl(numeroPed, 'gerar-nf-flask'),
+        { method: 'POST' },
+      );
+
+      const logs = Array.isArray(res.resultado?.log)
+        ? res.resultado.log.map((line) => String(line))
+        : [];
+
+      if (logs.length === 0) {
+        setNfFlaskLogs(['Aguardando retorno do robô…']);
+      }
+
+      for (let i = 0; i < logs.length; i += 1) {
+        setNfFlaskLogs(logs.slice(0, i + 1));
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+      }
+
+      const numeroNf = res.numeroNF ?? res.numeroNota;
+      if (res.success && numeroNf) {
+        setNfFlaskSuccess(numeroNf);
+        setReadyForEtiqueta(true);
+        await data.refreshAll();
+        onAfterAction?.();
+        data.setToast({
+          variant: 'ok',
+          message: `NF-e ${numeroNf} gerada e atrelada ao pedido.`,
+        });
+      } else {
+        setNfFlaskError('Robô não retornou número da NF.');
+      }
+    } catch (err) {
+      setNfFlaskError(
+        err instanceof Error ? err.message : 'Falha ao gerar NF pelo robô.',
+      );
+    } finally {
+      setNfFlaskLoading(false);
+    }
   };
 
   const handleImprimirEtiquetaAndExit = async () => {
@@ -244,16 +330,23 @@ export function SeparationWorkbench(props: {
     order.status === 'SEPARADO' ||
     order.status === 'AGUARDANDO_NF' ||
     order.status === 'NF_ATRELADA';
-  const canAttachNf =
-    (order.status === 'SEPARADO' || order.status === 'AGUARDANDO_NF') &&
+  const canGerarNfFlask =
+    mode === 'separation' &&
+    (order.status === 'SEPARADO' ||
+      order.status === 'AGUARDANDO_NF' ||
+      orderStatus === 'NF_PENDENTE') &&
     !order.invoiceNumber?.trim();
+  const canAttachNf = canGerarNfFlask;
+  const hasInvoice = Boolean(order.invoiceNumber?.trim());
+  const awaitingNfWithoutInvoice =
+    order.status === 'AGUARDANDO_NF' && !hasInvoice;
   const canPrintEtiquetaAndExit =
     mode === 'separation' &&
+    !awaitingNfWithoutInvoice &&
+    hasInvoice &&
     (order.status === 'NF_ATRELADA' ||
       readyForEtiqueta ||
-      (Boolean(order.invoiceNumber?.trim()) &&
-        order.status !== 'FINALIZADO' &&
-        order.status !== 'EXPEDIDO'));
+      (order.status !== 'FINALIZADO' && order.status !== 'EXPEDIDO'));
   const shouldShowNfAction = mode === 'separation' && canGenerateExit;
   const canRemessaExit =
     mode === 'separation' &&
@@ -425,13 +518,16 @@ export function SeparationWorkbench(props: {
                 {canAttachNf ? (
                   <button
                     type="button"
-                    className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
-                    onClick={() => {
-                      setNfModalOpen(true);
-                    }}
+                    className="exp-wb-btn exp-wb-btn--danger exp-wb-footer-main !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={nfFlaskLoading}
+                    onClick={() => openNfFlaskModal()}
                   >
-                    <FileText className="h-4 w-4" aria-hidden />
-                    Gerar NF-e
+                    {nfFlaskLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FileText className="h-4 w-4" aria-hidden />
+                    )}
+                    Gerar NF
                   </button>
                 ) : null}
                 {canPrintEtiquetaAndExit ? (
@@ -501,6 +597,9 @@ export function SeparationWorkbench(props: {
                   message: `Lote concluído — Pedido #${numero} marcado como ${finalLotStatus}`,
                 });
                 onAfterAction?.();
+                if (!order.invoiceNumber?.trim()) {
+                  openNfFlaskModal();
+                }
               })
               .finally(() => setConcluding(false));
           }}
@@ -520,6 +619,90 @@ export function SeparationWorkbench(props: {
           await onAfterAction?.();
         }}
       />
+
+      {nfFlaskModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay)] p-4">
+          <div
+            className="flex w-full max-w-lg flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4"
+            style={{ maxHeight: '90vh' }}
+          >
+            <h3 className="text-base font-semibold text-[var(--text-primary)]">
+              Gerar NF — Pedido #{numero}
+            </h3>
+
+            <div className="mt-3 min-h-[12rem] flex-1 overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                Log da automação
+              </p>
+              {nfFlaskLogs.length === 0 && !nfFlaskLoading ? (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Clique em &quot;Gerar NF Automaticamente&quot; para iniciar o robô.
+                </p>
+              ) : nfFlaskLogs.length === 0 && nfFlaskLoading ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processando…
+                </div>
+              ) : (
+                <ul className="space-y-1.5 font-mono text-xs text-[var(--text-primary)]">
+                  {nfFlaskLogs.map((line, index) => (
+                    <li key={`${index}-${line}`}>{line}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {nfFlaskSuccess ? (
+              <p className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+                NF-e gerada: <strong>{nfFlaskSuccess}</strong>
+              </p>
+            ) : null}
+
+            {nfFlaskError ? (
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+                {nfFlaskError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
+                className="text-sm font-medium text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)] hover:underline disabled:opacity-60"
+                disabled={nfFlaskLoading}
+                onClick={() => {
+                  setNfFlaskModalOpen(false);
+                  setNfModalOpen(true);
+                }}
+              >
+                Inserir NF manualmente
+              </button>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-[var(--border-color)] px-3 py-2 text-sm font-semibold text-[var(--text-primary)] disabled:opacity-60"
+                  disabled={nfFlaskLoading}
+                  onClick={() => setNfFlaskModalOpen(false)}
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
+                  disabled={nfFlaskLoading}
+                  onClick={() => void runGerarNfFlask()}
+                >
+                  {nfFlaskLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <FileText className="h-4 w-4" aria-hidden />
+                  )}
+                  Gerar NF Automaticamente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

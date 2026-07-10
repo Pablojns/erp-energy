@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  Box,
   ClipboardList,
   LayoutDashboard,
   Menu,
@@ -33,6 +34,7 @@ const NAV_ICONS: Record<NavIconName, LucideIcon> = {
   messageSquare: MessageSquare,
   settings: Settings,
   shield: Shield,
+  box: Box,
 };
 
 function isNavActive(pathname: string, href: string): boolean {

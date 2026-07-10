@@ -17,7 +17,8 @@ export type NavModuleId =
   | 'financeiro'
   | 'cadastros'
   | 'crm'
-  | 'chat';
+  | 'chat'
+  | 'correios';
 
 export type ExpeditionSubNavPermission = {
   href: string;

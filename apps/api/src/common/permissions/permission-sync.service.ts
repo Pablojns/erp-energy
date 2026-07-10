@@ -31,6 +31,7 @@ export class PermissionSyncService implements OnModuleInit {
     { module: 'cadastros', action: 'ver_modulo' },
     { module: 'crm', action: 'ver_modulo' },
     { module: 'chat', action: 'ver_modulo' },
+    { module: 'correios', action: 'ver_modulo' },
     { module: 'notificacoes', action: 'receber_estoque' },
     { module: 'notificacoes', action: 'receber_expedicao' },
     { module: 'notificacoes', action: 'receber_financeiro' },

@@ -52,6 +52,7 @@ export function SeparationItemsTable(props: {
             <col className="exp-wb-col-sku" />
             <col className="exp-wb-col-item" />
             <col className="exp-wb-col-qtd-pedida" />
+            {!isOrdersMode ? <col /> : null}
             {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
             {isOrdersMode && isVendaExterna ? <col /> : null}
             {isOrdersMode && isVendaExterna ? <col /> : null}
@@ -66,6 +67,7 @@ export function SeparationItemsTable(props: {
               <th>SKU</th>
               <th>Item</th>
               <th className="text-center">Qtd</th>
+              {!isOrdersMode ? <th className="text-center">Qtd Sep.</th> : null}
               {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
               {isOrdersMode && isVendaExterna ? (
                 <th className="text-center">Preço unit.</th>

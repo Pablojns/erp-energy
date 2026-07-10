@@ -10,7 +10,8 @@ export type NavIconName =
   | 'clipboardList'
   | 'messageSquare'
   | 'settings'
-  | 'shield';
+  | 'shield'
+  | 'box';
 
 export type MainNavItem = {
   href: string;
@@ -24,6 +25,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { href: '/app', label: 'Dashboard', iconName: 'layoutDashboard', module: 'dashboard' },
   { href: '/app/expedicao', label: 'Expedição', iconName: 'truck', module: 'expedicao' },
   { href: '/app/estoque', label: 'Estoque', iconName: 'package', module: 'estoque' },
+  { href: '/app/correios', label: 'Correios', iconName: 'box', module: 'correios' },
   { href: '/app/crm', label: 'CRM', iconName: 'users', module: 'crm' },
   { href: '/app/compras', label: 'Compras', iconName: 'shoppingCart', module: 'compras' },
   { href: '/app/financeiro', label: 'Financeiro', iconName: 'wallet', module: 'financeiro' },

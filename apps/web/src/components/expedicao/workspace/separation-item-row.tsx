@@ -56,6 +56,9 @@ export function SeparationItemRow(props: {
       <td className="text-center">
         <OrderItemOrderedQtyCell qty={item.quantity} />
       </td>
+      <td className="text-center text-xs">
+        {(item.pickedQty ?? 0) > 0 ? item.pickedQty : '—'}
+      </td>
       {!hideStockColumn ? (
         <td className="text-center">
           <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />

@@ -323,6 +323,14 @@ export class PedidosController {
     };
   }
 
+  @Post(':numeroPed/gerar-nf-flask')
+  gerarNfFlask(
+    @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pedidos.gerarNfFlask(numeroPed, user.id);
+  }
+
   @Post(':numeroPed/gerar-nf-fila')
   async adicionarNfNaFila(
     @Param('numeroPed') numeroPed: string,

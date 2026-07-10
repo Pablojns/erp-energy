@@ -228,6 +228,18 @@ type MovementRow = {
   movedBy: { id: string; name: string; email: string } | null;
 };
 
+function formatMovementReference(
+  m: Pick<MovementRow, 'reference' | 'notes'>,
+): string {
+  const ref = m.reference?.trim();
+  if (!ref) return '—';
+  if (!ref.startsWith('PED-')) return ref;
+  const fromNotes = m.notes
+    ?.match(/pedido\s+(.+?)(?:\s*[-·•]|\s+NF\b|$)/i)?.[1]
+    ?.trim();
+  return fromNotes || ref;
+}
+
 function parseMovementOrderRefs(
   m: Pick<MovementRow, 'reference' | 'invoiceNumber' | 'notes'>,
 ): { pedido: string; nf: string } {
@@ -2545,7 +2557,7 @@ export function EstoqueWorkspace() {
                     </span>
                   </td>
                   <td className="px-2 py-1 text-[var(--text-primary)]">{m.quantity}</td>
-                  <td className="px-2 py-1 text-[var(--text-primary)]">{m.reference ?? '—'}</td>
+                  <td className="px-2 py-1 text-[var(--text-primary)]">{formatMovementReference(m)}</td>
                   <td className="px-2 py-1 text-[var(--text-primary)]">
                     {m.movedBy?.name ?? currentUserName ?? '—'}
                   </td>
