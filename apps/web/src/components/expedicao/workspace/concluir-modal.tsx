@@ -1,5 +1,6 @@
 'use client';
 
+import { isWegItemAlreadyReceived } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export function ConcluirModal(props: {
@@ -82,14 +83,19 @@ export function ConcluirModal(props: {
             </div>
           ) : null}
 
-          {items.some((item) => (item.pickedQty ?? 0) === 0) ? (
+          {items.some(
+            (item) => !isWegItemAlreadyReceived(item) && (item.pickedQty ?? 0) === 0,
+          ) ? (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                 Itens pendentes (não vão neste lote)
               </p>
               <ul className="mt-2 max-h-32 space-y-1.5 overflow-y-auto text-sm text-[var(--text-secondary)]">
                 {items
-                  .filter((item) => (item.pickedQty ?? 0) === 0)
+                  .filter(
+                    (item) =>
+                      !isWegItemAlreadyReceived(item) && (item.pickedQty ?? 0) === 0,
+                  )
                   .map((item) => (
                     <li key={item.id} className="truncate" title={item.description}>
                       {item.description} — 0 / {item.quantity}

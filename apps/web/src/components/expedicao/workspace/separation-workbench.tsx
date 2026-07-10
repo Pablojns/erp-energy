@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, FileText, Loader2, PackageOpen, Tag } from 'lucide-react';
 import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
-import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
+import { isWegItemAlreadyReceived, orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-panel';
 import { ConcluirModal } from '@/src/components/expedicao/workspace/concluir-modal';
 import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-modal';
@@ -157,6 +157,10 @@ export function SeparationWorkbench(props: {
   const numero = orderDisplayNumber(order);
   const itemCounts = order.items.reduce(
     (acc, it) => {
+      if (isWegItemAlreadyReceived(it)) {
+        acc.complete += 1;
+        return acc;
+      }
       const picked = it.pickedQty ?? 0;
       if (picked >= it.quantity && it.quantity > 0) {
         acc.complete += 1;
@@ -171,7 +175,9 @@ export function SeparationWorkbench(props: {
   );
   const finalLotStatus =
     itemCounts.pending === 0 && itemCounts.partial === 0 ? 'COMPLETO' : 'PARCIAL';
-  const hasAnySeparatedQty = order.items.some((it) => (it.pickedQty ?? 0) > 0);
+  const hasAnySeparatedQty = order.items.some(
+    (it) => !isWegItemAlreadyReceived(it) && (it.pickedQty ?? 0) > 0,
+  );
   const canFinalizeSeparation = hasAnySeparatedQty;
 
   const handleFinalizeSeparation = async () => {
@@ -359,8 +365,8 @@ export function SeparationWorkbench(props: {
     mode === 'orders' &&
     (orderStatus === 'NOVO' ||
       orderStatus === 'PENDENTE' ||
-      (order.source === 'SITE' &&
-        (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO')));
+      orderStatus === 'PARCIAL' ||
+      orderStatus === 'RESERVADO');
   const currentStep: 1 | 2 | 3 | 4 = (() => {
     if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') return 4;
     if (
@@ -462,12 +468,16 @@ export function SeparationWorkbench(props: {
             type="button"
             className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
             onClick={async () => {
-              await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
+              if (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO') {
+                await data.sendToPicking(order.id);
+              } else {
+                await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
+                data.setToast({
+                  variant: 'ok',
+                  message: `Pedido #${numero} enviado para separação ✓`,
+                });
+              }
               onAfterAction?.();
-              data.setToast({
-                variant: 'ok',
-                message: `Pedido #${numero} enviado para separação ✓`,
-              });
             }}
           >
             → Enviar para separação

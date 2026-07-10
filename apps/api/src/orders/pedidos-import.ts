@@ -160,6 +160,18 @@ export function normalizePlanilhaItemStatus(
   return s ? s : null;
 }
 
+/** Item da planilha WEG já recebido (OK / Recebido) — não deve gerar nova separação/saída. */
+export function isPlanilhaItemReceived(
+  statusItem: string | null | undefined,
+): boolean {
+  const normalized = (statusItem ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+  return normalized === 'ok' || normalized.includes('recebido');
+}
+
 export function readPedidosSheet(buffer: Uint8Array): {
   rows: PedidoPlanilhaRow[];
   ignored: number;

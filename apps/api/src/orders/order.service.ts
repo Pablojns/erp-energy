@@ -30,6 +30,7 @@ import {
   WEG_TAB_ORDER_SOURCES,
   orderStockReference,
 } from './order-domain';
+import { isPlanilhaItemReceived } from './pedidos-import';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { AppLogger } from '../common/logger/app-logger';
 
@@ -1540,7 +1541,11 @@ export class OrderService {
       const partialLines = lines.filter(
         (it) => it.pickedQty > 0 && it.pickedQty < it.quantity,
       );
-      const pendingLines = lines.filter((it) => it.pickedQty === 0);
+      const pendingLines = lines.filter(
+        (it) =>
+          it.pickedQty === 0 &&
+          !isPlanilhaItemReceived(it.mercadoEletronicoItemStatus),
+      );
       const obsParts: string[] = [];
       if (partialLines.length > 0) {
         obsParts.push(
@@ -1619,6 +1624,15 @@ export class OrderService {
         where: { id: itemId, orderId },
       });
       if (!item) throw new NotFoundException('Item não encontrado neste pedido.');
+
+      if (
+        isPlanilhaItemReceived(item.mercadoEletronicoItemStatus) &&
+        raw > 0
+      ) {
+        throw new BadRequestException(
+          'Item já recebido na WEG não pode ser separado novamente.',
+        );
+      }
 
       const clamped = Math.min(raw, item.quantity);
 

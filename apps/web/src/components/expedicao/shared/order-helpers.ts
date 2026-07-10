@@ -89,6 +89,13 @@ export function getItemReceiptStatusVisual(status: string | null | undefined): {
   return { label: raw, tone: 'unknown' };
 }
 
+/** Item já recebido na planilha WEG (OK / Recebido) — não entra no novo lote de separação. */
+export function isWegItemAlreadyReceived(item: {
+  mercadoEletronicoItemStatus?: string | null;
+}): boolean {
+  return getItemReceiptStatusVisual(item.mercadoEletronicoItemStatus).tone === 'recebido';
+}
+
 export function summarizeItemReceiptStatus(items: OrderItemDto[]): {
   recebidos: number;
   emFalta: number;

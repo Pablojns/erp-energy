@@ -36,6 +36,7 @@ import {
   pickFirstLineOfOrderGroup,
   readPedidosSheet,
   resolveOrderStatusFromPlanilha,
+  isPlanilhaItemReceived,
   type PedidosImportSummary,
 } from './pedidos-import';
 import { orderStockReference } from './order-domain';
@@ -1333,12 +1334,17 @@ export class PedidosService {
         {
           numeroPed: numeroPedRef,
           cnpj: order.deliveryCnpj ?? '',
-          itens: order.items.map((item) => ({
-            seq: item.lineNumber,
-            sku: item.product?.sku ?? item.sku,
-            nome: item.product?.name ?? item.description,
-            quantidade: item.pickedQty > 0 ? item.pickedQty : item.quantity,
-          })),
+          itens: order.items
+            .filter(
+              (item) => !isPlanilhaItemReceived(item.mercadoEletronicoItemStatus),
+            )
+            .map((item) => ({
+              seq: item.lineNumber,
+              sku: item.product?.sku ?? item.sku,
+              nome: item.product?.name ?? item.description,
+              quantidade: item.pickedQty > 0 ? item.pickedQty : item.quantity,
+            }))
+            .filter((item) => item.quantidade > 0),
           pontoDescarga: order.unloadingPoint ?? '',
           recebedor: order.receiverName ?? '',
           volume: order.volumes != null ? String(order.volumes) : '',
@@ -1640,12 +1646,17 @@ export class PedidosService {
 
     const item = await this.prisma.client.orderItem.findFirst({
       where: { orderId: order.id, lineNumber: seq },
-      select: { id: true, quantity: true },
+      select: { id: true, quantity: true, mercadoEletronicoItemStatus: true },
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
 
     const pickedQty = dto.quantidade_separada;
     if (pickedQty !== undefined) {
+      if (isPlanilhaItemReceived(item.mercadoEletronicoItemStatus) && pickedQty > 0) {
+        throw new BadRequestException(
+          'Item já recebido na WEG não pode ser separado novamente.',
+        );
+      }
       if (pickedQty > item.quantity) {
         throw new BadRequestException('quantidade_separada não pode exceder quantidade_pedida.');
       }
