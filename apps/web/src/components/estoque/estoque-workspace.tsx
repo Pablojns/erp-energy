@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Undo2,
   X,
+  ChevronRight,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -81,7 +82,7 @@ const MOVEMENTS_FILTER_KEY = 'erp.filters.estoque.movimentacoes';
 
 const INVENTORY_FILTER_LABEL: Record<Exclude<InventoryFilter, 'all'>, string> = {
   out: 'Sem estoque',
-  low: 'Baixo estoque',
+  low: 'Crítico',
   reserva: 'Reserva',
 };
 
@@ -103,6 +104,8 @@ type InventoryFilterPreset = {
   inventoryFilter: InventoryFilter;
   showInactive: boolean;
   search: string;
+  supplierId: string;
+  categoryId: string;
 };
 
 type MovementFilterPreset = {
@@ -449,9 +452,17 @@ const DASHBOARD_LIST_SCROLL =
   'erp-scrollbar mt-2 max-h-[320px] space-y-2 overflow-y-auto pr-1';
 
 function inventoryFilterButtonClass(active: boolean) {
-  return `rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+  return `flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition ${
     active
       ? 'border-transparent bg-[var(--accent)] text-white shadow-sm'
+      : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--accent)]/35 hover:text-[var(--text-primary)]'
+  }`;
+}
+
+function inventoryFilterPickerButtonClass(active: boolean) {
+  return `flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition ${
+    active
+      ? 'border-[var(--accent)]/45 bg-[var(--accent)]/10 text-[var(--text-primary)]'
       : 'border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--accent)]/35 hover:text-[var(--text-primary)]'
   }`;
 }
@@ -679,6 +690,12 @@ export function EstoqueWorkspace() {
   const [productMenuOpenId, setProductMenuOpenId] = useState<string | null>(null);
   const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>('all');
+  const [inventorySupplierFilterId, setInventorySupplierFilterId] = useState('');
+  const [inventoryCategoryFilterId, setInventoryCategoryFilterId] = useState('');
+  const [supplierFilterModalOpen, setSupplierFilterModalOpen] = useState(false);
+  const [categoryFilterModalOpen, setCategoryFilterModalOpen] = useState(false);
+  const [supplierFilterSearch, setSupplierFilterSearch] = useState('');
+  const [categoryFilterSearch, setCategoryFilterSearch] = useState('');
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsData, setProductsData] = useState<Paginated<ProductDto> | null>(
@@ -818,7 +835,7 @@ export function EstoqueWorkspace() {
     if (inventoryListScrollRef.current) {
       inventoryListScrollRef.current.scrollTop = 0;
     }
-  }, [productSearchDebounced, inventoryFilter, showInactive]);
+  }, [productSearchDebounced, inventoryFilter, showInactive, inventorySupplierFilterId, inventoryCategoryFilterId]);
 
   useEffect(() => {
     if (tab !== 'inventory' || productsLoading) return;
@@ -847,6 +864,8 @@ export function EstoqueWorkspace() {
     setReserveOpen(false);
     setReserveStep('form');
     setMovementDetailId(null);
+    setSupplierFilterModalOpen(false);
+    setCategoryFilterModalOpen(false);
   }, []);
 
   useCloseOverlaysOnRouteChange(closeAllModals);
@@ -2018,9 +2037,15 @@ export function EstoqueWorkspace() {
 
   const inventoryProducts = useMemo(() => {
     // Usuário comum nunca vê produtos inativos, mesmo que a API os retorne.
-    const base = (productsData?.data ?? []).filter(
+    let base = (productsData?.data ?? []).filter(
       (p) => p.isActive || isAdmin,
     );
+    if (inventorySupplierFilterId) {
+      base = base.filter((p) => p.supplierId === inventorySupplierFilterId);
+    }
+    if (inventoryCategoryFilterId) {
+      base = base.filter((p) => p.categoryId === inventoryCategoryFilterId);
+    }
     if (inventoryFilter === 'all') return base;
     if (inventoryFilter === 'out') return base.filter((p) => p.stockQty <= 0);
     if (inventoryFilter === 'low') {
@@ -2035,7 +2060,46 @@ export function EstoqueWorkspace() {
             (m.movementType === 'RESERVE' || m.movementType === 'RESERVA'),
         ),
     );
-  }, [productsData, isAdmin, inventoryFilter, movementItems]);
+  }, [
+    productsData,
+    isAdmin,
+    inventoryFilter,
+    inventorySupplierFilterId,
+    inventoryCategoryFilterId,
+    movementItems,
+  ]);
+
+  const selectedInventorySupplierName = useMemo(() => {
+    if (!inventorySupplierFilterId) return null;
+    return (
+      suppliers.find((s) => s.id === inventorySupplierFilterId)?.name ?? null
+    );
+  }, [inventorySupplierFilterId, suppliers]);
+
+  const selectedInventoryCategory = useMemo(() => {
+    if (!inventoryCategoryFilterId) return null;
+    return (
+      productCategories.find((c) => c.id === inventoryCategoryFilterId) ?? null
+    );
+  }, [inventoryCategoryFilterId, productCategories]);
+
+  const filteredSupplierOptions = useMemo(() => {
+    const q = supplierFilterSearch.trim().toLowerCase();
+    const sorted = [...suppliers].sort((a, b) =>
+      a.name.localeCompare(b.name, 'pt-BR'),
+    );
+    if (!q) return sorted;
+    return sorted.filter((s) => s.name.toLowerCase().includes(q));
+  }, [suppliers, supplierFilterSearch]);
+
+  const filteredCategoryOptions = useMemo(() => {
+    const q = categoryFilterSearch.trim().toLowerCase();
+    const sorted = [...productCategories]
+      .filter((c) => c.active)
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    if (!q) return sorted;
+    return sorted.filter((c) => c.name.toLowerCase().includes(q));
+  }, [productCategories, categoryFilterSearch]);
 
   const inventoryFilterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
@@ -2048,18 +2112,52 @@ export function EstoqueWorkspace() {
     if (showInactive) {
       badges.push({ key: 'inactive', label: 'Inativos' });
     }
+    if (inventorySupplierFilterId) {
+      badges.push({
+        key: 'supplier',
+        label: `Fornecedor: ${selectedInventorySupplierName ?? inventorySupplierFilterId}`,
+      });
+    }
+    if (inventoryCategoryFilterId && selectedInventoryCategory) {
+      badges.push({
+        key: 'category',
+        label: `Categoria: ${selectedInventoryCategory.name}`,
+        style: selectedInventoryCategory.color
+          ? {
+              borderColor: `${selectedInventoryCategory.color}55`,
+              backgroundColor: `${selectedInventoryCategory.color}18`,
+            }
+          : undefined,
+      });
+    }
     const q = productSearchDebounced.trim();
     if (q) badges.push({ key: 'search', label: `Busca: ${q}` });
     return badges;
-  }, [inventoryFilter, showInactive, productSearchDebounced]);
+  }, [
+    inventoryFilter,
+    showInactive,
+    inventorySupplierFilterId,
+    inventoryCategoryFilterId,
+    selectedInventorySupplierName,
+    selectedInventoryCategory,
+    productSearchDebounced,
+  ]);
 
   const inventoryFilterPreset = useMemo(
     (): InventoryFilterPreset => ({
       inventoryFilter,
       showInactive,
       search: productSearch,
+      supplierId: inventorySupplierFilterId,
+      categoryId: inventoryCategoryFilterId,
     }),
-    [inventoryFilter, showInactive, productSearch],
+    [
+      inventoryFilter,
+      showInactive,
+      productSearch,
+      inventorySupplierFilterId,
+      inventoryCategoryFilterId,
+    ],
   );
 
   const movementFilterBadges = useMemo((): FilterBadgeItem[] => {
@@ -2121,7 +2219,11 @@ export function EstoqueWorkspace() {
   );
 
   const hasInventoryFilters =
-    inventoryFilter !== 'all' || showInactive || productSearchDebounced.trim().length > 0;
+    inventoryFilter !== 'all' ||
+    showInactive ||
+    inventorySupplierFilterId !== '' ||
+    inventoryCategoryFilterId !== '' ||
+    productSearchDebounced.trim().length > 0;
 
   const hasMovementFilters =
     moveTypeCardFilters.size > 0 ||
@@ -2136,6 +2238,16 @@ export function EstoqueWorkspace() {
       setInventoryFilter('all');
       return;
     }
+    if (key === 'supplier') {
+      setInventorySupplierFilterId('');
+      setProductPage(1);
+      return;
+    }
+    if (key === 'category') {
+      setInventoryCategoryFilterId('');
+      setProductPage(1);
+      return;
+    }
     if (key === 'inactive') {
       setShowInactive(false);
       setProductPage(1);
@@ -2147,6 +2259,8 @@ export function EstoqueWorkspace() {
   const clearInventoryFilters = () => {
     setInventoryFilter('all');
     setShowInactive(false);
+    setInventorySupplierFilterId('');
+    setInventoryCategoryFilterId('');
     setProductSearch('');
     setProductPage(1);
   };
@@ -2400,13 +2514,15 @@ export function EstoqueWorkspace() {
             <p className="truncate text-base font-semibold text-[var(--text-primary)]">
               SKU #{selectedInventoryProduct.sku} — {selectedInventoryProduct.name}
             </p>
-            <p className="mt-1 text-xs">
-              <span className="text-[var(--text-secondary)]">Fornecedor:</span>{' '}
+            <p className="mt-1 flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+              <span className="text-[var(--text-secondary)]">Fornecedor:</span>
               <span className="text-[var(--text-primary)]">
                 {selectedInventoryProduct.supplierName?.trim() || 'Não informado'}
               </span>
-              <span className="mx-1 text-[var(--text-secondary)]">|</span>
-              <span className="text-[var(--text-secondary)]">SKU fornecedor:</span>{' '}
+              <span className="text-[var(--text-secondary)]">|</span>
+              <ProductCategoryCell product={selectedInventoryProduct} />
+              <span className="text-[var(--text-secondary)]">|</span>
+              <span className="text-[var(--text-secondary)]">SKU fornecedor:</span>
               <span className="text-[var(--text-primary)]">
                 {selectedInventoryProduct.supplierSku?.trim() || '—'}
               </span>
@@ -3237,6 +3353,8 @@ export function EstoqueWorkspace() {
               onApplyPreset={(preset) => {
                 setInventoryFilter(preset.inventoryFilter);
                 setShowInactive(preset.showInactive);
+                setInventorySupplierFilterId(preset.supplierId);
+                setInventoryCategoryFilterId(preset.categoryId);
                 setProductSearch(preset.search);
                 setProductPage(1);
               }}
@@ -3252,39 +3370,105 @@ export function EstoqueWorkspace() {
                 </div>
               }
             >
-              <div className="erp-filter-option-grid">
+              <div className="flex flex-col gap-1.5">
                 <button
                   type="button"
                   onClick={() => {
-                    setInventoryFilter('out');
+                    setSupplierFilterSearch('');
+                    setSupplierFilterModalOpen(true);
+                  }}
+                  className={inventoryFilterPickerButtonClass(
+                    Boolean(inventorySupplierFilterId),
+                  )}
+                >
+                  <span>Fornecedor</span>
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate text-[11px] font-medium text-[var(--text-muted)]">
+                    {selectedInventorySupplierName ?? 'Todos'}
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilterSearch('');
+                    setCategoryFilterModalOpen(true);
+                  }}
+                  className={inventoryFilterPickerButtonClass(
+                    Boolean(inventoryCategoryFilterId),
+                  )}
+                >
+                  <span>Categoria</span>
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate text-[11px] font-medium text-[var(--text-muted)]">
+                    {selectedInventoryCategory ? (
+                      <>
+                        {selectedInventoryCategory.color ? (
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full ring-1 ring-black/25"
+                            style={{
+                              backgroundColor: selectedInventoryCategory.color,
+                            }}
+                            aria-hidden
+                          />
+                        ) : null}
+                        <span className="truncate">
+                          {selectedInventoryCategory.name}
+                        </span>
+                      </>
+                    ) : (
+                      'Todas'
+                    )}
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryFilter((cur) => (cur === 'out' ? 'all' : 'out'));
                     setProductPage(1);
                   }}
                   className={inventoryFilterButtonClass(inventoryFilter === 'out')}
                 >
-                  Sem estoque
+                  <span>Sem estoque</span>
+                  {inventoryFilter === 'out' ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                      ativo
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setInventoryFilter('low');
+                    setInventoryFilter((cur) => (cur === 'low' ? 'all' : 'low'));
                     setProductPage(1);
                   }}
                   className={inventoryFilterButtonClass(inventoryFilter === 'low')}
                 >
-                  Baixo estoque
+                  <span>Crítico</span>
+                  {inventoryFilter === 'low' ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                      ativo
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setInventoryFilter('reserva');
+                    setInventoryFilter((cur) =>
+                      cur === 'reserva' ? 'all' : 'reserva',
+                    );
                     setProductPage(1);
                   }}
                   className={inventoryFilterButtonClass(inventoryFilter === 'reserva')}
                 >
-                  Reserva
+                  <span>Reserva</span>
+                  {inventoryFilter === 'reserva' ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                      ativo
+                    </span>
+                  ) : null}
                 </button>
                 {isAdmin ? (
-                  <label className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)]">
+                  <label className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-xl border border-[var(--border-color)] px-3 py-2.5 text-xs font-semibold text-[var(--text-secondary)]">
                     <input
                       type="checkbox"
                       checked={showInactive}
@@ -4054,6 +4238,196 @@ export function EstoqueWorkspace() {
                     'Confirmar'
                   )}
                 </GlowButton>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {supplierFilterModalOpen ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setSupplierFilterModalOpen(false)}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                  Filtrar por fornecedor
+                </h2>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)]"
+                  aria-label="Fechar"
+                  onClick={() => setSupplierFilterModalOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="relative mt-3">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  autoFocus
+                  value={supplierFilterSearch}
+                  onChange={(e) => setSupplierFilterSearch(e.target.value)}
+                  placeholder="Buscar fornecedor..."
+                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none"
+                />
+              </div>
+              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventorySupplierFilterId('');
+                    setProductPage(1);
+                    setSupplierFilterModalOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                    !inventorySupplierFilterId
+                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
+                      : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
+                  }`}
+                >
+                  Todos os fornecedores
+                </button>
+                {filteredSupplierOptions.map((supplier) => {
+                  const active = inventorySupplierFilterId === supplier.id;
+                  return (
+                    <button
+                      key={supplier.id}
+                      type="button"
+                      onClick={() => {
+                        setInventorySupplierFilterId(supplier.id);
+                        setProductPage(1);
+                        setSupplierFilterModalOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        active
+                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
+                          : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
+                      }`}
+                    >
+                      <span className="truncate font-medium">{supplier.name}</span>
+                      {active ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                          ativo
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {filteredSupplierOptions.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-sm text-[var(--text-muted)]">
+                    Nenhum fornecedor encontrado.
+                  </p>
+                ) : null}
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {categoryFilterModalOpen ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setCategoryFilterModalOpen(false)}
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                  Filtrar por categoria
+                </h2>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)]"
+                  aria-label="Fechar"
+                  onClick={() => setCategoryFilterModalOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="relative mt-3">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  autoFocus
+                  value={categoryFilterSearch}
+                  onChange={(e) => setCategoryFilterSearch(e.target.value)}
+                  placeholder="Buscar categoria..."
+                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none"
+                />
+              </div>
+              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryCategoryFilterId('');
+                    setProductPage(1);
+                    setCategoryFilterModalOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                    !inventoryCategoryFilterId
+                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
+                      : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
+                  }`}
+                >
+                  Todas as categorias
+                </button>
+                {filteredCategoryOptions.map((category) => {
+                  const active = inventoryCategoryFilterId === category.id;
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => {
+                        setInventoryCategoryFilterId(category.id);
+                        setProductPage(1);
+                        setCategoryFilterModalOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        active
+                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
+                          : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
+                      }`}
+                      style={
+                        category.color && !active
+                          ? { borderColor: `${category.color}44` }
+                          : undefined
+                      }
+                    >
+                      {category.color ? (
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/25"
+                          style={{ backgroundColor: category.color }}
+                          aria-hidden
+                        />
+                      ) : (
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-600" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {category.name}
+                      </span>
+                      {active ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                          ativo
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {filteredCategoryOptions.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-sm text-[var(--text-muted)]">
+                    Nenhuma categoria encontrada.
+                  </p>
+                ) : null}
               </div>
             </GlassCard>
           </div>
