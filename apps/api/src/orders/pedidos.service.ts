@@ -272,6 +272,15 @@ export class PedidosService {
     const filterValue = q.filterValue?.trim();
     const hasSearch = Boolean(search);
     const hasFieldFilter = Boolean(filterField && filterValue);
+    const isSeparationWorkspace = q.workspace?.trim() === 'separation';
+
+    if (isSeparationWorkspace) {
+      return this.listSeparationWorkspaceOrders(q, {
+        search,
+        filterField,
+        filterValue,
+      });
+    }
 
     if (!hasSearch && !hasFieldFilter) {
       return this.orders.findMany(q);
@@ -281,6 +290,113 @@ export class PedidosService {
       filterField,
       filterValue,
     });
+  }
+
+  /** Lista da aba Separação — filtra só pelo status do pedido, nunca pelo status WEG dos itens. */
+  private buildSeparationListWhere(query: OrderQueryDto): Prisma.OrderWhereInput {
+    type OrderListInternals = {
+      buildWhere(input: OrderQueryDto): Prisma.OrderWhereInput;
+    };
+
+    const internals = this.orders as unknown as OrderListInternals;
+    const withoutWorkspace: OrderQueryDto = { ...query, workspace: undefined };
+    const baseWhere = internals.buildWhere(withoutWorkspace);
+
+    return {
+      AND: [
+        baseWhere,
+        {
+          status: {
+            in: [
+              OrderStatus.PARCIAL,
+              OrderStatus.RESERVADO,
+              OrderStatus.EM_SEPARACAO,
+              OrderStatus.SEPARADO,
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  private async listSeparationWorkspaceOrders(
+    query: OrderQueryDto,
+    filters: {
+      search?: string;
+      filterField?: string;
+      filterValue?: string;
+    },
+  ) {
+    type OrderListInternals = {
+      buildOrderBy(input: OrderQueryDto): Prisma.OrderOrderByWithRelationInput[];
+      serializeOrder(row: unknown): Awaited<
+        ReturnType<OrderService['findMany']>
+      >['data'][number];
+    };
+
+    const internals = this.orders as unknown as OrderListInternals;
+    const page = query.page !== undefined && query.page > 0 ? query.page : 1;
+    const pageSize =
+      query.pageSize !== undefined &&
+      query.pageSize > 0 &&
+      query.pageSize <= 100
+        ? query.pageSize
+        : 15;
+
+    const mode = 'insensitive' as const;
+    const allowedFilterFields = new Set([
+      'invoiceNumber',
+      'receiverName',
+      'unloadingPoint',
+    ]);
+
+    const where: Prisma.OrderWhereInput = {
+      AND: [
+        this.buildSeparationListWhere({
+          ...query,
+          search: undefined,
+          filterField: undefined,
+          filterValue: undefined,
+        }),
+        ...(filters.search
+          ? [{ externalOrderNumber: { startsWith: filters.search, mode } }]
+          : []),
+        ...(filters.filterField &&
+        filters.filterValue &&
+        allowedFilterFields.has(filters.filterField)
+          ? [
+              {
+                [filters.filterField]: {
+                  contains: filters.filterValue,
+                  mode,
+                },
+              } as Prisma.OrderWhereInput,
+            ]
+          : []),
+      ],
+    };
+
+    const orderBy = internals.buildOrderBy(query);
+    const total = await this.prisma.client.order.count({ where });
+    const rows = await this.prisma.client.order.findMany({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      orderBy,
+      include: (
+        OrderService as unknown as { orderInclude(): Prisma.OrderInclude }
+      ).orderInclude(),
+    });
+
+    return {
+      data: rows.map((row) => internals.serializeOrder(row)),
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
   }
 
   private async listPedidosWithFilters(
