@@ -1,6 +1,5 @@
 'use client';
 
-import { useDroppable } from '@dnd-kit/core';
 import { CrmKanbanCard } from '@/src/components/crm/crm-kanban-card';
 import type { CrmCardDto, CrmFunilDto } from '@/src/services/api/crm-api';
 
@@ -22,11 +21,21 @@ export function CrmKanbanColumn(props: {
   cards: CrmCardDto[];
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
-  activeDragId: string | null;
+  draggedCardId: string | null;
+  movingId: string | null;
+  isDropTarget: boolean;
+  onDragEnter: () => void;
+  onDragLeave: () => void;
+  onDrop: () => void;
+  onDragStart: (cardId: string) => void;
+  onDragEnd: () => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: props.funil.id });
-
   const accent = props.funil.color ?? 'var(--erp-accent)';
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
 
   return (
     <div className="erp-module-panel flex h-full min-h-0 w-[280px] shrink-0 flex-col">
@@ -41,9 +50,22 @@ export function CrmKanbanColumn(props: {
       </header>
 
       <div
-        ref={setNodeRef}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          props.onDragEnter();
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+            props.onDragLeave();
+          }
+        }}
+        onDragOver={handleDragOver}
+        onDrop={(event) => {
+          event.preventDefault();
+          props.onDrop();
+        }}
         className={`min-h-0 flex-1 space-y-2 overflow-y-auto p-2 transition ${
-          isOver
+          props.isDropTarget
             ? 'bg-[var(--erp-accent-soft)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--erp-accent)_30%,transparent)]'
             : ''
         }`}
@@ -60,7 +82,10 @@ export function CrmKanbanColumn(props: {
               key={card.id}
               card={card}
               onOpen={() => props.onOpenCard(card)}
-              isDragging={props.activeDragId === card.id}
+              isDragging={props.draggedCardId === card.id}
+              isMoving={props.movingId === card.id}
+              onDragStart={props.onDragStart}
+              onDragEnd={props.onDragEnd}
             />
           ))
         )}

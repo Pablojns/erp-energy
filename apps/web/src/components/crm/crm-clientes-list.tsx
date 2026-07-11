@@ -1,7 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Upload } from 'lucide-react';
+import { CrmImportModal } from '@/src/components/crm/crm-import-modal';
+import {
+  cardMatchesEntryPeriod,
+  CRM_ENTRY_PERIOD_OPTIONS,
+  type CrmDashboardPeriod,
+} from '@/src/components/crm/crm-helpers';
 import {
   CRM_CARD_ORIGINS,
   CRM_ORIGIN_BADGE_CLASS,
@@ -10,6 +16,8 @@ import {
   type CrmCardDto,
   type CrmCardOrigin,
   type CrmFunilDto,
+  type CrmStatusDto,
+  type CrmUserDto,
 } from '@/src/services/api/crm-api';
 
 function formatDate(value: string) {
@@ -19,11 +27,18 @@ function formatDate(value: string) {
 export function CrmClientesList(props: {
   cards: CrmCardDto[];
   funis: CrmFunilDto[];
+  statuses: CrmStatusDto[];
+  users: CrmUserDto[];
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
+  onImported: () => void | Promise<void>;
 }) {
   const [search, setSearch] = useState('');
   const [originFilter, setOriginFilter] = useState<CrmCardOrigin | 'TODOS'>('TODOS');
+  const [statusFilter, setStatusFilter] = useState<string>('TODOS');
+  const [responsavelFilter, setResponsavelFilter] = useState<string>('TODOS');
+  const [periodFilter, setPeriodFilter] = useState<CrmDashboardPeriod>('all');
+  const [importOpen, setImportOpen] = useState(false);
 
   const funilNameById = useMemo(() => {
     return Object.fromEntries(props.funis.map((f) => [f.id, f.name]));
@@ -33,15 +48,24 @@ export function CrmClientesList(props: {
     const q = search.trim().toLowerCase();
     return props.cards.filter((card) => {
       if (originFilter !== 'TODOS' && card.origin !== originFilter) return false;
+      if (statusFilter !== 'TODOS' && card.status !== statusFilter) return false;
+      if (responsavelFilter === 'NONE') {
+        if (card.responsavelId) return false;
+      } else if (
+        responsavelFilter !== 'TODOS' &&
+        card.responsavelId !== responsavelFilter
+      ) {
+        return false;
+      }
+      if (!cardMatchesEntryPeriod(card, periodFilter)) return false;
       if (!q) return true;
-      const funilName = card.funil?.name ?? funilNameById[card.funilId] ?? '';
-      const haystack = [card.name, card.phone, card.email, funilName, card.notes]
+      const haystack = [card.name, card.phone, card.email]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [funilNameById, originFilter, props.cards, search]);
+  }, [originFilter, periodFilter, props.cards, responsavelFilter, search, statusFilter]);
 
   return (
     <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -56,6 +80,18 @@ export function CrmClientesList(props: {
           />
         </div>
         <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="erp-module-input w-auto min-w-[9rem]"
+        >
+          <option value="TODOS">Todos status</option>
+          {props.statuses.map((status) => (
+            <option key={status.id} value={status.id}>
+              {status.name}
+            </option>
+          ))}
+        </select>
+        <select
           value={originFilter}
           onChange={(e) => setOriginFilter(e.target.value as CrmCardOrigin | 'TODOS')}
           className="erp-module-input w-auto min-w-[9rem]"
@@ -67,6 +103,38 @@ export function CrmClientesList(props: {
             </option>
           ))}
         </select>
+        <select
+          value={periodFilter}
+          onChange={(e) => setPeriodFilter(e.target.value as CrmDashboardPeriod)}
+          className="erp-module-input w-auto min-w-[8rem]"
+        >
+          {CRM_ENTRY_PERIOD_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              Entrada: {option.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={responsavelFilter}
+          onChange={(e) => setResponsavelFilter(e.target.value)}
+          className="erp-module-input w-auto min-w-[9rem]"
+        >
+          <option value="TODOS">Todos responsáveis</option>
+          <option value="NONE">Sem responsável</option>
+          {props.users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--sm"
+        >
+          <Upload className="erp-icon-sm" aria-hidden />
+          Importar CSV
+        </button>
         <span className="text-xs text-[var(--erp-fg-muted)]">
           {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'}
         </span>
@@ -161,6 +229,12 @@ export function CrmClientesList(props: {
           </table>
         )}
       </div>
+
+      <CrmImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={props.onImported}
+      />
     </section>
   );
 }

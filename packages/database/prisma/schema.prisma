@@ -111,6 +111,7 @@ model User {
   assignedTasks        Task[]                @relation("TaskAssignedTo")
   purchaseRequestsMade     PurchaseRequest[] @relation("PurchaseRequestedBy")
   purchaseRequestsResolved PurchaseRequest[] @relation("PurchaseResolvedBy")
+  crmCardsAssigned         CrmCard[]         @relation("CrmCardResponsavel")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -831,6 +832,8 @@ model CrmCard {
   funilId            String
   funil              CrmFunil        @relation(fields: [funilId], references: [id], onDelete: Restrict)
   status             String          @default("NOVO_LEAD")
+  responsavelId      String?         @db.Uuid
+  responsavel        User?           @relation("CrmCardResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   touchpointRecords  CrmTouchpoint[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
@@ -840,6 +843,21 @@ model CrmCard {
   @@index([origin])
   @@index([status])
   @@index([createdAt])
+  @@index([responsavelId])
+}
+
+model CrmMeta {
+  id              String   @id @default(cuid())
+  mes             Int
+  ano             Int
+  metaLeads       Int      @default(0)
+  metaFechamentos Int      @default(0)
+  metaValor       Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([mes, ano])
+  @@index([ano, mes])
 }
 
 model CrmTouchpoint {

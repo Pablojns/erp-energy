@@ -22,7 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { id: 'kanban', label: 'Kanban', icon: LayoutGrid },
   { id: 'clientes', label: 'Clientes', icon: Users },
-  { id: 'relatorios', label: 'Relatórios', icon: ClipboardList, disabled: true },
+  { id: 'relatorios', label: 'Relatórios', icon: ClipboardList },
 ];
 
 export function CrmSidebar(props: {

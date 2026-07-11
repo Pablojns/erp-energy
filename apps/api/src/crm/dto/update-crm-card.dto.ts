@@ -77,4 +77,8 @@ export class UpdateCrmCardDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  responsavelId?: string | null;
 }

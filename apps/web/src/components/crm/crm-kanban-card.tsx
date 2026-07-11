@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
-import { useDraggable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
+import { crmUserInitials, isCrmFollowUpOverdue } from '@/src/components/crm/crm-helpers';
 import {
   CRM_ORIGIN_BADGE_CLASS,
   CRM_ORIGIN_LABEL,
@@ -10,69 +9,73 @@ import {
   type CrmCardDto,
 } from '@/src/services/api/crm-api';
 
-const DRAG_ACTIVATION_DISTANCE = 8;
+const DRAG_MIME = 'application/x-crm-card-id';
 
 export function CrmKanbanCard(props: {
   card: CrmCardDto;
   onOpen: () => void;
   isDragging?: boolean;
+  isMoving?: boolean;
+  onDragStart: (cardId: string) => void;
+  onDragEnd: () => void;
 }) {
-  const { card, onOpen, isDragging: isDraggingOverlay } = props;
-  const pointerOrigin = useRef<{ x: number; y: number } | null>(null);
-  const exceededDistance = useRef(false);
+  const { card, onOpen, isDragging, isMoving, onDragStart, onDragEnd } = props;
+  const didDrag = useRef(false);
+  const followUpOverdue = isCrmFollowUpOverdue(card);
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: card.id,
-    data: { card },
-  });
+  const handleDragStart = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      didDrag.current = true;
+      event.dataTransfer.setData(DRAG_MIME, card.id);
+      event.dataTransfer.setData('text/plain', card.id);
+      event.dataTransfer.effectAllowed = 'move';
+      onDragStart(card.id);
+    },
+    [card.id, onDragStart],
+  );
 
-  const dragListeners = listeners
-    ? {
-        ...listeners,
-        onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
-          pointerOrigin.current = { x: event.clientX, y: event.clientY };
-          exceededDistance.current = false;
-          listeners.onPointerDown?.(event);
-        },
-        onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
-          if (pointerOrigin.current) {
-            const dx = event.clientX - pointerOrigin.current.x;
-            const dy = event.clientY - pointerOrigin.current.y;
-            if (Math.hypot(dx, dy) > DRAG_ACTIVATION_DISTANCE) {
-              exceededDistance.current = true;
-            }
-          }
-          listeners.onPointerMove?.(event);
-        },
-        onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
-          listeners.onPointerUp?.(event);
-          pointerOrigin.current = null;
-        },
-      }
-    : undefined;
+  const handleDragEnd = useCallback(() => {
+    onDragEnd();
+    window.setTimeout(() => {
+      didDrag.current = false;
+    }, 0);
+  }, [onDragEnd]);
 
   const handleClick = useCallback(() => {
-    if (exceededDistance.current || isDragging || isDraggingOverlay) return;
+    if (didDrag.current || isDragging || isMoving) return;
     onOpen();
-  }, [isDragging, isDraggingOverlay, onOpen]);
+  }, [isDragging, isMoving, onOpen]);
 
-  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-  const dragging = isDragging || isDraggingOverlay;
+  const dragging = isDragging || isMoving;
 
   return (
     <article
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...dragListeners}
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onClick={handleClick}
-      className={`erp-module-card cursor-pointer p-3 transition ${
+      className={`erp-module-card relative cursor-grab p-3 transition active:cursor-grabbing ${
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
       } ${card.statusMeta?.name === 'Fechado' || card.statusMeta?.name === 'Perdido' ? 'opacity-75' : ''}`}
     >
+      {followUpOverdue ? (
+        <span
+          className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-rose-500/30"
+          title="Sem contato há mais de 3 dias"
+          aria-label="Follow-up atrasado"
+        />
+      ) : null}
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        {card.responsavel ? (
+          <span
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)] text-[10px] font-bold text-[var(--erp-fg)]"
+            title={card.responsavel.name}
+          >
+            {crmUserInitials(card.responsavel.name)}
+          </span>
+        ) : null}
         <span
           className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
         >

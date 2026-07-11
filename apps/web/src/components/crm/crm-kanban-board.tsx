@@ -1,17 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core';
 import { CrmKanbanColumn } from '@/src/components/crm/crm-kanban-column';
-import { CrmKanbanCardPreview } from '@/src/components/crm/crm-kanban-card';
 import {
   moveCrmCard,
   type CrmCardDto,
@@ -26,12 +16,9 @@ export function CrmKanbanBoard(props: {
   onCardMoved: (updated: CrmCardDto) => void;
   onError: (message: string) => void;
 }) {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
+  const [dropTargetFunilId, setDropTargetFunilId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-  );
 
   const grouped = useMemo(() => {
     const map = Object.fromEntries(
@@ -47,34 +34,35 @@ export function CrmKanbanBoard(props: {
     return map;
   }, [props.cards, props.funis]);
 
-  const activeCard = activeId
-    ? props.cards.find((card) => card.id === activeId) ?? null
-    : null;
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(event.active.id));
+  const handleDragStart = (cardId: string) => {
+    setDraggedCardId(cardId);
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveId(null);
-    const cardId = String(event.active.id);
-    const overId = event.over?.id ? String(event.over.id) : null;
-    if (!overId) return;
+  const handleDragEnd = () => {
+    setDraggedCardId(null);
+    setDropTargetFunilId(null);
+  };
 
-    const targetFunilId = resolveTargetFunilId(overId, props.funis, props.cards);
-    if (!targetFunilId) return;
+  const handleDrop = async (funilId: string) => {
+    const cardId = draggedCardId;
+    setDropTargetFunilId(null);
+    if (!cardId) return;
 
     const card = props.cards.find((item) => item.id === cardId);
-    if (!card || card.funilId === targetFunilId) return;
+    if (!card || card.funilId === funilId) {
+      handleDragEnd();
+      return;
+    }
 
     setMovingId(cardId);
     try {
-      const updated = await moveCrmCard(cardId, targetFunilId);
+      const updated = await moveCrmCard(cardId, funilId);
       props.onCardMoved(updated);
     } catch (err) {
       props.onError(err instanceof Error ? err.message : 'Falha ao mover card.');
     } finally {
       setMovingId(null);
+      handleDragEnd();
     }
   };
 
@@ -87,39 +75,28 @@ export function CrmKanbanBoard(props: {
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragEnd={(event) => void handleDragEnd(event)}
-    >
-      <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
-        {props.funis.map((funil) => (
-          <CrmKanbanColumn
-            key={funil.id}
-            funil={funil}
-            cards={grouped[funil.id] ?? []}
-            loading={props.loading}
-            onOpenCard={props.onOpenCard}
-            activeDragId={activeId ?? movingId}
-          />
-        ))}
-      </div>
-
-      <DragOverlay dropAnimation={null}>
-        {activeCard ? <CrmKanbanCardPreview card={activeCard} /> : null}
-      </DragOverlay>
-    </DndContext>
+    <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
+      {props.funis.map((funil) => (
+        <CrmKanbanColumn
+          key={funil.id}
+          funil={funil}
+          cards={grouped[funil.id] ?? []}
+          loading={props.loading}
+          onOpenCard={props.onOpenCard}
+          draggedCardId={draggedCardId}
+          movingId={movingId}
+          isDropTarget={dropTargetFunilId === funil.id}
+          onDragEnter={() => setDropTargetFunilId(funil.id)}
+          onDragLeave={() =>
+            setDropTargetFunilId((current) =>
+              current === funil.id ? null : current,
+            )
+          }
+          onDrop={() => void handleDrop(funil.id)}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        />
+      ))}
+    </div>
   );
-}
-
-function resolveTargetFunilId(
-  overId: string,
-  funis: CrmFunilDto[],
-  cards: CrmCardDto[],
-): string | null {
-  if (funis.some((funil) => funil.id === overId)) {
-    return overId;
-  }
-  const targetCard = cards.find((card) => card.id === overId);
-  return targetCard?.funilId ?? null;
 }

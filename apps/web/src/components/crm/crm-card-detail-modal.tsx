@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Trash2, X } from 'lucide-react';
+import { CrmActivityTimeline } from '@/src/components/crm/crm-activity-timeline';
+import {
+  appendQuickNote,
+  buildCrmActivityTimeline,
+} from '@/src/components/crm/crm-helpers';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -22,6 +27,7 @@ import {
   type CrmFunilDto,
   type CrmStatusDto,
   type CrmTouchpointInput,
+  type CrmUserDto,
 } from '@/src/services/api/crm-api';
 
 export function CrmCardDetailModal(props: {
@@ -29,10 +35,11 @@ export function CrmCardDetailModal(props: {
   funis: CrmFunilDto[];
   statuses: CrmStatusDto[];
   channels: CrmChannelDto[];
+  users: CrmUserDto[];
   onClose: () => void;
   onUpdated: () => void | Promise<void>;
 }) {
-  const { cardId, funis, statuses, channels, onClose, onUpdated } = props;
+  const { cardId, funis, statuses, channels, users, onClose, onUpdated } = props;
   const [card, setCard] = useState<CrmCardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
@@ -44,7 +51,9 @@ export function CrmCardDetailModal(props: {
   const [observations, setObservations] = useState('');
   const [whatsappLog, setWhatsappLog] = useState('');
   const [funilId, setFunilId] = useState('');
+  const [responsavelId, setResponsavelId] = useState('');
   const [touchpoints, setTouchpoints] = useState<CrmTouchpointInput[]>([]);
+  const [quickNote, setQuickNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +79,9 @@ export function CrmCardDetailModal(props: {
         setObservations(data.observations ?? '');
         setWhatsappLog(data.whatsappLog ?? '');
         setFunilId(data.funilId);
+        setResponsavelId(data.responsavelId ?? '');
         setTouchpoints(mergeTouchpoints(data.touchpoints));
+        setQuickNote('');
       } catch (e) {
         if (!controller.signal.aborted) {
           setError(e instanceof Error ? e.message : 'Erro ao carregar lead.');
@@ -94,6 +105,35 @@ export function CrmCardDetailModal(props: {
   );
 
   const selectedStatus = statuses.find((s) => s.id === statusId);
+
+  const activityItems = useMemo(() => {
+    if (!card) return [];
+    return buildCrmActivityTimeline(
+      {
+        createdAt: card.createdAt,
+        notes: card.notes,
+        touchpoints: card.touchpoints,
+      },
+      channels,
+    );
+  }, [card, channels]);
+
+  const addQuickNote = async () => {
+    if (!card || !quickNote.trim()) return;
+    const nextNotes = appendQuickNote(card.notes, quickNote);
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await updateCrmCard(card.id, { notes: nextNotes });
+      setCard(updated);
+      setQuickNote('');
+      await onUpdated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao salvar nota.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!cardId) return null;
 
@@ -119,9 +159,13 @@ export function CrmCardDetailModal(props: {
         observations: observations.trim() || null,
         whatsappLog: whatsappLog.trim() || null,
         funilId,
+        responsavelId: responsavelId || null,
         touchPoints: doneCount,
       });
       await upsertCrmTouchpoints(card.id, touchpoints);
+      const refreshed = await getCrmCard(card.id);
+      setCard(refreshed);
+      setTouchpoints(mergeTouchpoints(refreshed.touchpoints));
       await onUpdated();
       if (extra?.closeAfter) onClose();
     } catch (e) {
@@ -274,6 +318,21 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                  Responsável
+                  <select
+                    value={responsavelId}
+                    onChange={(e) => setResponsavelId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                  >
+                    <option value="">Sem responsável</option>
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] sm:col-span-2">
                   Funil
                   <select
@@ -307,6 +366,37 @@ export function CrmCardDetailModal(props: {
                     className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none"
                   />
                 </label>
+              </div>
+
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                    Histórico de atividades
+                  </h3>
+                </div>
+                <CrmActivityTimeline items={activityItems} />
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={quickNote}
+                    onChange={(e) => setQuickNote(e.target.value)}
+                    placeholder="Adicionar nota rápida (sem touchpoint formal)…"
+                    className="flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void addQuickNote();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={saving || !quickNote.trim()}
+                    onClick={() => void addQuickNote()}
+                    className="rounded-xl border border-[var(--border-color)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-50"
+                  >
+                    Adicionar nota
+                  </button>
+                </div>
               </div>
 
               <div className="mt-5">

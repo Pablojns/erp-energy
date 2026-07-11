@@ -193,6 +193,13 @@ export async function PATCH(
   return proxy(request, await readSegments(context.params));
 }
 
+export async function PUT(
+  request: NextRequest,
+  context: { params: SegmentsCtx },
+) {
+  return proxy(request, await readSegments(context.params));
+}
+
 export async function DELETE(
   request: NextRequest,
   context: { params: SegmentsCtx },
