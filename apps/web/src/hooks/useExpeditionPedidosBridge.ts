@@ -47,7 +47,9 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [sum, setSum] = useState<ExpeditionSummary | null>(null);
   const [sumLoading, setSumLoading] = useState(true);
 
-  const infiniteScroll = mode === 'expedition';
+  // Separação precisa carregar além da 1ª página: pedidos EM_SEPARACAO podem ficar
+  // atrás de SEPARADO/AGUARDANDO_NF quando ordenados por orderDate desc.
+  const infiniteScroll = true;
 
   const appliedFiltersForApi = useMemo(
     () => ({
@@ -70,7 +72,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     search: searchDebounced,
     appliedFilters: appliedFiltersForApi,
     page,
-    pageSize: 25,
+    pageSize: mode === 'separation' ? 100 : 25,
     mode,
     infinite: infiniteScroll,
   });

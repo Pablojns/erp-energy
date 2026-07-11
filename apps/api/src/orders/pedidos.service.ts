@@ -36,7 +36,6 @@ import {
   pickFirstLineOfOrderGroup,
   readPedidosSheet,
   resolveOrderStatusFromPlanilha,
-  isPlanilhaItemReceived,
   type PedidosImportSummary,
 } from './pedidos-import';
 import { orderStockReference } from './order-domain';
@@ -294,15 +293,12 @@ export class PedidosService {
 
   /** Lista da aba Separação — filtra só pelo status do pedido, nunca pelo status WEG dos itens. */
   private buildSeparationListWhere(query: OrderQueryDto): Prisma.OrderWhereInput {
-    type OrderListInternals = {
-      buildWhere(input: OrderQueryDto): Prisma.OrderWhereInput;
-    };
+    const baseWhere: Prisma.OrderWhereInput =
+      PedidosService.stripSeparationItemVisualFilters({
+        ...(query.source ? { source: query.source as OrderSource } : {}),
+      });
 
-    const internals = this.orders as unknown as OrderListInternals;
-    const withoutWorkspace: OrderQueryDto = { ...query, workspace: undefined };
-    const baseWhere = internals.buildWhere(withoutWorkspace);
-
-    return {
+    return PedidosService.stripSeparationItemVisualFilters({
       AND: [
         baseWhere,
         {
@@ -316,7 +312,153 @@ export class PedidosService {
           },
         },
       ],
-    };
+    });
+  }
+
+  /** Remove filtros de badge visual (status WEG / estoque por linha) do where da separação. */
+  private static stripSeparationItemVisualFilters(
+    where: Prisma.OrderWhereInput,
+  ): Prisma.OrderWhereInput {
+    return PedidosService.pruneOrderWhere(where);
+  }
+
+  private static pruneOrderWhere(
+    where: Prisma.OrderWhereInput,
+  ): Prisma.OrderWhereInput {
+    if (!where || typeof where !== 'object') return where;
+
+    const out: Prisma.OrderWhereInput = {};
+
+    for (const [key, rawValue] of Object.entries(where) as Array<
+      [keyof Prisma.OrderWhereInput, unknown]
+    >) {
+      if (rawValue === undefined) continue;
+
+      if (key === 'items') {
+        const cleaned = PedidosService.cleanItemsRelationFilter(
+          rawValue as Prisma.OrderItemListRelationFilter,
+        );
+        if (cleaned) out.items = cleaned;
+        continue;
+      }
+
+      if (key === 'AND' && Array.isArray(rawValue)) {
+        const cleanedAnd = rawValue
+          .map((clause) =>
+            PedidosService.pruneOrderWhere(clause as Prisma.OrderWhereInput),
+          )
+          .filter((clause) => Object.keys(clause).length > 0);
+        if (cleanedAnd.length === 1) {
+          return cleanedAnd[0]!;
+        }
+        if (cleanedAnd.length > 1) out.AND = cleanedAnd;
+        continue;
+      }
+
+      if (key === 'OR' && Array.isArray(rawValue)) {
+        const cleanedOr = rawValue
+          .map((clause) =>
+            PedidosService.pruneOrderWhere(clause as Prisma.OrderWhereInput),
+          )
+          .filter((clause) => Object.keys(clause).length > 0);
+        if (cleanedOr.length > 0) out.OR = cleanedOr;
+        continue;
+      }
+
+      if (key === 'NOT') {
+        const cleanedNot = PedidosService.pruneOrderWhere(
+          rawValue as Prisma.OrderWhereInput,
+        );
+        if (Object.keys(cleanedNot).length > 0) out.NOT = cleanedNot;
+        continue;
+      }
+
+      (out as Record<string, unknown>)[key] = rawValue;
+    }
+
+    return out;
+  }
+
+  private static cleanItemsRelationFilter(
+    filter: Prisma.OrderItemListRelationFilter,
+  ): Prisma.OrderItemListRelationFilter | undefined {
+    const out: Prisma.OrderItemListRelationFilter = {};
+
+    if (filter.some !== undefined) {
+      const cleaned = PedidosService.pruneOrderItemWhere(filter.some);
+      if (cleaned) out.some = cleaned;
+    }
+    if (filter.none !== undefined) {
+      const cleaned = PedidosService.pruneOrderItemWhere(filter.none);
+      if (cleaned) out.none = cleaned;
+    }
+    if (filter.every !== undefined) {
+      const cleaned = PedidosService.pruneOrderItemWhere(filter.every);
+      if (cleaned) out.every = cleaned;
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  private static pruneOrderItemWhere(
+    where: Prisma.OrderItemWhereInput,
+  ): Prisma.OrderItemWhereInput | undefined {
+    if (!where || typeof where !== 'object') return where;
+
+    const out: Prisma.OrderItemWhereInput = {};
+
+    for (const [key, rawValue] of Object.entries(where) as Array<
+      [keyof Prisma.OrderItemWhereInput, unknown]
+    >) {
+      if (rawValue === undefined) continue;
+      if (key === 'mercadoEletronicoItemStatus' || key === 'stockStatus') {
+        continue;
+      }
+
+      if (key === 'AND' && Array.isArray(rawValue)) {
+        const cleanedAnd = rawValue
+          .map((clause) =>
+            PedidosService.pruneOrderItemWhere(
+              clause as Prisma.OrderItemWhereInput,
+            ),
+          )
+          .filter(
+            (clause): clause is Prisma.OrderItemWhereInput =>
+              clause != null && Object.keys(clause).length > 0,
+          );
+        if (cleanedAnd.length > 0) out.AND = cleanedAnd;
+        continue;
+      }
+
+      if (key === 'OR' && Array.isArray(rawValue)) {
+        const cleanedOr = rawValue
+          .map((clause) =>
+            PedidosService.pruneOrderItemWhere(
+              clause as Prisma.OrderItemWhereInput,
+            ),
+          )
+          .filter(
+            (clause): clause is Prisma.OrderItemWhereInput =>
+              clause != null && Object.keys(clause).length > 0,
+          );
+        if (cleanedOr.length > 0) out.OR = cleanedOr;
+        continue;
+      }
+
+      if (key === 'NOT') {
+        const cleanedNot = PedidosService.pruneOrderItemWhere(
+          rawValue as Prisma.OrderItemWhereInput,
+        );
+        if (cleanedNot && Object.keys(cleanedNot).length > 0) {
+          out.NOT = cleanedNot;
+        }
+        continue;
+      }
+
+      (out as Record<string, unknown>)[key] = rawValue;
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
   }
 
   private async listSeparationWorkspaceOrders(
@@ -350,7 +492,7 @@ export class PedidosService {
       'unloadingPoint',
     ]);
 
-    const where: Prisma.OrderWhereInput = {
+    const where: Prisma.OrderWhereInput = PedidosService.stripSeparationItemVisualFilters({
       AND: [
         this.buildSeparationListWhere({
           ...query,
@@ -374,7 +516,7 @@ export class PedidosService {
             ]
           : []),
       ],
-    };
+    });
 
     const orderBy = internals.buildOrderBy(query);
     const total = await this.prisma.client.order.count({ where });
@@ -1451,9 +1593,6 @@ export class PedidosService {
           numeroPed: numeroPedRef,
           cnpj: order.deliveryCnpj ?? '',
           itens: order.items
-            .filter(
-              (item) => !isPlanilhaItemReceived(item.mercadoEletronicoItemStatus),
-            )
             .map((item) => ({
               seq: item.lineNumber,
               sku: item.product?.sku ?? item.sku,
@@ -1762,17 +1901,12 @@ export class PedidosService {
 
     const item = await this.prisma.client.orderItem.findFirst({
       where: { orderId: order.id, lineNumber: seq },
-      select: { id: true, quantity: true, mercadoEletronicoItemStatus: true },
+      select: { id: true, quantity: true },
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
 
     const pickedQty = dto.quantidade_separada;
     if (pickedQty !== undefined) {
-      if (isPlanilhaItemReceived(item.mercadoEletronicoItemStatus) && pickedQty > 0) {
-        throw new BadRequestException(
-          'Item já recebido na WEG não pode ser separado novamente.',
-        );
-      }
       if (pickedQty > item.quantity) {
         throw new BadRequestException('quantidade_separada não pode exceder quantidade_pedida.');
       }
@@ -1804,16 +1938,6 @@ export class PedidosService {
     return this.prisma.client.order.findMany({
       where: {
         status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO] },
-        OR: [
-          { mercadoEletronicoStatus: null },
-          { mercadoEletronicoStatus: '' },
-          {
-            mercadoEletronicoStatus: {
-              contains: 'sem recebimento',
-              mode: 'insensitive',
-            },
-          },
-        ],
       },
       orderBy: [
         { requestedDeliveryDate: 'asc' },

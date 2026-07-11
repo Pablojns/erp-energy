@@ -302,7 +302,7 @@ export function OrderQueue(props: {
   const selectedForRemovalCount = selectedForRemovalIds.size;
 
   useEffect(() => {
-    if (!isPedidosMode || !data.ordersHasMore) return;
+    if (!data.ordersHasMore) return;
     const sentinel = loadMoreSentinelRef.current;
     const root = listScrollRef.current;
     if (!sentinel || !root) return;
@@ -319,7 +319,6 @@ export function OrderQueue(props: {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [
-    isPedidosMode,
     data.ordersHasMore,
     data.loadMoreOrders,
     data.orders.length,
@@ -684,20 +683,31 @@ export function OrderQueue(props: {
             ) : null}
           </>
         ) : separationSections ? (
-          <div className="exp-queue-sections gap-2">
-            {separationSections.map((section) => (
-              <section key={section.id} className="exp-queue-section">
-                <h3 className="exp-queue-section-title">{section.label}</h3>
-                {section.orders.length === 0 ? (
-                  <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
-                ) : (
-                  <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
-                    {section.orders.map(renderOrderCard)}
-                  </div>
-                )}
-              </section>
-            ))}
-          </div>
+          <>
+            <div className="exp-queue-sections gap-2">
+              {separationSections.map((section) => (
+                <section key={section.id} className="exp-queue-section">
+                  <h3 className="exp-queue-section-title">{section.label}</h3>
+                  {section.orders.length === 0 ? (
+                    <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
+                  ) : (
+                    <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
+                      {section.orders.map(renderOrderCard)}
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+            {data.ordersHasMore ? (
+              <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
+            ) : null}
+            {data.ordersLoadingMore ? (
+              <div className="exp-queue-load-more">
+                <Loader2 className="h-5 w-5 animate-spin text-[var(--accent)]" />
+                <span>Carregando mais pedidos…</span>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
 
