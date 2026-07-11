@@ -37,6 +37,8 @@ function isAllowedPath(path: string): boolean {
     /^financeiro(\/|$)/i.test(path) ||
     /^api\/compras(\/|$)/i.test(path) ||
     /^compras(\/|$)/i.test(path) ||
+    /^api\/crm(\/|$)/i.test(path) ||
+    /^crm(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -66,6 +68,9 @@ function resolveUpstreamPath(segments: string[]): string {
     return `api/${path}`;
   }
   if (/^compras(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^crm(\/|$)/i.test(path)) {
     return `api/${path}`;
   }
   return path;

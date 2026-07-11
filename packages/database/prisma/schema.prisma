@@ -787,3 +787,71 @@ model PurchaseRequestImage {
   imageKey          String
   createdAt         DateTime        @default(now())
 }
+
+model CrmFunil {
+  id        String    @id @default(cuid())
+  name      String
+  order     Int
+  color     String?
+  createdAt DateTime  @default(now())
+  cards     CrmCard[]
+
+  @@index([order])
+}
+
+model CrmStatus {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#6366f1")
+  order Int
+
+  @@index([order])
+}
+
+model CrmChannel {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#22c55e")
+}
+
+model CrmCard {
+  id                 String          @id @default(cuid())
+  name               String
+  phone              String?
+  email              String?
+  value              Decimal?        @db.Decimal(12, 2)
+  origin             String
+  touchPoints        Int             @default(0)
+  notes              String?
+  whatsappLog        String?
+  observations       String?
+  prospectionDate    DateTime?
+  contactsToday      Int?
+  convertedToMeeting Int?
+  funilId            String
+  funil              CrmFunil        @relation(fields: [funilId], references: [id], onDelete: Restrict)
+  status             String          @default("NOVO_LEAD")
+  touchpointRecords  CrmTouchpoint[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  closedAt           DateTime?
+
+  @@index([funilId])
+  @@index([origin])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CrmTouchpoint {
+  id        String    @id @default(cuid())
+  cardId    String
+  card      CrmCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  number    Int
+  done      Boolean   @default(false)
+  date      DateTime?
+  channel   String?
+  createdAt DateTime  @default(now())
+
+  @@unique([cardId, number])
+  @@index([cardId])
+}

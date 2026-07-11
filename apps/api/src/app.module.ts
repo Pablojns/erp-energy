@@ -20,6 +20,7 @@ import { ProductModule } from './product/product.module';
 import { StockModule } from './stock/stock.module';
 import { StorageModule } from './storage/storage.module';
 import { CorreiosModule } from './correios/correios.module';
+import { CrmModule } from './crm/crm.module';
 import { buildNestPinoParams } from './common/logger/pino-options';
 import { RequestContextInterceptor } from './common/logger/request-context.interceptor';
 import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
@@ -58,6 +59,7 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     PermissionsModule,
     StorageModule,
     CorreiosModule,
+    CrmModule,
   ],
   controllers: [AppController],
   providers: [
