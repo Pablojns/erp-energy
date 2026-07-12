@@ -5,6 +5,7 @@ import { AlertTriangle, Loader2, Trash2, X, XCircle } from 'lucide-react';
 import { CrmActivityTimeline } from '@/src/components/crm/crm-activity-timeline';
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import { CrmLossReasonModal } from '@/src/components/crm/crm-loss-reason-modal';
+import { CrmPropostasPanel } from '@/src/components/crm/crm-propostas-panel';
 import {
   appendQuickNote,
   buildCrmActivityTimeline,
@@ -59,6 +60,11 @@ export function CrmCardDetailModal(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lossModalOpen, setLossModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'detalhes' | 'propostas'>('detalhes');
+
+  useEffect(() => {
+    setActiveTab('detalhes');
+  }, [cardId]);
 
   useEffect(() => {
     if (!cardId) {
@@ -319,6 +325,42 @@ export function CrmCardDetailModal(props: {
                 </div>
               ) : null}
 
+              <div className="mt-4 inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+                {(
+                  [
+                    ['detalhes', 'Detalhes'],
+                    ['propostas', 'Propostas'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActiveTab(id)}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+                      activeTab === id
+                        ? 'bg-white text-slate-950'
+                        : 'text-[var(--text-secondary)] hover:bg-white/10'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === 'propostas' ? (
+                <CrmPropostasPanel
+                  cardId={card.id}
+                  onCardUpdated={async () => {
+                    const refreshed = await getCrmCard(card.id);
+                    setCard(refreshed);
+                    setValue(refreshed.value ?? '');
+                    await onUpdated();
+                  }}
+                />
+              ) : null}
+
+              {activeTab === 'detalhes' ? (
+              <>
               <section className="mt-5">
                 <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">
                   Informações
@@ -579,6 +621,8 @@ export function CrmCardDetailModal(props: {
                   </span>
                 ) : null}
               </div>
+              </>
+              ) : null}
             </>
           )}
         </GlassCard>

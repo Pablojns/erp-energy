@@ -8,10 +8,12 @@ import { CrmCron } from './crm.cron';
 import { CrmSeedService } from './crm-seed.service';
 import { CrmService } from './crm.service';
 
+import { CrmPropostaService } from './crm-proposta.service';
+
 @Module({
   imports: [PrismaModule, AuthModule, PermissionsModule, NotificationsModule],
   controllers: [CrmController],
-  providers: [CrmService, CrmSeedService, CrmCron],
+  providers: [CrmService, CrmSeedService, CrmCron, CrmPropostaService],
   exports: [CrmService],
 })
 export class CrmModule {}

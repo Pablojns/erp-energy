@@ -11,8 +11,11 @@ import {
   Post,
   Put,
   Query,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
@@ -32,11 +35,16 @@ import { UpdateCrmChannelDto } from './dto/update-crm-channel.dto';
 import { UpdateCrmFunilDto } from './dto/update-crm-funil.dto';
 import { UpdateCrmStatusDto } from './dto/update-crm-status.dto';
 import { UpsertCrmTouchpointsDto } from './dto/upsert-crm-touchpoints.dto';
+import { CreateCrmPropostaDto, UpdateCrmPropostaDto } from './dto/crm-proposta-item.dto';
+import { CrmPropostaService } from './crm-proposta.service';
 
 @Controller('api/crm')
 @UseGuards(JwtGuard)
 export class CrmController {
-  constructor(private readonly crm: CrmService) {}
+  constructor(
+    private readonly crm: CrmService,
+    private readonly propostas: CrmPropostaService,
+  ) {}
 
   @Get('status')
   @RequirePermission('crm', 'ver_modulo')
@@ -146,6 +154,58 @@ export class CrmController {
     @Query('excludeId') excludeId?: string,
   ) {
     return this.crm.checkDuplicateCard(phone, email, excludeId);
+  }
+
+  @Get('cards/:id/propostas')
+  @RequirePermission('crm', 'ver_modulo')
+  listPropostas(@Param('id') id: string) {
+    return this.propostas.listByCard(id);
+  }
+
+  @Post('cards/:id/propostas')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('crm', 'ver_modulo')
+  createProposta(@Param('id') id: string, @Body() dto: CreateCrmPropostaDto) {
+    return this.propostas.create(id, dto);
+  }
+
+  @Get('propostas/:id/pdf')
+  @RequirePermission('crm', 'ver_modulo')
+  async propostaPdf(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.propostas.generatePdf(id);
+    const proposta = await this.propostas.getById(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${proposta.numero}.pdf"`,
+    });
+    return new StreamableFile(buffer);
+  }
+
+  @Get('propostas/:id')
+  @RequirePermission('crm', 'ver_modulo')
+  getProposta(@Param('id') id: string) {
+    return this.propostas.getById(id);
+  }
+
+  @Patch('propostas/:id')
+  @RequirePermission('crm', 'ver_modulo')
+  updateProposta(@Param('id') id: string, @Body() dto: UpdateCrmPropostaDto) {
+    return this.propostas.update(id, dto);
+  }
+
+  @Delete('propostas/:id')
+  @RequirePermission('crm', 'ver_modulo')
+  deleteProposta(@Param('id') id: string) {
+    return this.propostas.delete(id);
+  }
+
+  @Post('propostas/:id/aceitar')
+  @RequirePermission('crm', 'ver_modulo')
+  aceitarProposta(@Param('id') id: string) {
+    return this.propostas.markAceita(id);
   }
 
   @Get('cards/:id')

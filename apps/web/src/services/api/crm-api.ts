@@ -456,6 +456,151 @@ export async function importCrmLeads(leads: CrmImportLeadInput[]) {
   );
 }
 
+export type CrmPropostaStatus =
+  | 'RASCUNHO'
+  | 'ENVIADA'
+  | 'ACEITA'
+  | 'RECUSADA'
+  | 'VENCIDA';
+
+export type CrmPropostaItemDto = {
+  id: string;
+  propostaId: string;
+  descricao: string;
+  quantidade: number;
+  valorUnit: string;
+  desconto: string;
+  total: string;
+};
+
+export type CrmPropostaDto = {
+  id: string;
+  cardId: string;
+  numero: string;
+  titulo: string;
+  validade: string | null;
+  status: CrmPropostaStatus;
+  observacoes: string | null;
+  desconto: string;
+  total: string;
+  createdAt: string;
+  updatedAt: string;
+  itens: CrmPropostaItemDto[];
+};
+
+export type CrmPropostaItemInput = {
+  descricao: string;
+  quantidade: number;
+  valorUnit: number;
+  desconto: number;
+};
+
+export const CRM_PROPOSTA_STATUS_LABEL: Record<CrmPropostaStatus, string> = {
+  RASCUNHO: 'Rascunho',
+  ENVIADA: 'Enviada',
+  ACEITA: 'Aceita',
+  RECUSADA: 'Recusada',
+  VENCIDA: 'Vencida',
+};
+
+export const CRM_PROPOSTA_STATUS_BADGE: Record<CrmPropostaStatus, string> = {
+  RASCUNHO: 'border-zinc-400/50 bg-zinc-500/20 text-zinc-200',
+  ENVIADA: 'border-sky-400/50 bg-sky-500/20 text-sky-100',
+  ACEITA: 'border-emerald-400/50 bg-emerald-500/25 text-emerald-100',
+  RECUSADA: 'border-rose-400/50 bg-rose-500/20 text-rose-100',
+  VENCIDA: 'border-amber-400/50 bg-amber-500/20 text-amber-100',
+};
+
+export function calcPropostaItemTotal(item: CrmPropostaItemInput): number {
+  const gross = Math.max(0, item.quantidade) * Math.max(0, item.valorUnit);
+  const pct = Math.min(100, Math.max(0, item.desconto));
+  return Math.round(gross * (1 - pct / 100) * 100) / 100;
+}
+
+export function calcPropostaGrandTotal(
+  itens: CrmPropostaItemInput[],
+  descontoGeralPct: number,
+): { subtotal: number; total: number } {
+  const subtotal = itens.reduce((acc, item) => acc + calcPropostaItemTotal(item), 0);
+  const pct = Math.min(100, Math.max(0, descontoGeralPct));
+  const total = Math.round(subtotal * (1 - pct / 100) * 100) / 100;
+  return { subtotal, total };
+}
+
+export async function listCrmPropostas(cardId: string) {
+  return erpFetchJson<CrmPropostaDto[]>(`${BASE}/cards/${cardId}/propostas`);
+}
+
+export async function createCrmProposta(
+  cardId: string,
+  body: {
+    titulo: string;
+    validade?: string;
+    observacoes?: string;
+    desconto?: number;
+    itens: CrmPropostaItemInput[];
+  },
+) {
+  return erpFetchJson<CrmPropostaDto>(`${BASE}/cards/${cardId}/propostas`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateCrmProposta(
+  id: string,
+  body: Partial<{
+    titulo: string;
+    validade: string | null;
+    observacoes: string | null;
+    desconto: number;
+    status: CrmPropostaStatus;
+    itens: CrmPropostaItemInput[];
+  }>,
+) {
+  return erpFetchJson<CrmPropostaDto>(`${BASE}/propostas/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteCrmProposta(id: string) {
+  return erpFetchJson<{ ok: boolean }>(`${BASE}/propostas/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function aceitarCrmProposta(id: string) {
+  return erpFetchJson<CrmPropostaDto>(`${BASE}/propostas/${id}/aceitar`, {
+    method: 'POST',
+  });
+}
+
+export async function downloadCrmPropostaPdf(id: string, filename: string) {
+  const res = await fetch(`/api/erp/crm/propostas/${id}/pdf`, {
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = `Erro HTTP ${res.status}`;
+    try {
+      const body = JSON.parse(text) as { message?: string | string[] };
+      if (Array.isArray(body.message)) message = body.message.join(' · ');
+      else if (body.message) message = body.message;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${filename}.pdf`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function formatCrmCurrency(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return 'R$ 0,00';

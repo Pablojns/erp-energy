@@ -848,6 +848,7 @@ model CrmCard {
   motivoPerdaTexto   String?
   motivoPerda        CrmMotivoPerda? @relation(fields: [motivoPerdaId], references: [id], onDelete: SetNull)
   touchpointRecords  CrmTouchpoint[]
+  propostas          CrmProposta[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   closedAt           DateTime?
@@ -860,6 +861,39 @@ model CrmCard {
   @@index([motivoPerdaId])
   @@index([phone])
   @@index([email])
+}
+
+model CrmProposta {
+  id          String            @id @default(cuid())
+  cardId      String
+  card        CrmCard           @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  numero      String            @unique
+  titulo      String
+  validade    DateTime?
+  status      String            @default("RASCUNHO")
+  itens       CrmPropostaItem[]
+  observacoes String?
+  desconto    Decimal?          @default(0) @db.Decimal(5, 2)
+  total       Decimal?          @default(0) @db.Decimal(12, 2)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([cardId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CrmPropostaItem {
+  id         String      @id @default(cuid())
+  propostaId String
+  proposta   CrmProposta @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  descricao  String
+  quantidade Int         @default(1)
+  valorUnit  Decimal     @default(0) @db.Decimal(12, 2)
+  desconto   Decimal     @default(0) @db.Decimal(5, 2)
+  total      Decimal     @default(0) @db.Decimal(12, 2)
+
+  @@index([propostaId])
 }
 
 model CrmMeta {
