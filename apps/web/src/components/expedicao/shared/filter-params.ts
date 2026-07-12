@@ -53,6 +53,8 @@ export function buildFilterParams(opts: {
   statusFilter: StatusFilterId;
   mode?: 'expedition' | 'separation';
   separationSubFilter?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }): URLSearchParams {
   const params = new URLSearchParams();
   const f = opts.appliedFilters;
@@ -87,8 +89,8 @@ export function buildFilterParams(opts: {
     params.set('status', 'urgent');
   }
 
-  params.set('sortBy', 'orderDate');
-  params.set('sortOrder', 'desc');
+  params.set('sortBy', opts.sortBy ?? 'orderDate');
+  params.set('sortOrder', opts.sortOrder ?? 'desc');
   return params;
 }
 

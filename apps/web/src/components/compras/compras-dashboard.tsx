@@ -1,6 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ShoppingCart } from 'lucide-react';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { TableSkeleton } from '@/src/components/ui/skeleton';
 import type { PurchaseRequest, PurchaseType } from './compras-types';
 import { TYPE_LABEL, purchaseStatusLabel } from './compras-types';
 import {
@@ -145,11 +148,18 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
             </div>
 
             {loading ? (
-              <p className="px-3 py-6 text-sm text-[var(--erp-fg-muted)]">Carregando dashboard...</p>
+              <div className="px-3 py-4">
+                <TableSkeleton rows={6} columns={6} header={false} />
+              </div>
             ) : selectedRows.length === 0 ? (
-              <p className="px-3 py-6 text-sm text-[var(--erp-fg-muted)]">
-                Nenhuma requisição neste módulo.
-              </p>
+              <div className="p-4">
+                <EmptyState
+                  compact
+                  icon={ShoppingCart}
+                  title="Nenhuma requisição encontrada"
+                  description="As solicitações de compra deste módulo aparecerão aqui conforme forem criadas."
+                />
+              </div>
             ) : (
               selectedRows.map((row) => (
                 <div

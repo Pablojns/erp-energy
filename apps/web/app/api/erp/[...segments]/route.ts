@@ -41,6 +41,8 @@ function isAllowedPath(path: string): boolean {
     /^crm(\/|$)/i.test(path) ||
     /^correios(\/|$)/i.test(path) ||
     /^api\/correios(\/|$)/i.test(path) ||
+    /^search(\/|$)/i.test(path) ||
+    /^api\/search(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -77,6 +79,9 @@ function resolveUpstreamPath(segments: string[]): string {
   }
   if (/^correios(\/|$)/i.test(path)) {
     return `correios/${path.replace(/^correios\/?/, '')}`;
+  }
+  if (/^search(\/|$)/i.test(path)) {
+    return `api/search${path.replace(/^search\/?/, '') ? `/${path.replace(/^search\/?/, '')}` : ''}`;
   }
   return path;
 }

@@ -30,6 +30,7 @@ import {
   type CrmCardOrigin,
   type CrmRelatoriosDto,
 } from '@/src/services/api/crm-api';
+import { CrmMotivosPerdaPieChart } from '@/src/components/crm/crm-motivos-perda-pie';
 
 type ClosedLeadRow = CrmRelatoriosDto['leadsFechados'][number];
 type SortKey = keyof ClosedLeadRow;
@@ -351,6 +352,10 @@ export function CrmRelatorios() {
           </div>
 
           {/* Seção 3 — Performance por origem */}
+          <div className="mb-4 grid gap-3 lg:grid-cols-2">
+            <CrmMotivosPerdaPieChart data={data.motivosPerdaDistribuicao ?? []} />
+          </div>
+
           <div className="erp-module-card mb-4 overflow-x-auto">
             <h3 className="border-b border-[var(--erp-border)] px-4 py-3 text-sm font-semibold text-[var(--erp-fg)]">
               Performance por origem

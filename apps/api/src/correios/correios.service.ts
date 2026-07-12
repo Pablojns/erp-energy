@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import { PDFDocument } from 'pdf-lib';
 import { inflateSync } from 'zlib';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class CorreiosService {
@@ -11,7 +12,10 @@ export class CorreiosService {
   private token: string | null = null;
   private tokenExpiry: Date | null = null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const baseURL =
       config.get('CORREIOS_ENV') === 'producao'
         ? 'https://api.correios.com.br'
@@ -341,8 +345,9 @@ export class CorreiosService {
 
   // ─── Pré-postagem ─────────────────────────────────────────────────────────
 
-  async criarPrePostagem(payload: {
-    remetente: {
+  async criarPrePostagem(
+    payload: {
+    remetente?: {
       nome: string;
       cpfCnpj: string;
       cep: string;
@@ -378,8 +383,16 @@ export class CorreiosService {
       descricaoConteudo: string;
     };
     numeroNotaFiscal?: string;
-  }) {
+    historico?: {
+      nomeDestinatario: string;
+      cepDestino: string;
+      servico: string;
+    };
+  },
+    userId?: string,
+  ) {
     const headers = await this.authHeader();
+    const remetente = payload.remetente ?? (await this.buildRemetentePadrao());
 
     const pesoGramas = Math.max(
       100,
@@ -394,13 +407,13 @@ export class CorreiosService {
     const numeroNotaFiscal = payload.numeroNotaFiscal?.replace(/\D/g, '') || '0';
 
     const remetenteBase = await this.enrichEnderecoFromCep({
-      cep: payload.remetente.cep,
-      logradouro: payload.remetente.logradouro,
-      numero: payload.remetente.numero,
-      complemento: payload.remetente.complemento,
-      bairro: payload.remetente.bairro,
-      cidade: payload.remetente.cidade,
-      uf: payload.remetente.uf,
+      cep: remetente.cep,
+      logradouro: remetente.logradouro,
+      numero: remetente.numero,
+      complemento: remetente.complemento,
+      bairro: remetente.bairro,
+      cidade: remetente.cidade,
+      uf: remetente.uf,
     });
     const destinatarioBase = await this.enrichEnderecoFromCep({
       cep: payload.destinatario.cep,
@@ -419,11 +432,11 @@ export class CorreiosService {
 
     const body = {
       remetente: {
-        nome: payload.remetente.nome,
-        cpfCnpj: payload.remetente.cpfCnpj.replace(/\D/g, ''),
+        nome: remetente.nome,
+        cpfCnpj: remetente.cpfCnpj.replace(/\D/g, ''),
         endereco: remetenteEndereco,
-        telefone: payload.remetente.telefone ?? '',
-        email: payload.remetente.email ?? '',
+        telefone: remetente.telefone ?? '',
+        email: remetente.email ?? '',
       },
       destinatario: {
         nome: payload.destinatario.nome,
@@ -474,7 +487,58 @@ export class CorreiosService {
       await this.aguardarStatusPrePostado(id);
     }
 
+    if (payload.historico && typeof id === 'string' && id.length > 0) {
+      const codigoRastreio =
+        typeof data?.codigoObjeto === 'string' ? data.codigoObjeto.trim() : '';
+      await this.registrarEtiqueta({
+        codigoRastreio,
+        prePostagemId: id,
+        nomeDestinatario: payload.historico.nomeDestinatario,
+        cepDestino: payload.historico.cepDestino,
+        servico: payload.historico.servico,
+        userId,
+      });
+    }
+
     return data;
+  }
+
+  async listEtiquetas() {
+    return this.prisma.client.correiosEtiqueta.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async excluirEtiqueta(id: string) {
+    const row = await this.prisma.client.correiosEtiqueta.findUnique({
+      where: { id },
+    });
+    if (!row) {
+      throw new BadRequestException('Etiqueta não encontrada.');
+    }
+    await this.prisma.client.correiosEtiqueta.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async registrarEtiqueta(input: {
+    codigoRastreio: string;
+    prePostagemId: string;
+    nomeDestinatario: string;
+    cepDestino: string;
+    servico: string;
+    userId?: string;
+  }) {
+    return this.prisma.client.correiosEtiqueta.create({
+      data: {
+        codigoRastreio: input.codigoRastreio,
+        prePostagemId: input.prePostagemId,
+        nomeDestinatario: input.nomeDestinatario,
+        cepDestino: input.cepDestino.replace(/\D/g, ''),
+        servico: input.servico,
+        status: 'ATIVA',
+        userId: input.userId ?? null,
+      },
+    });
   }
 
   private async aguardarStatusPrePostado(
@@ -717,6 +781,10 @@ export class CorreiosService {
         `/prepostagem/v1/prepostagens/${idPrePostagem}`,
         { headers },
       );
+      await this.prisma.client.correiosEtiqueta.updateMany({
+        where: { prePostagemId: idPrePostagem },
+        data: { status: 'CANCELADA' },
+      });
       return data;
     } catch (err: any) {
       const apiBody = err?.response?.data;
@@ -731,5 +799,187 @@ export class CorreiosService {
         'Não foi possível cancelar a pré-postagem nos Correios.';
       throw new BadRequestException(msg);
     }
+  }
+
+  async getRemetentePadrao() {
+    return this.buildRemetentePadrao();
+  }
+
+  private async buildRemetentePadrao(): Promise<{
+    nome: string;
+    cpfCnpj: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento?: string;
+    bairro: string;
+    cidade: string;
+    uf: string;
+    telefone?: string;
+    email?: string;
+  }> {
+    const cep = (this.config.get<string>('CORREIOS_CEP_ORIGEM') ?? '').replace(
+      /\D/g,
+      '',
+    );
+    if (cep.length !== 8) {
+      throw new BadRequestException('CORREIOS_CEP_ORIGEM inválido ou ausente.');
+    }
+
+    let cepData: Record<string, string> = {};
+    try {
+      cepData = (await this.buscarCep(cep)) as Record<string, string>;
+    } catch {
+      /* usa fallback abaixo */
+    }
+
+    return {
+      nome: 'Energy Brands',
+      cpfCnpj: this.config.get<string>('CORREIOS_USUARIO') ?? '',
+      cep,
+      logradouro: cepData.logradouro ?? cepData.end ?? 'Endereco remetente',
+      numero: 'S/N',
+      bairro: cepData.bairro ?? '',
+      cidade: cepData.localidade ?? cepData.cidade ?? '',
+      uf: cepData.uf ?? '',
+    };
+  }
+
+  async baixarComprovanteEntrega(codigo: string): Promise<Buffer> {
+    const cod = codigo.replace(/\s/g, '').toUpperCase();
+    if (cod.length !== 13) {
+      throw new BadRequestException('Código de rastreio inválido.');
+    }
+
+    const rastreio = await this.rastrearObjeto(cod);
+    if (!this.isObjetoEntregue(rastreio)) {
+      throw new BadRequestException(
+        'Comprovante disponível apenas para objetos entregues.',
+      );
+    }
+
+    const headers = await this.authHeader();
+
+    try {
+      const { data } = await this.api.get('/srorastro/v1/ar-digital', {
+        headers,
+        params: { objetos: cod },
+      });
+      const pdf = await this.extrairComprovantePdf(data, cod);
+      if (pdf) return pdf;
+    } catch (err: any) {
+      this.logger.warn(
+        `AR digital indisponível para ${cod}: ${err?.message ?? err}`,
+      );
+    }
+
+    let reciboNum: string | undefined;
+    try {
+      const { data: recibo } = await this.api.post(
+        '/srorastro/v1/objetos/imagens',
+        [cod],
+        { headers },
+      );
+      reciboNum =
+        typeof recibo?.numero === 'string' ? recibo.numero : undefined;
+    } catch (err: any) {
+      const apiBody = err?.response?.data;
+      this.logger.error(
+        `Solicitação de imagem Correios falhou — body: ${JSON.stringify(apiBody)}`,
+      );
+      const msg =
+        apiBody?.msgs?.join?.(' ') ||
+        apiBody?.message ||
+        apiBody?.detail ||
+        'Não foi possível solicitar o comprovante de entrega nos Correios.';
+      throw new BadRequestException(msg);
+    }
+
+    if (!reciboNum) {
+      throw new BadRequestException(
+        'Correios não retornou recibo para o comprovante de entrega.',
+      );
+    }
+
+    for (let i = 0; i < 15; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const { data: result } = await this.api.get(
+        `/srorastro/v1/recibo/${reciboNum}`,
+        { headers },
+      );
+      const pdf = await this.extrairComprovantePdf(result, cod);
+      if (pdf) return pdf;
+    }
+
+    throw new BadRequestException(
+      'Comprovante de entrega ainda não disponível nos Correios.',
+    );
+  }
+
+  private isObjetoEntregue(rastreio: unknown): boolean {
+    if (!rastreio || typeof rastreio !== 'object') return false;
+    const root = rastreio as Record<string, unknown>;
+    const objetos = Array.isArray(root.objetos) ? root.objetos : [root];
+    for (const objeto of objetos) {
+      if (!objeto || typeof objeto !== 'object') continue;
+      const row = objeto as Record<string, unknown>;
+      const eventos = Array.isArray(row.eventos) ? row.eventos : [];
+      for (const evento of eventos) {
+        if (!evento || typeof evento !== 'object') continue;
+        const ev = evento as Record<string, unknown>;
+        const codigo = String(ev.codigo ?? '').toUpperCase();
+        const descricao = String(ev.descricao ?? '').toLowerCase();
+        if (codigo === 'BDE' || descricao.includes('entregue')) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private async extrairComprovantePdf(
+    data: unknown,
+    codigo: string,
+  ): Promise<Buffer | null> {
+    const items = Array.isArray(data) ? data : data ? [data] : [];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      const objeto = String(row.objeto ?? row.codObjeto ?? '').toUpperCase();
+      if (objeto && objeto !== codigo) continue;
+
+      const arBase64 = row.imagemBase64;
+      if (typeof arBase64 === 'string' && arBase64.length > 0) {
+        const buffer = Buffer.from(arBase64, 'base64');
+        const contentType = String(row.contentType ?? 'image/jpeg');
+        if (contentType.includes('pdf')) return buffer;
+        return this.imagemParaPdf(buffer, contentType);
+      }
+
+      const imagens = Array.isArray(row.imagens) ? row.imagens : [];
+      for (const imagem of imagens) {
+        if (!imagem || typeof imagem !== 'object') continue;
+        const imgRow = imagem as Record<string, unknown>;
+        const raw = imgRow.imagem ?? imgRow.imagemBase64;
+        if (typeof raw !== 'string' || raw.length === 0) continue;
+        const buffer = Buffer.from(raw, 'base64');
+        return this.imagemParaPdf(buffer, 'image/jpeg');
+      }
+    }
+    return null;
+  }
+
+  private async imagemParaPdf(
+    imageBuffer: Buffer,
+    contentType: string,
+  ): Promise<Buffer> {
+    const pdfDoc = await PDFDocument.create();
+    const image = contentType.includes('png')
+      ? await pdfDoc.embedPng(imageBuffer)
+      : await pdfDoc.embedJpg(imageBuffer);
+    const { width, height } = image.scale(1);
+    const page = pdfDoc.addPage([width, height]);
+    page.drawImage(image, { x: 0, y: 0, width, height });
+    return Buffer.from(await pdfDoc.save());
   }
 }

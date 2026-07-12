@@ -815,6 +815,16 @@ model CrmChannel {
   color String @default("#22c55e")
 }
 
+model CrmMotivoPerda {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  order        Int       @default(0)
+  requiresText Boolean   @default(false)
+  cards        CrmCard[]
+
+  @@index([order])
+}
+
 model CrmCard {
   id                 String          @id @default(cuid())
   name               String
@@ -834,6 +844,9 @@ model CrmCard {
   status             String          @default("NOVO_LEAD")
   responsavelId      String?         @db.Uuid
   responsavel        User?           @relation("CrmCardResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  motivoPerdaId      String?
+  motivoPerdaTexto   String?
+  motivoPerda        CrmMotivoPerda? @relation(fields: [motivoPerdaId], references: [id], onDelete: SetNull)
   touchpointRecords  CrmTouchpoint[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
@@ -844,6 +857,9 @@ model CrmCard {
   @@index([status])
   @@index([createdAt])
   @@index([responsavelId])
+  @@index([motivoPerdaId])
+  @@index([phone])
+  @@index([email])
 }
 
 model CrmMeta {
@@ -872,4 +888,20 @@ model CrmTouchpoint {
 
   @@unique([cardId, number])
   @@index([cardId])
+}
+
+model CorreiosEtiqueta {
+  id               String   @id @default(cuid())
+  codigoRastreio   String
+  prePostagemId    String
+  nomeDestinatario String
+  cepDestino       String
+  servico          String
+  status           String   @default("ATIVA")
+  createdAt        DateTime @default(now())
+  userId           String?  @db.Uuid
+
+  @@index([prePostagemId])
+  @@index([status])
+  @@index([createdAt])
 }

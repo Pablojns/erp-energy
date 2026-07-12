@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { LayoutGrid } from 'lucide-react';
 import { CrmKanbanColumn } from '@/src/components/crm/crm-kanban-column';
+import { EmptyState } from '@/src/components/ui/empty-state';
 import {
   moveCrmCard,
   type CrmCardDto,
@@ -68,8 +70,13 @@ export function CrmKanbanBoard(props: {
 
   if (!props.loading && props.funis.length === 0) {
     return (
-      <div className="flex min-h-[12rem] flex-1 items-center justify-center rounded-xl border border-dashed border-[var(--erp-border)] p-6 text-center text-sm text-[var(--erp-fg-muted)]">
-        Crie um funil para começar a organizar seus leads no kanban.
+      <div className="flex flex-1 p-4">
+        <EmptyState
+          compact
+          icon={LayoutGrid}
+          title="Nenhum funil configurado"
+          description="Crie um funil para começar a organizar seus leads no kanban."
+        />
       </div>
     );
   }

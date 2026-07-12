@@ -1,8 +1,10 @@
 'use client';
 
 import { useDroppable } from '@dnd-kit/core';
+import { ShoppingCart } from 'lucide-react';
 import type { KanbanColumnId, PurchaseRequest } from './compras-types';
 import { ComprasCard } from './compras-card';
+import { EmptyState } from '@/src/components/ui/empty-state';
 
 function ColumnSkeleton() {
   return (
@@ -47,9 +49,13 @@ export function ComprasKanbanColumn(props: {
         {props.loading ? (
           <ColumnSkeleton />
         ) : props.items.length === 0 ? (
-          <div className="flex min-h-[8rem] items-center justify-center rounded-xl border border-dashed border-[var(--erp-border)] px-3 text-center text-xs text-[var(--erp-fg-muted)]">
-            Nenhum card nesta etapa
-          </div>
+          <EmptyState
+            compact
+            className="border-none bg-transparent shadow-none"
+            icon={ShoppingCart}
+            title="Nenhuma solicitação nesta etapa"
+            description="Arraste cards para cá ou crie uma nova requisição de compra."
+          />
         ) : (
           props.items.map((row) => (
             <ComprasCard

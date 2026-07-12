@@ -42,6 +42,11 @@ import {
   type TableRow,
 } from '@/src/components/ui/data-table-premium';
 import { EmptyState } from '@/src/components/ui/empty-state';
+import {
+  CardGridSkeleton,
+  ListSkeleton,
+  MetricCardsSkeleton,
+} from '@/src/components/ui/skeleton';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useCloseOverlaysOnRouteChange } from '@/src/hooks/use-close-overlays-on-route';
@@ -2826,10 +2831,7 @@ export function EstoqueWorkspace() {
           </div>
 
           {summaryLoading && !summary ? (
-            <GlassCard className="flex shrink-0 items-center gap-2 p-3 text-sm text-zinc-400 sm:p-6">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Carregando dashboard...
-            </GlassCard>
+            <MetricCardsSkeleton count={6} className="shrink-0 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6" />
           ) : null}
 
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
@@ -3289,12 +3291,12 @@ export function EstoqueWorkspace() {
           </div>
 
           {movementsLoading ? (
-            <GlassCard className="flex shrink-0 items-center gap-2 p-4 text-xs text-zinc-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Carregando movimentações...
+            <GlassCard className="shrink-0 p-4">
+              <ListSkeleton rows={6} />
             </GlassCard>
           ) : movementsData && movementsData.data.length === 0 ? (
             <EmptyState
+              icon={ArrowRightLeft}
               title="Sem movimentações"
               description="O histórico será preenchido conforme entradas, ajustes e reservas forem registrados no Inventário."
             />
@@ -3484,9 +3486,8 @@ export function EstoqueWorkspace() {
               </div>
             </ErpFilterBar>
             {productsLoading ? (
-              <div className="mt-3 flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Carregando produtos...
+              <div className="mt-3 min-h-0 flex-1">
+                <CardGridSkeleton count={6} className="md:grid-cols-2" />
               </div>
             ) : (
               <div
@@ -3494,6 +3495,16 @@ export function EstoqueWorkspace() {
                 onScroll={syncInventoryListScroll}
                 className="erp-scrollbar mt-3 min-h-0 flex-1 overflow-x-auto overflow-y-auto pr-1"
               >
+                {inventoryProducts.length === 0 ? (
+                  <EmptyState
+                    compact
+                    icon={Package}
+                    title="Nenhum produto encontrado"
+                    description="Cadastre produtos ou ajuste os filtros para ver itens no inventário."
+                    actionLabel="Novo produto"
+                    onAction={openCreateProduct}
+                  />
+                ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2">
               {inventoryProducts.map((p) => (
                 <div
@@ -3607,6 +3618,7 @@ export function EstoqueWorkspace() {
                 </div>
               ))}
                 </div>
+                )}
               </div>
             )}
             <p className="mt-2 shrink-0 text-xs text-[var(--text-muted)]">

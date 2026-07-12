@@ -1,13 +1,15 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ArrowUpRight, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
 import { formatBrlDisplay, formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import type { OrderExitDto, PaginatedOrderExits } from '@/src/components/expedicao/shared/types';
 import {
   ErpFilterBar,
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { ListSkeleton } from '@/src/components/ui/skeleton';
 
 export type ExitPeriod = 'all' | 'today' | 'week' | 'month';
 
@@ -144,8 +146,8 @@ export function OutputsList(props: {
 
       <div className="max-h-[calc(100vh-300px)] min-h-[220px] overflow-y-auto p-3">
         {loading ? (
-          <div className="flex min-h-[160px] items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
+          <div className="p-2">
+            <ListSkeleton rows={5} />
           </div>
         ) : error ? (
           <p className="py-8 text-center text-sm text-[var(--danger)]">{error}</p>
@@ -190,9 +192,14 @@ export function OutputsList(props: {
             })}
           </div>
         ) : (
-          <p className="py-8 text-center text-sm text-[var(--text-secondary)]">
-            Nenhuma saída encontrada.
-          </p>
+          <div className="p-2">
+            <EmptyState
+              compact
+              icon={Truck}
+              title="Nenhuma saída encontrada"
+              description="As saídas registradas aparecerão aqui após a expedição finalizar pedidos."
+            />
+          </div>
         )}
       </div>
 

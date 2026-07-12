@@ -38,6 +38,8 @@ type ErpFilterBarProps<T> = {
   createFilterLabel?: string;
   /** Ao informado, substitui o fluxo inline de salvar pelo callback (ex.: abrir modal). */
   onCreateFilter?: () => void;
+  /** Botão "Salvar filtro" ao lado dos badges ativos (ex.: abrir modal). */
+  onSaveFilter?: () => void;
   /** Incrementar para recarregar lista de filtros salvos do localStorage. */
   savedFiltersVersion?: number;
   /** Oculta a seção "Filtros rápidos" (quando integrada em outro componente). */
@@ -67,6 +69,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
     onOpenChange,
     createFilterLabel = '+ Salvar filtro',
     onCreateFilter,
+    onSaveFilter,
     savedFiltersVersion = 0,
     hideSavedPresetsList = false,
     leadingToolbar,
@@ -154,6 +157,12 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
           </button>
         ) : null}
 
+        {onSaveFilter ? (
+          <button type="button" className="erp-filter-save-btn" onClick={onSaveFilter}>
+            Salvar filtro
+          </button>
+        ) : null}
+
         {open ? (
           <div className="erp-filter-panel">
             <div className="erp-filter-panel-head">
@@ -195,7 +204,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
             ) : null}
 
             <div className="erp-filter-panel-foot">
-              {onCreateFilter ? (
+              {onCreateFilter && !onSaveFilter ? (
                 <button
                   type="button"
                   className="erp-filter-save-btn"
@@ -203,7 +212,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
                 >
                   {createFilterLabel}
                 </button>
-              ) : saveOpen ? (
+              ) : saveOpen && !onSaveFilter ? (
                 <div className="erp-filter-save-form">
                   <input
                     type="text"
@@ -231,7 +240,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
                   </button>
                   {saveError ? <p className="erp-filter-save-error">{saveError}</p> : null}
                 </div>
-              ) : (
+              ) : !onSaveFilter ? (
                 <button
                   type="button"
                   className="erp-filter-save-btn"
@@ -240,7 +249,7 @@ export function ErpFilterBar<T>(props: ErpFilterBarProps<T>) {
                 >
                   {createFilterLabel}
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         ) : null}

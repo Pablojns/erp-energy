@@ -29,6 +29,8 @@ export type UsePedidosOptions = {
   mode?: 'expedition' | 'separation';
   /** Acumula páginas para scroll infinito (substitui na página 1). */
   infinite?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 };
 
 export function usePedidos(opts: UsePedidosOptions = {}) {
@@ -41,6 +43,8 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
     enabled = true,
     mode = 'expedition',
     infinite = false,
+    sortBy = 'orderDate',
+    sortOrder = 'desc',
   } = opts;
 
   const [pedidos, setPedidos] = useState<OrderDto[]>([]);
@@ -82,6 +86,8 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           searchDebounced,
           statusFilter,
           mode,
+          sortBy,
+          sortOrder,
         });
         params.set('page', String(effectivePage));
         params.set('pageSize', String(pageSize));
@@ -151,6 +157,8 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
       pageSize,
       mode,
       infinite,
+      sortBy,
+      sortOrder,
     ],
   );
 

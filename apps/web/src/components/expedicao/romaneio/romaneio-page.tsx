@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, Truck } from 'lucide-react';
 import { generateUUID } from '@/src/lib/uuid';
 import type { OrderExitDto, PaginatedOrderExits } from '@/src/components/expedicao/shared/types';
 import { StatusBadge } from '@/src/components/ui/status-badge';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { TableSkeleton } from '@/src/components/ui/skeleton';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 
@@ -186,13 +188,18 @@ export function RomaneioPage() {
 
       <section className="erp-module-card erp-scrollbar min-h-0 flex-1 overflow-auto">
         {loading ? (
-          <div className="flex min-h-[12rem] items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
+          <div className="p-4">
+            <TableSkeleton rows={6} columns={6} />
           </div>
         ) : exits.length === 0 ? (
-          <p className="p-4 text-sm text-[var(--text-secondary)]">
-            Nenhum pedido finalizado com saída para São Miguel.
-          </p>
+          <div className="p-4">
+            <EmptyState
+              compact
+              icon={Truck}
+              title="Nenhum pedido para romaneio"
+              description="Pedidos finalizados com saída para São Miguel aparecerão aqui para geração do romaneio."
+            />
+          </div>
         ) : (
           <table className="min-w-full text-sm">
             <thead className="sticky top-0 bg-[var(--erp-bg-muted)] text-left">

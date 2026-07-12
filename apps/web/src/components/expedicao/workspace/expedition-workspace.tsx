@@ -23,16 +23,18 @@ export type ExpeditionWorkspaceMode = 'orders' | 'separation';
 export function ExpeditionWorkspace(props: {
   mode: ExpeditionWorkspaceMode;
   initialStatusFilter?: StatusFilterId;
+  initialSearch?: string;
   onNewOrder?: () => void;
   isAdmin?: boolean;
 }) {
-  const { mode, initialStatusFilter, onNewOrder, isAdmin = false } = props;
+  const { mode, initialStatusFilter, initialSearch, onNewOrder, isAdmin = false } = props;
   const data = useExpeditionPedidosBridge({
     mode: mode === 'separation' ? 'separation' : 'expedition',
     initialStatusFilter:
       initialStatusFilter ?? 'all',
     initialOrderSource:
       mode === 'orders' ? 'WEG_MERCADO_ELETRONICO' : 'all',
+    initialSearch,
   });
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);

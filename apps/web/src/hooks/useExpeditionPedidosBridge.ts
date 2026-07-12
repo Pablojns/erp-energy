@@ -21,6 +21,11 @@ import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 import { usePedidoDetalhe } from '@/src/hooks/usePedidoDetalhe';
 import { usePedidos } from '@/src/hooks/usePedidos';
+import {
+  DEFAULT_PEDIDOS_SORT_BY,
+  DEFAULT_PEDIDOS_SORT_ORDER,
+  type PedidosSortOrder,
+} from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
 
 function isAguardandoNfSeparationStatus(status: string): boolean {
   return (
@@ -39,8 +44,15 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [appliedFilters, setAppliedFilters] = useState<FilterFormState>(() => ({
     ...INITIAL_FILTERS,
     source: opts.initialOrderSource ?? INITIAL_FILTERS.source,
+    search: opts.initialSearch?.trim() ?? INITIAL_FILTERS.search,
   }));
-  const [searchDebounced, setSearchDebounced] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState(
+    () => opts.initialSearch?.trim() ?? '',
+  );
+  const [sortBy, setSortBy] = useState(DEFAULT_PEDIDOS_SORT_BY);
+  const [sortOrder, setSortOrder] = useState<PedidosSortOrder>(
+    DEFAULT_PEDIDOS_SORT_ORDER,
+  );
   const [filterValueDebounced, setFilterValueDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -75,6 +87,8 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     pageSize: mode === 'separation' ? 100 : 25,
     mode,
     infinite: infiniteScroll,
+    sortBy,
+    sortOrder,
   });
 
   const loadMoreOrders = useCallback(() => {
@@ -543,6 +557,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     setPage,
     appliedFilters,
     setAppliedFilters,
+    sortBy,
+    setSortBy,
+    sortOrder,
+    setSortOrder,
     filterCounts,
     refreshAll,
     refetchFromStart,

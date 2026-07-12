@@ -1,6 +1,8 @@
 'use client';
 
 import { CrmKanbanCard } from '@/src/components/crm/crm-kanban-card';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { Users } from 'lucide-react';
 import type { CrmCardDto, CrmFunilDto } from '@/src/services/api/crm-api';
 
 function ColumnSkeleton() {
@@ -73,9 +75,13 @@ export function CrmKanbanColumn(props: {
         {props.loading ? (
           <ColumnSkeleton />
         ) : props.cards.length === 0 ? (
-          <div className="flex min-h-[8rem] items-center justify-center rounded-xl border border-dashed border-[var(--erp-border)] px-3 text-center text-xs text-[var(--erp-fg-muted)]">
-            Nenhum card neste funil
-          </div>
+          <EmptyState
+            compact
+            className="border-none bg-transparent shadow-none"
+            icon={Users}
+            title="Nenhum lead neste funil"
+            description="Crie um card ou importe leads para preencher esta coluna."
+          />
         ) : (
           props.cards.map((card) => (
             <CrmKanbanCard

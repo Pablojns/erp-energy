@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Package,
+  Search,
   Settings,
   Shield,
   ShoppingCart,
@@ -21,6 +22,7 @@ import { LogoutButton } from '@/src/components/auth/logout-button';
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
 import { MobileNavDrawer } from '@/src/components/shell/mobile-nav-drawer';
+import { useGlobalSearch } from '@/src/components/shell/global-search-provider';
 import { ThemeToggle } from '@/src/components/theme/theme-toggle';
 import type { AuthUser } from '@/src/services/api/auth';
 import { type NavIconName } from './nav-config';
@@ -53,6 +55,7 @@ type TopNavigationProps = {
 export function TopNavigation({ user }: TopNavigationProps) {
   const pathname = usePathname();
   const { mainNavItems } = useNavPermissions();
+  const { openSearch } = useGlobalSearch();
 
   return (
     <header className="erp-header fixed left-0 right-0 top-0 z-50 backdrop-saturate-150">
@@ -111,6 +114,18 @@ export function TopNavigation({ user }: TopNavigationProps) {
         </nav>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+          <button
+            type="button"
+            onClick={openSearch}
+            className="erp-focus-ring flex items-center gap-2 rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)]/60 px-2.5 py-2 text-xs text-[var(--erp-fg-muted)] transition hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)] hover:text-[var(--erp-fg)] sm:px-3"
+            aria-label="Busca global (Ctrl+K)"
+          >
+            <Search className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="hidden sm:inline">Buscar</span>
+            <kbd className="hidden rounded border border-[var(--erp-border)] px-1 py-0.5 text-[10px] md:inline">
+              Ctrl+K
+            </kbd>
+          </button>
           <ThemeToggle />
           <NotificationsBell />
           <div className="erp-divider hidden h-9 w-px sm:block" />

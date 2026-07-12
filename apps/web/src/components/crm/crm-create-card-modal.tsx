@@ -7,7 +7,9 @@ import { GlassCard } from '@/src/components/shell/glass-card';
 import {
   CRM_CARD_ORIGINS,
   CRM_ORIGIN_LABEL,
+  checkCrmDuplicate,
   createCrmCard,
+  type CrmCardDto,
   type CrmCardOrigin,
   type CrmFunilDto,
 } from '@/src/services/api/crm-api';
@@ -18,8 +20,9 @@ export function CrmCreateCardModal(props: {
   defaultFunilId?: string;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
+  onViewExisting?: (card: CrmCardDto) => void;
 }) {
-  const { open, funis, defaultFunilId, onClose, onCreated } = props;
+  const { open, funis, defaultFunilId, onClose, onCreated, onViewExisting } = props;
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -28,6 +31,7 @@ export function CrmCreateCardModal(props: {
   const [funilId, setFunilId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<CrmCardDto | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -38,9 +42,26 @@ export function CrmCreateCardModal(props: {
     setOrigin('FRIO');
     setFunilId(defaultFunilId ?? funis[0]?.id ?? '');
     setError(null);
+    setDuplicate(null);
   }, [defaultFunilId, funis, open]);
 
   if (!open) return null;
+
+  const createLead = async (force = false) => {
+    const nm = name.trim();
+    const parsedValue = value.trim() ? Number(value.replace(',', '.')) : null;
+    await createCrmCard({
+      name: nm,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      value: parsedValue != null && Number.isFinite(parsedValue) ? parsedValue : null,
+      origin,
+      funilId,
+      force,
+    });
+    await onCreated();
+    onClose();
+  };
 
   const handleSave = async () => {
     const nm = name.trim();
@@ -52,20 +73,44 @@ export function CrmCreateCardModal(props: {
       setError('Selecione um funil.');
       return;
     }
+    const phoneTrim = phone.trim();
+    const emailTrim = email.trim();
+    if (!phoneTrim && !emailTrim) {
+      setSaving(true);
+      setError(null);
+      try {
+        await createLead(false);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Erro ao criar lead.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const parsedValue = value.trim() ? Number(value.replace(',', '.')) : null;
-      await createCrmCard({
-        name: nm,
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-        value: parsedValue != null && Number.isFinite(parsedValue) ? parsedValue : null,
-        origin,
-        funilId,
+      const check = await checkCrmDuplicate({
+        phone: phoneTrim || undefined,
+        email: emailTrim || undefined,
       });
-      await onCreated();
-      onClose();
+      if (check.duplicate && check.existing) {
+        setDuplicate(check.existing);
+        return;
+      }
+      await createLead(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao criar lead.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleContinueDespiteDuplicate = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await createLead(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao criar lead.');
     } finally {
@@ -157,6 +202,37 @@ export function CrmCreateCardModal(props: {
                 ))}
               </select>
             </label>
+            {duplicate ? (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100">
+                <p>
+                  Lead similar encontrado:{' '}
+                  <span className="font-semibold">{duplicate.name}</span>
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <GlowButton
+                    variant="secondary"
+                    disabled={saving}
+                    onClick={() => {
+                      onViewExisting?.(duplicate);
+                      onClose();
+                    }}
+                  >
+                    Ver existente
+                  </GlowButton>
+                  <GlowButton
+                    variant="primary"
+                    disabled={saving}
+                    onClick={() => void handleContinueDespiteDuplicate()}
+                  >
+                    {saving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      'Continuar criando'
+                    )}
+                  </GlowButton>
+                </div>
+              </div>
+            ) : null}
             {error ? <p className="text-sm text-rose-400">{error}</p> : null}
           </div>
           <div className="mt-5 flex justify-end gap-2">

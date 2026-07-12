@@ -23,7 +23,14 @@ export default async function ExpedicaoPedidosPage(props: {
   const filter = ALLOWED_FILTERS.includes(raw as StatusFilterId)
     ? (raw as StatusFilterId)
     : 'all';
+  const rawSearch = Array.isArray(params.search) ? params.search[0] : params.search;
+  const initialSearch = typeof rawSearch === 'string' ? rawSearch.trim() : '';
   return (
-    <ExpeditionWorkspace mode="orders" initialStatusFilter={filter} isAdmin={isAdmin} />
+    <ExpeditionWorkspace
+      mode="orders"
+      initialStatusFilter={filter}
+      initialSearch={initialSearch || undefined}
+      isAdmin={isAdmin}
+    />
   );
 }

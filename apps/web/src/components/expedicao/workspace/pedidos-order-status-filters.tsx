@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { pedidosStatusBadgeStyle } from '@/src/components/expedicao/shared/pedidos-status-styles';
 import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
-import type { ExpeditionPedidosPreset } from '@/src/components/expedicao/workspace/pedidos-new-filter-modal';
+import type { ExpeditionPedidosPreset } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
+import { normalizeExpeditionPedidosPreset } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
 import {
   deleteSavedFilter,
   loadSavedFilters,
@@ -111,7 +112,9 @@ export function PedidosOrderStatusFilters(props: {
           <div key={preset.id} className="erp-filter-custom-row">
             <button
               type="button"
-              onClick={() => onApplyCustomFilter(preset.value, preset.id)}
+              onClick={() =>
+                onApplyCustomFilter(normalizeExpeditionPedidosPreset(preset.value), preset.id)
+              }
               className={`pedidos-filter-tag erp-filter-custom-row-btn${on ? ' pedidos-filter-tag--active' : ''}${tone ? ` pedidos-filter-tag--${tone}` : ' pedidos-filter-tag--neutral'}`}
               style={coloredStyle}
             >

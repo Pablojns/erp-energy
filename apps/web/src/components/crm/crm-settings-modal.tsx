@@ -7,22 +7,26 @@ import { GlassCard } from '@/src/components/shell/glass-card';
 import {
   createCrmChannel,
   createCrmFunil,
+  createCrmMotivoPerda,
   createCrmStatus,
   deleteCrmChannel,
   deleteCrmFunil,
+  deleteCrmMotivoPerda,
   deleteCrmStatus,
   listCrmChannels,
   listCrmFunis,
+  listCrmMotivosPerda,
   listCrmStatuses,
   updateCrmChannel,
   updateCrmFunil,
   updateCrmStatus,
   type CrmChannelDto,
   type CrmFunilDto,
+  type CrmMotivoPerdaDto,
   type CrmStatusDto,
 } from '@/src/services/api/crm-api';
 
-type SettingsTab = 'status' | 'channels' | 'funis';
+type SettingsTab = 'status' | 'channels' | 'funis' | 'motivos';
 
 export function CrmSettingsModal(props: {
   open: boolean;
@@ -34,24 +38,28 @@ export function CrmSettingsModal(props: {
   const [statuses, setStatuses] = useState<CrmStatusDto[]>([]);
   const [channels, setChannels] = useState<CrmChannelDto[]>([]);
   const [funis, setFunis] = useState<CrmFunilDto[]>([]);
+  const [motivos, setMotivos] = useState<CrmMotivoPerdaDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#6366f1');
+  const [newRequiresText, setNewRequiresText] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [statusData, channelData, funilData] = await Promise.all([
+      const [statusData, channelData, funilData, motivoData] = await Promise.all([
         listCrmStatuses(),
         listCrmChannels(),
         listCrmFunis(),
+        listCrmMotivosPerda(),
       ]);
       setStatuses(statusData);
       setChannels(channelData);
       setFunis(funilData);
+      setMotivos(motivoData);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar configurações.');
     } finally {
@@ -64,6 +72,7 @@ export function CrmSettingsModal(props: {
     setTab('status');
     setNewName('');
     setNewColor('#6366f1');
+    setNewRequiresText(false);
     void load();
   }, [open]);
 
@@ -82,10 +91,17 @@ export function CrmSettingsModal(props: {
         await createCrmStatus({ name, color: newColor });
       } else if (tab === 'channels') {
         await createCrmChannel({ name, color: newColor });
-      } else {
+      } else if (tab === 'funis') {
         await createCrmFunil({ name, color: newColor });
+      } else {
+        await createCrmMotivoPerda({
+          name,
+          requiresText: newRequiresText,
+          order: motivos.length,
+        });
       }
       setNewName('');
+      setNewRequiresText(false);
       await load();
       await onChanged();
     } catch (e) {
@@ -96,7 +112,7 @@ export function CrmSettingsModal(props: {
   };
 
   const handleUpdateColor = async (
-    kind: SettingsTab,
+    kind: Exclude<SettingsTab, 'motivos'>,
     id: string,
     color: string,
   ) => {
@@ -122,7 +138,8 @@ export function CrmSettingsModal(props: {
     try {
       if (kind === 'status') await deleteCrmStatus(id);
       else if (kind === 'channels') await deleteCrmChannel(id);
-      else await deleteCrmFunil(id);
+      else if (kind === 'funis') await deleteCrmFunil(id);
+      else await deleteCrmMotivoPerda(id);
       await load();
       await onChanged();
     } catch (e) {
@@ -136,10 +153,17 @@ export function CrmSettingsModal(props: {
     { id: 'status', label: 'Status' },
     { id: 'channels', label: 'Canais de TP' },
     { id: 'funis', label: 'Funis' },
+    { id: 'motivos', label: 'Motivos de perda' },
   ];
 
-  const rows =
-    tab === 'status' ? statuses : tab === 'channels' ? channels : funis;
+  const newItemLabel =
+    tab === 'status'
+      ? 'status'
+      : tab === 'channels'
+        ? 'canal'
+        : tab === 'funis'
+          ? 'funil'
+          : 'motivo';
 
   return (
     <div
@@ -163,7 +187,7 @@ export function CrmSettingsModal(props: {
             </button>
           </div>
 
-          <div className="mt-4 inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+          <div className="mt-4 inline-flex flex-wrap rounded-xl border border-white/10 bg-white/5 p-1">
             {tabs.map((item) => (
               <button
                 key={item.id}
@@ -172,6 +196,7 @@ export function CrmSettingsModal(props: {
                   setTab(item.id);
                   setNewName('');
                   setNewColor(item.id === 'channels' ? '#22c55e' : '#6366f1');
+                  setNewRequiresText(false);
                   setError(null);
                 }}
                 className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
@@ -192,58 +217,99 @@ export function CrmSettingsModal(props: {
           ) : (
             <>
               <div className="mt-4 space-y-2">
-                {rows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2"
-                  >
-                    <input
-                      type="color"
-                      value={
-                        'color' in row && row.color
-                          ? row.color
-                          : tab === 'channels'
-                            ? '#22c55e'
-                            : '#6366f1'
-                      }
-                      onChange={(e) => void handleUpdateColor(tab, row.id, e.target.value)}
-                      disabled={saving}
-                      className="h-8 w-10 shrink-0 cursor-pointer rounded border border-[var(--border-color)] bg-transparent"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
-                      {row.name}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void handleDelete(tab, row.id, row.name)}
-                      className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
-                      aria-label={`Excluir ${row.name}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                {tab === 'motivos'
+                  ? motivos.map((row) => (
+                      <div
+                        key={row.id}
+                        className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
+                          {row.name}
+                        </span>
+                        {row.requiresText ? (
+                          <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-200">
+                            Texto livre
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void handleDelete('motivos', row.id, row.name)}
+                          className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                          aria-label={`Excluir ${row.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))
+                  : (tab === 'status' ? statuses : tab === 'channels' ? channels : funis).map(
+                      (row) => (
+                        <div
+                          key={row.id}
+                          className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2"
+                        >
+                          <input
+                            type="color"
+                            value={
+                              'color' in row && row.color
+                                ? row.color
+                                : tab === 'channels'
+                                  ? '#22c55e'
+                                  : '#6366f1'
+                            }
+                            onChange={(e) =>
+                              void handleUpdateColor(tab as Exclude<SettingsTab, 'motivos'>, row.id, e.target.value)
+                            }
+                            disabled={saving}
+                            className="h-8 w-10 shrink-0 cursor-pointer rounded border border-[var(--border-color)] bg-transparent"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
+                            {row.name}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void handleDelete(tab, row.id, row.name)}
+                            className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                            aria-label={`Excluir ${row.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ),
+                    )}
               </div>
 
               <div className="mt-4 flex flex-wrap items-end gap-2">
                 <label className="min-w-[12rem] flex-1 text-xs font-medium text-[var(--text-secondary)]">
-                  Novo {tab === 'status' ? 'status' : tab === 'channels' ? 'canal' : 'funil'}
+                  Novo {newItemLabel}
                   <input
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="text-xs font-medium text-[var(--text-secondary)]">
-                  Cor
-                  <input
-                    type="color"
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    className="mt-1 block h-10 w-12 cursor-pointer rounded-lg border border-[var(--border-color)]"
-                  />
-                </label>
+                {tab === 'motivos' ? (
+                  <label className="flex items-center gap-2 pb-2 text-xs font-medium text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={newRequiresText}
+                      onChange={(e) => setNewRequiresText(e.target.checked)}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                    />
+                    Exige texto livre
+                  </label>
+                ) : (
+                  <label className="text-xs font-medium text-[var(--text-secondary)]">
+                    Cor
+                    <input
+                      type="color"
+                      value={newColor}
+                      onChange={(e) => setNewColor(e.target.value)}
+                      className="mt-1 block h-10 w-12 cursor-pointer rounded-lg border border-[var(--border-color)]"
+                    />
+                  </label>
+                )}
                 <GlowButton
                   variant="secondary"
                   disabled={saving}

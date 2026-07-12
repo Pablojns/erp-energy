@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Columns3, List, Plus } from 'lucide-react';
 import { CrmCardDetailModal } from '@/src/components/crm/crm-card-detail-modal';
 import { CrmClientesList } from '@/src/components/crm/crm-clientes-list';
 import { CrmCreateCardModal } from '@/src/components/crm/crm-create-card-modal';
 import { CrmCreateFunilModal } from '@/src/components/crm/crm-create-funil-modal';
 import { CrmDashboard } from '@/src/components/crm/crm-dashboard';
 import { CrmKanbanBoard } from '@/src/components/crm/crm-kanban-board';
+import { CrmKanbanListView } from '@/src/components/crm/crm-kanban-list-view';
 import { CrmMetasModal } from '@/src/components/crm/crm-metas-modal';
 import { CrmRelatorios } from '@/src/components/crm/crm-relatorios';
 import { CrmSettingsModal } from '@/src/components/crm/crm-settings-modal';
@@ -55,6 +56,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [metasModalOpen, setMetasModalOpen] = useState(false);
   const [detailCardId, setDetailCardId] = useState<string | null>(null);
+  const [kanbanLayout, setKanbanLayout] = useState<'kanban' | 'list'>('kanban');
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -155,13 +157,43 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
 
           <div className="flex flex-wrap items-center gap-2">
             {showKanbanActions ? (
-              <button
-                type="button"
-                onClick={() => setFunilModalOpen(true)}
-                className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
-              >
-                Criar funil
-              </button>
+              <>
+                <div className="inline-flex rounded-lg border border-[var(--erp-border)] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setKanbanLayout('kanban')}
+                    className={`erp-focus-ring erp-btn erp-btn--sm rounded-md px-2.5 ${
+                      kanbanLayout === 'kanban'
+                        ? 'erp-btn-primary'
+                        : 'erp-btn-ghost text-[var(--erp-fg-muted)]'
+                    }`}
+                    aria-label="Visão Kanban"
+                    title="Kanban"
+                  >
+                    <Columns3 className="erp-icon-sm" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKanbanLayout('list')}
+                    className={`erp-focus-ring erp-btn erp-btn--sm rounded-md px-2.5 ${
+                      kanbanLayout === 'list'
+                        ? 'erp-btn-primary'
+                        : 'erp-btn-ghost text-[var(--erp-fg-muted)]'
+                    }`}
+                    aria-label="Visão lista"
+                    title="Lista"
+                  >
+                    <List className="erp-icon-sm" aria-hidden />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFunilModalOpen(true)}
+                  className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
+                >
+                  Criar funil
+                </button>
+              </>
             ) : null}
             {showNewLeadAction ? (
               <button
@@ -196,15 +228,26 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
           ) : null}
 
           {activeView === 'kanban' ? (
-            <section className="erp-module-panel min-h-0 flex-1 overflow-hidden p-3">
-              <CrmKanbanBoard
-                funis={funis}
-                cards={cards}
-                loading={loadingData}
-                onOpenCard={(card) => setDetailCardId(card.id)}
-                onCardMoved={handleCardMoved}
-                onError={setError}
-              />
+            <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+              {kanbanLayout === 'kanban' ? (
+                <CrmKanbanBoard
+                  funis={funis}
+                  cards={cards}
+                  loading={loadingData}
+                  onOpenCard={(card) => setDetailCardId(card.id)}
+                  onCardMoved={handleCardMoved}
+                  onError={setError}
+                />
+              ) : (
+                <CrmKanbanListView
+                  cards={cards}
+                  funis={funis}
+                  statuses={statuses}
+                  users={users}
+                  loading={loadingData}
+                  onOpenCard={(card) => setDetailCardId(card.id)}
+                />
+              )}
             </section>
           ) : null}
 
@@ -235,6 +278,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
         funis={funis}
         onClose={() => setCardModalOpen(false)}
         onCreated={refresh}
+        onViewExisting={(card) => setDetailCardId(card.id)}
       />
 
       <CrmSettingsModal

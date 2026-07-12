@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Filter,
-  Loader2,
+  PackageOpen,
   RefreshCw,
   Search,
+  Truck,
   X,
 } from 'lucide-react';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
@@ -16,8 +17,15 @@ import {
 } from '@/src/components/expedicao/workspace/pedidos-order-status-filters';
 import {
   PedidosNewFilterModal,
-  type ExpeditionPedidosPreset,
 } from '@/src/components/expedicao/workspace/pedidos-new-filter-modal';
+import { PedidosSavedFiltersBar } from '@/src/components/expedicao/workspace/pedidos-saved-filters-bar';
+import {
+  normalizeExpeditionPedidosPreset,
+  pedidosFiltersStorageKey,
+  type ExpeditionPedidosPreset,
+  type PedidosSourceTab,
+} from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { PedidosPeriodFilter } from '@/src/components/expedicao/workspace/pedidos-period-filter';
 import { RemoveFromSeparationModal } from '@/src/components/expedicao/workspace/remove-from-separation-modal';
 import { pedidosStatusBadgeStyle } from '@/src/components/expedicao/shared/pedidos-status-styles';
@@ -30,6 +38,11 @@ import {
   ErpFilterBar,
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import {
+  CardGridSkeleton,
+  InlineLoadMoreSkeleton,
+} from '@/src/components/ui/skeleton';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
@@ -89,8 +102,42 @@ function headerStatusFilterStyle(id: StatusFilterId, active: boolean) {
   return pedidosStatusBadgeStyle(headerStatusFilterTone(id), active);
 }
 
-const EXPEDITION_PEDIDOS_FILTER_KEY = 'erp.filters.expedicao.pedidos';
+function buildCurrentPedidosPreset(
+  data: OrdersData,
+  sourceFilter: PedidosSourceTab | undefined,
+): ExpeditionPedidosPreset {
+  return {
+    source: sourceFilter ?? 'WEG',
+    statusFilter: data.statusFilter,
+    filterField: data.appliedFilters.filterField,
+    filterValue: data.appliedFilters.filterValue,
+    sortBy: data.sortBy,
+    sortOrder: data.sortOrder,
+  };
+}
 
+function applyPedidosPreset(
+  preset: ExpeditionPedidosPreset,
+  data: OrdersData,
+  onSourceFilterChange?: (value: PedidosSourceTab) => void,
+  customFilterId?: string | null,
+  setActiveCustomFilterId?: (id: string | null) => void,
+) {
+  const normalized = normalizeExpeditionPedidosPreset(preset);
+  data.setPage(1);
+  data.setStatusFilter(normalizePedidosStatusFilter(normalized.statusFilter));
+  data.setAppliedFilters((f) => ({
+    ...f,
+    filterField: normalized.filterField,
+    filterValue: normalized.filterValue,
+  }));
+  data.setSortBy(normalized.sortBy);
+  data.setSortOrder(normalized.sortOrder);
+  onSourceFilterChange?.(normalized.source);
+  if (setActiveCustomFilterId) {
+    setActiveCustomFilterId(customFilterId ?? null);
+  }
+}
 const PEDIDOS_FIELD_FILTER_OPTIONS: Array<{
   value: PedidosFilterField;
   label: string;
@@ -121,14 +168,6 @@ function normalizePedidosStatusFilter(id: string): StatusFilterId {
   return PEDIDOS_STATUS_FILTERS.includes(id as StatusFilterId)
     ? (id as StatusFilterId)
     : 'all';
-}
-
-function applyPedidosPreset(
-  preset: ExpeditionPedidosPreset,
-  data: OrdersData,
-) {
-  data.setPage(1);
-  data.setStatusFilter(normalizePedidosStatusFilter(preset.statusFilter));
 }
 
 function isAguardandoNfStatus(status: string): boolean {
@@ -194,6 +233,8 @@ export function OrderQueue(props: {
   } = props;
 
   const isPedidosMode = queueMode === 'orders';
+  const { user } = useNavPermissions();
+  const pedidosFiltersKey = pedidosFiltersStorageKey(user.id);
 
   const [selectedForRemovalIds, setSelectedForRemovalIds] = useState<Set<string>>(
     () => new Set(),
@@ -254,10 +295,16 @@ export function OrderQueue(props: {
   const hasActiveFilters = filterBadges.length > 0;
 
   const presetValue = useMemo(
-    (): ExpeditionPedidosPreset => ({
-      statusFilter: data.statusFilter,
-    }),
-    [data.statusFilter],
+    (): ExpeditionPedidosPreset =>
+      buildCurrentPedidosPreset(data, sourceFilter),
+    [
+      data.statusFilter,
+      data.appliedFilters.filterField,
+      data.appliedFilters.filterValue,
+      data.sortBy,
+      data.sortOrder,
+      sourceFilter,
+    ],
   );
 
   const handleRemoveBadge = (key: string) => {
@@ -453,25 +500,26 @@ export function OrderQueue(props: {
       <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)] !px-2 !py-1.5">
         {isPedidosMode ? (
           <ErpFilterBar<ExpeditionPedidosPreset>
-            storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
+            storageKey={pedidosFiltersKey}
             badges={filterBadges}
             hasActiveFilters={hasActiveFilters}
             onRemoveBadge={handleRemoveBadge}
             onClearAll={handleClearAll}
             presetValue={presetValue}
             hideFilterButton
-            hideSavedPresetsList={false}
+            hideSavedPresetsList
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
             savedFiltersVersion={savedFiltersVersion}
-            createFilterLabel="+ Novo Filtro"
-            onCreateFilter={() => {
-              setNewFilterOpen(true);
-              setFiltersOpen(false);
-            }}
+            onSaveFilter={() => setNewFilterOpen(true)}
             onApplyPreset={(preset) => {
-              setActiveCustomFilterId(null);
-              applyPedidosPreset(preset, data);
+              applyPedidosPreset(
+                preset,
+                data,
+                onSourceFilterChange,
+                null,
+                setActiveCustomFilterId,
+              );
             }}
             leadingToolbar={
               <div className="mb-1.5 flex w-full basis-full items-center justify-between gap-2">
@@ -483,79 +531,105 @@ export function OrderQueue(props: {
               </div>
             }
             searchSlot={
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
-                  <Search className="exp-queue-search-icon" aria-hidden />
-                  <input
-                    type="search"
-                    value={data.appliedFilters.search}
+              <div className="flex w-full flex-col gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
+                    <Search className="exp-queue-search-icon" aria-hidden />
+                    <input
+                      type="search"
+                      value={data.appliedFilters.search}
+                      onChange={(e) => {
+                        data.setPage(1);
+                        setActiveCustomFilterId(null);
+                        data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
+                      }}
+                      placeholder="Número do pedido..."
+                      className="exp-queue-search"
+                    />
+                  </div>
+                  <select
+                    value={data.appliedFilters.filterField}
                     onChange={(e) => {
                       data.setPage(1);
-                      data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
+                      setActiveCustomFilterId(null);
+                      const next = e.target.value as PedidosFilterField;
+                      data.setAppliedFilters((f) => ({
+                        ...f,
+                        filterField: next,
+                        filterValue: next ? f.filterValue : '',
+                      }));
                     }}
-                    placeholder="Número do pedido..."
-                    className="exp-queue-search"
-                  />
-                </div>
-                <select
-                  value={data.appliedFilters.filterField}
-                  onChange={(e) => {
-                    data.setPage(1);
-                    const next = e.target.value as PedidosFilterField;
-                    data.setAppliedFilters((f) => ({
-                      ...f,
-                      filterField: next,
-                      filterValue: next ? f.filterValue : '',
-                    }));
-                  }}
-                  className="h-9 min-w-[9.5rem] shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                  aria-label="Filtrar por campo"
-                >
-                  <option value="">Filtrar por...</option>
-                  {PEDIDOS_FIELD_FILTER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                {data.appliedFilters.filterField ? (
-                  <>
-                    <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
-                      <input
-                        type="search"
-                        value={data.appliedFilters.filterValue}
-                        onChange={(e) => {
+                    className="h-9 min-w-[9.5rem] shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                    aria-label="Filtrar por campo"
+                  >
+                    <option value="">Filtrar por...</option>
+                    {PEDIDOS_FIELD_FILTER_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  {data.appliedFilters.filterField ? (
+                    <>
+                      <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
+                        <input
+                          type="search"
+                          value={data.appliedFilters.filterValue}
+                          onChange={(e) => {
+                            data.setPage(1);
+                            setActiveCustomFilterId(null);
+                            data.setAppliedFilters((f) => ({
+                              ...f,
+                              filterValue: e.target.value,
+                            }));
+                          }}
+                          placeholder={pedidosFieldFilterPlaceholder(
+                            data.appliedFilters.filterField,
+                          )}
+                          className="exp-queue-search !pl-3"
+                          aria-label={`Valor do filtro ${pedidosFieldFilterLabel(data.appliedFilters.filterField)}`}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
                           data.setPage(1);
+                          setActiveCustomFilterId(null);
                           data.setAppliedFilters((f) => ({
                             ...f,
-                            filterValue: e.target.value,
+                            filterField: '',
+                            filterValue: '',
                           }));
                         }}
-                        placeholder={pedidosFieldFilterPlaceholder(
-                          data.appliedFilters.filterField,
-                        )}
-                        className="exp-queue-search !pl-3"
-                        aria-label={`Valor do filtro ${pedidosFieldFilterLabel(data.appliedFilters.filterField)}`}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        data.setPage(1);
-                        data.setAppliedFilters((f) => ({
-                          ...f,
-                          filterField: '',
-                          filterValue: '',
-                        }));
-                      }}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
-                      aria-label="Limpar filtro selecionado"
-                      title="Limpar filtro"
-                    >
-                      <X className="h-4 w-4" aria-hidden />
-                    </button>
-                  </>
-                ) : null}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
+                        aria-label="Limpar filtro selecionado"
+                        title="Limpar filtro"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                <PedidosSavedFiltersBar
+                  storageKey={pedidosFiltersKey}
+                  savedFiltersVersion={savedFiltersVersion}
+                  activeCustomFilterId={activeCustomFilterId}
+                  onApply={(preset, filterId) => {
+                    applyPedidosPreset(
+                      preset,
+                      data,
+                      onSourceFilterChange,
+                      filterId,
+                      setActiveCustomFilterId,
+                    );
+                  }}
+                  onDelete={(filterId) => {
+                    setSavedFiltersVersion((v) => v + 1);
+                    if (activeCustomFilterId === filterId) {
+                      setActiveCustomFilterId(null);
+                    }
+                  }}
+                />
               </div>
             }
           >
@@ -599,11 +673,11 @@ export function OrderQueue(props: {
       {isPedidosMode ? (
         <PedidosNewFilterModal
           isOpen={newFilterOpen}
-          storageKey={EXPEDITION_PEDIDOS_FILTER_KEY}
+          storageKey={pedidosFiltersKey}
+          preset={presetValue}
           onClose={() => setNewFilterOpen(false)}
           onSaved={() => {
             setSavedFiltersVersion((v) => v + 1);
-            setFiltersOpen(true);
           }}
         />
       ) : null}
@@ -661,12 +735,26 @@ export function OrderQueue(props: {
         className="exp-queue-panel-list erp-scrollbar min-h-0 flex-1 overflow-y-auto !p-2 !pb-4"
       >
         {data.ordersLoading && data.orders.length === 0 ? (
-          <div className="exp-queue-empty">
-            <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
-            <p>Carregando pedidos…</p>
+          <div className="exp-queue-empty p-2">
+            <CardGridSkeleton count={6} />
           </div>
         ) : data.orders.length === 0 ? (
-          <p className="exp-queue-empty">Nenhum pedido neste filtro.</p>
+          <div className="p-3">
+            <EmptyState
+              compact
+              icon={isPedidosMode ? Truck : PackageOpen}
+              title={
+                isPedidosMode ? 'Nenhum pedido encontrado' : 'Nenhum pedido nesta etapa'
+              }
+              description={
+                isPedidosMode
+                  ? 'Importe pedidos WEG ou crie um pedido manual para começar.'
+                  : 'Os pedidos em separação aparecerão aqui conforme forem liberados.'
+              }
+              actionLabel={isPedidosMode && onImportWeg ? 'Importar WEG' : undefined}
+              onAction={isPedidosMode && onImportWeg ? onImportWeg : undefined}
+            />
+          </div>
         ) : isPedidosMode ? (
           <>
             <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
@@ -676,10 +764,7 @@ export function OrderQueue(props: {
               <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
             ) : null}
             {data.ordersLoadingMore ? (
-              <div className="exp-queue-load-more">
-                <Loader2 className="h-5 w-5 animate-spin text-[var(--accent)]" />
-                <span>Carregando mais pedidos…</span>
-              </div>
+              <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
             ) : null}
           </>
         ) : separationSections ? (
@@ -689,7 +774,9 @@ export function OrderQueue(props: {
                 <section key={section.id} className="exp-queue-section">
                   <h3 className="exp-queue-section-title">{section.label}</h3>
                   {section.orders.length === 0 ? (
-                    <p className="exp-queue-section-empty">Nenhum pedido nesta etapa.</p>
+                    <p className="exp-queue-section-empty text-xs text-[var(--text-muted)]">
+                      Nenhum pedido nesta etapa.
+                    </p>
                   ) : (
                     <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
                       {section.orders.map(renderOrderCard)}
@@ -702,10 +789,7 @@ export function OrderQueue(props: {
               <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
             ) : null}
             {data.ordersLoadingMore ? (
-              <div className="exp-queue-load-more">
-                <Loader2 className="h-5 w-5 animate-spin text-[var(--accent)]" />
-                <span>Carregando mais pedidos…</span>
-              </div>
+              <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
             ) : null}
           </>
         ) : null}

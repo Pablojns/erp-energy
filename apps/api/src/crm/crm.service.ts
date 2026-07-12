@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCrmCardDto } from './dto/create-crm-card.dto';
 import type { CreateCrmChannelDto } from './dto/create-crm-channel.dto';
 import type { CreateCrmFunilDto } from './dto/create-crm-funil.dto';
+import type { CreateCrmMotivoPerdaDto } from './dto/create-crm-motivo-perda.dto';
 import type { CreateCrmStatusDto } from './dto/create-crm-status.dto';
 import type { CrmDashboardQueryDto } from './dto/crm-dashboard-query.dto';
 import type { CrmRelatoriosQueryDto } from './dto/crm-relatorios-query.dto';
@@ -22,6 +24,11 @@ import {
   getCrmStatusIdByName,
   getDefaultCrmStatusId,
 } from './crm.seed';
+import {
+  computeCrmLeadScore,
+  normalizeCrmEmail,
+  normalizeCrmPhone,
+} from './crm-score.util';
 
 type CrmFunilRow = {
   id: string;
@@ -54,6 +61,13 @@ type CrmTouchpointRow = {
   createdAt: Date;
 };
 
+type CrmMotivoPerdaRow = {
+  id: string;
+  name: string;
+  order: number;
+  requiresText: boolean;
+};
+
 type CrmCardRow = {
   id: string;
   name: string;
@@ -74,13 +88,23 @@ type CrmCardRow = {
   closedAt: Date | null;
   status: string;
   responsavelId?: string | null;
+  motivoPerdaId?: string | null;
+  motivoPerdaTexto?: string | null;
   funil?: CrmFunilRow;
   responsavel?: { id: string; name: string; email: string } | null;
+  motivoPerda?: CrmMotivoPerdaRow | null;
   touchpointRecords?: CrmTouchpointRow[];
 };
 
 @Injectable()
 export class CrmService {
+  private readonly cardInclude = {
+    funil: true,
+    touchpointRecords: { orderBy: { number: 'asc' as const } },
+    responsavel: { select: { id: true, name: true, email: true } },
+    motivoPerda: true,
+  } satisfies Prisma.CrmCardInclude;
+
   constructor(private readonly prisma: PrismaService) {}
 
   private serializeFunil(row: CrmFunilRow) {
@@ -137,6 +161,15 @@ export class CrmService {
     return latest.toISOString();
   }
 
+  private serializeMotivoPerda(row: CrmMotivoPerdaRow) {
+    return {
+      id: row.id,
+      name: row.name,
+      order: row.order,
+      requiresText: row.requiresText,
+    };
+  }
+
   private serializeCard(
     row: CrmCardRow,
     statusMap?: Map<string, CrmStatusRow>,
@@ -146,6 +179,13 @@ export class CrmService {
       row.touchpointRecords,
       row.createdAt,
     );
+    const score = computeCrmLeadScore({
+      phone: row.phone,
+      email: row.email,
+      value: row.value,
+      touchPoints: row.touchPoints,
+      lastTouchpointAt,
+    });
     return {
       id: row.id,
       name: row.name,
@@ -175,6 +215,11 @@ export class CrmService {
             email: row.responsavel.email,
           }
         : null,
+      motivoPerdaId: row.motivoPerdaId ?? null,
+      motivoPerdaTexto: row.motivoPerdaTexto ?? null,
+      motivoPerdaMeta: row.motivoPerda
+        ? this.serializeMotivoPerda(row.motivoPerda)
+        : undefined,
       touchpoints: row.touchpointRecords
         ? row.touchpointRecords
             .slice()
@@ -182,6 +227,7 @@ export class CrmService {
             .map((tp) => this.serializeTouchpoint(tp))
         : undefined,
       lastTouchpointAt,
+      score,
     };
   }
 
@@ -316,6 +362,120 @@ export class CrmService {
     return { ok: true };
   }
 
+  async listMotivosPerda() {
+    const rows = await this.prisma.client.crmMotivoPerda.findMany({
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
+    });
+    return rows.map((r) => this.serializeMotivoPerda(r));
+  }
+
+  async createMotivoPerda(dto: CreateCrmMotivoPerdaDto) {
+    let order = dto.order;
+    if (order === undefined) {
+      const max = await this.prisma.client.crmMotivoPerda.aggregate({
+        _max: { order: true },
+      });
+      order = (max._max.order ?? -1) + 1;
+    }
+
+    const created = await this.prisma.client.crmMotivoPerda.create({
+      data: {
+        name: dto.name.trim(),
+        order,
+        requiresText: dto.requiresText ?? false,
+      },
+    });
+    return this.serializeMotivoPerda(created);
+  }
+
+  async deleteMotivoPerda(id: string) {
+    await this.assertMotivoPerdaExists(id);
+    const cardCount = await this.prisma.client.crmCard.count({
+      where: { motivoPerdaId: id },
+    });
+    if (cardCount > 0) {
+      throw new BadRequestException(
+        'Existem leads com este motivo de perda. Não é possível excluir.',
+      );
+    }
+    await this.prisma.client.crmMotivoPerda.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  private async assertMotivoPerdaExists(id: string) {
+    const row = await this.prisma.client.crmMotivoPerda.findUnique({
+      where: { id },
+    });
+    if (!row) throw new NotFoundException('Motivo de perda não encontrado.');
+    return row;
+  }
+
+  private buildMotivosPerdaDistribuicao(
+    cards: Array<
+      CrmCardRow & {
+        motivoPerda?: CrmMotivoPerdaRow | null;
+      }
+    >,
+    isPerdido: (status: string) => boolean,
+  ) {
+    const map = new Map<string, { motivoId: string; motivoName: string; count: number }>();
+    for (const card of cards) {
+      if (!isPerdido(card.status) || !card.motivoPerdaId) continue;
+      const name = card.motivoPerda?.name ?? 'Sem motivo';
+      const current = map.get(card.motivoPerdaId) ?? {
+        motivoId: card.motivoPerdaId,
+        motivoName: name,
+        count: 0,
+      };
+      current.count += 1;
+      map.set(card.motivoPerdaId, current);
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }
+
+  async checkDuplicateCard(phone?: string, email?: string, excludeId?: string) {
+    const similar = await this.findSimilarCard(phone, email, excludeId);
+    if (!similar) return { duplicate: false as const };
+    const statusMap = await this.loadStatusMap();
+    return {
+      duplicate: true as const,
+      existing: this.serializeCard(similar, statusMap),
+    };
+  }
+
+  private async findSimilarCard(
+    phone?: string | null,
+    email?: string | null,
+    excludeId?: string,
+  ): Promise<CrmCardRow | null> {
+    const normPhone = normalizeCrmPhone(phone);
+    const normEmail = normalizeCrmEmail(email);
+    if (!normPhone && !normEmail) return null;
+
+    const candidates = await this.prisma.client.crmCard.findMany({
+      where: {
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+        OR: [
+          ...(normPhone ? [{ phone: { not: null } }] : []),
+          ...(normEmail ? [{ email: { not: null } }] : []),
+        ],
+      },
+      include: this.cardInclude,
+      take: 500,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    for (const candidate of candidates) {
+      if (normPhone && normalizeCrmPhone(candidate.phone) === normPhone) {
+        return candidate;
+      }
+      if (normEmail && normalizeCrmEmail(candidate.email) === normEmail) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
   async listFunis() {
     const rows = await this.prisma.client.crmFunil.findMany({
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
@@ -374,11 +534,7 @@ export class CrmService {
   async listCards() {
     const [rows, statusMap] = await Promise.all([
       this.prisma.client.crmCard.findMany({
-        include: {
-          funil: true,
-          touchpointRecords: { orderBy: { number: 'asc' } },
-          responsavel: { select: { id: true, name: true, email: true } },
-        },
+        include: this.cardInclude,
         orderBy: [{ createdAt: 'desc' }],
       }),
       this.loadStatusMap(),
@@ -389,11 +545,7 @@ export class CrmService {
   async getCard(id: string) {
     const row = await this.prisma.client.crmCard.findUnique({
       where: { id },
-      include: {
-        funil: true,
-        touchpointRecords: { orderBy: { number: 'asc' } },
-        responsavel: { select: { id: true, name: true, email: true } },
-      },
+      include: this.cardInclude,
     });
     if (!row) throw new NotFoundException('Card não encontrado.');
     const statusMap = await this.loadStatusMap();
@@ -402,6 +554,18 @@ export class CrmService {
 
   async createCard(dto: CreateCrmCardDto) {
     await this.assertFunilExists(dto.funilId);
+
+    if (!dto.force) {
+      const similar = await this.findSimilarCard(dto.phone, dto.email);
+      if (similar) {
+        const statusMap = await this.loadStatusMap();
+        throw new ConflictException({
+          duplicate: true,
+          existing: this.serializeCard(similar, statusMap),
+        });
+      }
+    }
+
     const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
     const created = await this.prisma.client.crmCard.create({
       data: {
@@ -419,7 +583,7 @@ export class CrmService {
         funilId: dto.funilId,
         status: defaultStatusId,
       },
-      include: { funil: true, touchpointRecords: true },
+      include: this.cardInclude,
     });
     const statusMap = await this.loadStatusMap();
     return this.serializeCard(created, statusMap);
@@ -475,8 +639,57 @@ export class CrmService {
         data.closedAt = new Date();
       } else {
         data.closedAt = null;
+        data.motivoPerda = { disconnect: true };
+        data.motivoPerdaTexto = null;
       }
     }
+
+    const nextStatus = dto.status ?? before.status;
+    const markingPerdido =
+      dto.status !== undefined && dto.status === perdidoId;
+    const alreadyPerdido = before.status === perdidoId;
+    const willBePerdido =
+      nextStatus === perdidoId || (alreadyPerdido && dto.status === undefined);
+
+    if (markingPerdido || (willBePerdido && dto.motivoPerdaId !== undefined)) {
+      const motivoId =
+        dto.motivoPerdaId !== undefined
+          ? dto.motivoPerdaId
+          : before.motivoPerdaId;
+      if (markingPerdido && !motivoId) {
+        throw new BadRequestException(
+          'Selecione o motivo de perda antes de marcar como perdido.',
+        );
+      }
+      if (motivoId) {
+        const motivo = await this.assertMotivoPerdaExists(motivoId);
+        const text =
+          dto.motivoPerdaTexto !== undefined
+            ? dto.motivoPerdaTexto?.trim() || null
+            : before.motivoPerdaTexto ?? null;
+        if (motivo.requiresText && !text) {
+          throw new BadRequestException('Descreva o motivo de perda.');
+        }
+        data.motivoPerda = { connect: { id: motivoId } };
+        data.motivoPerdaTexto = text;
+      }
+    } else if (dto.motivoPerdaId !== undefined) {
+      if (dto.motivoPerdaId) {
+        const motivo = await this.assertMotivoPerdaExists(dto.motivoPerdaId);
+        const text = dto.motivoPerdaTexto?.trim() || null;
+        if (motivo.requiresText && !text) {
+          throw new BadRequestException('Descreva o motivo de perda.');
+        }
+        data.motivoPerda = { connect: { id: dto.motivoPerdaId } };
+        data.motivoPerdaTexto = text;
+      } else {
+        data.motivoPerda = { disconnect: true };
+        data.motivoPerdaTexto = null;
+      }
+    } else if (dto.motivoPerdaTexto !== undefined) {
+      data.motivoPerdaTexto = dto.motivoPerdaTexto?.trim() || null;
+    }
+
     if (dto.responsavelId !== undefined) {
       if (dto.responsavelId) {
         await this.assertUserExists(dto.responsavelId);
@@ -489,11 +702,7 @@ export class CrmService {
     const updated = await this.prisma.client.crmCard.update({
       where: { id },
       data,
-      include: {
-        funil: true,
-        touchpointRecords: { orderBy: { number: 'asc' } },
-        responsavel: { select: { id: true, name: true, email: true } },
-      },
+      include: this.cardInclude,
     });
     const statusMap = await this.loadStatusMap();
     return this.serializeCard(updated, statusMap);
@@ -545,7 +754,7 @@ export class CrmService {
     const updated = await this.prisma.client.crmCard.update({
       where: { id },
       data: { funilId },
-      include: { funil: true, touchpointRecords: true },
+      include: this.cardInclude,
     });
     const statusMap = await this.loadStatusMap();
     return this.serializeCard(updated, statusMap);
@@ -601,6 +810,7 @@ export class CrmService {
         include: {
           funil: true,
           touchpointRecords: { orderBy: { number: 'asc' } },
+          motivoPerda: true,
         },
       }),
       this.prisma.client.crmFunil.findMany({
@@ -623,6 +833,8 @@ export class CrmService {
 
     const isFechado = (status: string) =>
       this.isFechadoStatus(status, statusMap, fechadoId);
+    const isPerdido = (status: string) =>
+      status === perdidoId || statusMap.get(status)?.name === 'Perdido';
 
     const leads = cards.length;
     const orcamentos = cards.filter(isOrcamento).length;
@@ -702,6 +914,11 @@ export class CrmService {
       perdidoId,
     );
 
+    const motivosPerdaDistribuicao = this.buildMotivosPerdaDistribuicao(
+      cards,
+      isPerdido,
+    );
+
     const now = new Date();
     const metasMes = await this.buildMetasMesProgress(
       now.getMonth() + 1,
@@ -725,6 +942,7 @@ export class CrmService {
         leadsSemContato,
       },
       porOrigem,
+      motivosPerdaDistribuicao,
       metasMes,
     };
   }
@@ -761,6 +979,7 @@ export class CrmService {
         include: {
           funil: true,
           touchpointRecords: { orderBy: { number: 'asc' } },
+          motivoPerda: true,
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -943,6 +1162,11 @@ export class CrmService {
       a.periodStart.localeCompare(b.periodStart),
     );
 
+    const motivosPerdaDistribuicao = this.buildMotivosPerdaDistribuicao(
+      cards,
+      isPerdido,
+    );
+
     return {
       startDate: start.toISOString(),
       endDate: end.toISOString(),
@@ -961,6 +1185,7 @@ export class CrmService {
       performancePorOrigem,
       funilConversao,
       evolucaoTemporal,
+      motivosPerdaDistribuicao,
     };
   }
 

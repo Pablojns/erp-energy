@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
+import { MessageCircle, XCircle } from 'lucide-react';
 import { crmUserInitials, isCrmFollowUpOverdue } from '@/src/components/crm/crm-helpers';
+import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import {
   CRM_ORIGIN_BADGE_CLASS,
   CRM_ORIGIN_LABEL,
@@ -10,6 +12,14 @@ import {
 } from '@/src/services/api/crm-api';
 
 const DRAG_MIME = 'application/x-crm-card-id';
+
+function isPerdido(card: CrmCardDto) {
+  return card.statusMeta?.name === 'Perdido';
+}
+
+function isFechado(card: CrmCardDto) {
+  return card.statusMeta?.name === 'Fechado';
+}
 
 export function CrmKanbanCard(props: {
   card: CrmCardDto;
@@ -22,6 +32,8 @@ export function CrmKanbanCard(props: {
   const { card, onOpen, isDragging, isMoving, onDragStart, onDragEnd } = props;
   const didDrag = useRef(false);
   const followUpOverdue = isCrmFollowUpOverdue(card);
+  const perdido = isPerdido(card);
+  const fechado = isFechado(card);
 
   const handleDragStart = useCallback(
     (event: React.DragEvent<HTMLElement>) => {
@@ -54,11 +66,11 @@ export function CrmKanbanCard(props: {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
-      className={`erp-module-card relative cursor-grab p-3 transition active:cursor-grabbing ${
+      className={`erp-module-card relative cursor-grab p-3.5 transition active:cursor-grabbing ${
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
-      } ${card.statusMeta?.name === 'Fechado' || card.statusMeta?.name === 'Perdido' ? 'opacity-75' : ''}`}
+      } ${fechado || perdido ? 'opacity-90' : ''}`}
     >
       {followUpOverdue ? (
         <span
@@ -67,41 +79,84 @@ export function CrmKanbanCard(props: {
           aria-label="Follow-up atrasado"
         />
       ) : null}
-      <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        {card.responsavel ? (
-          <span
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)] text-[10px] font-bold text-[var(--erp-fg)]"
-            title={card.responsavel.name}
-          >
-            {crmUserInitials(card.responsavel.name)}
-          </span>
-        ) : null}
+
+      {card.responsavel ? (
         <span
-          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
+          className="absolute right-2.5 top-2.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)] text-[10px] font-bold text-[var(--erp-fg)]"
+          title={card.responsavel.name}
+        >
+          {crmUserInitials(card.responsavel.name)}
+        </span>
+      ) : null}
+
+      <div className="space-y-2.5 pr-8">
+        {/* 1. Nome */}
+        <h3 className="line-clamp-2 text-base font-bold leading-snug text-[var(--erp-fg)]">
+          {card.name}
+        </h3>
+
+        {/* 2. Status */}
+        {card.statusMeta ? (
+          perdido ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-rose-400/70 bg-rose-500/25 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-100">
+              <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {card.statusMeta.name}
+            </span>
+          ) : (
+            <span
+              className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide"
+              style={{
+                borderColor: `${card.statusMeta.color}88`,
+                backgroundColor: `${card.statusMeta.color}33`,
+                color: card.statusMeta.color,
+              }}
+            >
+              {card.statusMeta.name}
+            </span>
+          )
+        ) : null}
+
+        {/* 3. Origem */}
+        <span
+          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
         >
           {CRM_ORIGIN_LABEL[card.origin]}
         </span>
-        {card.statusMeta &&
-        (card.statusMeta.name === 'Fechado' || card.statusMeta.name === 'Perdido') ? (
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--erp-fg-muted)]">
-            {card.statusMeta.name}
-          </span>
-        ) : null}
-      </div>
-      <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{card.name}</h3>
-      <p className="mt-2 text-xs text-[var(--erp-fg-secondary)]">
+
+        {/* 4. Valor */}
         {card.value ? (
-          <>
-            Valor{' '}
-            <span className="font-semibold text-[var(--erp-fg)]">
-              {formatCrmCurrency(card.value)}
-            </span>
-            {' · '}
-          </>
+          <p className="text-sm font-bold text-emerald-300">
+            {formatCrmCurrency(card.value)}
+          </p>
         ) : null}
-        Touchpoints{' '}
-        <span className="font-semibold text-[var(--erp-fg)]">{card.touchPoints}</span>
-      </p>
+
+        {/* 5. Motivo perda (se perdido) */}
+        {perdido && card.motivoPerdaMeta ? (
+          <div className="rounded-lg border border-rose-400/40 bg-rose-500/15 px-2.5 py-2">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-rose-200">
+              Motivo: {card.motivoPerdaMeta.name}
+            </p>
+            {card.motivoPerdaTexto ? (
+              <p className="mt-0.5 line-clamp-2 text-xs text-rose-100/90">
+                {card.motivoPerdaTexto}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* 6. Score */}
+        <CrmLeadScoreThermometer score={card.score ?? 0} prominent showLabel />
+
+        {/* Touchpoints */}
+        <div className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-secondary)]">
+          <MessageCircle className="h-3.5 w-3.5 shrink-0 text-[var(--erp-fg-muted)]" aria-hidden />
+          <span>
+            <span className="font-semibold text-[var(--erp-fg)]">{card.touchPoints}</span>
+            {' '}
+            touchpoint{card.touchPoints === 1 ? '' : 's'}
+          </span>
+        </div>
+      </div>
     </article>
   );
 }
@@ -109,13 +164,13 @@ export function CrmKanbanCard(props: {
 export function CrmKanbanCardPreview(props: { card: CrmCardDto }) {
   const { card } = props;
   return (
-    <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3 shadow-2xl">
+    <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3.5 shadow-2xl">
+      <h3 className="line-clamp-2 text-base font-bold text-[var(--erp-fg)]">{card.name}</h3>
       <span
-        className={`mb-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
+        className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
       >
         {CRM_ORIGIN_LABEL[card.origin]}
       </span>
-      <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{card.name}</h3>
     </article>
   );
 }

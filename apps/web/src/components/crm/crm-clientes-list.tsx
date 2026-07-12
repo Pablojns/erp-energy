@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Search, Upload } from 'lucide-react';
+import { Search, Upload, Users } from 'lucide-react';
 import { CrmImportModal } from '@/src/components/crm/crm-import-modal';
+import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
+import { EmptyState } from '@/src/components/ui/empty-state';
 import {
   cardMatchesEntryPeriod,
   CRM_ENTRY_PERIOD_OPTIONS,
@@ -151,8 +153,15 @@ export function CrmClientesList(props: {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex min-h-[12rem] items-center justify-center p-6 text-sm text-[var(--erp-fg-muted)]">
-            Nenhum lead encontrado.
+          <div className="p-4">
+            <EmptyState
+              compact
+              icon={Users}
+              title="Nenhum lead encontrado"
+              description="Ajuste os filtros ou importe leads via CSV para popular a lista."
+              actionLabel="Importar CSV"
+              onAction={() => setImportOpen(true)}
+            />
           </div>
         ) : (
           <table className="min-w-full text-sm">
@@ -165,6 +174,7 @@ export function CrmClientesList(props: {
                 <th className="px-4 py-3 font-semibold">Valor</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Touch.</th>
+                <th className="px-4 py-3 font-semibold">Score</th>
                 <th className="px-4 py-3 font-semibold">Criado</th>
               </tr>
             </thead>
@@ -218,6 +228,9 @@ export function CrmClientesList(props: {
                     </td>
                     <td className="px-4 py-3 text-[var(--erp-fg-secondary)]">
                       {card.touchPoints}
+                    </td>
+                    <td className="px-4 py-3">
+                      <CrmLeadScoreThermometer score={card.score ?? 0} compact showLabel={false} />
                     </td>
                     <td className="px-4 py-3 text-[var(--erp-fg-muted)]">
                       {formatDate(card.createdAt)}

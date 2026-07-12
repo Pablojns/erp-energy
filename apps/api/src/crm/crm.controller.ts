@@ -21,6 +21,7 @@ import { CrmService } from './crm.service';
 import { CreateCrmCardDto } from './dto/create-crm-card.dto';
 import { CreateCrmChannelDto } from './dto/create-crm-channel.dto';
 import { CreateCrmFunilDto } from './dto/create-crm-funil.dto';
+import { CreateCrmMotivoPerdaDto } from './dto/create-crm-motivo-perda.dto';
 import { CreateCrmStatusDto } from './dto/create-crm-status.dto';
 import { CrmDashboardQueryDto } from './dto/crm-dashboard-query.dto';
 import { ImportCrmLeadsDto, UpsertCrmMetaDto } from './dto/crm-meta.dto';
@@ -112,10 +113,39 @@ export class CrmController {
     return this.crm.deleteFunil(id);
   }
 
+  @Get('motivos-perda')
+  @RequirePermission('crm', 'ver_modulo')
+  listMotivosPerda() {
+    return this.crm.listMotivosPerda();
+  }
+
+  @Post('motivos-perda')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('crm', 'ver_modulo')
+  createMotivoPerda(@Body() dto: CreateCrmMotivoPerdaDto) {
+    return this.crm.createMotivoPerda(dto);
+  }
+
+  @Delete('motivos-perda/:id')
+  @RequirePermission('crm', 'ver_modulo')
+  deleteMotivoPerda(@Param('id') id: string) {
+    return this.crm.deleteMotivoPerda(id);
+  }
+
   @Get('cards')
   @RequirePermission('crm', 'ver_modulo')
   listCards() {
     return this.crm.listCards();
+  }
+
+  @Get('cards/check-duplicate')
+  @RequirePermission('crm', 'ver_modulo')
+  checkDuplicateCard(
+    @Query('phone') phone?: string,
+    @Query('email') email?: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return this.crm.checkDuplicateCard(phone, email, excludeId);
   }
 
   @Get('cards/:id')

@@ -177,6 +177,8 @@ export type UseExpeditionOrdersOptions = {
   initialStatusFilter?: StatusFilterId;
   /** Fonte padrão da fila (evita busca dupla no mount da aba Pedidos). */
   initialOrderSource?: FilterFormState['source'];
+  /** Pré-preenche a busca textual da fila (ex.: link da busca global). */
+  initialSearch?: string;
 };
 
 export type BannerState = { variant: 'error' | 'success'; message: string };

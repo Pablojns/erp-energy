@@ -15,6 +15,7 @@ import {
   crmMetaProgressColor,
   type CrmDashboardPeriod,
 } from '@/src/components/crm/crm-helpers';
+import { CrmMotivosPerdaPieChart } from '@/src/components/crm/crm-motivos-perda-pie';
 import {
   CRM_CARD_ORIGINS,
   CRM_ORIGIN_BADGE_CLASS,
@@ -334,6 +335,7 @@ export function CrmDashboard(props: {
 
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
             <OriginGroupedChart porOrigem={porOrigem} />
+            <CrmMotivosPerdaPieChart data={data?.motivosPerdaDistribuicao ?? []} />
           </div>
 
           <div className="erp-module-card mt-4 overflow-x-auto">

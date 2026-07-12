@@ -18,6 +18,15 @@ const DEFAULT_CHANNELS = [
   { name: 'Outro', color: '#71717a' },
 ] as const;
 
+const DEFAULT_MOTIVOS_PERDA = [
+  { name: 'Preço', order: 0, requiresText: false },
+  { name: 'Concorrência', order: 1, requiresText: false },
+  { name: 'Prazo', order: 2, requiresText: false },
+  { name: 'Sem resposta', order: 3, requiresText: false },
+  { name: 'Produto inadequado', order: 4, requiresText: false },
+  { name: 'Outro', order: 5, requiresText: true },
+] as const;
+
 const LEGACY_STATUS_MAP: Record<string, string> = {
   ABERTO: 'Novo Lead',
   FECHADO: 'Fechado',
@@ -38,6 +47,14 @@ export async function seedCrmDefaults(client: Db) {
       where: { name: row.name },
       create: row,
       update: { color: row.color },
+    });
+  }
+
+  for (const row of DEFAULT_MOTIVOS_PERDA) {
+    await client.crmMotivoPerda.upsert({
+      where: { name: row.name },
+      create: row,
+      update: { order: row.order, requiresText: row.requiresText },
     });
   }
 

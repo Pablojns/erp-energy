@@ -11,12 +11,32 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { CorreiosService } from './correios.service';
 
 @UseGuards(JwtGuard)
 @Controller('correios')
 export class CorreiosController {
   constructor(private readonly correiosService: CorreiosService) {}
+
+  /** GET /correios/remetente-padrao — dados do remetente padrão (Energy Brands) */
+  @Get('remetente-padrao')
+  getRemetentePadrao() {
+    return this.correiosService.getRemetentePadrao();
+  }
+
+  /** GET /correios/etiquetas — histórico de etiquetas emitidas */
+  @Get('etiquetas')
+  listEtiquetas() {
+    return this.correiosService.listEtiquetas();
+  }
+
+  /** DELETE /correios/etiquetas/:id — remove do histórico local */
+  @Delete('etiquetas/:id')
+  excluirEtiqueta(@Param('id') id: string) {
+    return this.correiosService.excluirEtiqueta(id);
+  }
 
   /** GET /correios/cep/01310100 */
   @Get('cep/:cep')
@@ -77,8 +97,8 @@ export class CorreiosController {
 
   /** POST /correios/prepostagem — cria pré-postagem e retorna id + código de rastreio */
   @Post('prepostagem')
-  criarPrePostagem(@Body() body: any) {
-    return this.correiosService.criarPrePostagem(body);
+  criarPrePostagem(@Body() body: any, @CurrentUser() user: AuthUser) {
+    return this.correiosService.criarPrePostagem(body, user?.id);
   }
 
   /** POST /correios/rotulo — body: { idsPrePostagem: ['PRxxx'], tipoRotulo: 'P' } — retorna PDF */
@@ -101,5 +121,17 @@ export class CorreiosController {
   @Delete('prepostagem/:id')
   cancelarPrePostagem(@Param('id') id: string) {
     return this.correiosService.cancelarPrePostagem(id);
+  }
+
+  /** GET /correios/comprovante/:codigo — comprovante de entrega em PDF */
+  @Get('comprovante/:codigo')
+  async baixarComprovante(@Param('codigo') codigo: string, @Res() res: Response) {
+    const pdf = await this.correiosService.baixarComprovanteEntrega(codigo);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="comprovante-${codigo.replace(/\s/g, '').toUpperCase()}.pdf"`,
+      'Content-Length': pdf.length,
+    });
+    res.send(pdf);
   }
 }

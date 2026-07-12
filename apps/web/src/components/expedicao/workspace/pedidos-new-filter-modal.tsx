@@ -2,35 +2,20 @@
 
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
-import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
-import { pedidosStatusFilterLabel } from '@/src/components/expedicao/workspace/pedidos-order-status-filters';
+import type { ExpeditionPedidosPreset } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
 import { saveNamedFilter } from '@/src/lib/saved-filters';
-
-export type ExpeditionPedidosPreset = {
-  statusFilter: StatusFilterId;
-};
-
-const STATUS_OPTIONS: StatusFilterId[] = [
-  'all',
-  'novo',
-  'em_separacao',
-  'aguardando_nf',
-  'finalizado',
-  'cancelado',
-  'parcial',
-];
 
 type PedidosNewFilterModalProps = {
   isOpen: boolean;
   storageKey: string;
+  preset: ExpeditionPedidosPreset;
   onClose: () => void;
   onSaved: () => void;
 };
 
 export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
-  const { isOpen, storageKey, onClose, onSaved } = props;
+  const { isOpen, storageKey, preset, onClose, onSaved } = props;
   const [name, setName] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilterId>('all');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -39,7 +24,6 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
   const handleClose = () => {
     if (saving) return;
     setName('');
-    setStatusFilter('all');
     setError(null);
     onClose();
   };
@@ -48,7 +32,6 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
     setSaving(true);
     setError(null);
     try {
-      const preset: ExpeditionPedidosPreset = { statusFilter };
       saveNamedFilter(storageKey, name, preset);
       onSaved();
       handleClose();
@@ -78,7 +61,7 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
             id="pedidos-new-filter-title"
             className="text-lg font-semibold text-[var(--text-primary)]"
           >
-            Novo Filtro
+            Salvar filtro
           </h2>
           <button
             type="button"
@@ -91,6 +74,9 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
         </div>
 
         <div className="space-y-4 px-5 py-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Os filtros atuais (origem, status, campo e ordenação) serão salvos com o nome abaixo.
+          </p>
           <label className="block text-sm">
             <span className="mb-1.5 block font-medium text-[var(--text-secondary)]">
               Nome do filtro
@@ -102,27 +88,11 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
                 setName(e.target.value);
                 setError(null);
               }}
-              placeholder='Ex.: "Parcial", "Urgentes atrasados"'
+              placeholder='Ex.: "Pedidos atrasados WEG"'
               className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              autoFocus
             />
           </label>
-
-          <div>
-            <span className="mb-1.5 block text-sm font-medium text-[var(--text-secondary)]">
-              Status
-            </span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilterId)}
-              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)]"
-            >
-              {STATUS_OPTIONS.map((id) => (
-                <option key={id} value={id}>
-                  {pedidosStatusFilterLabel(id)}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {error ? <p className="text-sm text-rose-500">{error}</p> : null}
         </div>
@@ -150,3 +120,6 @@ export function PedidosNewFilterModal(props: PedidosNewFilterModalProps) {
     </div>
   );
 }
+
+// Re-export for backward compatibility with existing imports.
+export type { ExpeditionPedidosPreset } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';

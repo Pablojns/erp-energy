@@ -25,6 +25,13 @@ export type CrmChannelDto = {
   color: string;
 };
 
+export type CrmMotivoPerdaDto = {
+  id: string;
+  name: string;
+  order: number;
+  requiresText: boolean;
+};
+
 export type CrmUserDto = {
   id: string;
   name: string;
@@ -80,6 +87,10 @@ export type CrmCardDto = {
   lastTouchpointAt?: string;
   responsavelId?: string | null;
   responsavel?: CrmUserDto | null;
+  score?: number;
+  motivoPerdaId?: string | null;
+  motivoPerdaTexto?: string | null;
+  motivoPerdaMeta?: CrmMotivoPerdaDto;
 };
 
 export type CrmDashboardPeriod = '7d' | '30d' | '90d' | 'all';
@@ -111,6 +122,11 @@ export type CrmDashboardDto = {
     touchpointsMedios: number;
   }>;
   metasMes?: CrmMetasMesDto;
+  motivosPerdaDistribuicao?: Array<{
+    motivoId: string;
+    motivoName: string;
+    count: number;
+  }>;
 };
 
 export type CrmTouchpointInput = {
@@ -165,6 +181,11 @@ export type CrmRelatoriosDto = {
     periodStart: string;
     novosLeads: number;
     fechamentos: number;
+  }>;
+  motivosPerdaDistribuicao?: Array<{
+    motivoId: string;
+    motivoName: string;
+    count: number;
   }>;
 };
 
@@ -237,6 +258,42 @@ export async function deleteCrmChannel(id: string) {
   });
 }
 
+export async function listCrmMotivosPerda() {
+  return erpFetchJson<CrmMotivoPerdaDto[]>(`${BASE}/motivos-perda`);
+}
+
+export async function createCrmMotivoPerda(body: {
+  name: string;
+  order?: number;
+  requiresText?: boolean;
+}) {
+  return erpFetchJson<CrmMotivoPerdaDto>(`${BASE}/motivos-perda`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteCrmMotivoPerda(id: string) {
+  return erpFetchJson<{ ok: boolean }>(`${BASE}/motivos-perda/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function checkCrmDuplicate(params: {
+  phone?: string;
+  email?: string;
+  excludeId?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params.phone?.trim()) qs.set('phone', params.phone.trim());
+  if (params.email?.trim()) qs.set('email', params.email.trim());
+  if (params.excludeId) qs.set('excludeId', params.excludeId);
+  return erpFetchJson<{
+    duplicate: boolean;
+    existing?: CrmCardDto;
+  }>(`${BASE}/cards/check-duplicate?${qs.toString()}`);
+}
+
 export async function listCrmFunis() {
   return erpFetchJson<CrmFunilDto[]>(`${BASE}/funis`);
 }
@@ -286,6 +343,7 @@ export async function createCrmCard(body: {
   notes?: string | null;
   whatsappLog?: string | null;
   funilId: string;
+  force?: boolean;
 }) {
   return erpFetchJson<CrmCardDto>(`${BASE}/cards`, {
     method: 'POST',
@@ -311,6 +369,8 @@ export async function updateCrmCard(
     funilId: string;
     status: string;
     responsavelId?: string | null;
+    motivoPerdaId?: string | null;
+    motivoPerdaTexto?: string | null;
   }>,
 ) {
   return erpFetchJson<CrmCardDto>(`${BASE}/cards/${id}`, {
@@ -419,9 +479,9 @@ export const CRM_ORIGIN_LABEL: Record<CrmCardOrigin, string> = {
 };
 
 export const CRM_ORIGIN_BADGE_CLASS: Record<CrmCardOrigin, string> = {
-  ANUNCIO: 'border-blue-400/40 bg-blue-500/15 text-blue-200',
-  INDICACAO: 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200',
-  FRIO: 'border-zinc-500/40 bg-zinc-500/15 text-zinc-300',
+  ANUNCIO: 'border-blue-400/60 bg-blue-500/30 text-blue-100',
+  INDICACAO: 'border-emerald-400/60 bg-emerald-500/30 text-emerald-100',
+  FRIO: 'border-violet-400/60 bg-violet-500/25 text-violet-100',
 };
 
 export function buildEmptyTouchpoints(): CrmTouchpointInput[] {

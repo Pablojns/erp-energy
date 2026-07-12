@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -81,4 +82,13 @@ export class UpdateCrmCardDto {
   @IsOptional()
   @IsString()
   responsavelId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  motivoPerdaId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  motivoPerdaTexto?: string | null;
 }

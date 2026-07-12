@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Trash2, X, XCircle } from 'lucide-react';
 import { CrmActivityTimeline } from '@/src/components/crm/crm-activity-timeline';
+import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
+import { CrmLossReasonModal } from '@/src/components/crm/crm-loss-reason-modal';
 import {
   appendQuickNote,
   buildCrmActivityTimeline,
@@ -56,6 +58,7 @@ export function CrmCardDetailModal(props: {
   const [quickNote, setQuickNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lossModalOpen, setLossModalOpen] = useState(false);
 
   useEffect(() => {
     if (!cardId) {
@@ -137,13 +140,20 @@ export function CrmCardDetailModal(props: {
 
   if (!cardId) return null;
 
+  const isPerdido = selectedStatus?.name === 'Perdido';
+
   const updateTouchpoint = (number: number, patch: Partial<CrmTouchpointInput>) => {
     setTouchpoints((current) =>
       current.map((tp) => (tp.number === number ? { ...tp, ...patch } : tp)),
     );
   };
 
-  const save = async (extra?: { status?: string; closeAfter?: boolean }) => {
+  const save = async (extra?: {
+    status?: string;
+    closeAfter?: boolean;
+    motivoPerdaId?: string | null;
+    motivoPerdaTexto?: string | null;
+  }) => {
     if (!card) return;
     setSaving(true);
     setError(null);
@@ -161,6 +171,8 @@ export function CrmCardDetailModal(props: {
         funilId,
         responsavelId: responsavelId || null,
         touchPoints: doneCount,
+        motivoPerdaId: extra?.motivoPerdaId,
+        motivoPerdaTexto: extra?.motivoPerdaTexto,
       });
       await upsertCrmTouchpoints(card.id, touchpoints);
       const refreshed = await getCrmCard(card.id);
@@ -181,8 +193,29 @@ export function CrmCardDetailModal(props: {
       setError(`Status "${statusName}" não encontrado.`);
       return;
     }
+    if (statusName === 'Perdido') {
+      setStatusId(target.id);
+      setLossModalOpen(true);
+      return;
+    }
     setStatusId(target.id);
     await save({ status: target.id, closeAfter: true });
+  };
+
+  const confirmLoss = async (motivoPerdaId: string, motivoPerdaTexto: string | null) => {
+    const target = findCrmStatusByName(statuses, 'Perdido');
+    if (!target) {
+      setError('Status "Perdido" não encontrado.');
+      return;
+    }
+    setStatusId(target.id);
+    await save({
+      status: target.id,
+      closeAfter: true,
+      motivoPerdaId,
+      motivoPerdaTexto,
+    });
+    setLossModalOpen(false);
   };
 
   const handleDelete = async () => {
@@ -216,86 +249,119 @@ export function CrmCardDetailModal(props: {
             </div>
           ) : (
             <>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+              <div className="flex items-start justify-between gap-3 border-b border-[var(--border-color)] pb-4">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
                     {name || card.name}
                   </h2>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    {selectedStatus ? (
+                      isPerdido ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/70 bg-rose-500/25 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-100">
+                          <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          {selectedStatus.name}
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide"
+                          style={{
+                            borderColor: `${selectedStatus.color}88`,
+                            backgroundColor: `${selectedStatus.color}33`,
+                            color: selectedStatus.color,
+                          }}
+                        >
+                          {selectedStatus.name}
+                        </span>
+                      )
+                    ) : null}
                     <span
-                      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${CRM_ORIGIN_BADGE_CLASS[origin]}`}
+                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${CRM_ORIGIN_BADGE_CLASS[origin]}`}
                     >
                       {CRM_ORIGIN_LABEL[origin]}
                     </span>
-                    {selectedStatus ? (
-                      <span
-                        className="inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          borderColor: `${selectedStatus.color}66`,
-                          backgroundColor: `${selectedStatus.color}22`,
-                          color: selectedStatus.color,
-                        }}
-                      >
-                        {selectedStatus.name}
-                      </span>
-                    ) : null}
-                    <span className="text-xs text-[var(--text-muted)]">
+                    <span className="text-xs font-medium text-[var(--text-muted)]">
                       {negotiationDays.toLocaleString('pt-BR', {
                         maximumFractionDigits: 1,
                       })}{' '}
                       dias de negociação
                     </span>
                   </div>
+                  <div className="mt-3 max-w-xs">
+                    <CrmLeadScoreThermometer score={card.score ?? 0} prominent />
+                  </div>
                 </div>
                 <button
                   type="button"
-                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)]"
+                  className="shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--input-bg)]"
                   onClick={onClose}
                   aria-label="Fechar"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+              {isPerdido && card.motivoPerdaMeta ? (
+                <div className="mt-4 flex gap-3 rounded-xl border border-rose-400/50 bg-rose-500/15 px-4 py-3">
+                  <AlertTriangle
+                    className="mt-0.5 h-5 w-5 shrink-0 text-rose-300"
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-rose-100">
+                      Motivo da perda: {card.motivoPerdaMeta.name}
+                    </p>
+                    {card.motivoPerdaTexto ? (
+                      <p className="mt-1 text-sm leading-relaxed text-rose-50/90">
+                        {card.motivoPerdaTexto}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              <section className="mt-5">
+                <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Informações
+                </h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Nome
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Telefone
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   E-mail
                   <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Valor (R$)
                   <input
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Origem
                   <select
                     value={origin}
                     onChange={(e) => setOrigin(e.target.value as CrmCardOrigin)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
                     {CRM_CARD_ORIGINS.map((o) => (
                       <option key={o} value={o}>
@@ -304,12 +370,12 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Status
                   <select
                     value={statusId}
                     onChange={(e) => setStatusId(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
                     {statuses.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -318,12 +384,12 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Responsável
                   <select
                     value={responsavelId}
                     onChange={(e) => setResponsavelId(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
                     <option value="">Sem responsável</option>
                     {users.map((user) => (
@@ -333,12 +399,12 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] sm:col-span-2">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2">
                   Funil
                   <select
                     value={funilId}
                     onChange={(e) => setFunilId(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
                     {funis.map((f) => (
                       <option key={f.id} value={f.id}>
@@ -347,64 +413,15 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] sm:col-span-2">
-                  Observações
-                  <textarea
-                    value={observations}
-                    onChange={(e) => setObservations(e.target.value)}
-                    rows={3}
-                    className="mt-1 w-full resize-none rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                  />
-                </label>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] sm:col-span-2">
-                  Log WhatsApp
-                  <textarea
-                    value={whatsappLog}
-                    onChange={(e) => setWhatsappLog(e.target.value)}
-                    rows={4}
-                    placeholder="Cole aqui a conversa do WhatsApp…"
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                    Histórico de atividades
-                  </h3>
                 </div>
-                <CrmActivityTimeline items={activityItems} />
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={quickNote}
-                    onChange={(e) => setQuickNote(e.target.value)}
-                    placeholder="Adicionar nota rápida (sem touchpoint formal)…"
-                    className="flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void addQuickNote();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={saving || !quickNote.trim()}
-                    onClick={() => void addQuickNote()}
-                    className="rounded-xl border border-[var(--border-color)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-50"
-                  >
-                    Adicionar nota
-                  </button>
-                </div>
-              </div>
+              </section>
 
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+              <section className="mt-6 border-t border-[var(--border-color)] pt-5">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">
                     Touchpoints
                   </h3>
-                  <span className="text-xs text-[var(--text-secondary)]">
+                  <span className="text-xs font-medium text-[var(--text-muted)]">
                     {doneCount} de 7 concluídos
                   </span>
                 </div>
@@ -412,16 +429,16 @@ export function CrmCardDetailModal(props: {
                   <table className="min-w-full text-xs">
                     <thead className="bg-[var(--input-bg)] text-[var(--text-muted)]">
                       <tr>
-                        <th className="px-2 py-2 text-left">TP</th>
-                        <th className="px-2 py-2 text-left">Feito</th>
-                        <th className="px-2 py-2 text-left">Data</th>
-                        <th className="px-2 py-2 text-left">Canal</th>
+                        <th className="px-2 py-2 text-left font-semibold">TP</th>
+                        <th className="px-2 py-2 text-left font-semibold">Feito</th>
+                        <th className="px-2 py-2 text-left font-semibold">Data</th>
+                        <th className="px-2 py-2 text-left font-semibold">Canal</th>
                       </tr>
                     </thead>
                     <tbody>
                       {touchpoints.map((tp) => (
                         <tr key={tp.number} className="border-t border-[var(--border-color)]">
-                          <td className="px-2 py-2 font-semibold text-[var(--text-primary)]">
+                          <td className="px-2 py-2 font-bold text-[var(--text-primary)]">
                             TP{tp.number}
                           </td>
                           <td className="px-2 py-2">
@@ -443,7 +460,7 @@ export function CrmCardDetailModal(props: {
                                   date: e.target.value || null,
                                 })
                               }
-                              className="w-full min-w-[8rem] rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-[var(--text-primary)] outline-none"
+                              className="w-full min-w-[8rem] rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 font-medium text-[var(--text-primary)] outline-none"
                             />
                           </td>
                           <td className="px-2 py-2">
@@ -454,7 +471,7 @@ export function CrmCardDetailModal(props: {
                                   channel: e.target.value || null,
                                 })
                               }
-                              className="w-full min-w-[7rem] rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-[var(--text-primary)] outline-none"
+                              className="w-full min-w-[7rem] rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 font-medium text-[var(--text-primary)] outline-none"
                             >
                               <option value="">—</option>
                               {channels.map((channel) => (
@@ -469,11 +486,67 @@ export function CrmCardDetailModal(props: {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </section>
 
-              {error ? <p className="mt-3 text-sm text-rose-400">{error}</p> : null}
+              <section className="mt-6 border-t border-[var(--border-color)] pt-5">
+                <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Atividades
+                </h3>
+                <CrmActivityTimeline items={activityItems} />
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={quickNote}
+                    onChange={(e) => setQuickNote(e.target.value)}
+                    placeholder="Adicionar nota rápida (sem touchpoint formal)…"
+                    className="flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void addQuickNote();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={saving || !quickNote.trim()}
+                    onClick={() => void addQuickNote()}
+                    className="rounded-xl border border-[var(--border-color)] px-3 py-2.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-50"
+                  >
+                    Adicionar nota
+                  </button>
+                </div>
+              </section>
 
-              <div className="mt-5 flex flex-wrap gap-2">
+              <section className="mt-6 border-t border-[var(--border-color)] pt-5">
+                <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Observações
+                </h3>
+                <div className="grid grid-cols-1 gap-3">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
+                  Observações
+                  <textarea
+                    value={observations}
+                    onChange={(e) => setObservations(e.target.value)}
+                    rows={3}
+                    className="mt-1.5 w-full resize-none rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
+                  Log WhatsApp
+                  <textarea
+                    value={whatsappLog}
+                    onChange={(e) => setWhatsappLog(e.target.value)}
+                    rows={4}
+                    placeholder="Cole aqui a conversa do WhatsApp…"
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 font-mono text-xs font-medium text-[var(--text-primary)] outline-none"
+                  />
+                </label>
+                </div>
+              </section>
+
+              {error ? <p className="mt-4 text-sm text-rose-400">{error}</p> : null}
+
+              <div className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-color)] pt-5">
                 <GlowButton variant="primary" disabled={saving} onClick={() => void save()}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
                 </GlowButton>
@@ -510,6 +583,12 @@ export function CrmCardDetailModal(props: {
           )}
         </GlassCard>
       </div>
+      <CrmLossReasonModal
+        open={lossModalOpen}
+        onClose={() => setLossModalOpen(false)}
+        onConfirm={confirmLoss}
+        saving={saving}
+      />
     </div>
   );
 }

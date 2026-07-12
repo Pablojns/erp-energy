@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -52,4 +53,8 @@ export class CreateCrmCardDto {
 
   @IsString()
   funilId!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
 }
