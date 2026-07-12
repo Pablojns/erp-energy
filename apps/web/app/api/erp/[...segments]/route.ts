@@ -39,6 +39,8 @@ function isAllowedPath(path: string): boolean {
     /^compras(\/|$)/i.test(path) ||
     /^api\/crm(\/|$)/i.test(path) ||
     /^crm(\/|$)/i.test(path) ||
+    /^correios(\/|$)/i.test(path) ||
+    /^api\/correios(\/|$)/i.test(path) ||
     isAuthPath(path)
   );
 }
@@ -72,6 +74,9 @@ function resolveUpstreamPath(segments: string[]): string {
   }
   if (/^crm(\/|$)/i.test(path)) {
     return `api/${path}`;
+  }
+  if (/^correios(\/|$)/i.test(path)) {
+    return `correios/${path.replace(/^correios\/?/, '')}`;
   }
   return path;
 }
