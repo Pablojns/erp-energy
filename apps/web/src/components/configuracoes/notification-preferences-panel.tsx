@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import type { NotificationConfigDto } from '@/src/services/api/notifications-api';
 
 const PREFERENCE_ITEMS = [
   {
@@ -66,12 +67,30 @@ const PREFERENCE_ITEMS = [
   },
 ] as const;
 
-export function NotificationPreferencesPanel() {
+const DEPARTMENT_OPTIONS = [
+  { value: '', label: 'Não definido' },
+  { value: 'GESTAO', label: 'Gestão' },
+  { value: 'COMERCIAL', label: 'Comercial' },
+  { value: 'LOGISTICA', label: 'Logística' },
+  { value: 'FINANCEIRO', label: 'Financeiro' },
+  { value: 'ADMIN', label: 'Administração' },
+  { value: 'MARKETING', label: 'Marketing' },
+  { value: 'OPERACIONAL', label: 'Operacional' },
+] as const;
+
+export { DEPARTMENT_OPTIONS };
+
+export function NotificationPreferencesPanel(props: { isAdmin?: boolean }) {
+  const isAdmin = props.isAdmin ?? false;
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [config, setConfig] = useState<NotificationConfigDto | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configSaved, setConfigSaved] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,9 +111,23 @@ export function NotificationPreferencesPanel() {
     }
   }, []);
 
+  const loadConfig = useCallback(async () => {
+    if (!isAdmin) return;
+    setConfigError(null);
+    try {
+      const res = await erpFetchJson<NotificationConfigDto>('notifications/config');
+      setConfig(res);
+    } catch (err) {
+      setConfigError(
+        err instanceof Error ? err.message : 'Falha ao carregar configurações.',
+      );
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadConfig();
+  }, [load, loadConfig]);
 
   const toggle = (type: string) => {
     setPreferences((prev) => ({
@@ -126,6 +159,26 @@ export function NotificationPreferencesPanel() {
     }
   };
 
+  const saveConfig = async () => {
+    if (!config) return;
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      const res = await erpFetchJson<NotificationConfigDto>('notifications/config', {
+        method: 'PATCH',
+        body: JSON.stringify(config),
+      });
+      setConfig(res);
+      setConfigSaved(true);
+    } catch (err) {
+      setConfigError(
+        err instanceof Error ? err.message : 'Falha ao salvar configurações.',
+      );
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-8 text-center text-sm text-[var(--erp-fg-muted)]">
@@ -144,6 +197,125 @@ export function NotificationPreferencesPanel() {
           Escolha quais tipos de alerta você deseja receber.
         </p>
       </div>
+
+      {isAdmin && config ? (
+        <div className="space-y-3 rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)] p-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--erp-fg)]">
+              Limites do sistema (admin)
+            </h3>
+            <p className="mt-1 text-xs text-[var(--erp-fg-muted)]">
+              Define quando os alertas automáticos são disparados.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--erp-fg-muted)]">
+                Estoque crítico (unidades)
+              </span>
+              <input
+                type="number"
+                min={1}
+                className="erp-module-input"
+                value={config.criticalStockThreshold}
+                onChange={(e) => {
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          criticalStockThreshold: Number(e.target.value) || 1,
+                        }
+                      : prev,
+                  );
+                  setConfigSaved(false);
+                }}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--erp-fg-muted)]">
+                Pedido atrasado (dias)
+              </span>
+              <input
+                type="number"
+                min={0}
+                className="erp-module-input"
+                value={config.orderDelayedDays}
+                onChange={(e) => {
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          orderDelayedDays: Number(e.target.value) || 0,
+                        }
+                      : prev,
+                  );
+                  setConfigSaved(false);
+                }}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--erp-fg-muted)]">
+                Lead sem follow-up (dias)
+              </span>
+              <input
+                type="number"
+                min={1}
+                className="erp-module-input"
+                value={config.leadFollowupDays}
+                onChange={(e) => {
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          leadFollowupDays: Number(e.target.value) || 1,
+                        }
+                      : prev,
+                  );
+                  setConfigSaved(false);
+                }}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--erp-fg-muted)]">
+                NF pendente (horas)
+              </span>
+              <input
+                type="number"
+                min={1}
+                className="erp-module-input"
+                value={config.nfPendingHours}
+                onChange={(e) => {
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          nfPendingHours: Number(e.target.value) || 1,
+                        }
+                      : prev,
+                  );
+                  setConfigSaved(false);
+                }}
+              />
+            </label>
+          </div>
+          {configError ? (
+            <p className="text-sm text-rose-500">{configError}</p>
+          ) : null}
+          {configSaved ? (
+            <p className="text-sm text-emerald-600">Limites salvos.</p>
+          ) : null}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={configSaving}
+              onClick={() => void saveConfig()}
+              className="erp-btn erp-btn-secondary erp-btn--md disabled:opacity-50"
+            >
+              {configSaving ? 'Salvando…' : 'Salvar limites'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         {PREFERENCE_ITEMS.map((item) => {

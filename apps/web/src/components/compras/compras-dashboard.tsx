@@ -97,7 +97,7 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
                     <p className="text-sm font-semibold text-[var(--erp-fg)]">{item.label}</p>
                     <p className="mt-1 text-xs text-[var(--erp-fg-muted)]">{item.hint}</p>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-[var(--erp-fg-secondary)]">
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-semibold text-[var(--erp-fg-secondary)]">
                     {summary.total} req.
                   </span>
                 </div>
@@ -137,8 +137,8 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-white/10">
-            <div className="sticky top-0 z-10 grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] border-b border-white/10 bg-[var(--erp-surface-elevated)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--erp-fg-muted)] shadow-sm">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-gray-200">
+            <div className="sticky top-0 z-10 grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] border-b border-gray-200 bg-[var(--erp-surface-elevated)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--erp-fg-muted)] shadow-sm">
               <span>Item</span>
               <span>Qtd.</span>
               <span>{selectedType === 'WEG_CONTRATO' ? 'Preço base' : 'Preço item'}</span>
@@ -164,7 +164,7 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
               selectedRows.map((row) => (
                 <div
                   key={row.id}
-                  className="grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] items-center border-t border-white/10 px-3 py-2 text-sm text-[var(--erp-fg-secondary)]"
+                  className="grid min-w-[58rem] grid-cols-[1.3fr_0.55fr_0.75fr_0.75fr_0.75fr_0.75fr] items-center border-t border-gray-200 px-3 py-2 text-sm text-[var(--erp-fg-secondary)]"
                 >
                   <div>
                     <p className="font-medium text-[var(--erp-fg)]">{displayName(row)}</p>
@@ -200,7 +200,7 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
 
 function Metric(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/15 px-3 py-2">
+    <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
       <p className="text-[11px] uppercase tracking-wide text-[var(--erp-fg-muted)]">{props.label}</p>
       <p className="mt-1 text-sm font-semibold text-[var(--erp-fg)]">{props.value}</p>
     </div>
@@ -209,7 +209,7 @@ function Metric(props: { label: string; value: string }) {
 
 function SummaryPill(props: { label: string; value: string }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[var(--erp-fg-secondary)]">
+    <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[var(--erp-fg-secondary)]">
       {props.label}: <strong className="text-[var(--erp-fg)]">{props.value}</strong>
     </span>
   );

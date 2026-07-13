@@ -56,7 +56,7 @@ export function CrmMetasModal(props: {
       onClick={onClose}
     >
       <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl">
           <div className="mb-4 flex items-start justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">

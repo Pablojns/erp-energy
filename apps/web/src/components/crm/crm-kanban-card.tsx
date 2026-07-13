@@ -122,7 +122,7 @@ export function CrmKanbanCard(props: {
         {/* 2. Status */}
         {card.statusMeta ? (
           perdido ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-rose-400/70 bg-rose-500/25 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-100">
+            <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-800">
               <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
               {card.statusMeta.name}
             </span>
@@ -149,19 +149,19 @@ export function CrmKanbanCard(props: {
 
         {/* 4. Valor */}
         {card.value ? (
-          <p className="text-sm font-bold text-emerald-300">
+          <p className="text-sm font-bold text-emerald-700">
             {formatCrmCurrency(card.value)}
           </p>
         ) : null}
 
         {/* 5. Motivo perda (se perdido) */}
         {perdido && card.motivoPerdaMeta ? (
-          <div className="rounded-lg border border-rose-400/40 bg-rose-500/15 px-2.5 py-2">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-rose-200">
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-rose-700">
               Motivo: {card.motivoPerdaMeta.name}
             </p>
             {card.motivoPerdaTexto ? (
-              <p className="mt-0.5 line-clamp-2 text-xs text-rose-100/90">
+              <p className="mt-0.5 line-clamp-2 text-xs text-rose-600">
                 {card.motivoPerdaTexto}
               </p>
             ) : null}

@@ -765,13 +765,13 @@ export function SeparationWorkbench(props: {
             </div>
 
             {nfFlaskSuccess ? (
-              <p className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+              <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
                 NF-e gerada: <strong>{nfFlaskSuccess}</strong>
               </p>
             ) : null}
 
             {nfFlaskError ? (
-              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+              <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {nfFlaskError}
               </p>
             ) : null}

@@ -129,8 +129,8 @@ function StatusBadge({ active }: { active: boolean }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
         active
-          ? 'bg-emerald-500/15 text-emerald-300'
-          : 'bg-zinc-500/20 text-zinc-400'
+          ? 'bg-emerald-100 text-emerald-800'
+          : 'bg-gray-100 text-gray-600'
       }`}
     >
       {active ? 'Ativo' : 'Inativo'}
@@ -139,7 +139,7 @@ function StatusBadge({ active }: { active: boolean }) {
 }
 
 function StateMessage({ children }: { children: React.ReactNode }) {
-  return <div className="p-8 text-center text-sm text-zinc-400">{children}</div>;
+  return <div className="p-8 text-center text-sm text-gray-500">{children}</div>;
 }
 
 function TabButton({
@@ -199,8 +199,8 @@ function ModalShell({
         }`}
         role="dialog"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-4">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
             {icon}
             {title}
           </h2>
@@ -208,7 +208,7 @@ function ModalShell({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
           >
             <X size={20} />
           </button>
@@ -216,12 +216,12 @@ function ModalShell({
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
           {children}
         </div>
-        <div className="flex shrink-0 gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+        <div className="flex shrink-0 gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
           >
             Cancelar
           </button>
@@ -412,8 +412,8 @@ function CadastroFormModal({
       saving={saving}
     >
       <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">
-          Nome <span className="text-rose-400">*</span>
+        <span className="mb-1.5 block font-medium text-gray-600">
+          Nome <span className="text-rose-600">*</span>
         </span>
         <input
           type="text"
@@ -428,7 +428,7 @@ function CadastroFormModal({
         />
       </label>
 
-      {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+      {error ? <p className="text-sm text-rose-600">{error}</p> : null}
     </ModalShell>
   );
 }
@@ -481,19 +481,19 @@ function DeleteCadastroModal({
         role="dialog"
         aria-labelledby="delete-cadastro-title"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
           <h2
             id="delete-cadastro-title"
-            className="flex items-center gap-2 text-lg font-semibold text-zinc-100"
+            className="flex items-center gap-2 text-lg font-semibold text-gray-900"
           >
-            <Trash2 size={20} className="text-rose-400" />
+            <Trash2 size={20} className="text-rose-600" />
             Excluir {tab.entityLabel.toLowerCase()}
           </h2>
           <button
             type="button"
             onClick={handleClose}
             disabled={deleting}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
           >
             <X size={20} />
           </button>
@@ -501,27 +501,27 @@ function DeleteCadastroModal({
 
         <div className="space-y-3 px-5 py-5">
           {step === 1 ? (
-            <p className="text-sm text-zinc-300">
-              Deseja excluir <strong className="text-zinc-100">&quot;{row.name}&quot;</strong>?
+            <p className="text-sm text-gray-600">
+              Deseja excluir <strong className="text-gray-900">&quot;{row.name}&quot;</strong>?
               Esta ação não pode ser desfeita.
             </p>
           ) : (
-            <p className="text-sm text-zinc-300">
-              <strong className="text-rose-300">Tem certeza?</strong> Confirme a exclusão
-              permanente de <strong className="text-zinc-100">&quot;{row.name}&quot;</strong>.
+            <p className="text-sm text-gray-600">
+              <strong className="text-rose-700">Tem certeza?</strong> Confirme a exclusão
+              permanente de <strong className="text-gray-900">&quot;{row.name}&quot;</strong>.
             </p>
           )}
-          {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         </div>
 
-        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+        <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
           {step === 1 ? (
             <>
               <button
                 type="button"
                 onClick={handleClose}
                 disabled={deleting}
-                className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
               >
                 Cancelar
               </button>
@@ -546,7 +546,7 @@ function DeleteCadastroModal({
                   setStep(1);
                 }}
                 disabled={deleting}
-                className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
               >
                 Voltar
               </button>
@@ -632,20 +632,20 @@ function CadastroTable({
     if (key === 'status') return <StatusBadge active={row.isActive} />;
     if (key === 'cnpj') {
       const value = 'cnpj' in row ? row.cnpj : null;
-      return <span className="text-zinc-300">{value || '—'}</span>;
+      return <span className="text-gray-600">{value || '—'}</span>;
     }
     if (key === 'deliveryAddress') {
       const value =
         'deliveryAddress' in row ? row.deliveryAddress : null;
       const display = formatDeliveryAddressDisplay(value);
       return (
-        <span className="block max-w-xs truncate text-zinc-300" title={display}>
+        <span className="block max-w-xs truncate text-gray-600" title={display}>
           {display}
         </span>
       );
     }
     if (key === 'name') {
-      return <span className="font-medium text-zinc-100">{row.name}</span>;
+      return <span className="font-medium text-gray-900">{row.name}</span>;
     }
     return '—';
   };
@@ -655,14 +655,14 @@ function CadastroTable({
       {toast ? (
         <div
           role="status"
-          className="border-b border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200"
+          className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800"
         >
           {toast}
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <p className="text-sm text-zinc-400">
+      <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
+        <p className="text-sm text-gray-500">
           {rows.length} registro{rows.length === 1 ? '' : 's'}
         </p>
         {isAdmin ? (
@@ -690,7 +690,7 @@ function CadastroTable({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-left text-sm">
             <thead>
-              <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-zinc-500">
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 {tab.columns.map((col) => (
                   <th key={col.key} className="px-4 py-3 font-semibold">
                     {col.header}
@@ -705,7 +705,7 @@ function CadastroTable({
               {rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-white/5 transition hover:bg-white/[0.02]"
+                  className="border-b border-gray-100 text-gray-900 transition hover:bg-gray-50"
                 >
                   {tab.columns.map((col) => (
                     <td key={col.key} className="px-4 py-3">
@@ -721,7 +721,7 @@ function CadastroTable({
                             setEditRow(row);
                             setModalMode('edit');
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/5"
+                          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
                           title="Editar"
                         >
                           <Pencil size={14} />
@@ -733,8 +733,8 @@ function CadastroTable({
                           disabled={togglingId === row.id}
                           className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
                             row.isActive
-                              ? 'border-rose-500/30 text-rose-300 hover:bg-rose-500/10'
-                              : 'border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10'
+                              ? 'border-rose-300 text-rose-700 hover:bg-rose-50'
+                              : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
                           }`}
                           title={row.isActive ? 'Inativar' : 'Ativar'}
                         >
@@ -744,7 +744,7 @@ function CadastroTable({
                         <button
                           type="button"
                           onClick={() => setDeleteRow(row)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/10"
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 transition hover:bg-rose-50"
                           title="Excluir"
                         >
                           <Trash2 size={14} />

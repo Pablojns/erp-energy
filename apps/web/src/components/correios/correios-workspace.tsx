@@ -609,7 +609,7 @@ export function CorreiosWorkspace() {
           </div>
 
           {cotacaoErro ? (
-            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
               {cotacaoErro}
             </p>
           ) : null}
@@ -663,7 +663,7 @@ export function CorreiosWorkspace() {
           </div>
 
           {rastreioErro ? (
-            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
               {rastreioErro}
             </p>
           ) : null}
@@ -935,7 +935,7 @@ export function CorreiosWorkspace() {
           ) : null}
 
           {etiquetaErro ? (
-            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
               {etiquetaErro}
             </p>
           ) : null}
@@ -1031,7 +1031,7 @@ export function CorreiosWorkspace() {
                                     type="button"
                                     disabled={!isAtiva || acaoLoading}
                                     onClick={() => void handleCancelarEtiqueta(row)}
-                                    className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-semibold text-rose-300 disabled:opacity-50"
+                                    className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-semibold text-rose-600 disabled:opacity-50"
                                   >
                                     Cancelar
                                   </button>
@@ -1086,7 +1086,7 @@ export function CorreiosWorkspace() {
           </div>
 
           {pedidosErro ? (
-            <p className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
               {pedidosErro}
             </p>
           ) : null}

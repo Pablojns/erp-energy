@@ -172,7 +172,7 @@ export function CrmSettingsModal(props: {
       onClick={onClose}
     >
       <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl sm:p-5">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">
               Configurações do CRM
@@ -187,7 +187,7 @@ export function CrmSettingsModal(props: {
             </button>
           </div>
 
-          <div className="mt-4 inline-flex flex-wrap rounded-xl border border-white/10 bg-white/5 p-1">
+          <div className="mt-4 inline-flex flex-wrap rounded-xl border border-gray-200 bg-gray-50 p-1">
             {tabs.map((item) => (
               <button
                 key={item.id}
@@ -202,7 +202,7 @@ export function CrmSettingsModal(props: {
                 className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                   tab === item.id
                     ? 'bg-white text-slate-950'
-                    : 'text-[var(--text-secondary)] hover:bg-white/10'
+                    : 'text-[var(--text-secondary)] hover:bg-gray-100'
                 }`}
               >
                 {item.label}
@@ -227,7 +227,7 @@ export function CrmSettingsModal(props: {
                           {row.name}
                         </span>
                         {row.requiresText ? (
-                          <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-200">
+                          <span className="shrink-0 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
                             Texto livre
                           </span>
                         ) : null}
@@ -235,7 +235,7 @@ export function CrmSettingsModal(props: {
                           type="button"
                           disabled={saving}
                           onClick={() => void handleDelete('motivos', row.id, row.name)}
-                          className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                          className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-100 disabled:opacity-50"
                           aria-label={`Excluir ${row.name}`}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -270,7 +270,7 @@ export function CrmSettingsModal(props: {
                             type="button"
                             disabled={saving}
                             onClick={() => void handleDelete(tab, row.id, row.name)}
-                            className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                            className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-100 disabled:opacity-50"
                             aria-label={`Excluir ${row.name}`}
                           >
                             <Trash2 className="h-4 w-4" />

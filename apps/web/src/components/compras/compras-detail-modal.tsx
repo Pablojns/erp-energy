@@ -39,7 +39,7 @@ function renderObservationWithLinks(text: string): ReactNode[] {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-indigo-300 underline hover:text-indigo-200"
+        className="text-indigo-600 underline hover:text-indigo-700"
       >
         {url}
       </a>,
@@ -224,18 +224,18 @@ export function ComprasDetailModal(props: {
       <ComprasModalShell title="Detalhe da Solicitação" onClose={props.onClose} size="lg">
         {loading ? (
           <div className="flex min-h-[12rem] items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-indigo-300" />
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
           </div>
         ) : error && !row ? (
-          <p className="text-sm text-rose-300">{error}</p>
+          <p className="text-sm text-rose-600">{error}</p>
         ) : row ? (
           <>
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <ComprasDetailField label="Tipo" value={TYPE_LABEL[row.type]} />
               <ComprasDetailField label="Prioridade" value={row.priority} />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">Fornecedor</p>
-                <p className="mt-1 break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Fornecedor</p>
+                <p className="mt-1 break-words rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
                   {displaySupplierName(row)
                     ? renderObservationWithLinks(displaySupplierName(row)!)
                     : '—'}
@@ -259,7 +259,7 @@ export function ComprasDetailModal(props: {
               <ComprasDetailField label="Descrição" value={displayName(row)} wide />
               {canEditOpenRequest ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                     Quantidade
                   </p>
                   <div className="mt-1 flex gap-2">
@@ -299,7 +299,7 @@ export function ComprasDetailModal(props: {
               <ComprasDetailField label="Total" value={formatMoneyNumber(calculatedTotal)} />
               {canEditOpenRequest ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                     Preço gravação
                   </p>
                   <div className="mt-1 flex gap-2">
@@ -335,7 +335,7 @@ export function ComprasDetailModal(props: {
               )}
               <ComprasDetailField label="Entrega cliente" value={formatDate(row.clientDeadline)} />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                   Data prevista chegada
                 </p>
                 <div className="mt-1 flex gap-2">
@@ -365,8 +365,8 @@ export function ComprasDetailModal(props: {
                 <ComprasDetailField label="Ref. pedido venda" value={row.saleOrderRef ?? '—'} />
               ) : null}
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">Observação</p>
-                <p className="mt-1 whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Observação</p>
+                <p className="mt-1 whitespace-pre-wrap break-words rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
                   {row.observation?.trim()
                     ? renderObservationWithLinks(row.observation)
                     : '—'}
@@ -383,15 +383,15 @@ export function ComprasDetailModal(props: {
             </div>
 
             {row.images.length > 0 ? (
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="mb-3 text-sm font-medium text-white/70">Imagens</p>
+              <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <p className="mb-3 text-sm font-medium text-gray-600">Imagens</p>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                   {row.images.map((image) => {
                     const src = purchaseImageSrc(row.id, image.id);
                     return (
                       <div
                         key={image.id}
-                        className="overflow-hidden rounded-xl border border-white/10 bg-black/30"
+                        className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
                       >
                         <button
                           type="button"
@@ -410,7 +410,7 @@ export function ComprasDetailModal(props: {
                             type="button"
                             onClick={() => void handleDownloadImage(image)}
                             disabled={downloadingImageId === image.id}
-                            className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[10px] font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+                            className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-[10px] font-semibold text-gray-900 transition hover:bg-gray-100 disabled:opacity-60"
                           >
                             {downloadingImageId === image.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -427,7 +427,7 @@ export function ComprasDetailModal(props: {
               </div>
             ) : null}
 
-            {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
+            {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
 
             <div className="mt-5 flex flex-wrap justify-between gap-2">
               {props.isAdmin ? (
@@ -435,7 +435,7 @@ export function ComprasDetailModal(props: {
                   type="button"
                   onClick={() => void handleDelete()}
                   disabled={deleting}
-                  className="inline-flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-100 px-4 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-200 disabled:opacity-60"
                 >
                   {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   Excluir
@@ -487,7 +487,7 @@ export function ComprasDetailModal(props: {
             <img
               src={purchaseImageSrc(row.id, lightboxImage.id)}
               alt="Visualização ampliada"
-              className="max-h-[85vh] max-w-full rounded-2xl border border-white/10 object-contain"
+              className="max-h-[85vh] max-w-full rounded-2xl border border-gray-200 object-contain"
             />
           </div>
         </div>

@@ -504,11 +504,11 @@ export const CRM_PROPOSTA_STATUS_LABEL: Record<CrmPropostaStatus, string> = {
 };
 
 export const CRM_PROPOSTA_STATUS_BADGE: Record<CrmPropostaStatus, string> = {
-  RASCUNHO: 'border-zinc-400/50 bg-zinc-500/20 text-zinc-200',
-  ENVIADA: 'border-sky-400/50 bg-sky-500/20 text-sky-100',
-  ACEITA: 'border-emerald-400/50 bg-emerald-500/25 text-emerald-100',
-  RECUSADA: 'border-rose-400/50 bg-rose-500/20 text-rose-100',
-  VENCIDA: 'border-amber-400/50 bg-amber-500/20 text-amber-100',
+  RASCUNHO: 'border-gray-200 bg-gray-100 text-gray-700',
+  ENVIADA: 'border-sky-200 bg-sky-100 text-sky-800',
+  ACEITA: 'border-emerald-200 bg-emerald-100 text-emerald-800',
+  RECUSADA: 'border-rose-200 bg-rose-100 text-rose-800',
+  VENCIDA: 'border-amber-200 bg-amber-100 text-amber-800',
 };
 
 export function calcPropostaItemTotal(item: CrmPropostaItemInput): number {
@@ -625,8 +625,8 @@ export const CRM_ORIGIN_LABEL: Record<CrmCardOrigin, string> = {
 
 export const CRM_ORIGIN_BADGE_CLASS: Record<CrmCardOrigin, string> = {
   ANUNCIO: 'border-[#2AACE2]/60 bg-[#2AACE2]/20 text-[#0f172a]',
-  INDICACAO: 'border-emerald-400/60 bg-emerald-500/30 text-emerald-100',
-  FRIO: 'border-violet-400/60 bg-violet-500/25 text-violet-100',
+  INDICACAO: 'border-emerald-200 bg-emerald-100 text-emerald-800',
+  FRIO: 'border-violet-200 bg-violet-100 text-violet-800',
 };
 
 export function buildEmptyTouchpoints(): CrmTouchpointInput[] {

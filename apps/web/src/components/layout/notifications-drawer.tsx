@@ -8,20 +8,24 @@ import {
   ClipboardList,
   Info,
   ShoppingCart,
+  Sun,
   Truck,
   Users,
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatRelativeTime } from '@/src/components/dashboard/utils';
 import { useNotifications } from '@/src/hooks/use-notifications';
+import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
   groupNotificationsByDate,
   notificationIconTone,
   resolveNotificationHref,
+  type DigestItemDto,
   type NotificationDto,
   type NotificationTab,
+  type SnoozeDuration,
 } from '@/src/services/api/notifications-api';
 
 type NotificationsDrawerProps = {
@@ -33,6 +37,13 @@ const TAB_ITEMS: { id: NotificationTab; label: string }[] = [
   { id: 'all', label: 'Todas' },
   { id: 'unread', label: 'Não lidas' },
   { id: 'urgent', label: 'Urgentes' },
+];
+
+const SNOOZE_OPTIONS: { value: SnoozeDuration; label: string }[] = [
+  { value: '1h', label: '1 hora' },
+  { value: '2h', label: '2 horas' },
+  { value: '4h', label: '4 horas' },
+  { value: 'tomorrow', label: 'Amanhã' },
 ];
 
 function NotificationTypeIcon(props: { type: string; className?: string }) {
@@ -56,6 +67,8 @@ function NotificationTypeIcon(props: { type: string; className?: string }) {
       return <AtSign className={iconClass} aria-hidden />;
     case 'SYSTEM':
       return <Info className={iconClass} aria-hidden />;
+    case 'DAILY_DIGEST':
+      return <Sun className={iconClass} aria-hidden />;
     default:
       return <Bell className={iconClass} aria-hidden />;
   }
@@ -65,9 +78,11 @@ function NotificationRow(props: {
   item: NotificationDto;
   onOpen: (item: NotificationDto) => void;
   onDelete: (id: string) => void;
+  onSnooze: (id: string, duration: SnoozeDuration) => void;
 }) {
-  const { item, onOpen, onDelete } = props;
+  const { item, onOpen, onDelete, onSnooze } = props;
   const tone = notificationIconTone(item.priority, item.type);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   return (
     <div
@@ -92,6 +107,11 @@ function NotificationRow(props: {
           <span className="flex items-start justify-between gap-2">
             <span className="text-sm font-semibold text-[var(--erp-fg)]">
               {item.title}
+              {item.isDigest && item.digestCount > 1 ? (
+                <span className="ml-1.5 rounded-full bg-[var(--erp-accent-soft)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--erp-accent)]">
+                  {item.digestCount}
+                </span>
+              ) : null}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--erp-fg-muted)]">
               {formatRelativeTime(item.createdAt)}
@@ -102,14 +122,94 @@ function NotificationRow(props: {
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        className="erp-notif-row-delete"
-        aria-label="Remover notificação"
-        onClick={() => onDelete(item.id)}
-      >
-        <X className="h-4 w-4" />
-      </button>
+      <div className="relative flex shrink-0 flex-col gap-1">
+        <button
+          type="button"
+          className="erp-notif-row-delete"
+          aria-label="Lembrar depois"
+          title="Lembrar em…"
+          onClick={() => setSnoozeOpen((open) => !open)}
+        >
+          <Bell className="h-4 w-4" />
+        </button>
+        {snoozeOpen ? (
+          <div className="absolute right-0 top-full z-20 mt-1 min-w-[8.5rem] overflow-hidden rounded-lg border border-[var(--erp-border)] bg-[var(--erp-card)] shadow-lg">
+            <p className="border-b border-[var(--erp-border)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--erp-fg-muted)]">
+              Lembrar em…
+            </p>
+            {SNOOZE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="block w-full px-2.5 py-2 text-left text-xs text-[var(--erp-fg)] hover:bg-gray-50"
+                onClick={() => {
+                  setSnoozeOpen(false);
+                  onSnooze(item.id, option.value);
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="erp-notif-row-delete"
+          aria-label="Remover notificação"
+          onClick={() => onDelete(item.id)}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DigestItemsPanel(props: {
+  notification: NotificationDto;
+  items: DigestItemDto[];
+  onClose: () => void;
+  onNavigate: (href: string) => void;
+}) {
+  const { notification, items, onClose, onNavigate } = props;
+
+  return (
+    <div className="border-b border-[var(--erp-border)] bg-[var(--erp-bg-muted)] px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[var(--erp-fg)]">
+          {notification.title}
+        </h3>
+        <button
+          type="button"
+          className="rounded p-1 text-[var(--erp-fg-muted)] hover:bg-gray-100"
+          onClick={onClose}
+          aria-label="Fechar lista"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <ul className="max-h-48 space-y-1 overflow-y-auto">
+        {items.map((row) => {
+          const href = resolveNotificationHref(
+            row.link ?? notification.link,
+            row.entityType,
+            row.entityId,
+          );
+          return (
+            <li key={row.entityId}>
+              <button
+                type="button"
+                className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-[var(--erp-fg)] hover:bg-white"
+                onClick={() => {
+                  if (href) onNavigate(href);
+                }}
+              >
+                {row.label}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -118,6 +218,10 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
   const { open, onClose } = props;
   const router = useRouter();
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [digestDetail, setDigestDetail] = useState<{
+    notification: NotificationDto;
+    items: DigestItemDto[];
+  } | null>(null);
   const {
     items,
     tab,
@@ -131,6 +235,7 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
     markAllRead,
     deleteOne,
     clearRead,
+    snooze,
     unreadCount,
   } = useNotifications({ enabled: open });
 
@@ -173,6 +278,22 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
         }
       }
 
+      if (item.isDigest || item.entityType === 'digest') {
+        let digestItems = item.digestItems ?? [];
+        if (!digestItems.length) {
+          try {
+            const res = await erpFetchJson<{ items: DigestItemDto[] }>(
+              `notifications/${item.id}/digest-items`,
+            );
+            digestItems = res.items ?? [];
+          } catch {
+            digestItems = [];
+          }
+        }
+        setDigestDetail({ notification: item, items: digestItems });
+        return;
+      }
+
       const href = resolveNotificationHref(
         item.link,
         item.entityType,
@@ -182,6 +303,15 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
       if (href) router.push(href);
     },
     [markRead, onClose, router],
+  );
+
+  const handleDigestNavigate = useCallback(
+    (href: string) => {
+      setDigestDetail(null);
+      onClose();
+      router.push(href);
+    },
+    [onClose, router],
   );
 
   const groups = groupNotificationsByDate(items);
@@ -257,6 +387,15 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
           ))}
         </div>
 
+        {digestDetail ? (
+          <DigestItemsPanel
+            notification={digestDetail.notification}
+            items={digestDetail.items}
+            onClose={() => setDigestDetail(null)}
+            onNavigate={handleDigestNavigate}
+          />
+        ) : null}
+
         <div className="erp-notif-drawer-body erp-scrollbar">
           {loading ? (
             <p className="px-4 py-10 text-center text-sm text-[var(--erp-fg-muted)]">
@@ -277,6 +416,7 @@ export function NotificationsDrawer(props: NotificationsDrawerProps) {
                       item={item}
                       onOpen={(row) => void handleOpen(row)}
                       onDelete={(id) => void deleteOne(id)}
+                      onSnooze={(id, duration) => void snooze(id, duration)}
                     />
                   ))}
                 </div>

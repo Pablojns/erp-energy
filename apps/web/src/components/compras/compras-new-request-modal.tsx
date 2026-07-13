@@ -376,13 +376,13 @@ export function ComprasNewRequestModal(props: {
 
   const supplierField = (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-white/70">Fornecedor</span>
+      <span className="mb-1 block text-sm font-medium text-gray-600">Fornecedor</span>
       <div className="mb-2 flex gap-2">
         <button
           type="button"
           onClick={() => setSupplierMode('select')}
           className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-            supplierMode === 'select' ? 'bg-white text-slate-950' : 'text-white/55'
+            supplierMode === 'select' ? 'bg-white text-slate-950' : 'text-gray-500'
           }`}
         >
           Cadastro
@@ -391,7 +391,7 @@ export function ComprasNewRequestModal(props: {
           type="button"
           onClick={() => setSupplierMode('text')}
           className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-            supplierMode === 'text' ? 'bg-white text-slate-950' : 'text-white/55'
+            supplierMode === 'text' ? 'bg-white text-slate-950' : 'text-gray-500'
           }`}
         >
           Texto livre
@@ -423,10 +423,10 @@ export function ComprasNewRequestModal(props: {
 
   const imagesField = (
     <div>
-      <span className="mb-1 block text-sm font-medium text-white/70">
+      <span className="mb-1 block text-sm font-medium text-gray-600">
         Imagens (opcional, até {MAX_IMAGES}, max 10MB cada)
       </span>
-      <div className="rounded-xl border border-dashed border-white/15 bg-white/5 p-3">
+      <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3">
         <div className="flex flex-wrap gap-3">
           {imageDrafts.map((draft) => (
             <div key={draft.id} className="relative">
@@ -434,7 +434,7 @@ export function ComprasNewRequestModal(props: {
               <img
                 src={draft.preview}
                 alt="Preview"
-                className="h-24 w-24 rounded-lg border border-white/10 object-cover"
+                className="h-24 w-24 rounded-lg border border-gray-200 object-cover"
               />
               <button
                 type="button"
@@ -447,7 +447,7 @@ export function ComprasNewRequestModal(props: {
             </div>
           ))}
           {imageDrafts.length < MAX_IMAGES ? (
-            <label className="inline-flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-white/10 bg-black/20 text-xs text-white/60 transition hover:bg-white/10">
+            <label className="inline-flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-500 transition hover:bg-gray-100">
               <ImagePlus className="h-5 w-5" />
               Adicionar
               <input
@@ -464,7 +464,7 @@ export function ComprasNewRequestModal(props: {
           ) : null}
         </div>
       </div>
-      {errors.images ? <p className="mt-1 text-xs text-rose-300">{errors.images}</p> : null}
+      {errors.images ? <p className="mt-1 text-xs text-rose-600">{errors.images}</p> : null}
     </div>
   );
 
@@ -478,8 +478,8 @@ export function ComprasNewRequestModal(props: {
           {(
             [
               ['WEG_CONTRATO', 'WEG Contrato', 'border-[#2AACE2] bg-[#2AACE2]/15 text-[#0f172a]'],
-              ['VENDA_EXTERNA', 'Venda Externa', 'border-orange-400 bg-orange-500/20 text-orange-100'],
-              ['MARKETPLACE', 'Marketplace', 'border-purple-400 bg-purple-500/20 text-purple-100'],
+              ['VENDA_EXTERNA', 'Venda Externa', 'border-orange-400 bg-orange-500/20 text-orange-800'],
+              ['MARKETPLACE', 'Marketplace', 'border-purple-400 bg-purple-500/20 text-purple-800'],
             ] as const
           ).map(([value, label, activeClass]) => (
             <button
@@ -487,7 +487,7 @@ export function ComprasNewRequestModal(props: {
               type="button"
               onClick={() => handleTypeChange(value)}
               className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
-                type === value ? activeClass : 'border-white/10 bg-white/5 text-white/70'
+                type === value ? activeClass : 'border-gray-200 bg-gray-50 text-gray-600'
               }`}
             >
               {label}
@@ -498,14 +498,14 @@ export function ComprasNewRequestModal(props: {
         {isWeg ? (
           <div className="space-y-3">
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">Produto</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Produto</span>
               <input
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 className={fieldClass(Boolean(errors.productId))}
                 placeholder={loadingProducts ? 'Carregando produtos...' : 'Buscar produto por SKU ou nome'}
               />
-              <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-black/20">
+              <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50">
                 {filteredProducts.slice(0, 50).map((product) => {
                   const productSupplier = resolveSupplierForProduct(product, suppliers);
                   return (
@@ -518,12 +518,12 @@ export function ComprasNewRequestModal(props: {
                       setSupplierName(productSupplier ?? '');
                       setSupplierSku(product.supplierSku?.trim() ?? '');
                     }}
-                    className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                      product.id === productId ? 'bg-[#2AACE2]/20 text-white' : 'text-white/75'
+                    className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-gray-100 ${
+                      product.id === productId ? 'bg-[#2AACE2]/20 text-gray-900' : 'text-gray-600'
                     }`}
                   >
                     <span className="font-semibold">{product.sku}</span> — {product.name}
-                    <span className="ml-2 text-xs text-white/45">
+                    <span className="ml-2 text-xs text-gray-500">
                       Estoque {product.stockQty} · Mín. {product.minStock} · Base{' '}
                       {formatMoneyNumber(Number(productBaseCost(product)))}
                       {productSupplier ? ` · ${productSupplier}` : ''}
@@ -532,12 +532,12 @@ export function ComprasNewRequestModal(props: {
                   );
                 })}
               </div>
-              {errors.productId ? <p className="mt-1 text-xs text-rose-300">{errors.productId}</p> : null}
+              {errors.productId ? <p className="mt-1 text-xs text-rose-600">{errors.productId}</p> : null}
             </label>
             {selectedProduct ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-white/70">SKU do produto</span>
+                  <span className="mb-1 block text-sm font-medium text-gray-600">SKU do produto</span>
                   <input
                     readOnly
                     value={selectedProduct.sku}
@@ -545,7 +545,7 @@ export function ComprasNewRequestModal(props: {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-white/70">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">
                     SKU do fornecedor (opcional)
                   </span>
                   <input
@@ -556,20 +556,20 @@ export function ComprasNewRequestModal(props: {
                   />
                 </label>
                 <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-sm font-medium text-white/70">Fornecedor</span>
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Fornecedor</span>
                   <input
                     readOnly
                     value={supplierName || '—'}
                     className={`${fieldClass()} cursor-default opacity-90`}
                   />
-                  <p className="mt-1 text-xs text-white/45">
+                  <p className="mt-1 text-xs text-gray-500">
                     Preenchido automaticamente pelo cadastro do estoque ou pelo nome do item.
                   </p>
                 </label>
               </div>
             ) : null}
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">Quantidade sugerida</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Quantidade sugerida</span>
               <input
                 type="number"
                 min={1}
@@ -578,27 +578,27 @@ export function ComprasNewRequestModal(props: {
                 className={fieldClass(Boolean(errors.suggestedQty))}
               />
               {errors.suggestedQty ? (
-                <p className="mt-1 text-xs text-rose-300">{errors.suggestedQty}</p>
+                <p className="mt-1 text-xs text-rose-600">{errors.suggestedQty}</p>
               ) : null}
             </label>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">SKU (opcional)</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">SKU (opcional)</span>
               <input value={sku} onChange={(e) => setSku(e.target.value)} className={fieldClass()} />
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">Nome do item</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Nome do item</span>
               <input
                 value={itemName}
                 onChange={(e) => setItemName(e.target.value)}
                 className={fieldClass(Boolean(errors.itemName))}
               />
-              {errors.itemName ? <p className="mt-1 text-xs text-rose-300">{errors.itemName}</p> : null}
+              {errors.itemName ? <p className="mt-1 text-xs text-rose-600">{errors.itemName}</p> : null}
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">Quantidade</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Quantidade</span>
               <input
                 type="number"
                 min={1}
@@ -606,10 +606,10 @@ export function ComprasNewRequestModal(props: {
                 onChange={(e) => setQuantity(e.target.value)}
                 className={fieldClass(Boolean(errors.quantity))}
               />
-              {errors.quantity ? <p className="mt-1 text-xs text-rose-300">{errors.quantity}</p> : null}
+              {errors.quantity ? <p className="mt-1 text-xs text-rose-600">{errors.quantity}</p> : null}
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-white/70">Data entrega cliente</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Data entrega cliente</span>
               <input
                 type="date"
                 value={clientDeadline}
@@ -618,7 +618,7 @@ export function ComprasNewRequestModal(props: {
               />
             </label>
             <label className="block sm:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-white/70">Link (opcional)</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Link (opcional)</span>
               <input
                 value={link}
                 onChange={(e) => setLink(e.target.value)}
@@ -635,7 +635,7 @@ export function ComprasNewRequestModal(props: {
             <div className="sm:col-span-2">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="min-w-[10rem] flex-1">
-                  <span className="mb-1 block text-sm font-medium text-white/70">Preço base WEG</span>
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Preço base WEG</span>
                   <input
                     type="number"
                     min={0}
@@ -647,7 +647,7 @@ export function ComprasNewRequestModal(props: {
                   />
                 </label>
                 <label className="min-w-[10rem] flex-1">
-                  <span className="mb-1 block text-sm font-medium text-white/70">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">
                     Preço gravação
                   </span>
                   <input
@@ -661,15 +661,15 @@ export function ComprasNewRequestModal(props: {
                   />
                 </label>
                 <div className="flex items-center gap-1.5 sm:col-span-2">
-                  <span className="text-sm text-white/70">
+                  <span className="text-sm text-gray-600">
                     Total:{' '}
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-gray-900">
                       {formatMoneyNumber(calculatedTotal)}
                     </span>
                   </span>
                   <span
                     title="Quantidade × preço base. O preço base é salvo no produto do estoque."
-                    className="cursor-help text-sm text-white/45"
+                    className="cursor-help text-sm text-gray-500"
                     aria-label="Quantidade × preço base. O preço base é salvo no produto do estoque."
                   >
                     ⓘ
@@ -680,7 +680,7 @@ export function ComprasNewRequestModal(props: {
           ) : (
             <>
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-white/70">Preço item</span>
+                <span className="mb-1 block text-sm font-medium text-gray-600">Preço item</span>
                 <input
                   type="number"
                   min={0}
@@ -692,7 +692,7 @@ export function ComprasNewRequestModal(props: {
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-white/70">Preço gravação</span>
+                <span className="mb-1 block text-sm font-medium text-gray-600">Preço gravação</span>
                 <input
                   type="number"
                   min={0}
@@ -704,15 +704,15 @@ export function ComprasNewRequestModal(props: {
                 />
               </label>
               <div className="flex items-center gap-1.5 sm:col-span-2">
-                <span className="text-sm text-white/70">
+                <span className="text-sm text-gray-600">
                   Total:{' '}
-                  <span className="font-semibold text-white">
+                  <span className="font-semibold text-gray-900">
                     {formatMoneyNumber(calculatedTotal)}
                   </span>
                 </span>
                 <span
                   title="Quantidade × preço item (não salvo)"
-                  className="cursor-help text-sm text-white/45"
+                  className="cursor-help text-sm text-gray-500"
                   aria-label="Quantidade × preço item (não salvo)"
                 >
                   ⓘ
@@ -722,7 +722,7 @@ export function ComprasNewRequestModal(props: {
           )}
           {isMarketplace ? (
             <label className="block sm:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-white/70">Referência pedido venda</span>
+              <span className="mb-1 block text-sm font-medium text-gray-600">Referência pedido venda</span>
               <input
                 value={saleOrderRef}
                 onChange={(e) => setSaleOrderRef(e.target.value)}
@@ -736,15 +736,15 @@ export function ComprasNewRequestModal(props: {
 
         <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
           <div>
-            <span className="mb-1 block text-sm font-medium text-white/70">Prioridade</span>
-            <div className="grid grid-cols-2 rounded-xl border border-white/10 bg-black/20 p-1">
+            <span className="mb-1 block text-sm font-medium text-gray-600">Prioridade</span>
+            <div className="grid grid-cols-2 rounded-xl border border-gray-200 bg-gray-50 p-1">
               {(['NORMAL', 'URGENTE'] as PurchasePriority[]).map((value) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setPriority(value)}
                   className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                    priority === value ? 'bg-white text-slate-950' : 'text-white/60'
+                    priority === value ? 'bg-white text-slate-950' : 'text-gray-500'
                   }`}
                 >
                   {value}
@@ -753,7 +753,7 @@ export function ComprasNewRequestModal(props: {
             </div>
           </div>
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-white/70">Observação</span>
+            <span className="mb-1 block text-sm font-medium text-gray-600">Observação</span>
             <textarea
               value={observation}
               onChange={(e) => setObservation(e.target.value)}
@@ -763,12 +763,12 @@ export function ComprasNewRequestModal(props: {
         </div>
       </div>
 
-      {errors.form ? <p className="mt-3 text-sm text-rose-300">{errors.form}</p> : null}
+      {errors.form ? <p className="mt-3 text-sm text-rose-600">{errors.form}</p> : null}
       <div className="mt-5 flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white/70"
+          className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
         >
           Cancelar
         </button>
@@ -790,11 +790,11 @@ export function ComprasNewRequestModal(props: {
         onClose={() => setDuplicatePrompt(null)}
         size="sm"
       >
-        <p className="text-sm leading-relaxed text-white/75">
+        <p className="text-sm leading-relaxed text-gray-600">
           Já existe solicitação em aberto para{' '}
-          <span className="font-semibold text-white">{duplicatePrompt.itemName}</span> com quantidade{' '}
-          <span className="font-semibold text-white">{duplicatePrompt.currentQty}</span>. Deseja atualizar a
-          quantidade para <span className="font-semibold text-white">{newQty}</span> ou criar uma nova
+          <span className="font-semibold text-gray-900">{duplicatePrompt.itemName}</span> com quantidade{' '}
+          <span className="font-semibold text-gray-900">{duplicatePrompt.currentQty}</span>. Deseja atualizar a
+          quantidade para <span className="font-semibold text-gray-900">{newQty}</span> ou criar uma nova
           solicitação mesmo assim?
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -802,7 +802,7 @@ export function ComprasNewRequestModal(props: {
             type="button"
             onClick={() => setDuplicatePrompt(null)}
             disabled={saving}
-            className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white/70"
+            className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
           >
             Cancelar
           </button>
@@ -810,7 +810,7 @@ export function ComprasNewRequestModal(props: {
             type="button"
             onClick={() => void submit(true)}
             disabled={saving}
-            className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/85"
+            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700"
           >
             Criar nova mesmo assim
           </button>

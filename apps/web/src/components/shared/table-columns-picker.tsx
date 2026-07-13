@@ -105,7 +105,7 @@ export function TableColumnsPicker({
               </p>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-gray-100 hover:text-[var(--text-primary)]"
                 onClick={() => {
                   onReset();
                   setOpen(false);
@@ -151,7 +151,7 @@ export function TableColumnsPicker({
                       setOverKey(null);
                     }}
                     className={`flex items-center gap-1.5 rounded-lg px-1 py-1 transition ${
-                      isOver ? 'bg-[#2AACE2]/10 ring-1 ring-[#2AACE2]/40' : 'hover:bg-white/5'
+                      isOver ? 'bg-[#2AACE2]/10 ring-1 ring-[#2AACE2]/40' : 'hover:bg-gray-100'
                     } ${dragKey === item.key ? 'opacity-50' : ''}`}
                   >
                     <span
@@ -189,7 +189,7 @@ export function TableColumnsPicker({
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-gray-100 hover:text-[var(--text-primary)]"
         aria-label={ariaLabel}
         title={ariaLabel}
         aria-expanded={open}

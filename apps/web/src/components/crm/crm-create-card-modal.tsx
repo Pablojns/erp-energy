@@ -125,7 +125,7 @@ export function CrmCreateCardModal(props: {
       onClick={onClose}
     >
       <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl sm:p-5">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">Novo lead</h2>
             <button
@@ -203,7 +203,7 @@ export function CrmCreateCardModal(props: {
               </select>
             </label>
             {duplicate ? (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100">
+              <div className="rounded-xl border border-amber-200 bg-amber-100 px-3 py-3 text-sm text-amber-800">
                 <p>
                   Lead similar encontrado:{' '}
                   <span className="font-semibold">{duplicate.name}</span>

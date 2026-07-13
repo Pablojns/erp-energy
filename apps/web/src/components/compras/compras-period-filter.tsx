@@ -228,7 +228,7 @@ export function ComprasPeriodFilter(props: {
         Todos
       </button>
 
-      <div className="inline-flex items-center rounded-lg border border-white/10 bg-white/5">
+      <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50">
         <button
           type="button"
           className="exp-period-filter-btn rounded-none border-0 bg-transparent px-2"

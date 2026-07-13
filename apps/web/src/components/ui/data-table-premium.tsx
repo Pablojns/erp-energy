@@ -60,9 +60,9 @@ const PRIORITY_DOT: Record<NonNullable<TableRow['priority']>, string> = {
 };
 
 const PRIORITY_TEXT: Record<NonNullable<TableRow['priority']>, string> = {
-  normal: 'text-emerald-200',
-  high: 'text-amber-200',
-  critical: 'text-rose-200',
+  normal: 'text-emerald-800',
+  high: 'text-amber-800',
+  critical: 'text-rose-800',
 };
 
 function TableCellContents({

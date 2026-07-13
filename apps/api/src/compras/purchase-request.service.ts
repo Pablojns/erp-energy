@@ -441,19 +441,17 @@ export class PurchaseRequestService {
       );
     }
     if (existing.status !== status && status === 'RECEBIDO') {
-      void this.notifications.createForPermission(
-        'notificacoes',
-        comprasAction,
-        'Item recebido',
-        `${itemLabel} chegou — separe os pedidos pendentes`,
-        NOTIFICATION_TYPES.PURCHASE_RECEIVED,
-        '/app/compras',
-        {
-          entityId: updated.id,
-          entityType: 'purchase',
-          priority: NOTIFICATION_PRIORITY.NORMAL,
-        },
-      );
+      const itemLabel = this.itemDisplayName(updated);
+      void this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.PURCHASE_RECEIVED,
+        title: 'Item recebido',
+        body: `${itemLabel} chegou — separe os pedidos pendentes`,
+        link: '/app/compras',
+        entityId: updated.id,
+        entityType: 'purchase',
+        label: itemLabel,
+        priority: NOTIFICATION_PRIORITY.NORMAL,
+      });
     }
 
     return this.serialize(updated, true);

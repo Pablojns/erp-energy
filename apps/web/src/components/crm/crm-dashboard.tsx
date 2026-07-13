@@ -49,7 +49,7 @@ function MetricCard(props: {
       </p>
       <p
         className={`mt-2 text-2xl font-semibold ${
-          props.alert ? 'text-rose-300' : 'text-[var(--erp-fg)]'
+          props.alert ? 'text-rose-600' : 'text-[var(--erp-fg)]'
         }`}
       >
         {props.value}
@@ -161,7 +161,7 @@ function MetaProgressBar(props: {
           {props.percent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%)
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-white/5">
+      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
         <div
           className={`h-full rounded-full transition-all ${crmMetaProgressColor(props.percent)}`}
           style={{ width }}

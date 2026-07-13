@@ -143,14 +143,14 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="erp-module-title">Compras</h1>
-          <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+          <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
             <button
               type="button"
               onClick={() => setActiveView('dashboard')}
               className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                 activeView === 'dashboard'
                   ? 'bg-white text-slate-950'
-                  : 'text-[var(--erp-fg-secondary)] hover:bg-white/10 hover:text-[var(--erp-fg)]'
+                  : 'text-[var(--erp-fg-secondary)] hover:bg-gray-100 hover:text-[var(--erp-fg)]'
               }`}
             >
               Dashboard
@@ -161,7 +161,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
               className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                 activeView === 'compras'
                   ? 'bg-white text-slate-950'
-                  : 'text-[var(--erp-fg-secondary)] hover:bg-white/10 hover:text-[var(--erp-fg)]'
+                  : 'text-[var(--erp-fg-secondary)] hover:bg-gray-100 hover:text-[var(--erp-fg)]'
               }`}
             >
               Compras

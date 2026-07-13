@@ -127,7 +127,7 @@ export function CrmPropostasPanel(props: {
                       >
                         {CRM_PROPOSTA_STATUS_LABEL[proposta.status]}
                       </span>
-                      <span className="text-sm font-bold text-emerald-300">
+                      <span className="text-sm font-bold text-emerald-700">
                         {formatCrmCurrency(proposta.total)}
                       </span>
                     </div>
@@ -163,7 +163,7 @@ export function CrmPropostasPanel(props: {
                         type="button"
                         disabled={busy}
                         onClick={() => void handleAceitar(proposta)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Marcar como Aceita

@@ -98,6 +98,7 @@ model User {
   passwordHash         String
   isActive             Boolean               @default(true)
   tokenVersion         Int                   @default(0)
+  department           String?
   userRoles            UserRole[]
   notifications        Notification[]
   chatMessages         ChatMessage[]
@@ -566,25 +567,43 @@ model Task {
 }
 
 model Notification {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @db.Uuid
-  type       String
-  title      String
-  body       String    @map("message")
-  link       String?
-  entityId   String?
-  entityType String?
-  read       Boolean   @default(false)
-  readAt     DateTime?
-  priority   String    @default("NORMAL")
-  createdAt  DateTime  @default(now())
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  type             String
+  title            String
+  body             String    @map("message")
+  link             String?
+  entityId         String?
+  entityType       String?
+  read             Boolean   @default(false)
+  readAt           DateTime?
+  priority         String    @default("NORMAL")
+  snoozedUntil     DateTime?
+  digestCount      Int       @default(1)
+  digestItems      Json?
+  primarySentAt    DateTime?
+  escalatedToAdmin Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([type, entityId, read])
   @@index([type, link, createdAt])
   @@index([userId, read])
   @@index([userId, priority, read])
+  @@index([userId, type, entityType, read])
+  @@index([snoozedUntil])
+  @@index([primarySentAt, escalatedToAdmin, read])
   @@index([createdAt])
+}
+
+model NotificationConfig {
+  id                     String   @id @default(uuid()) @db.Uuid
+  criticalStockThreshold Int      @default(5)
+  orderDelayedDays       Int      @default(1)
+  leadFollowupDays       Int      @default(3)
+  nfPendingHours         Int      @default(24)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 }
 
 model UserNotificationPreferences {

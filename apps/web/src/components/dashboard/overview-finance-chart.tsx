@@ -87,14 +87,14 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div
-        className="mb-0.5 min-h-[1rem] truncate pr-28 text-[10px] text-zinc-500"
+        className="mb-0.5 min-h-[1rem] truncate pr-28 text-[10px] text-gray-500"
         aria-live="polite"
       >
         {active ? (
           <>
-            <span className="font-semibold text-zinc-300">{active.label}</span>
+            <span className="font-semibold text-gray-600">{active.label}</span>
             {' · '}
-            <span className="font-semibold tabular-nums text-zinc-200">
+            <span className="font-semibold tabular-nums text-gray-700">
               {formatCurrency(active.v)}
             </span>
           </>
@@ -131,7 +131,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
                 y1={tick.y}
                 x2={layout.width - layout.margin.right}
                 y2={tick.y}
-                stroke="rgb(255 255 255 / 0.06)"
+                stroke="rgb(15 23 42 / 0.08)"
                 strokeDasharray="3 3"
               />
               <text
@@ -152,7 +152,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
             y1={layout.baselineY}
             x2={layout.width - layout.margin.right}
             y2={layout.baselineY}
-            stroke="rgb(255 255 255 / 0.1)"
+            stroke="rgb(15 23 42 / 0.12)"
             strokeWidth="1"
           />
 
@@ -199,7 +199,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
               y={b.labelY}
               textAnchor="middle"
               fontSize="7"
-              fill={activeIndex === i ? '#e4e4e7' : 'rgb(113 113 122)'}
+              fill={activeIndex === i ? '#0f172a' : 'rgb(113 113 122)'}
               fontWeight={activeIndex === i ? 600 : 400}
               pointerEvents="none"
             >

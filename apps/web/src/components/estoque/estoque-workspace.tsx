@@ -601,13 +601,13 @@ function ProductCategoryCell({
       : null);
 
   if (!meta) {
-    return <span className="text-zinc-600">—</span>;
+    return <span className="text-gray-600">—</span>;
   }
   if ('legacy' in meta) {
     return (
-      <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-zinc-500/35 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-medium text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <span className="truncate">{meta.label}</span>
-        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-gray-500">
           legado
         </span>
       </span>
@@ -617,7 +617,7 @@ function ProductCategoryCell({
   const c = meta.color;
   return (
     <span
-      className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-white/[0.12] bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold tracking-tight text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ${
+      className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold tracking-tight text-gray-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ${
         inactive ? 'opacity-65' : ''
       }`}
       style={
@@ -638,7 +638,7 @@ function ProductCategoryCell({
       ) : null}
       <span className="truncate">{meta.name}</span>
       {inactive ? (
-        <span className="shrink-0 text-[9px] font-medium text-amber-300/90">
+        <span className="shrink-0 text-[9px] font-medium text-amber-700/90">
           inativa
         </span>
       ) : null}
@@ -1915,7 +1915,7 @@ export function EstoqueWorkspace() {
           type="button"
           disabled={cancelingReserveId === movement.id}
           onClick={() => void cancelReserveFromRow(movement)}
-          className="inline-flex items-center gap-1 rounded-lg border border-violet-400/30 px-2 py-1 text-[11px] font-semibold text-violet-300 transition hover:bg-violet-500/10 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-violet-400/30 px-2 py-1 text-[11px] font-semibold text-violet-600 transition hover:bg-violet-500/10 disabled:opacity-50"
         >
           {cancelingReserveId === movement.id ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2705,10 +2705,10 @@ export function EstoqueWorkspace() {
                   <td className="px-2 py-1 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
                   <td className="px-2 py-1">
                     <span className={`rounded-full px-2 py-0.5 text-xs ${
-                      m.movementType === 'INBOUND' ? 'bg-emerald-500/20 text-[var(--text-primary)]' :
-                      m.movementType === 'OUTBOUND' ? 'bg-rose-500/20 text-[var(--text-primary)]' :
-                      isAjusteMovementType(m.movementType) ? 'bg-amber-500/20 text-[var(--text-primary)]' :
-                      'bg-violet-500/20 text-[var(--text-primary)]'
+                      m.movementType === 'INBOUND' ? 'bg-emerald-100 text-emerald-800' :
+                      m.movementType === 'OUTBOUND' ? 'bg-rose-100 text-rose-800' :
+                      isAjusteMovementType(m.movementType) ? 'bg-amber-100 text-amber-800' :
+                      'bg-violet-100 text-violet-800'
                     }`}>
                       {MOVEMENT_LABEL[m.movementType] ?? m.movementType}
                     </span>
@@ -2773,32 +2773,32 @@ export function EstoqueWorkspace() {
     >
 
       {bannerError ? (
-        <GlassCard className="border border-rose-500/30 bg-rose-500/[0.08] px-4 py-3 text-sm text-rose-100">
+        <GlassCard className="border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-800">
           {bannerError}
         </GlassCard>
       ) : null}
 
       {bannerSuccess && !bannerError ? (
-        <GlassCard className="border border-emerald-500/35 bg-emerald-500/[0.08] px-4 py-3 text-sm text-emerald-100">
+        <GlassCard className="border border-emerald-500/35 bg-emerald-100 px-4 py-3 text-sm text-emerald-800">
           {bannerSuccess}
         </GlassCard>
       ) : null}
 
-      <GlassCard glow="none" className="flex flex-wrap gap-2 border-white/[0.1] p-3">
+      <GlassCard glow="none" className="flex flex-wrap gap-2 border-gray-200 p-3">
         {tabButton(
           'dashboard',
           'Dashboard',
-          <BarChart3 className="h-4 w-4 text-violet-300" />,
+          <BarChart3 className="h-4 w-4 text-violet-600" />,
         )}
         {tabButton(
           'inventory',
           'Inventário',
-          <ClipboardList className="h-4 w-4 text-emerald-300" />,
+          <ClipboardList className="h-4 w-4 text-emerald-700" />,
         )}
         {tabButton(
           'movements',
           'Movimentações',
-          <ArrowRightLeft className="h-4 w-4 text-violet-300" />,
+          <ArrowRightLeft className="h-4 w-4 text-violet-600" />,
         )}
       </GlassCard>
 
@@ -3075,7 +3075,7 @@ export function EstoqueWorkspace() {
               </h3>
               <div className={DASHBOARD_LIST_SCROLL}>
                 {dashboardCritical.length === 0 ? (
-                  <p className="text-sm font-medium text-emerald-300">
+                  <p className="text-sm font-medium text-emerald-700">
                     Nenhum SKU em estado crítico ✓
                   </p>
                 ) : (
@@ -3094,7 +3094,7 @@ export function EstoqueWorkspace() {
                           Atual: {p.stockQty} | Mínimo: {p.minStock} | Déficit: {p.deficit}
                         </p>
                       </div>
-                      <span className="ml-2 shrink-0 rounded-full bg-rose-500/20 px-2 py-1 text-[10px] font-semibold text-rose-200">
+                      <span className="ml-2 shrink-0 rounded-full bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-800">
                         Crítico
                       </span>
                     </button>
@@ -3731,11 +3731,11 @@ export function EstoqueWorkspace() {
                 Fechar
               </button>
             </div>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-gray-500">
               SKU é o identificador principal. Campos com * são obrigatórios.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block text-xs text-zinc-400 sm:col-span-2">
+              <label className="block text-xs text-gray-500 sm:col-span-2">
                 Nome *
                 <input
                   value={form.name}
@@ -3743,7 +3743,7 @@ export function EstoqueWorkspace() {
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
               </label>
-              <label className="block text-xs text-zinc-400 sm:col-span-1">
+              <label className="block text-xs text-gray-500 sm:col-span-1">
                 SKU *
                 <input
                   value={form.sku}
@@ -3751,7 +3751,7 @@ export function EstoqueWorkspace() {
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
               </label>
-              <label className="block text-xs text-zinc-400 sm:col-span-1">
+              <label className="block text-xs text-gray-500 sm:col-span-1">
                 SKU do fornecedor
                 <input
                   value={form.supplierSku}
@@ -3760,7 +3760,7 @@ export function EstoqueWorkspace() {
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
               </label>
-              <label className="block text-xs text-zinc-400 sm:col-span-2">
+              <label className="block text-xs text-gray-500 sm:col-span-2">
                 Fornecedor
                 <select
                   value={form.supplierId}
@@ -3787,7 +3787,7 @@ export function EstoqueWorkspace() {
                   disabled={formSaving}
                 />
               </div>
-              <label className="block text-xs text-zinc-400 sm:col-span-1">
+              <label className="block text-xs text-gray-500 sm:col-span-1">
                 Preço (R$) *
                 <input
                   value={form.price}
@@ -3795,7 +3795,7 @@ export function EstoqueWorkspace() {
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
               </label>
-              <label className="block text-xs text-zinc-400 sm:col-span-1">
+              <label className="block text-xs text-gray-500 sm:col-span-1">
                 Custo (R$)
                 <input
                   value={form.cost}
@@ -3803,7 +3803,7 @@ export function EstoqueWorkspace() {
                   className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
                 />
               </label>
-              <label className="block text-xs text-zinc-400 sm:col-span-2">
+              <label className="block text-xs text-gray-500 sm:col-span-2">
                 Estoque mínimo *
                 <input
                   value={form.minStock}
@@ -3848,18 +3848,18 @@ export function EstoqueWorkspace() {
           onClick={() => setMoveModalOpen(false)}
         >
           <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none border-white/[0.12] p-3 shadow-[0_0_48px_-12px_rgba(56,189,248,0.25)] sm:max-h-[92vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-4">
+            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none border-gray-200 p-3 shadow-[0_0_48px_-12px_rgba(56,189,248,0.25)] sm:max-h-[92vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-semibold tracking-tight text-[var(--text-primary)]">
                     {MOVE_MODAL_TITLE[moveForm.movementKind]}
                   </h2>
-                  <span className="rounded-full border border-violet-400/25 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-200/90">
+                  <span className="rounded-full border border-violet-400/25 bg-violet-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-800">
                     {MOVEMENT_KIND_CHIP[moveForm.movementKind]}
                   </span>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
                   Integra cards de estoque e catálogo logo após registrar.
                 </p>
               </div>
@@ -3884,7 +3884,7 @@ export function EstoqueWorkspace() {
                   </div>
                   {moveForm.movementKind === 'ajuste' ? (
                     <>
-                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                         Preço Base
                         <input
                           type="number"
@@ -3898,7 +3898,7 @@ export function EstoqueWorkspace() {
                           className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
                         />
                       </label>
-                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                         Preço Venda
                         <input
                           type="number"
@@ -3917,7 +3917,7 @@ export function EstoqueWorkspace() {
                   ) : null}
                 </div>
               ) : (
-                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                   Produto *
                   <div className="mt-1.5">
                     <PremiumSelect
@@ -3937,7 +3937,7 @@ export function EstoqueWorkspace() {
                   </div>
                 </label>
               )}
-              <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                 Quantidade *
                 <input
                   value={moveForm.quantity}
@@ -3954,7 +3954,7 @@ export function EstoqueWorkspace() {
                   className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent placeholder:text-[var(--text-muted)] focus:border-sky-400/40 focus:ring-sky-400/20"
                 />
               </label>
-              <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                 Observação / motivo
                 {moveForm.movementKind === 'ajuste' ? ' *' : ' (opcional)'}
                 <textarea
@@ -3965,7 +3965,7 @@ export function EstoqueWorkspace() {
                   }}
                   rows={3}
                   required={moveForm.movementKind === 'ajuste'}
-                  className={`mt-1.5 w-full resize-none rounded-xl border bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-white/[0.18] ${
+                  className={`mt-1.5 w-full resize-none rounded-xl border bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none ring-1 ring-transparent focus:border-gray-200 ${
                     moveNotesError
                       ? 'border-rose-400/50 focus:border-rose-400/50'
                       : 'border-[var(--border-color)]'
@@ -3976,7 +3976,7 @@ export function EstoqueWorkspace() {
                 ) : null}
               </label>
               {moveForm.movementKind === 'ajuste' ? (
-                <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
+                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-500">
                   Ajustes de estoque requerem autorização e são registrados com nome,
                   hora e data do responsável.
                 </p>
@@ -4019,7 +4019,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Excluir movimentação
               </h2>
@@ -4064,7 +4064,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Excluir produto
               </h2>
@@ -4114,7 +4114,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
               {reserveStep === 'form' ? (
                 <>
                   <h2 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -4130,7 +4130,7 @@ export function EstoqueWorkspace() {
                     </p>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                       Recebedor *
                       <div className="mt-1.5">
                         <PremiumSelect
@@ -4146,7 +4146,7 @@ export function EstoqueWorkspace() {
                         />
                       </div>
                     </label>
-                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                       Quantidade *
                       <input
                         type="number"
@@ -4161,7 +4161,7 @@ export function EstoqueWorkspace() {
                         className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none"
                       />
                     </label>
-                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                       Observação (opcional)
                       <textarea
                         value={reserveForm.notes}
@@ -4253,7 +4253,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-6">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 Confirmar ajuste
               </h2>
@@ -4312,7 +4312,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-5">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-5">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                   Filtrar por fornecedor
@@ -4399,7 +4399,7 @@ export function EstoqueWorkspace() {
             className="h-auto w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlassCard className="border-white/[0.12] p-3 shadow-2xl sm:p-5">
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-5">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                   Filtrar por categoria
@@ -4468,7 +4468,7 @@ export function EstoqueWorkspace() {
                           aria-hidden
                         />
                       ) : (
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-600" />
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-gray-500" />
                       )}
                       <span className="min-w-0 flex-1 truncate font-medium">
                         {category.name}

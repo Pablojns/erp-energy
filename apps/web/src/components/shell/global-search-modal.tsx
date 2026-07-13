@@ -131,7 +131,7 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="erp-focus-ring rounded-lg p-1.5 text-[var(--erp-fg-muted)] transition hover:bg-white/5 hover:text-[var(--erp-fg)]"
+            className="erp-focus-ring rounded-lg p-1.5 text-[var(--erp-fg-muted)] transition hover:bg-gray-100 hover:text-[var(--erp-fg)]"
             aria-label="Fechar busca"
           >
             <X className="h-4 w-4" />
@@ -210,7 +210,7 @@ function ResultGroup(props: {
             <Link
               href={item.href}
               onClick={props.onNavigate}
-              className="erp-focus-ring flex items-start gap-3 rounded-xl px-3 py-2.5 transition hover:bg-white/[0.04]"
+              className="erp-focus-ring flex items-start gap-3 rounded-xl px-3 py-2.5 transition hover:bg-gray-50"
             >
               <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--erp-border)] bg-[var(--erp-bg-muted)]">
                 <Icon className="h-4 w-4 text-[var(--erp-accent)]" aria-hidden />

@@ -67,11 +67,11 @@ async function postWegImport(file: File): Promise<WegImportSummary> {
 function ImportSkeleton() {
   return (
     <div className="space-y-3" aria-busy="true" aria-label="Importando planilha">
-      <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-full animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-5/6 animate-pulse rounded bg-white/10" />
-      <div className="mt-4 h-20 w-full animate-pulse rounded-lg bg-white/10" />
-      <p className="flex items-center gap-2 text-sm text-zinc-400">
+      <div className="h-4 w-3/4 animate-pulse rounded bg-gray-100" />
+      <div className="h-4 w-full animate-pulse rounded bg-gray-100" />
+      <div className="h-4 w-5/6 animate-pulse rounded bg-gray-100" />
+      <div className="mt-4 h-20 w-full animate-pulse rounded-lg bg-gray-100" />
+      <p className="flex items-center gap-2 text-sm text-gray-500">
         <Loader2 className="h-4 w-4 animate-spin" />
         Processando planilha…
       </p>
@@ -205,13 +205,13 @@ export function WegImportModal(props: {
               </div>
 
               {summary ? (
-                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-100 px-4 py-3 text-sm text-emerald-800">
                   <p className="font-medium">
                     {pedidosOk} pedidos importados, {summary.ignorados} ignorados,{' '}
                     {summary.erros.length} erros
                   </p>
                   {summary.erros.length > 0 ? (
-                    <ul className="mt-2 max-h-32 list-disc space-y-1 overflow-y-auto pl-4 text-xs text-emerald-100/90">
+                    <ul className="mt-2 max-h-32 list-disc space-y-1 overflow-y-auto pl-4 text-xs text-emerald-800">
                       {summary.erros.slice(0, 8).map((msg) => (
                         <li key={msg}>{msg}</li>
                       ))}

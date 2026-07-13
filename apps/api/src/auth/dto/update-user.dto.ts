@@ -6,7 +6,9 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+import { USER_DEPARTMENTS } from '../../notifications/notification-routing.constants';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -27,4 +29,10 @@ export class UpdateUserDto {
   @IsString()
   @IsIn(['ADMIN', 'OPERADOR'])
   role?: 'ADMIN' | 'OPERADOR';
+
+  @IsOptional()
+  @ValidateIf((_, value) => value != null && value !== '')
+  @IsString()
+  @IsIn([...USER_DEPARTMENTS])
+  department?: string | null;
 }

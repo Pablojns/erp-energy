@@ -1368,8 +1368,8 @@ export class CrmService {
     };
   }
 
-  async listFollowUpOverdueCards() {
-    const cutoffMs = 3 * 24 * 60 * 60 * 1000;
+  async listFollowUpOverdueCards(followupDays = 3) {
+    const cutoffMs = followupDays * 24 * 60 * 60 * 1000;
     const now = Date.now();
     const statusMap = await this.loadStatusMap();
     const { fechadoId, perdidoId } = await this.resolveClosedStatusIds();

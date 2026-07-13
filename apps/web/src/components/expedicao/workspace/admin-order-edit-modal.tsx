@@ -188,7 +188,7 @@ export function AdminOrderEditModal(props: {
 
         <div className="erp-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {error ? (
-            <p className="mb-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="mb-3 rounded-lg border border-rose-500/40 bg-rose-100 px-3 py-2 text-sm text-rose-800">
               {error}
             </p>
           ) : null}

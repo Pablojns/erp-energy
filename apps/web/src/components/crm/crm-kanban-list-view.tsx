@@ -153,7 +153,7 @@ export function CrmKanbanListView(props: {
               <tr
                 key={card.id}
                 onClick={() => props.onOpenCard(card)}
-                className="cursor-pointer border-b border-[var(--erp-border)] transition hover:bg-white/[0.03]"
+                className="cursor-pointer border-b border-[var(--erp-border)] transition hover:bg-gray-100"
               >
                 <td className="px-4 py-3 font-medium text-[var(--erp-fg)]">{card.name}</td>
                 <td className="px-4 py-3">

@@ -181,8 +181,8 @@ export function OutputsList(props: {
                   <span
                     className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
                       x.punctuality === 'LATE'
-                        ? 'bg-rose-500/15 text-rose-400'
-                        : 'bg-emerald-500/15 text-emerald-400'
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-emerald-100 text-emerald-700'
                     }`}
                   >
                     {statusLabel(x)}

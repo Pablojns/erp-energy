@@ -1,5 +1,12 @@
 export type NotificationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
+export type DigestItemDto = {
+  entityId: string;
+  entityType: string;
+  label: string;
+  link?: string | null;
+};
+
 export type NotificationDto = {
   id: string;
   userId: string;
@@ -13,8 +20,23 @@ export type NotificationDto = {
   read: boolean;
   readAt: string | null;
   priority: NotificationPriority;
+  snoozedUntil: string | null;
+  digestCount: number;
+  digestItems: DigestItemDto[];
+  isDigest: boolean;
+  primarySentAt: string | null;
+  escalatedToAdmin: boolean;
   createdAt: string;
 };
+
+export type NotificationConfigDto = {
+  criticalStockThreshold: number;
+  orderDelayedDays: number;
+  leadFollowupDays: number;
+  nfPendingHours: number;
+};
+
+export type SnoozeDuration = '1h' | '2h' | '4h' | 'tomorrow';
 
 export type NotificationsListResponse = {
   data: NotificationDto[];
@@ -44,6 +66,7 @@ export const NOTIFICATION_TYPE_META: Record<
   CRM_LEAD_ASSIGNED: { label: 'CRM', color: '#2563eb', bg: '#eff6ff' },
   MENTION: { label: 'Menção', color: '#7c3aed', bg: '#f5f3ff' },
   SYSTEM: { label: 'Sistema', color: '#64748b', bg: '#f8fafc' },
+  DAILY_DIGEST: { label: 'Resumo', color: '#f59e0b', bg: '#fffbeb' },
 };
 
 export function resolveNotificationHref(

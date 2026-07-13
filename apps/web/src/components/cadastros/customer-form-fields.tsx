@@ -12,7 +12,7 @@ import {
 } from '@/src/components/cadastros/delivery-address';
 
 function fieldInputClass(disabled?: boolean) {
-  return `w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500 ${
+  return `w-full rounded-lg border border-gray-200 bg-[var(--input-bg)] px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-blue-500 ${
     disabled ? 'cursor-not-allowed opacity-60' : ''
   }`;
 }
@@ -83,7 +83,7 @@ export function CustomerFormFields(props: {
   return (
     <div className="space-y-4">
       <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">
+        <span className="mb-1.5 block font-medium text-gray-600">
           Nome <span className="text-rose-400">*</span>
         </span>
         <input
@@ -98,7 +98,7 @@ export function CustomerFormFields(props: {
       </label>
 
       <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">CNPJ/CPF</span>
+        <span className="mb-1.5 block font-medium text-gray-600">CNPJ/CPF</span>
         <input
           type="text"
           inputMode="numeric"
@@ -111,11 +111,11 @@ export function CustomerFormFields(props: {
         />
       </label>
 
-      <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
-        <p className="text-sm font-medium text-zinc-200">Endereço de entrega</p>
+      <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <p className="text-sm font-medium text-gray-700">Endereço de entrega</p>
 
         {legacyAddress && !values.addressLoaded ? (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-gray-500">
             Endereço atual: {legacyAddress}. Busque o CEP para atualizar o
             formulário estruturado.
           </p>
@@ -123,7 +123,7 @@ export function CustomerFormFields(props: {
 
         <div className="flex flex-wrap items-end gap-2">
           <label className="block min-w-[140px] flex-1 text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">CEP</span>
+            <span className="mb-1.5 block font-medium text-gray-600">CEP</span>
             <input
               type="text"
               inputMode="numeric"
@@ -158,7 +158,7 @@ export function CustomerFormFields(props: {
         {cepError ? <p className="text-xs text-rose-400">{cepError}</p> : null}
 
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium text-zinc-300">Logradouro</span>
+          <span className="mb-1.5 block font-medium text-gray-600">Logradouro</span>
           <input
             type="text"
             value={values.address.logradouro}
@@ -171,7 +171,7 @@ export function CustomerFormFields(props: {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">Bairro</span>
+            <span className="mb-1.5 block font-medium text-gray-600">Bairro</span>
             <input
               type="text"
               value={values.address.bairro}
@@ -182,7 +182,7 @@ export function CustomerFormFields(props: {
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">Cidade</span>
+            <span className="mb-1.5 block font-medium text-gray-600">Cidade</span>
             <input
               type="text"
               value={values.address.cidade}
@@ -195,7 +195,7 @@ export function CustomerFormFields(props: {
         </div>
 
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium text-zinc-300">Estado (UF)</span>
+          <span className="mb-1.5 block font-medium text-gray-600">Estado (UF)</span>
           <input
             type="text"
             value={values.address.uf}
@@ -208,7 +208,7 @@ export function CustomerFormFields(props: {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">
+            <span className="mb-1.5 block font-medium text-gray-600">
               Número <span className="text-rose-400">*</span>
             </span>
             <input
@@ -221,7 +221,7 @@ export function CustomerFormFields(props: {
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">Complemento</span>
+            <span className="mb-1.5 block font-medium text-gray-600">Complemento</span>
             <input
               type="text"
               value={values.address.complemento}

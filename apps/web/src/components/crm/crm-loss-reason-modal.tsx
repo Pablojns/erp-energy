@@ -60,7 +60,7 @@ export function CrmLossReasonModal(props: {
       onClick={onClose}
     >
       <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl sm:p-5">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">
               Motivo de perda

@@ -136,7 +136,7 @@ export function CrmPropostaFormModal(props: {
         className="flex max-h-[90vh] w-full max-w-5xl flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <GlassCard className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden border-white/[0.12] shadow-2xl">
+        <GlassCard className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden border-gray-200 shadow-2xl">
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3 sm:px-5 sm:py-4">
             <h2 className="text-lg font-bold text-[var(--text-primary)] sm:text-xl">
               {isEdit ? 'Editar Proposta' : 'Nova Proposta'}
@@ -312,7 +312,7 @@ export function CrmPropostaFormModal(props: {
                                 onClick={() =>
                                   setItens((rows) => rows.filter((_, i) => i !== index))
                                 }
-                                className="rounded-lg p-1.5 text-rose-300 hover:bg-rose-500/10"
+                                className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-100"
                                 aria-label="Remover item"
                               >
                                 <Trash2 className="h-4 w-4" />

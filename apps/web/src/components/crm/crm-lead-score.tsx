@@ -30,7 +30,7 @@ export function CrmLeadScoreThermometer(props: {
         </div>
       ) : null}
       <div
-        className={`overflow-hidden rounded-full bg-white/15 ${barHeight}`}
+        className={`overflow-hidden rounded-full bg-gray-200 ${barHeight}`}
         role="meter"
         aria-valuenow={score}
         aria-valuemin={0}

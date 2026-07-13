@@ -6,6 +6,7 @@ import {
   NOTIFICATION_PRIORITY,
   NOTIFICATION_TYPES,
 } from './notification.constants';
+import { isBusinessHours, isMorningDigestHour } from './notification-time.util';
 import { NotificationsService } from './notifications.service';
 
 @Injectable()
@@ -20,20 +21,45 @@ export class NotificationsCron {
   @Cron('0 * * * *')
   async runHourlyChecks(): Promise<void> {
     try {
-      await this.checkOverdueOrders();
-      await this.checkNfPending();
-      await this.checkUrgentOrders();
-      await this.checkLowStock();
-      await this.checkStockOut();
-      await this.checkPurchaseOverdue();
-      await this.checkProposalExpiring();
-      await this.checkFinishedWithoutInvoice();
+      await this.notifications.wakeSnoozedNotifications();
+      await this.notifications.escalateUnresolvedToAdmin();
+
+      if (isMorningDigestHour()) {
+        await this.runMorningBatch();
+        return;
+      }
+
+      if (!isBusinessHours()) {
+        return;
+      }
+
+      await this.runAllChecks();
     } catch (error) {
       this.logger.error(
         'Falha nas verificações agendadas de notificações',
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  private async runMorningBatch(): Promise<void> {
+    await this.runAllChecks();
+    await this.notifications.sendDailyDigests();
+  }
+
+  private async runAllChecks(): Promise<void> {
+    await this.checkOverdueOrders();
+    await this.checkNfPending();
+    await this.checkUrgentOrders();
+    await this.checkLowStock();
+    await this.checkStockOut();
+    await this.checkPurchaseOverdue();
+    await this.checkProposalExpiring();
+    await this.checkFinishedWithoutInvoice();
+  }
+
+  private async getConfig() {
+    return this.notifications.getConfig();
   }
 
   private startOfTodayUtc(): Date {
@@ -50,10 +76,13 @@ export class NotificationsCron {
   }
 
   private async checkOverdueOrders(): Promise<void> {
-    const today = this.startOfTodayUtc();
+    const config = await this.getConfig();
+    const cutoff = new Date(this.startOfTodayUtc());
+    cutoff.setUTCDate(cutoff.getUTCDate() - config.orderDelayedDays);
+
     const orders = await this.prisma.client.order.findMany({
       where: {
-        requestedDeliveryDate: { lt: today },
+        requestedDeliveryDate: { lt: cutoff },
         status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO] },
       },
       select: {
@@ -64,31 +93,26 @@ export class NotificationsCron {
     });
 
     for (const order of orders) {
-      const link = `/app/expedicao/pedidos`;
-      const type = NOTIFICATION_TYPES.ORDER_DELAYED;
-      if (await this.notifications.hasUnreadDuplicate(type, order.id)) {
-        continue;
-      }
-
       const label = this.orderLabel(order);
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_expedicao',
-        'Pedido atrasado',
-        `O pedido ${label} está com entrega prevista vencida.`,
-        type,
-        link,
-        {
-          entityId: order.id,
-          entityType: 'order',
-          priority: NOTIFICATION_PRIORITY.HIGH,
-        },
-      );
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.ORDER_DELAYED,
+        title: 'Pedido atrasado',
+        body: `O pedido ${label} está com entrega prevista vencida.`,
+        link: '/app/expedicao/pedidos',
+        entityId: order.id,
+        entityType: 'order',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+      });
     }
   }
 
   private async checkNfPending(): Promise<void> {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const config = await this.getConfig();
+    const cutoff = new Date(
+      Date.now() - config.nfPendingHours * 60 * 60 * 1000,
+    );
+
     const orders = await this.prisma.client.order.findMany({
       where: {
         status: {
@@ -100,7 +124,7 @@ export class NotificationsCron {
           ],
         },
         OR: [{ invoiceNumber: null }, { invoiceNumber: '' }],
-        updatedAt: { lte: oneDayAgo },
+        updatedAt: { lte: cutoff },
       },
       select: {
         id: true,
@@ -110,25 +134,17 @@ export class NotificationsCron {
     });
 
     for (const order of orders) {
-      const type = NOTIFICATION_TYPES.NF_PENDING;
-      if (await this.notifications.hasUnreadDuplicate(type, order.id)) {
-        continue;
-      }
-
       const label = this.orderLabel(order);
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_expedicao',
-        'NF pendente',
-        `O pedido ${label} foi separado há mais de 1 dia sem NF emitida.`,
-        type,
-        '/app/expedicao/pedidos',
-        {
-          entityId: order.id,
-          entityType: 'order',
-          priority: NOTIFICATION_PRIORITY.HIGH,
-        },
-      );
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.NF_PENDING,
+        title: 'NF pendente',
+        body: `O pedido ${label} foi separado há mais de ${config.nfPendingHours}h sem NF emitida.`,
+        link: '/app/expedicao/pedidos',
+        entityId: order.id,
+        entityType: 'order',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+      });
     }
   }
 
@@ -148,29 +164,22 @@ export class NotificationsCron {
     });
 
     for (const order of orders) {
-      const type = NOTIFICATION_TYPES.ORDER_URGENT;
-      if (await this.notifications.hasUnreadDuplicate(type, order.id)) {
-        continue;
-      }
-
       const label = this.orderLabel(order);
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_expedicao',
-        'Pedido urgente',
-        `O pedido ${label} está marcado como urgente e ainda não iniciou separação.`,
-        type,
-        '/app/expedicao/pedidos',
-        {
-          entityId: order.id,
-          entityType: 'order',
-          priority: NOTIFICATION_PRIORITY.URGENT,
-        },
-      );
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.ORDER_URGENT,
+        title: 'Pedido urgente',
+        body: `O pedido ${label} está marcado como urgente e ainda não iniciou separação.`,
+        link: '/app/expedicao/pedidos',
+        entityId: order.id,
+        entityType: 'order',
+        label,
+        priority: NOTIFICATION_PRIORITY.URGENT,
+      });
     }
   }
 
   private async checkLowStock(): Promise<void> {
+    const config = await this.getConfig();
     const lowStock = (
       await this.prisma.client.product.findMany({
         where: { isActive: true, minStock: { gt: 0 } },
@@ -182,27 +191,24 @@ export class NotificationsCron {
           minStock: true,
         },
       })
-    ).filter((product) => product.stockQty < product.minStock);
+    ).filter(
+      (product) =>
+        product.stockQty < product.minStock ||
+        product.stockQty < config.criticalStockThreshold,
+    );
 
     for (const product of lowStock) {
-      const type = NOTIFICATION_TYPES.STOCK_LOW;
-      if (await this.notifications.hasUnreadDuplicate(type, product.id)) {
-        continue;
-      }
-
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_estoque',
-        'Estoque baixo',
-        `${product.name} (${product.sku}) está abaixo do mínimo (${product.stockQty}/${product.minStock}).`,
-        type,
-        '/app/estoque',
-        {
-          entityId: product.id,
-          entityType: 'product',
-          priority: NOTIFICATION_PRIORITY.NORMAL,
-        },
-      );
+      const label = `${product.name} (${product.sku})`;
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.STOCK_LOW,
+        title: 'Estoque baixo',
+        body: `${label} está abaixo do mínimo (${product.stockQty}/${product.minStock}).`,
+        link: '/app/estoque',
+        entityId: product.id,
+        entityType: 'product',
+        label,
+        priority: NOTIFICATION_PRIORITY.NORMAL,
+      });
     }
   }
 
@@ -229,24 +235,17 @@ export class NotificationsCron {
     });
 
     for (const product of outProducts) {
-      const type = NOTIFICATION_TYPES.STOCK_OUT;
-      if (await this.notifications.hasUnreadDuplicate(type, product.id)) {
-        continue;
-      }
-
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_estoque',
-        'Estoque zerado',
-        `${product.name} (${product.sku}) está zerado com pedido pendente.`,
-        type,
-        '/app/estoque',
-        {
-          entityId: product.id,
-          entityType: 'product',
-          priority: NOTIFICATION_PRIORITY.HIGH,
-        },
-      );
+      const label = `${product.name} (${product.sku})`;
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.STOCK_OUT,
+        title: 'Estoque zerado',
+        body: `${label} está zerado com pedido pendente.`,
+        link: '/app/estoque',
+        entityId: product.id,
+        entityType: 'product',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+      });
     }
   }
 
@@ -266,26 +265,18 @@ export class NotificationsCron {
     });
 
     for (const purchase of purchases) {
-      const type = NOTIFICATION_TYPES.PURCHASE_OVERDUE;
-      if (await this.notifications.hasUnreadDuplicate(type, purchase.id)) {
-        continue;
-      }
-
       const label =
         purchase.itemName ?? purchase.product?.name ?? purchase.sku ?? 'Item';
-      await this.notifications.createForPermission(
-        'notificacoes',
-        'receber_compras',
-        'Compra atrasada',
-        `${label} passou da data prevista sem recebimento.`,
-        type,
-        '/app/compras',
-        {
-          entityId: purchase.id,
-          entityType: 'purchase',
-          priority: NOTIFICATION_PRIORITY.HIGH,
-        },
-      );
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.PURCHASE_OVERDUE,
+        title: 'Compra atrasada',
+        body: `${label} passou da data prevista sem recebimento.`,
+        link: '/app/compras',
+        entityId: purchase.id,
+        entityType: 'purchase',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+      });
     }
   }
 
@@ -308,39 +299,23 @@ export class NotificationsCron {
           select: {
             id: true,
             name: true,
-            responsavelId: true,
           },
         },
       },
     });
 
     for (const proposal of proposals) {
-      const type = NOTIFICATION_TYPES.CRM_PROPOSAL_EXPIRING;
-      if (await this.notifications.hasUnreadDuplicate(type, proposal.id)) {
-        continue;
-      }
-
-      const recipients = new Set<string>();
-      if (proposal.card.responsavelId) {
-        recipients.add(proposal.card.responsavelId);
-      }
-
-      await Promise.all(
-        [...recipients].map((userId) =>
-          this.notifications.create(
-            userId,
-            'Proposta vencendo',
-            `A proposta "${proposal.titulo}" (${proposal.numero}) do lead ${proposal.card.name} vence em até 2 dias.`,
-            type,
-            '/app/crm',
-            {
-              entityId: proposal.id,
-              entityType: 'crm_card',
-              priority: NOTIFICATION_PRIORITY.HIGH,
-            },
-          ),
-        ),
-      );
+      const label = `${proposal.titulo} (${proposal.numero})`;
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.CRM_PROPOSAL_EXPIRING,
+        title: 'Proposta vencendo',
+        body: `A proposta "${proposal.titulo}" (${proposal.numero}) do lead ${proposal.card.name} vence em até 2 dias.`,
+        link: '/app/crm',
+        entityId: proposal.id,
+        entityType: 'crm_card',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+      });
     }
   }
 

@@ -473,10 +473,10 @@ export const OrderInfoPanel = forwardRef<
   return (
     <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-1.5 !p-3">
       {order.linkedOrderId && order.source === 'WEG_MERCADO_ELETRONICO' ? (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Este pedido já foi enviado via saída urgente. Apenas emita a NF.
           {order.linkedOrderDisplayNumber ? (
-            <span className="mt-1 block text-amber-300/90">
+            <span className="mt-1 block text-amber-700">
               Referência urgente: #{order.linkedOrderDisplayNumber}
             </span>
           ) : null}

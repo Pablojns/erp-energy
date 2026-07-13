@@ -1,6 +1,7 @@
 import {
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -17,6 +18,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { ListNotificationsQueryDto } from './dto/list-notifications-query.dto';
+import { SnoozeNotificationDto } from './dto/snooze-notification.dto';
+import { UpdateNotificationConfigDto } from './dto/update-notification-config.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { NotificationsSseService } from './notifications-sse.service';
 import { NotificationsService } from './notifications.service';
@@ -54,6 +57,25 @@ export class NotificationsController {
     return this.notifications.updatePreferences(user.id, body.preferences);
   }
 
+  @Get('config')
+  getConfig(@CurrentUser() user: AuthUser) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Acesso restrito a administradores.');
+    }
+    return this.notifications.getConfig();
+  }
+
+  @Patch('config')
+  updateConfig(
+    @CurrentUser() user: AuthUser,
+    @Body() body: UpdateNotificationConfigDto,
+  ) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Acesso restrito a administradores.');
+    }
+    return this.notifications.updateConfig(body);
+  }
+
   @Get()
   findAll(
     @CurrentUser() user: AuthUser,
@@ -89,6 +111,23 @@ export class NotificationsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.notifications.markRead(user.id, id);
+  }
+
+  @Patch(':id/snooze')
+  snooze(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: SnoozeNotificationDto,
+  ) {
+    return this.notifications.snooze(user.id, id, body.duration);
+  }
+
+  @Get(':id/digest-items')
+  getDigestItems(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.notifications.getDigestItems(user.id, id);
   }
 
   @Delete(':id')

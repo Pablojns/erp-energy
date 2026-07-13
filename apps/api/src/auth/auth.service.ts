@@ -25,6 +25,7 @@ type UserWithRoles = {
   isActive: boolean;
   tokenVersion: number;
   passwordHash: string;
+  department?: string | null;
   userRoles: Array<{
     role: {
       name: string;
@@ -205,6 +206,9 @@ export class AuthService implements OnModuleInit {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(email !== undefined ? { email } : {}),
+          ...(dto.department !== undefined
+            ? { department: dto.department?.trim() || null }
+            : {}),
           ...(dto.isActive !== undefined
             ? {
                 isActive: dto.isActive,
@@ -273,6 +277,7 @@ export class AuthService implements OnModuleInit {
       name: user.name,
       email: user.email,
       isActive: user.isActive,
+      department: user.department ?? null,
       roles: user.userRoles.map(
         (userRole: UserWithRoles['userRoles'][number]) => userRole.role.name,
       ),

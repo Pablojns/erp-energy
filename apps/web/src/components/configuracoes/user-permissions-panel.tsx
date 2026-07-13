@@ -68,12 +68,12 @@ function PermissionsSkeleton() {
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="animate-pulse rounded-xl border border-white/10 bg-white/[0.03] p-4"
+          className="animate-pulse rounded-xl border border-gray-200 bg-gray-50 p-4"
         >
-          <div className="mb-3 h-4 w-32 rounded bg-white/10" />
+          <div className="mb-3 h-4 w-32 rounded bg-gray-100" />
           <div className="space-y-2">
-            <div className="h-8 rounded bg-white/5" />
-            <div className="h-8 rounded bg-white/5" />
+            <div className="h-8 rounded bg-gray-50" />
+            <div className="h-8 rounded bg-gray-50" />
           </div>
         </div>
       ))}
@@ -176,17 +176,17 @@ export function UserPermissionsPanel({
 
   return (
     <div
-      className="mt-4 overflow-hidden rounded-2xl border border-white/10"
+      className="mt-4 overflow-hidden rounded-2xl border border-gray-200"
       style={{ background: 'var(--color-background-secondary)' }}
     >
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+      <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
         <div className="flex items-center gap-2">
           <Shield size={18} className="text-blue-400" />
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100">
+            <h3 className="text-sm font-semibold text-gray-900">
               Permissões de {userName}
             </h3>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-gray-500">
               Controle de acesso por módulo e ação
             </p>
           </div>
@@ -195,7 +195,7 @@ export function UserPermissionsPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
             aria-label="Fechar painel de permissões"
           >
             <X size={18} />
@@ -221,7 +221,7 @@ export function UserPermissionsPanel({
       {!loading && !error ? (
         <div className="space-y-3 p-4">
           {grouped.length === 0 ? (
-            <p className="px-2 py-4 text-center text-sm text-zinc-500">
+            <p className="px-2 py-4 text-center text-sm text-gray-500">
               Nenhuma permissão cadastrada no sistema.
             </p>
           ) : (
@@ -240,31 +240,31 @@ export function UserPermissionsPanel({
                         [module]: !isOpen,
                       }))
                     }
-                    className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-white/[0.03]"
+                    className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-gray-100"
                   >
-                    <span className="text-xs font-bold tracking-wider text-zinc-300">
+                    <span className="text-xs font-bold tracking-wider text-gray-600">
                       {module.toUpperCase()}
                     </span>
                     {isOpen ? (
-                      <ChevronDown size={16} className="text-zinc-500" />
+                      <ChevronDown size={16} className="text-gray-500" />
                     ) : (
-                      <ChevronRight size={16} className="text-zinc-500" />
+                      <ChevronRight size={16} className="text-gray-500" />
                     )}
                   </button>
 
                   {isOpen ? (
-                    <ul className="divide-y divide-white/5 border-t border-white/5">
+                    <ul className="divide-y divide-gray-100 border-t border-gray-200">
                       {rows.map((permission) => (
                         <li
                           key={permission.id}
                           className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-zinc-100">
+                            <p className="text-sm font-medium text-gray-900">
                               {formatActionLabel(permission.action)}
                             </p>
                             {permission.description ? (
-                              <p className="mt-0.5 text-xs text-zinc-500">
+                              <p className="mt-0.5 text-xs text-gray-500">
                                 {permission.description}
                               </p>
                             ) : null}
@@ -274,8 +274,8 @@ export function UserPermissionsPanel({
                             <span
                               className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                 permission.granted
-                                  ? 'bg-emerald-500/15 text-emerald-300'
-                                  : 'bg-zinc-500/15 text-zinc-400'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-zinc-100 text-zinc-800'
                               }`}
                             >
                               {permission.granted ? 'Liberado' : 'Bloqueado'}

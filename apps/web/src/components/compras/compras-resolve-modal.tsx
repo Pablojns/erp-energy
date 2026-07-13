@@ -49,10 +49,10 @@ export function ComprasResolveModal(props: {
       onClose={onClose}
       size="sm"
     >
-      <p className="mb-4 text-sm text-white/65">{displayName(row)}</p>
+      <p className="mb-4 text-sm text-gray-600">{displayName(row)}</p>
       {action === 'comprado' ? (
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-white/70">
+          <span className="mb-1 block text-sm font-medium text-gray-600">
             Valor de compra (opcional)
           </span>
           <input
@@ -67,7 +67,7 @@ export function ComprasResolveModal(props: {
         </label>
       ) : (
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-white/70">Motivo da recusa</span>
+          <span className="mb-1 block text-sm font-medium text-gray-600">Motivo da recusa</span>
           <textarea
             value={refusalReason}
             onChange={(e) => setRefusalReason(e.target.value)}
@@ -76,12 +76,12 @@ export function ComprasResolveModal(props: {
           />
         </label>
       )}
-      {error ? <p className="mt-2 text-sm text-rose-300">{error}</p> : null}
+      {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
       <div className="mt-5 flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white/70"
+          className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
         >
           Cancelar
         </button>

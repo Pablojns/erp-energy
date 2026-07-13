@@ -6,6 +6,7 @@ import type {
   NotificationDto,
   NotificationTab,
   NotificationsListResponse,
+  SnoozeDuration,
 } from '@/src/services/api/notifications-api';
 
 const POLL_MS = 30_000;
@@ -123,6 +124,20 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     setItems((prev) => prev.filter((row) => !row.read));
   }, []);
 
+  const snooze = useCallback(async (id: string, duration: SnoozeDuration) => {
+    await erpFetchJson(`notifications/${id}/snooze`, {
+      method: 'PATCH',
+      body: JSON.stringify({ duration }),
+    });
+    setItems((prev) => {
+      const target = prev.find((row) => row.id === id);
+      if (target && !target.read) {
+        setUnreadCount((count) => Math.max(0, count - 1));
+      }
+      return prev.filter((row) => row.id !== id);
+    });
+  }, []);
+
   const startPolling = useCallback(() => {
     if (pollRef.current !== null) return;
     pollRef.current = window.setInterval(() => {
@@ -209,5 +224,6 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     markAllRead,
     deleteOne,
     clearRead,
+    snooze,
   };
 }

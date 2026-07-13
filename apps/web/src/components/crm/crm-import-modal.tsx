@@ -113,7 +113,7 @@ export function CrmImportModal(props: {
         className="h-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl sm:p-5">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           <div className="mb-4 flex items-start justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -176,7 +176,7 @@ export function CrmImportModal(props: {
                         {row.error ? (
                           <span className="text-rose-400">{row.error}</span>
                         ) : (
-                          <span className="text-emerald-400">OK</span>
+                          <span className="text-emerald-700">OK</span>
                         )}
                       </td>
                     </tr>

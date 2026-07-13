@@ -178,7 +178,7 @@ export function ExpeditionDashboardView() {
 
   if (loading) {
     return (
-      <GlassCard className="flex items-center gap-2 p-5 text-sm text-zinc-300">
+      <GlassCard className="flex items-center gap-2 p-5 text-sm text-gray-600">
         <Loader2 className="h-4 w-4 animate-spin" /> Carregando dashboard da expedição...
       </GlassCard>
     );
@@ -186,7 +186,7 @@ export function ExpeditionDashboardView() {
 
   if (error) {
     return (
-      <GlassCard className="p-5 text-sm text-rose-300">
+      <GlassCard className="p-5 text-sm text-rose-600">
         {error}
       </GlassCard>
     );

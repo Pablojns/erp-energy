@@ -248,7 +248,7 @@ export function CrmCardDetailModal(props: {
         className="h-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <GlassCard className="border-white/[0.12] p-4 shadow-2xl sm:p-5">
+        <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           {loading || !card ? (
             <div className="flex min-h-[12rem] items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
@@ -263,7 +263,7 @@ export function CrmCardDetailModal(props: {
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
                     {selectedStatus ? (
                       isPerdido ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/70 bg-rose-500/25 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-100">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">
                           <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
                           {selectedStatus.name}
                         </span>
@@ -307,17 +307,17 @@ export function CrmCardDetailModal(props: {
               </div>
 
               {isPerdido && card.motivoPerdaMeta ? (
-                <div className="mt-4 flex gap-3 rounded-xl border border-rose-400/50 bg-rose-500/15 px-4 py-3">
+                <div className="mt-4 flex gap-3 rounded-xl border border-rose-200 bg-rose-100 px-4 py-3">
                   <AlertTriangle
-                    className="mt-0.5 h-5 w-5 shrink-0 text-rose-300"
+                    className="mt-0.5 h-5 w-5 shrink-0 text-rose-600"
                     aria-hidden
                   />
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-rose-100">
+                    <p className="text-sm font-bold text-rose-800">
                       Motivo da perda: {card.motivoPerdaMeta.name}
                     </p>
                     {card.motivoPerdaTexto ? (
-                      <p className="mt-1 text-sm leading-relaxed text-rose-50/90">
+                      <p className="mt-1 text-sm leading-relaxed text-rose-700">
                         {card.motivoPerdaTexto}
                       </p>
                     ) : null}
@@ -325,7 +325,7 @@ export function CrmCardDetailModal(props: {
                 </div>
               ) : null}
 
-              <div className="mt-4 inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+              <div className="mt-4 inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
                 {(
                   [
                     ['detalhes', 'Detalhes'],
@@ -339,7 +339,7 @@ export function CrmCardDetailModal(props: {
                     className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
                       activeTab === id
                         ? 'bg-white text-slate-950'
-                        : 'text-[var(--text-secondary)] hover:bg-white/10'
+                        : 'text-[var(--text-secondary)] hover:bg-gray-100'
                     }`}
                   >
                     {label}
@@ -610,7 +610,7 @@ export function CrmCardDetailModal(props: {
                   type="button"
                   disabled={saving}
                   onClick={() => void handleDelete()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-400/30 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-100 disabled:opacity-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Excluir

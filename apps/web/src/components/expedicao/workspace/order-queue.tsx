@@ -186,7 +186,7 @@ const SEPARATION_SECTIONS = [
 
 /* Header padrão (todas as abas): height 32px */
 const HEADER_BTN_ICON =
-  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-transparent text-[var(--text-primary)] transition hover:bg-white/5';
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-transparent text-[var(--text-primary)] transition hover:bg-gray-100';
 
 export function OrderQueue(props: {
   data: OrdersData;

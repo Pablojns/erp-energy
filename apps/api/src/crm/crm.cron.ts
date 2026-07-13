@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { NOTIFICATION_PRIORITY, NOTIFICATION_TYPES } from '../notifications/notification.constants';
+import { isMorningDigestHour } from '../notifications/notification-time.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CrmService } from './crm.service';
 
@@ -13,35 +14,33 @@ export class CrmCron {
     private readonly notifications: NotificationsService,
   ) {}
 
-  @Cron('0 7 * * *')
+  @Cron('0 * * * *')
   async runDailyFollowUpNotifications(): Promise<void> {
     try {
-      const overdue = await this.crm.listFollowUpOverdueCards();
+      if (!isMorningDigestHour()) {
+        return;
+      }
+
+      const config = await this.notifications.getConfig();
+      const overdue = await this.crm.listFollowUpOverdueCards(
+        config.leadFollowupDays,
+      );
       let sent = 0;
 
       for (const card of overdue) {
-        if (!card.responsavelId) continue;
-
         const type = NOTIFICATION_TYPES.CRM_FOLLOWUP;
         const link = `/app/crm`;
-        if (
-          await this.notifications.hasUnreadDuplicate(type, card.id)
-        ) {
-          continue;
-        }
 
-        await this.notifications.create(
-          card.responsavelId,
-          'CRM — Follow-up pendente',
-          `O lead "${card.name}" está há mais de 3 dias sem touchpoint.`,
+        await this.notifications.notifyRouted({
           type,
+          title: 'CRM — Follow-up pendente',
+          body: `O lead "${card.name}" está há mais de ${config.leadFollowupDays} dias sem touchpoint.`,
           link,
-          {
-            entityId: card.id,
-            entityType: 'crm_card',
-            priority: NOTIFICATION_PRIORITY.NORMAL,
-          },
-        );
+          entityId: card.id,
+          entityType: 'crm_card',
+          label: card.name,
+          priority: NOTIFICATION_PRIORITY.NORMAL,
+        });
         sent += 1;
       }
 

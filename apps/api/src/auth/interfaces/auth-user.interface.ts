@@ -4,4 +4,5 @@ export interface AuthUser {
   name: string;
   isActive: boolean;
   roles: string[];
+  department?: string | null;
 }

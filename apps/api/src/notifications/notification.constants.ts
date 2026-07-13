@@ -21,6 +21,7 @@ export const NOTIFICATION_TYPES = {
   CRM_LEAD_ASSIGNED: 'CRM_LEAD_ASSIGNED',
   MENTION: 'MENTION',
   SYSTEM: 'SYSTEM',
+  DAILY_DIGEST: 'DAILY_DIGEST',
 } as const;
 
 export type NotificationType =
@@ -104,6 +105,12 @@ export const CONFIGURABLE_NOTIFICATION_TYPES: {
     label: 'Sistema',
     description: 'Avisos gerais do sistema',
     defaultPriority: NOTIFICATION_PRIORITY.LOW,
+  },
+  {
+    type: NOTIFICATION_TYPES.DAILY_DIGEST,
+    label: 'Resumo diário',
+    description: 'Resumo matinal do dia',
+    defaultPriority: NOTIFICATION_PRIORITY.HIGH,
   },
 ];
 

@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { NotificationPreferencesPanel } from '@/src/components/configuracoes/notification-preferences-panel';
+import { NotificationPreferencesPanel, DEPARTMENT_OPTIONS } from '@/src/components/configuracoes/notification-preferences-panel';
 import { UserPermissionsPanel } from '@/src/components/configuracoes/user-permissions-panel';
 
 type AdminUser = {
@@ -24,6 +24,7 @@ type AdminUser = {
   email: string;
   isActive: boolean;
   roles: string[];
+  department?: string | null;
 };
 
 type UserRole = 'ADMIN' | 'OPERADOR';
@@ -120,7 +121,7 @@ export function ConfiguracoesAdminClient(props: { isAdmin: boolean }) {
         {activeTab === 'users' ? <UsersTable /> : null}
         {activeTab === 'products' ? <InactiveProductsTable /> : null}
         {activeTab === 'notifications' ? (
-          <NotificationPreferencesPanel />
+          <NotificationPreferencesPanel isAdmin={isAdmin} />
         ) : null}
       </section>
     </div>
@@ -151,7 +152,7 @@ function TabButton({
 }
 
 function StateMessage({ children }: { children: React.ReactNode }) {
-  return <div className="p-8 text-center text-sm text-zinc-400">{children}</div>;
+  return <div className="p-8 text-center text-sm text-gray-500">{children}</div>;
 }
 
 function UsersTable() {
@@ -258,7 +259,7 @@ function UsersTable() {
       <>
         <UsersTableToolbar onNew={() => setModalOpen(true)} />
         <div className="space-y-3 p-8 text-center">
-          <p className="text-sm text-rose-400">{error}</p>
+          <p className="text-sm text-rose-600">{error}</p>
           <button
             type="button"
             onClick={load}
@@ -279,7 +280,7 @@ function UsersTable() {
       {toast ? (
         <div
           role="status"
-          className="mx-4 mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300"
+          className="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800"
         >
           {toast}
         </div>
@@ -288,8 +289,8 @@ function UsersTable() {
         <StateMessage>Nenhum usuário cadastrado.</StateMessage>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-zinc-300">
-            <thead className="bg-white/5 text-xs font-semibold uppercase text-zinc-500">
+          <table className="w-full text-left text-sm text-gray-600">
+            <thead className="bg-gray-100 text-xs font-semibold uppercase text-gray-500">
               <tr>
                 <th className="px-6 py-4">Nome</th>
                 <th className="px-6 py-4">Email</th>
@@ -298,15 +299,15 @@ function UsersTable() {
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-gray-100">
               {users.map((user) => (
                 <tr
                   key={user.id}
-                  className={`transition-colors hover:bg-white/5 ${
+                  className={`transition-colors hover:bg-gray-100 ${
                     user.isActive ? '' : 'opacity-50'
                   }`}
                 >
-                  <td className="px-6 py-4 font-medium text-zinc-100">{user.name}</td>
+                  <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
                   <td className="px-6 py-4">{user.email}</td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1.5">
@@ -315,7 +316,7 @@ function UsersTable() {
                           key={role}
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             role === 'ADMIN'
-                              ? 'bg-amber-500/15 text-amber-300'
+                              ? 'bg-amber-100 text-amber-800'
                               : 'bg-[#2AACE2]/15 text-[#1E96CC]'
                           }`}
                         >
@@ -329,8 +330,8 @@ function UsersTable() {
                     <span
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         user.isActive
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'bg-rose-500/15 text-rose-300'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
                       }`}
                     >
                       {user.isActive ? 'Ativo' : 'Inativo'}
@@ -341,7 +342,7 @@ function UsersTable() {
                       <button
                         type="button"
                         onClick={() => setEditUser(user)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/5"
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
                       >
                         <Pencil size={13} />
                         Editar
@@ -349,7 +350,7 @@ function UsersTable() {
                       <button
                         type="button"
                         onClick={() => setResetUser(user)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/5"
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
                       >
                         <KeyRound size={13} />
                         Resetar Senha
@@ -360,8 +361,8 @@ function UsersTable() {
                         disabled={togglingId === user.id}
                         className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
                           user.isActive
-                            ? 'border-rose-500/30 text-rose-300 hover:bg-rose-500/10'
-                            : 'border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10'
+                            ? 'border-rose-300 text-rose-700 hover:bg-rose-50'
+                            : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
                         }`}
                       >
                         <Power size={13} className={togglingId === user.id ? 'animate-spin' : ''} />
@@ -382,7 +383,7 @@ function UsersTable() {
 
 function UsersTableToolbar(props: { onNew: () => void }) {
   return (
-    <div className="flex items-center justify-end border-b border-white/5 px-4 py-3">
+    <div className="flex items-center justify-end border-b border-gray-100 px-4 py-3">
       <button
         type="button"
         onClick={props.onNew}
@@ -407,6 +408,7 @@ function EditUserModal(props: {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [role, setRole] = useState<UserRole>(primaryRole(user));
+  const [department, setDepartment] = useState(user.department ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -429,6 +431,7 @@ function EditUserModal(props: {
           name: name.trim(),
           email: email.trim().toLowerCase(),
           role,
+          department: department || null,
         }),
       });
       onSaved();
@@ -453,10 +456,10 @@ function EditUserModal(props: {
         role="dialog"
         aria-labelledby="edit-user-title"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
           <h2
             id="edit-user-title"
-            className="flex items-center gap-2 text-lg font-semibold text-zinc-100"
+            className="flex items-center gap-2 text-lg font-semibold text-gray-900"
           >
             <Pencil size={20} />
             Editar Usuário
@@ -465,7 +468,7 @@ function EditUserModal(props: {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
           >
             <X size={20} />
           </button>
@@ -492,7 +495,7 @@ function EditUserModal(props: {
           {activeTab === 'dados' ? (
             <div className="space-y-4 px-5 py-5">
               <label className="block text-sm">
-                <span className="mb-1.5 block font-medium text-zinc-300">Nome</span>
+                <span className="mb-1.5 block font-medium text-gray-600">Nome</span>
                 <input
                   type="text"
                   value={name}
@@ -504,7 +507,7 @@ function EditUserModal(props: {
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1.5 block font-medium text-zinc-300">Email</span>
+                <span className="mb-1.5 block font-medium text-gray-600">Email</span>
                 <input
                   type="email"
                   value={email}
@@ -516,7 +519,7 @@ function EditUserModal(props: {
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1.5 block font-medium text-zinc-300">Perfil</span>
+                <span className="mb-1.5 block font-medium text-gray-600">Perfil</span>
                 <select
                   value={role}
                   onChange={(e) => {
@@ -529,7 +532,26 @@ function EditUserModal(props: {
                   <option value="ADMIN">ADMIN</option>
                 </select>
               </label>
-              {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-gray-600">
+                  Departamento
+                </span>
+                <select
+                  value={department}
+                  onChange={(e) => {
+                    setDepartment(e.target.value);
+                    setError(null);
+                  }}
+                  className="w-full erp-module-input"
+                >
+                  {DEPARTMENT_OPTIONS.map((option) => (
+                    <option key={option.value || 'none'} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {error ? <p className="text-sm text-rose-600">{error}</p> : null}
             </div>
           ) : (
             <UserPermissionsPanel
@@ -541,12 +563,12 @@ function EditUserModal(props: {
         </div>
 
         {activeTab === 'dados' ? (
-          <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+          <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+              className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
             >
               Cancelar
             </button>
@@ -560,11 +582,11 @@ function EditUserModal(props: {
             </button>
           </div>
         ) : (
-          <div className="border-t border-white/10 bg-white/[0.02] px-5 py-4">
+          <div className="border-t border-gray-200 bg-gray-50 px-5 py-4">
             <button
               type="button"
               onClick={onClose}
-              className="w-full rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+              className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
             >
               Fechar
             </button>
@@ -612,11 +634,11 @@ function ResetPasswordModal(props: {
       onConfirm={() => void handleSubmit()}
       confirmLabel={saving ? 'Salvando...' : 'Confirmar'}
     >
-      <p className="text-sm text-zinc-400">
-        Usuário: <span className="font-medium text-zinc-200">{user.name}</span>
+      <p className="text-sm text-gray-500">
+        Usuário: <span className="font-medium text-gray-700">{user.name}</span>
       </p>
       <label className="block text-sm">
-        <span className="mb-1.5 block font-medium text-zinc-300">Nova senha</span>
+        <span className="mb-1.5 block font-medium text-gray-600">Nova senha</span>
         <input
           type="text"
           value={password}
@@ -630,7 +652,7 @@ function ResetPasswordModal(props: {
           autoFocus
         />
       </label>
-      {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+      {error ? <p className="text-sm text-rose-600">{error}</p> : null}
     </ModalShell>
   );
 }
@@ -659,8 +681,8 @@ function ModalShell(props: {
         className="relative w-full max-w-md overflow-hidden erp-module-card shadow-xl"
         role="dialog"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
             {icon}
             {title}
           </h2>
@@ -668,18 +690,18 @@ function ModalShell(props: {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
           >
             <X size={20} />
           </button>
         </div>
         <div className="space-y-4 px-5 py-5">{children}</div>
-        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+        <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+            className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
           >
             Cancelar
           </button>
@@ -757,8 +779,8 @@ function NewUserModal(props: {
         role="dialog"
         aria-labelledby="new-user-title"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <h2 id="new-user-title" className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+          <h2 id="new-user-title" className="flex items-center gap-2 text-lg font-semibold text-gray-900">
             <UserPlus size={20} />
             Novo Usuário
           </h2>
@@ -766,7 +788,7 @@ function NewUserModal(props: {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
           >
             <X size={20} />
           </button>
@@ -774,8 +796,8 @@ function NewUserModal(props: {
 
         <div className="space-y-4 px-5 py-5">
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">
-              Nome <span className="text-rose-400">*</span>
+            <span className="mb-1.5 block font-medium text-gray-600">
+              Nome <span className="text-rose-600">*</span>
             </span>
             <input
               type="text"
@@ -791,8 +813,8 @@ function NewUserModal(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">
-              Email <span className="text-rose-400">*</span>
+            <span className="mb-1.5 block font-medium text-gray-600">
+              Email <span className="text-rose-600">*</span>
             </span>
             <input
               type="email"
@@ -807,8 +829,8 @@ function NewUserModal(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">
-              Senha temporária <span className="text-rose-400">*</span>
+            <span className="mb-1.5 block font-medium text-gray-600">
+              Senha temporária <span className="text-rose-600">*</span>
             </span>
             <input
               type="text"
@@ -824,8 +846,8 @@ function NewUserModal(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1.5 block font-medium text-zinc-300">
-              Perfil <span className="text-rose-400">*</span>
+            <span className="mb-1.5 block font-medium text-gray-600">
+              Perfil <span className="text-rose-600">*</span>
             </span>
             <select
               value={form.role}
@@ -840,15 +862,15 @@ function NewUserModal(props: {
             </select>
           </label>
 
-          {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         </div>
 
-        <div className="flex gap-3 border-t border-white/10 bg-white/[0.02] px-5 py-4">
+        <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+            className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
           >
             Cancelar
           </button>
@@ -917,8 +939,8 @@ function InactiveProductsTable() {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm text-zinc-300">
-        <thead className="bg-white/5 text-xs font-semibold uppercase text-zinc-500">
+      <table className="w-full text-left text-sm text-gray-600">
+        <thead className="bg-gray-100 text-xs font-semibold uppercase text-gray-500">
           <tr>
             <th className="px-6 py-4">Produto</th>
             <th className="px-6 py-4">SKU</th>
@@ -928,10 +950,10 @@ function InactiveProductsTable() {
             <th className="px-6 py-4 text-right">Ações</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/5">
+        <tbody className="divide-y divide-gray-100">
           {products.map((product) => (
-            <tr key={product.id} className="transition-colors hover:bg-white/5">
-              <td className="px-6 py-4 font-medium text-zinc-100">
+            <tr key={product.id} className="transition-colors hover:bg-gray-100">
+              <td className="px-6 py-4 font-medium text-gray-900">
                 {product.name}
               </td>
               <td className="px-6 py-4 font-mono text-xs">{product.sku}</td>
