@@ -25,14 +25,16 @@ export function ComprasCard(props: {
   row: PurchaseRequest;
   onOpen: () => void;
   isDragging?: boolean;
+  dragEnabled?: boolean;
 }) {
-  const { row, onOpen, isDragging: isDraggingOverlay } = props;
+  const { row, onOpen, isDragging: isDraggingOverlay, dragEnabled = true } = props;
   const pointerOrigin = useRef<{ x: number; y: number } | null>(null);
   const exceededDistance = useRef(false);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: row.id,
     data: { row },
+    disabled: !dragEnabled,
   });
 
   const dragListeners = listeners
@@ -65,18 +67,19 @@ export function ComprasCard(props: {
     onOpen();
   }, [isDragging, isDraggingOverlay, onOpen]);
 
-  const style = transform
-    ? { transform: CSS.Translate.toString(transform) }
-    : undefined;
-
   const dragging = isDragging || isDraggingOverlay;
+
+  const style =
+    dragging && transform
+      ? { transform: CSS.Translate.toString(transform) }
+      : undefined;
 
   return (
     <article
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...dragListeners}
+      {...(dragEnabled ? attributes : {})}
+      {...(dragEnabled ? dragListeners : {})}
       onClick={handleClick}
       className={`erp-module-card cursor-pointer p-3 transition ${
         dragging

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -18,6 +18,21 @@ import type { KanbanColumnId, PurchaseRequest } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
 import { kanbanColumnForStatus } from './compras-utils';
 
+/** Viewport < 768px — alinhado ao carrossel mobile em mobile.css */
+function useMobileKanbanView(): boolean {
+  const [mobile, setMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  return mobile;
+}
+
 export function ComprasKanbanBoard(props: {
   rows: PurchaseRequest[];
   loading: boolean;
@@ -25,6 +40,7 @@ export function ComprasKanbanBoard(props: {
   onStatusChanged: (updated: PurchaseRequest) => void;
   onError: (message: string) => void;
 }) {
+  const isMobileView = useMobileKanbanView();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
 
@@ -87,36 +103,40 @@ export function ComprasKanbanBoard(props: {
       onDragStart={handleDragStart}
       onDragEnd={(event) => void handleDragEnd(event)}
     >
-      <div className="hidden h-full min-h-0 gap-3 overflow-x-auto pb-2 md:flex">
-        {KANBAN_COLUMNS.map((column) => (
-          <ComprasKanbanColumn
-            key={column.id}
-            id={column.id}
-            label={column.label}
-            items={grouped[column.id]}
-            loading={props.loading}
-            onOpenCard={props.onOpenCard}
-            activeDragId={activeId ?? movingId}
+      {isMobileView ? (
+        <div className="flex min-h-0 flex-1">
+          <MobileKanbanCarousel
+            columns={KANBAN_COLUMNS.map((c) => ({ id: c.id, title: c.label }))}
+            renderColumn={(column) => (
+              <ComprasKanbanColumn
+                key={column.id}
+                id={column.id as KanbanColumnId}
+                label={column.title}
+                items={grouped[column.id as KanbanColumnId]}
+                loading={props.loading}
+                onOpenCard={props.onOpenCard}
+                activeDragId={activeId ?? movingId}
+                dragEnabled={false}
+              />
+            )}
           />
-        ))}
-      </div>
-
-      <div className="flex min-h-0 flex-1 md:hidden">
-        <MobileKanbanCarousel
-          columns={KANBAN_COLUMNS.map((c) => ({ id: c.id, title: c.label }))}
-          renderColumn={(column) => (
+        </div>
+      ) : (
+        <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
+          {KANBAN_COLUMNS.map((column) => (
             <ComprasKanbanColumn
               key={column.id}
-              id={column.id as KanbanColumnId}
-              label={column.title}
-              items={grouped[column.id as KanbanColumnId]}
+              id={column.id}
+              label={column.label}
+              items={grouped[column.id]}
               loading={props.loading}
               onOpenCard={props.onOpenCard}
               activeDragId={activeId ?? movingId}
+              dragEnabled
             />
-          )}
-        />
-      </div>
+          ))}
+        </div>
+      )}
 
       <DragOverlay dropAnimation={null}>
         {activeRow ? <ComprasCardPreview row={activeRow} /> : null}

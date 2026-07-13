@@ -26,11 +26,16 @@ export function ComprasKanbanColumn(props: {
   loading: boolean;
   onOpenCard: (row: PurchaseRequest) => void;
   activeDragId: string | null;
+  dragEnabled?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: props.id });
 
   return (
-    <div className="erp-module-panel flex h-full min-h-0 w-[280px] shrink-0 flex-col">
+    <div
+      className={`erp-module-panel flex h-full min-h-0 shrink-0 flex-col ${
+        props.dragEnabled === false ? 'w-full' : 'w-[280px]'
+      }`}
+    >
       <header className="shrink-0 border-b border-[var(--erp-border)] px-3 py-3">
         <h2 className="text-sm font-semibold text-[var(--erp-fg)]">{props.label}</h2>
         <p className="mt-0.5 text-xs text-[var(--erp-fg-muted)]">
@@ -63,6 +68,7 @@ export function ComprasKanbanColumn(props: {
               row={row}
               onOpen={() => props.onOpenCard(row)}
               isDragging={props.activeDragId === row.id}
+              dragEnabled={props.dragEnabled !== false}
             />
           ))
         )}
