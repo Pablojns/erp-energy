@@ -1,10 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type DragEvent, type ReactNode } from 'react';
+import { GripVertical } from 'lucide-react';
 import {
   OverviewFinanceChart,
   OverviewFinanceChartSkeleton,
 } from '@/src/components/dashboard/overview-finance-chart';
+import {
+  DEFAULT_OVERVIEW_CARD_ORDER,
+  isDefaultOverviewOrder,
+  loadOverviewCardOrder,
+  resetOverviewCardOrder,
+  saveOverviewCardOrder,
+  type OverviewCardId,
+} from '@/src/components/dashboard/overview-card-layout';
 import type {
   DashboardResumo,
   DateRange,
@@ -27,12 +36,67 @@ import { getOverdueDays } from '@/src/components/expedicao/shared/order-helpers'
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { normalizePedidoFromApi, pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 import '@/src/components/dashboard/overview-executive.css';
+import { MobileCollapsibleSection } from '@/src/components/mobile/mobile-collapsible-section';
 
 type TabOverviewProps = {
   period: DateRange;
   refreshKey: number;
   onNavigateTab?: (tab: 'expedicao' | 'estoque' | 'financeiro') => void;
+  userId: string;
+  editMode?: boolean;
+  layoutResetKey?: number;
 };
+
+function OverviewDraggableCard(props: {
+  cardId: OverviewCardId;
+  editMode: boolean;
+  onReorder: (from: OverviewCardId, to: OverviewCardId) => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const { cardId, editMode, onReorder, children, className = '' } = props;
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', cardId);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const from = e.dataTransfer.getData('text/plain') as OverviewCardId;
+    if (from) onReorder(from, cardId);
+    setDragOver(false);
+  };
+
+  return (
+    <div
+      className={`dash-overview-card-wrap ${editMode ? 'dash-overview-card-wrap--edit' : ''} ${dragOver ? 'dash-overview-card-wrap--over' : ''} ${className}`}
+      draggable={editMode}
+      onDragStart={editMode ? handleDragStart : undefined}
+      onDragEnd={() => setDragOver(false)}
+      onDragOver={
+        editMode
+          ? (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={editMode ? () => setDragOver(false) : undefined}
+      onDrop={editMode ? handleDrop : undefined}
+    >
+      {editMode ? (
+        <div className="overview-drag-handle" aria-hidden>
+          <GripVertical className="h-4 w-4" />
+          <span>Arrastar</span>
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
+}
 
 function OverviewBlockSkeleton({ tall }: { tall?: boolean }) {
   return (
@@ -53,7 +117,46 @@ function OverviewBlockSkeleton({ tall }: { tall?: boolean }) {
   );
 }
 
-export function TabOverview({ period, refreshKey }: TabOverviewProps) {
+export function TabOverview({
+  period,
+  refreshKey,
+  userId,
+  editMode = false,
+  layoutResetKey = 0,
+}: TabOverviewProps) {
+  const [cardOrder, setCardOrder] = useState<OverviewCardId[]>(
+    () => DEFAULT_OVERVIEW_CARD_ORDER,
+  );
+  const [cardOrderHydrated, setCardOrderHydrated] = useState(false);
+
+  useEffect(() => {
+    setCardOrder(loadOverviewCardOrder(userId));
+    setCardOrderHydrated(true);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!cardOrderHydrated) return;
+    saveOverviewCardOrder(userId, cardOrder);
+  }, [cardOrder, cardOrderHydrated, userId]);
+
+  useEffect(() => {
+    if (layoutResetKey === 0) return;
+    resetOverviewCardOrder(userId);
+    setCardOrder([...DEFAULT_OVERVIEW_CARD_ORDER]);
+  }, [layoutResetKey, userId]);
+
+  const reorderCards = useCallback((from: OverviewCardId, to: OverviewCardId) => {
+    if (from === to) return;
+    setCardOrder((prev) => {
+      const next = [...prev];
+      const fromIndex = next.indexOf(from);
+      const toIndex = next.indexOf(to);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, from);
+      return next;
+    });
+  }, []);
   const [fin, setFin] = useState<FinanceiroDashboardData | null>(null);
   const [resumo, setResumo] = useState<DashboardResumo | null>(null);
   const [stock, setStock] = useState<Awaited<ReturnType<typeof fetchStockSummary>> | null>(null);
@@ -193,6 +296,234 @@ export function TabOverview({ period, refreshKey }: TabOverviewProps) {
       ? computeVariationPct(comparison.current, comparison.previous)
       : 0;
 
+  const useOrderedLayout = editMode || !isDefaultOverviewOrder(cardOrder);
+
+  const renderExpedicaoCard = () => (
+    <MobileCollapsibleSection title="Expedição">
+    <section className="overview-block" aria-label="Expedição">
+      <div className="overview-hero">
+        <span
+          className={`overview-hero-value ${atrasados > 0 ? 'overview-hero-value--danger' : ''}`}
+        >
+          {formatNumber(atrasados)}
+        </span>
+        <span className="overview-label">Atrasados</span>
+      </div>
+
+      {f && fluxo ? (
+        <>
+          <div className="overview-stat-grid">
+            <div className="overview-stat-cell">
+              <div className="overview-label">Total</div>
+              <div className="overview-stat-value">{formatNumber(total)}</div>
+            </div>
+            <div className="overview-stat-cell">
+              <div className="overview-label">Finalizados</div>
+              <div className="overview-stat-value">{formatNumber(finalized)}</div>
+            </div>
+            <div className="overview-stat-cell">
+              <div className="overview-label">Em separação</div>
+              <div className="overview-stat-value">{formatNumber(fluxo.EM_SEPARACAO)}</div>
+            </div>
+            <div className="overview-stat-cell">
+              <div className="overview-label">Aguard. NF</div>
+              <div className="overview-stat-value">{formatNumber(fluxo.AGUARDANDO_NF)}</div>
+            </div>
+          </div>
+
+          <div className="overview-progress">
+            <div className="overview-progress-meta">
+              <span className="overview-label">Finalizados / total</span>
+              <span>
+                {formatNumber(finalized)} / {formatNumber(total)} ({pct}%)
+              </span>
+            </div>
+            <div className="overview-progress-track">
+              <div className="overview-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="overview-empty">Dados indisponíveis.</p>
+      )}
+
+      <div className="overview-scroll">
+        {delayed.length === 0 ? (
+          <p className="overview-empty">Nenhum pedido atrasado.</p>
+        ) : (
+          delayed.map((row) => (
+            <div key={row.id} className="overview-list-row">
+              <div className="overview-list-main">
+                <div className="overview-list-title">Pedido {row.pedido}</div>
+                <div className="overview-list-sub">{row.recebedor}</div>
+              </div>
+              <span className="overview-badge-danger">{formatNumber(row.diasAtraso)}d</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+    </MobileCollapsibleSection>
+  );
+
+  const renderEstoqueCard = () => (
+    <MobileCollapsibleSection title="Estoque">
+    <section className="overview-block" aria-label="Estoque">
+      <div className="overview-hero">
+        <span
+          className={`overview-hero-value ${zeroCount > 0 ? 'overview-hero-value--danger' : ''}`}
+        >
+          {formatNumber(zeroCount)}
+        </span>
+        <span className="overview-label">Estoque zerado</span>
+      </div>
+
+      {stock ? (
+        <div className="overview-stat-grid overview-stat-grid--2">
+          <div className="overview-stat-cell">
+            <div className="overview-label">Produtos ativos</div>
+            <div className="overview-stat-value">{formatNumber(stock.activeProducts)}</div>
+          </div>
+          <div className="overview-stat-cell">
+            <div className="overview-label">Valor em estoque</div>
+            <div className="overview-stat-value">{formatCurrency(stock.valorEstoque)}</div>
+          </div>
+        </div>
+      ) : (
+        <p className="overview-empty">Dados indisponíveis.</p>
+      )}
+
+      <div className="overview-scroll">
+        {critical.length === 0 ? (
+          <p className="overview-empty">Nenhum produto crítico.</p>
+        ) : (
+          critical.map((p) => (
+            <div key={p.id} className="overview-list-row">
+              <div className="overview-list-main">
+                <div className="overview-list-title">
+                  {p.sku} · {p.name}
+                </div>
+                <div className="overview-list-sub">
+                  Estoque {formatNumber(p.stockQty)} · mín. {formatNumber(p.minStock)}
+                </div>
+              </div>
+              {p.stockQty <= 0 ? (
+                <span className="overview-badge-danger">Zerado</span>
+              ) : (
+                <span className="text-[10px] font-semibold tabular-nums text-amber-400">
+                  −{formatNumber(p.deficit)}
+                </span>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+    </MobileCollapsibleSection>
+  );
+
+  const renderFinanceiroCard = () => (
+    <MobileCollapsibleSection title="Financeiro">
+    <section className="overview-block overview-block--finance" aria-label="Financeiro">
+      <div className="overview-finance-layout">
+        <div className="overview-finance-metrics">
+          {fin ? (
+            <div className="overview-finance-metrics-row">
+              <div className="overview-metric-cell">
+                <div className="overview-label">Pedidos período</div>
+                <div className="overview-metric-value">
+                  {formatCurrency(fin.valorPedidosPeriodo)}
+                </div>
+              </div>
+              <div className="overview-metric-cell">
+                <div className="overview-label">Faturado período</div>
+                <div className="overview-metric-value">
+                  {formatCurrency(fin.valorFaturadoPeriodo)}
+                </div>
+              </div>
+              <div className="overview-metric-cell">
+                <div className="overview-label">Hist. pedidos</div>
+                <div className="overview-metric-value">
+                  {formatCurrency(fin.valorPedidosHistorico)}
+                </div>
+              </div>
+              <div className="overview-metric-cell">
+                <div className="overview-label">Hist. faturado</div>
+                <div className="overview-metric-value">
+                  {formatCurrency(fin.valorFaturadoHistorico)}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="overview-empty">Dados indisponíveis.</p>
+          )}
+
+          {comparePrevious && comparison ? (
+            <div className="overview-compare-strip">
+              <span>
+                Atual: <strong>{formatCurrency(comparison.current)}</strong>
+              </span>
+              <span>
+                Anterior: <strong>{formatCurrency(comparison.previous)}</strong>
+              </span>
+              <span
+                className={
+                  variation > 0
+                    ? 'text-emerald-400'
+                    : variation < 0
+                      ? 'text-red-400'
+                      : ''
+                }
+              >
+                {formatPercent(Math.abs(variation))} vs anterior
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="overview-finance-chart dash-mobile-chart">
+          <button
+            type="button"
+            className={`overview-compare-toggle ${comparePrevious ? 'overview-compare-toggle--on' : ''}`}
+            disabled={!periodHasRange || comparisonLoading}
+            title={
+              periodHasRange
+                ? undefined
+                : 'Selecione um período com datas De/Até para comparar'
+            }
+            onClick={() => setComparePrevious((v) => !v)}
+          >
+            Comparar período anterior
+          </button>
+          {chart !== null ? (
+            <OverviewFinanceChart points={chart} />
+          ) : (
+            <OverviewFinanceChartSkeleton />
+          )}
+        </div>
+      </div>
+    </section>
+    </MobileCollapsibleSection>
+  );
+
+  const renderCardById = (cardId: OverviewCardId) => {
+    if (cardId === 'expedicao') return renderExpedicaoCard();
+    if (cardId === 'estoque') return renderEstoqueCard();
+    return renderFinanceiroCard();
+  };
+
+  const wrapCard = (cardId: OverviewCardId, content: ReactNode, className?: string) => (
+    <OverviewDraggableCard
+      key={cardId}
+      cardId={cardId}
+      editMode={editMode}
+      onReorder={reorderCards}
+      className={className}
+    >
+      {content}
+    </OverviewDraggableCard>
+  );
+
   return (
     <div className="dash-overview-panel">
       {errors.length > 0 ? (
@@ -201,217 +532,26 @@ export function TabOverview({ period, refreshKey }: TabOverviewProps) {
         </p>
       ) : null}
 
-      <div className="dash-overview-grid">
-        <div className="dash-overview-row-top">
-          {/* Expedição — prioridade visual */}
-          <section className="overview-block" aria-label="Expedição">
-            <div className="overview-hero">
-              <span
-                className={`overview-hero-value ${atrasados > 0 ? 'overview-hero-value--danger' : ''}`}
-              >
-                {formatNumber(atrasados)}
-              </span>
-              <span className="overview-label">Atrasados</span>
+      <div
+        className={`dash-overview-grid ${useOrderedLayout ? 'dash-overview-grid--ordered' : ''}`}
+      >
+        {useOrderedLayout ? (
+          cardOrder.map((cardId) =>
+            wrapCard(
+              cardId,
+              renderCardById(cardId),
+              cardId === 'financeiro' ? 'dash-overview-card-wrap--full' : undefined,
+            ),
+          )
+        ) : (
+          <>
+            <div className="dash-overview-row-top">
+              {wrapCard('expedicao', renderExpedicaoCard())}
+              {wrapCard('estoque', renderEstoqueCard())}
             </div>
-
-            {f && fluxo ? (
-              <>
-                <div className="overview-stat-grid">
-                  <div className="overview-stat-cell">
-                    <div className="overview-label">Total</div>
-                    <div className="overview-stat-value">{formatNumber(total)}</div>
-                  </div>
-                  <div className="overview-stat-cell">
-                    <div className="overview-label">Finalizados</div>
-                    <div className="overview-stat-value">{formatNumber(finalized)}</div>
-                  </div>
-                  <div className="overview-stat-cell">
-                    <div className="overview-label">Em separação</div>
-                    <div className="overview-stat-value">
-                      {formatNumber(fluxo.EM_SEPARACAO)}
-                    </div>
-                  </div>
-                  <div className="overview-stat-cell">
-                    <div className="overview-label">Aguard. NF</div>
-                    <div className="overview-stat-value">
-                      {formatNumber(fluxo.AGUARDANDO_NF)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="overview-progress">
-                  <div className="overview-progress-meta">
-                    <span className="overview-label">Finalizados / total</span>
-                    <span>
-                      {formatNumber(finalized)} / {formatNumber(total)} ({pct}%)
-                    </span>
-                  </div>
-                  <div className="overview-progress-track">
-                    <div className="overview-progress-fill" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="overview-empty">Dados indisponíveis.</p>
-            )}
-
-            <div className="overview-scroll">
-              {delayed.length === 0 ? (
-                <p className="overview-empty">Nenhum pedido atrasado.</p>
-              ) : (
-                delayed.map((row) => (
-                  <div key={row.id} className="overview-list-row">
-                    <div className="overview-list-main">
-                      <div className="overview-list-title">Pedido {row.pedido}</div>
-                      <div className="overview-list-sub">{row.recebedor}</div>
-                    </div>
-                    <span className="overview-badge-danger">
-                      {formatNumber(row.diasAtraso)}d
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          {/* Estoque */}
-          <section className="overview-block" aria-label="Estoque">
-            <div className="overview-hero">
-              <span
-                className={`overview-hero-value ${zeroCount > 0 ? 'overview-hero-value--danger' : ''}`}
-              >
-                {formatNumber(zeroCount)}
-              </span>
-              <span className="overview-label">Estoque zerado</span>
-            </div>
-
-            {stock ? (
-              <div className="overview-stat-grid overview-stat-grid--2">
-                <div className="overview-stat-cell">
-                  <div className="overview-label">Produtos ativos</div>
-                  <div className="overview-stat-value">
-                    {formatNumber(stock.activeProducts)}
-                  </div>
-                </div>
-                <div className="overview-stat-cell">
-                  <div className="overview-label">Valor em estoque</div>
-                  <div className="overview-stat-value">
-                    {formatCurrency(stock.valorEstoque)}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="overview-empty">Dados indisponíveis.</p>
-            )}
-
-            <div className="overview-scroll">
-              {critical.length === 0 ? (
-                <p className="overview-empty">Nenhum produto crítico.</p>
-              ) : (
-                critical.map((p) => (
-                  <div key={p.id} className="overview-list-row">
-                    <div className="overview-list-main">
-                      <div className="overview-list-title">
-                        {p.sku} · {p.name}
-                      </div>
-                      <div className="overview-list-sub">
-                        Estoque {formatNumber(p.stockQty)} · mín. {formatNumber(p.minStock)}
-                      </div>
-                    </div>
-                    {p.stockQty <= 0 ? (
-                      <span className="overview-badge-danger">Zerado</span>
-                    ) : (
-                      <span className="text-[10px] font-semibold tabular-nums text-amber-400">
-                        −{formatNumber(p.deficit)}
-                      </span>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* Financeiro */}
-        <section className="overview-block" aria-label="Financeiro">
-          <div className="overview-finance-layout">
-            <div className="overview-finance-metrics">
-              {fin ? (
-                <div className="overview-finance-metrics-row">
-                  <div className="overview-metric-cell">
-                    <div className="overview-label">Pedidos período</div>
-                    <div className="overview-metric-value">
-                      {formatCurrency(fin.valorPedidosPeriodo)}
-                    </div>
-                  </div>
-                  <div className="overview-metric-cell">
-                    <div className="overview-label">Faturado período</div>
-                    <div className="overview-metric-value">
-                      {formatCurrency(fin.valorFaturadoPeriodo)}
-                    </div>
-                  </div>
-                  <div className="overview-metric-cell">
-                    <div className="overview-label">Hist. pedidos</div>
-                    <div className="overview-metric-value">
-                      {formatCurrency(fin.valorPedidosHistorico)}
-                    </div>
-                  </div>
-                  <div className="overview-metric-cell">
-                    <div className="overview-label">Hist. faturado</div>
-                    <div className="overview-metric-value">
-                      {formatCurrency(fin.valorFaturadoHistorico)}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="overview-empty">Dados indisponíveis.</p>
-              )}
-
-              {comparePrevious && comparison ? (
-                <div className="overview-compare-strip">
-                  <span>
-                    Atual: <strong>{formatCurrency(comparison.current)}</strong>
-                  </span>
-                  <span>
-                    Anterior: <strong>{formatCurrency(comparison.previous)}</strong>
-                  </span>
-                  <span
-                    className={
-                      variation > 0
-                        ? 'text-emerald-400'
-                        : variation < 0
-                          ? 'text-red-400'
-                          : ''
-                    }
-                  >
-                    {formatPercent(Math.abs(variation))} vs anterior
-                  </span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="overview-finance-chart">
-              <button
-                type="button"
-                className={`overview-compare-toggle ${comparePrevious ? 'overview-compare-toggle--on' : ''}`}
-                disabled={!periodHasRange || comparisonLoading}
-                title={
-                  periodHasRange
-                    ? undefined
-                    : 'Selecione um período com datas De/Até para comparar'
-                }
-                onClick={() => setComparePrevious((v) => !v)}
-              >
-                Comparar período anterior
-              </button>
-              {chart !== null ? (
-                <OverviewFinanceChart points={chart} />
-              ) : (
-                <OverviewFinanceChartSkeleton />
-              )}
-            </div>
-          </div>
-        </section>
+            {wrapCard('financeiro', renderFinanceiroCard())}
+          </>
+        )}
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ function generateWaybillHTML(pedidos: PedidoParaImpressao[]): string {
       (pedido) => `
     <div class="page">
       <div class="header">
-        <div class="logo">ERP Energy</div>
+        <div class="logo">Energy Brands</div>
         <div class="meta">
           <p><strong>Romaneio de Entrega</strong></p>
           <p>Data: ${dataGeracao}</p>
@@ -99,7 +99,7 @@ function generateWaybillHTML(pedidos: PedidoParaImpressao[]): string {
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Romaneio de Entrega - ERP Energy</title>
+      <title>Romaneio de Entrega - Energy Brands</title>
       <style>
         * {
           margin: 0;

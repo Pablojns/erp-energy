@@ -18,7 +18,7 @@ function drawPedidoPage(doc: jsPDF, pedido: PedidoParaImpressao, pageIndex: numb
 
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text('ERP Energy', margin, y);
+  doc.text('Energy Brands', margin, y);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');

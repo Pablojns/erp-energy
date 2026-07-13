@@ -477,7 +477,7 @@ export function ComprasNewRequestModal(props: {
         <div className="grid gap-3 sm:grid-cols-3">
           {(
             [
-              ['WEG_CONTRATO', 'WEG Contrato', 'border-blue-400 bg-blue-500/20 text-blue-100'],
+              ['WEG_CONTRATO', 'WEG Contrato', 'border-[#2AACE2] bg-[#2AACE2]/15 text-[#0f172a]'],
               ['VENDA_EXTERNA', 'Venda Externa', 'border-orange-400 bg-orange-500/20 text-orange-100'],
               ['MARKETPLACE', 'Marketplace', 'border-purple-400 bg-purple-500/20 text-purple-100'],
             ] as const
@@ -519,7 +519,7 @@ export function ComprasNewRequestModal(props: {
                       setSupplierSku(product.supplierSku?.trim() ?? '');
                     }}
                     className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
-                      product.id === productId ? 'bg-indigo-500/20 text-white' : 'text-white/75'
+                      product.id === productId ? 'bg-[#2AACE2]/20 text-white' : 'text-white/75'
                     }`}
                   >
                     <span className="font-semibold">{product.sku}</span> — {product.name}

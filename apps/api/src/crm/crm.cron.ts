@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { NOTIFICATION_PRIORITY, NOTIFICATION_TYPES } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CrmService } from './crm.service';
 
@@ -21,9 +22,11 @@ export class CrmCron {
       for (const card of overdue) {
         if (!card.responsavelId) continue;
 
-        const type = 'crm:follow_up';
-        const link = `crm:card:${card.id}`;
-        if (await this.notifications.hasRecentDuplicate(type, link)) {
+        const type = NOTIFICATION_TYPES.CRM_FOLLOWUP;
+        const link = `/app/crm`;
+        if (
+          await this.notifications.hasUnreadDuplicate(type, card.id)
+        ) {
           continue;
         }
 
@@ -33,6 +36,11 @@ export class CrmCron {
           `O lead "${card.name}" está há mais de 3 dias sem touchpoint.`,
           type,
           link,
+          {
+            entityId: card.id,
+            entityType: 'crm_card',
+            priority: NOTIFICATION_PRIORITY.NORMAL,
+          },
         );
         sent += 1;
       }

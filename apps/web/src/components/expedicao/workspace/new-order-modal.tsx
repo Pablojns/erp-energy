@@ -684,7 +684,7 @@ export function NewOrderModal(props: {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="erp-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
         className="absolute inset-0 bg-[var(--color-overlay)]"
@@ -694,7 +694,7 @@ export function NewOrderModal(props: {
       />
 
       <div
-        className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-xl"
+        className="erp-modal-panel relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-xl"
         role="dialog"
         aria-labelledby="new-order-title"
       >

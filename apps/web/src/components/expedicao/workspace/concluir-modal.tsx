@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { isWegItemAlreadyReceived } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
@@ -121,7 +121,7 @@ export function ConcluirModal(props: {
             </span>
           </p>
           {finalStatus === 'PARCIAL' ? (
-            <p className="text-xs text-amber-600 dark:text-amber-300">
+            <p className="text-xs text-amber-600">
               Este lote é parcial. Itens pendentes ou com quantidade incompleta
               permanecem no pedido para envio futuro e aparecem no filtro Parcial.
             </p>

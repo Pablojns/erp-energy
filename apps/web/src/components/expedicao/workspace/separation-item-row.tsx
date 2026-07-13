@@ -55,15 +55,15 @@ export function SeparationItemRow(props: {
 
   return (
     <tr className={alreadyReceived ? 'opacity-80' : undefined}>
-      <td className="exp-wb-cell-linha text-xs">{item.lineNumber}</td>
-      <td className="exp-wb-cell-sku text-xs">{item.sku}</td>
-      <td className="exp-wb-cell-item text-xs" title={item.description}>
+      <td className="exp-wb-cell-linha text-xs" data-label="Linha">{item.lineNumber}</td>
+      <td className="exp-wb-cell-sku text-xs" data-label="SKU">{item.sku}</td>
+      <td className="exp-wb-cell-item text-xs" data-label="Item" title={item.description}>
         {item.description}
       </td>
-      <td className="text-center">
+      <td className="text-center" data-label="Qtd">
         <OrderItemOrderedQtyCell qty={item.quantity} />
       </td>
-      <td className="text-center text-xs">
+      <td className="text-center text-xs" data-label="Qtd Sep.">
         {alreadyReceived ? (
           <span className="text-[var(--text-muted)]">—</span>
         ) : (item.pickedQty ?? 0) > 0 ? (
@@ -73,11 +73,11 @@ export function SeparationItemRow(props: {
         )}
       </td>
       {!hideStockColumn ? (
-        <td className="text-center">
+        <td className="text-center" data-label="Qtd Estoque">
           <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
         </td>
       ) : null}
-      <td className="text-center">
+      <td className="text-center" data-label="Qtd. separada">
         {alreadyReceived ? (
           <span className="text-xs text-[var(--text-muted)]">—</span>
         ) : (
@@ -92,7 +92,7 @@ export function SeparationItemRow(props: {
           />
         )}
       </td>
-      <td className="text-center">
+      <td className="text-center" data-label="Status">
         {alreadyReceived ? (
           <OrderItemReceiptStatusBadge
             status={item.mercadoEletronicoItemStatus ?? 'Recebido'}
@@ -105,7 +105,7 @@ export function SeparationItemRow(props: {
           </span>
         )}
       </td>
-      <td className="text-center">
+      <td className="text-center" data-label="Ação">
         {alreadyReceived ? (
           <span className="text-[10px] font-medium text-[var(--text-muted)]">
             Já recebido
@@ -114,7 +114,7 @@ export function SeparationItemRow(props: {
           <button
             type="button"
             disabled={!editable || confirming}
-            className="exp-wb-confirm-btn w-full !px-3 !py-1.5 !text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            className="exp-wb-confirm-btn exp-wb-sep-checkbox w-full !min-h-[44px] !px-3 !py-2.5 !text-sm disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleConfirm}
           >
             {confirming ? (

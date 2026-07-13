@@ -1,0 +1,509 @@
+/* ERP Energy — mobile (< 768px) */
+
+@media (max-width: 767px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .erp-app-bg main {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Touch targets */
+  .erp-mobile-touch-target {
+    display: inline-flex;
+    min-height: 44px;
+    min-width: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.65rem;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  /* Bottom drawer */
+  .erp-mobile-drawer-root {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+
+  .erp-mobile-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    background: rgba(15, 23, 42, 0.45);
+    cursor: pointer;
+  }
+
+  .erp-mobile-drawer-panel {
+    position: relative;
+    width: 100%;
+    max-height: min(88dvh, 640px);
+    border-radius: 1rem 1rem 0 0;
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    background: var(--bg-card);
+    box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: erp-drawer-up 0.22s ease-out;
+  }
+
+  @keyframes erp-drawer-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .erp-mobile-drawer-handle {
+    width: 2.5rem;
+    height: 0.25rem;
+    margin: 0.65rem auto 0;
+    border-radius: 999px;
+    background: var(--border-color);
+  }
+
+  .erp-mobile-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 0.5rem;
+  }
+
+  .erp-mobile-drawer-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .erp-mobile-drawer-body {
+    overflow-y: auto;
+    padding: 0.5rem 1rem 1rem;
+    max-height: calc(88dvh - 4rem);
+  }
+
+  .erp-mobile-action-item {
+    display: flex;
+    min-height: 44px;
+    width: 100%;
+    align-items: center;
+    border-radius: 0.65rem;
+    border: none;
+    background: var(--input-bg);
+    padding: 0 1rem;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: left;
+  }
+
+  .erp-mobile-action-item--danger {
+    color: var(--danger);
+  }
+
+  /* Modals → bottom drawer */
+  .erp-modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .erp-modal-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92dvh !important;
+    border-radius: 1rem 1rem 0 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Expedition mobile full-screen */
+  .exp-mobile-list-screen {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 9.5rem);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .exp-mobile-detail-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    padding-top: calc(64px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+  }
+
+  /* Footer/triage legados da expedição têm CSS não-camadado (position fixed)
+     que vence utilitários Tailwind — esconder à força no mobile. */
+  .exp-wb-footer,
+  .exp-wb-footer-spacer,
+  .exp-wb-triage--sticky {
+    display: none !important;
+  }
+
+  /* Sub-nav do módulo (Dashboard/Pedidos/Separação...) — chips com scroll
+     horizontal em vez de encolher e sobrepor os rótulos. */
+  .erp-subnav {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .erp-subnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .erp-subnav-link {
+    flex: 0 0 auto !important;
+    white-space: nowrap;
+    min-height: 44px !important;
+  }
+
+  .erp-mobile-action-trigger {
+    border-radius: 0.65rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .exp-mobile-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    min-height: 52px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-card);
+  }
+
+  .exp-mobile-detail-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 16px 88px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .exp-mobile-fixed-cta {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    z-index: 46;
+    display: flex;
+    height: 56px;
+    padding: 0 16px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-color);
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  }
+
+  .exp-mobile-fixed-cta-btn {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 48px;
+    margin: auto 0;
+    border: none;
+    border-radius: 0.75rem;
+    background: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .exp-mobile-fixed-cta-btn--success {
+    background: var(--success);
+  }
+
+  .exp-mobile-source-chips {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0.5rem 16px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .exp-mobile-source-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .exp-mobile-source-chip {
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 0 1rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .exp-mobile-source-chip--active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+
+  /* Items table → cards */
+  .exp-wb-table-wrap {
+    border: none;
+    background: transparent;
+  }
+
+  .exp-wb-table-scroll {
+    overflow: visible;
+  }
+
+  .exp-wb-table--mobile-cards thead {
+    display: none;
+  }
+
+  .exp-wb-table--mobile-cards,
+  .exp-wb-table--mobile-cards tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .exp-wb-table--mobile-cards tr {
+    display: block;
+    margin-bottom: 0.65rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    padding: 0.75rem;
+    box-shadow: var(--shadow-card);
+  }
+
+  .exp-wb-table--mobile-cards td {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.25rem 0;
+    font-size: 14px;
+    border: none;
+  }
+
+  .exp-wb-table--mobile-cards td::before {
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .exp-wb-sep-checkbox {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Pull to refresh */
+  .erp-ptr-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--text-secondary);
+    transition: height 0.15s ease;
+  }
+
+  /* Kanban carousel (mobile only) */
+  .erp-mobile-kanban {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+
+  .erp-mobile-kanban-track {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .erp-mobile-kanban-track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .erp-mobile-kanban-slide {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    min-height: 0;
+    padding: 0 0 0.5rem;
+  }
+
+  .erp-mobile-kanban-dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0;
+  }
+
+  .erp-mobile-kanban-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    border: none;
+    background: var(--border-color);
+    padding: 0;
+  }
+
+  .erp-mobile-kanban-dot--active {
+    background: var(--accent);
+    width: 1.25rem;
+  }
+
+  .erp-mobile-kanban-fab {
+    position: fixed;
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 44;
+    display: flex;
+    min-height: 48px;
+    min-width: 48px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(42, 172, 226, 0.35);
+  }
+
+  /* Dashboard mobile */
+  .dash-mobile-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .dash-mobile-chart {
+    height: 200px !important;
+    max-height: 200px !important;
+  }
+
+  .dash-mobile-collapse {
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    overflow: hidden;
+  }
+
+  .dash-mobile-collapse-btn {
+    display: flex;
+    min-height: 44px;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .dash-mobile-collapse-body {
+    padding: 0 1rem 1rem;
+  }
+
+  /* Estoque mobile cards */
+  .erp-mobile-table-cards {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .erp-mobile-data-card {
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    padding: 0.75rem;
+    box-shadow: var(--shadow-card);
+  }
+
+  .erp-mobile-data-card-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    font-size: 14px;
+  }
+
+  .erp-mobile-data-card-row span:first-child {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  /* Bottom nav safe area */
+  .erp-bottom-nav {
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Hide desktop-only expedition tabs */
+  .exp-mobile-tabs {
+    display: none !important;
+  }
+
+  /* Form fields min size */
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  .erp-input,
+  .erp-select-trigger {
+    font-size: 14px !important;
+    min-height: 44px;
+  }
+
+  label,
+  .erp-label {
+    font-size: 12px;
+  }
+
+  /* Filter drawer trigger visible on mobile */
+  .exp-queue-filters-drawer-trigger {
+    display: inline-flex !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .exp-mobile-detail-screen,
+  .exp-mobile-fixed-cta,
+  .erp-mobile-kanban,
+  .erp-mobile-kanban-fab,
+  .exp-mobile-source-chips,
+  .erp-mobile-action-trigger {
+    display: none !important;
+  }
+
+  .exp-queue-filters-drawer-trigger {
+    display: none !important;
+  }
+}

@@ -112,6 +112,7 @@ model User {
   purchaseRequestsMade     PurchaseRequest[] @relation("PurchaseRequestedBy")
   purchaseRequestsResolved PurchaseRequest[] @relation("PurchaseResolvedBy")
   crmCardsAssigned         CrmCard[]         @relation("CrmCardResponsavel")
+  notificationPreferences  UserNotificationPreferences?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -565,19 +566,34 @@ model Task {
 }
 
 model Notification {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  title     String
-  message   String
-  type      String
-  read      Boolean  @default(false)
-  link      String?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  type       String
+  title      String
+  body       String    @map("message")
+  link       String?
+  entityId   String?
+  entityType String?
+  read       Boolean   @default(false)
+  readAt     DateTime?
+  priority   String    @default("NORMAL")
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([type, entityId, read])
   @@index([type, link, createdAt])
   @@index([userId, read])
+  @@index([userId, priority, read])
   @@index([createdAt])
+}
+
+model UserNotificationPreferences {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @db.Uuid
+  preferences Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ChatRoom {

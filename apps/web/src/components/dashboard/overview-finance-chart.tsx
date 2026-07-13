@@ -50,7 +50,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
       maxBarWidth: count > 18 ? 6 : count > 12 ? 8 : 10,
       minBarWidth: 3,
       height: chartHeight,
-      margin: { top: 10, right: 6, bottom: 22, left: 40 },
+      margin: { top: 10, right: 8, bottom: 22, left: 48 },
     });
 
     const bars = points.map((p, i) => {
@@ -135,7 +135,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
                 strokeDasharray="3 3"
               />
               <text
-                x={layout.margin.left - 4}
+                x={layout.margin.left - 6}
                 y={tick.y + 3}
                 textAnchor="end"
                 fontSize="7"
@@ -184,7 +184,7 @@ export function OverviewFinanceChart({ points }: OverviewFinanceChartProps) {
                   width={b.barW}
                   height={b.barH}
                   rx={1.5}
-                  fill={isActive ? '#3b82f6' : '#2563eb'}
+                  fill={isActive ? '#5BBFB0' : '#2AACE2'}
                   opacity={dimmed ? 0.3 : 0.85}
                   pointerEvents="none"
                 />

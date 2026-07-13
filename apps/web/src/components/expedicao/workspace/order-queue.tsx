@@ -10,7 +10,10 @@ import {
   Truck,
   X,
 } from 'lucide-react';
+import { usePullToRefresh } from '@/src/hooks/use-pull-to-refresh';
+import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
+import { PedidosOrdersTable } from '@/src/components/expedicao/workspace/pedidos-orders-table';
 import {
   pedidosStatusFilterLabel,
   pedidosStatusFilterTone,
@@ -35,13 +38,12 @@ import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
 import { downloadWaybillPdf } from '@/src/utils/download-waybill-pdf';
 import {
-  ErpFilterBar,
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import {
-  CardGridSkeleton,
   InlineLoadMoreSkeleton,
+  ListSkeleton,
 } from '@/src/components/ui/skeleton';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
@@ -60,7 +62,6 @@ const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
 ];
 
 const HEADER_STATUS_FILTERS: Array<{ id: StatusFilterId; label: string }> = [
-  { id: 'all', label: 'Todos' },
   { id: 'novo', label: 'Novo' },
   { id: 'atrasado', label: 'Atrasados' },
   { id: 'urgente', label: 'Urgentes' },
@@ -183,17 +184,9 @@ const SEPARATION_SECTIONS = [
   { id: 'aguardando_nf' as const, label: 'Aguardando NF' },
 ] as const;
 
-/* Header padrão (todas as abas): botões px-3 py-1.5 text-sm */
-const HEADER_BTN_SECONDARY =
-  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-transparent px-3 py-1.5 text-sm font-medium text-[var(--text-primary)] transition hover:bg-white/5';
-const HEADER_BTN_PRIMARY =
-  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-500';
-
-/* Pills de status: text-xs px-3 py-1; ativa azul sólido, inativa borda sutil */
-const STATUS_PILL_ACTIVE =
-  'shrink-0 whitespace-nowrap rounded-md border border-transparent bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition';
-const STATUS_PILL_INACTIVE =
-  'shrink-0 whitespace-nowrap rounded-md border border-white/20 bg-transparent px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]';
+/* Header padrão (todas as abas): height 32px */
+const HEADER_BTN_ICON =
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-transparent text-[var(--text-primary)] transition hover:bg-white/5';
 
 export function OrderQueue(props: {
   data: OrdersData;
@@ -245,13 +238,32 @@ export function OrderQueue(props: {
     () => new Set(),
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
   const [newFilterOpen, setNewFilterOpen] = useState(false);
   const [savedFiltersVersion, setSavedFiltersVersion] = useState(0);
   const [activeCustomFilterId, setActiveCustomFilterId] = useState<string | null>(
     null,
   );
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const pedidosTableScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreQueuedRef = useRef(false);
+  const filtersWrapRef = useRef<HTMLDivElement>(null);
+
+  const pullRefresh = usePullToRefresh({
+    onRefresh: async () => {
+      onRefresh?.();
+      await data.refreshAll();
+    },
+  });
+
+  const openFilters = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setFiltersDrawerOpen(true);
+      return;
+    }
+    setFiltersOpen((v) => !v);
+  };
 
   const filterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
@@ -307,30 +319,6 @@ export function OrderQueue(props: {
     ],
   );
 
-  const handleRemoveBadge = (key: string) => {
-    data.setPage(1);
-    if (key.startsWith('status:')) {
-      setActiveCustomFilterId(null);
-      data.setStatusFilter('all');
-      return;
-    }
-    if (key === 'search') {
-      data.setAppliedFilters((f) => ({ ...f, search: '' }));
-      return;
-    }
-    if (key === 'fieldFilter') {
-      data.setAppliedFilters((f) => ({ ...f, filterField: '', filterValue: '' }));
-      return;
-    }
-    if (key === 'dateFrom') {
-      data.setAppliedFilters((f) => ({ ...f, orderDateFrom: '' }));
-      return;
-    }
-    if (key === 'dateTo') {
-      data.setAppliedFilters((f) => ({ ...f, orderDateTo: '' }));
-    }
-  };
-
   const handleClearAll = () => {
     data.setPage(1);
     setActiveCustomFilterId(null);
@@ -345,27 +333,50 @@ export function OrderQueue(props: {
     }));
   };
 
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!filtersWrapRef.current?.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [filtersOpen]);
+
   const selectedForPrintCount = selectedForPrintIds.size;
   const selectedForRemovalCount = selectedForRemovalIds.size;
 
   useEffect(() => {
+    if (!data.ordersLoadingMore) {
+      loadMoreQueuedRef.current = false;
+    }
+  }, [data.ordersLoadingMore]);
+
+  useEffect(() => {
     if (!data.ordersHasMore) return;
     const sentinel = loadMoreSentinelRef.current;
-    const root = listScrollRef.current;
+    const root = isPedidosMode
+      ? pedidosTableScrollRef.current
+      : listScrollRef.current;
     if (!sentinel || !root) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
-          data.loadMoreOrders();
+        if (!entries[0]?.isIntersecting) return;
+        if (data.ordersLoading || data.ordersLoadingMore || loadMoreQueuedRef.current) {
+          return;
         }
+        loadMoreQueuedRef.current = true;
+        data.loadMoreOrders();
       },
-      { root, rootMargin: '160px', threshold: 0 },
+      { root, rootMargin: '48px', threshold: 0 },
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [
+    isPedidosMode,
     data.ordersHasMore,
     data.loadMoreOrders,
     data.orders.length,
@@ -454,40 +465,24 @@ export function OrderQueue(props: {
   };
 
   const periodFilterNode = (
-    <div className="flex items-center gap-1.5 [&_.exp-period-filter-btn]:inline-flex [&_.exp-period-filter-btn]:shrink-0 [&_.exp-period-filter-btn]:items-center [&_.exp-period-filter-btn]:justify-center [&_.exp-period-filter-btn]:gap-1.5 [&_.exp-period-filter-btn]:rounded-lg [&_.exp-period-filter-btn]:border [&_.exp-period-filter-btn]:border-white/20 [&_.exp-period-filter-btn]:bg-transparent [&_.exp-period-filter-btn]:px-3 [&_.exp-period-filter-btn]:py-1.5 [&_.exp-period-filter-btn]:text-sm [&_.exp-period-filter-btn]:font-medium [&_.exp-period-filter-btn]:text-[var(--text-primary)] [&_.exp-period-filter-btn:hover]:bg-white/5 [&_.exp-period-filter-btn--active]:border-transparent [&_.exp-period-filter-btn--active]:bg-blue-600 [&_.exp-period-filter-btn--active]:font-semibold [&_.exp-period-filter-btn--active]:text-white [&_.exp-period-filter-btn--active]:hover:bg-blue-500">
-      <PedidosPeriodFilter
-        dateFrom={data.appliedFilters.orderDateFrom}
-        dateTo={data.appliedFilters.orderDateTo}
-        onChange={(from, to) => {
-          data.setPage(1);
-          data.setAppliedFilters((f) => ({
-            ...f,
-            orderDateFrom: from,
-            orderDateTo: to,
-          }));
-        }}
-      />
-    </div>
-  );
-
-  const filtersButton = (
-    <button
-      type="button"
-      className={`${HEADER_BTN_SECONDARY} ${filtersOpen ? 'bg-white/5' : ''}`}
-      onClick={() => setFiltersOpen((v) => !v)}
-    >
-      <Filter className="h-4 w-4" aria-hidden />
-      Filtros
-      {filterBadges.length > 0 ? (
-        <span className="exp-queue-header-btn-count">{filterBadges.length}</span>
-      ) : null}
-    </button>
+    <PedidosPeriodFilter
+      dateFrom={data.appliedFilters.orderDateFrom}
+      dateTo={data.appliedFilters.orderDateTo}
+      onChange={(from, to) => {
+        data.setPage(1);
+        data.setAppliedFilters((f) => ({
+          ...f,
+          orderDateFrom: from,
+          orderDateTo: to,
+        }));
+      }}
+    />
   );
 
   const refreshButton = onRefresh ? (
     <button
       type="button"
-      className={`${HEADER_BTN_SECONDARY} !px-2`}
+      className={`${HEADER_BTN_ICON} exp-queue-toolbar-btn shrink-0`}
       onClick={onRefresh}
       aria-label="Atualizar fila"
     >
@@ -496,169 +491,181 @@ export function OrderQueue(props: {
   ) : null;
 
   return (
-    <aside className="exp-queue-panel flex h-full min-h-0 flex-1 flex-col">
-      <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)] !px-2 !py-1.5">
+    <aside className="exp-queue-panel flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="exp-queue-panel-header shrink-0 border-b border-[var(--exp-border)]">
         {isPedidosMode ? (
-          <ErpFilterBar<ExpeditionPedidosPreset>
-            storageKey={pedidosFiltersKey}
-            badges={filterBadges}
-            hasActiveFilters={hasActiveFilters}
-            onRemoveBadge={handleRemoveBadge}
-            onClearAll={handleClearAll}
-            presetValue={presetValue}
-            hideFilterButton
-            hideSavedPresetsList
-            open={filtersOpen}
-            onOpenChange={setFiltersOpen}
-            savedFiltersVersion={savedFiltersVersion}
-            onSaveFilter={() => setNewFilterOpen(true)}
-            onApplyPreset={(preset) => {
-              applyPedidosPreset(
-                preset,
-                data,
-                onSourceFilterChange,
-                null,
-                setActiveCustomFilterId,
-              );
-            }}
-            leadingToolbar={
-              <div className="mb-1.5 flex w-full basis-full items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2 overflow-x-auto erp-scrollbar">
-                  {filtersButton}
-                  {periodFilterNode}
-                </div>
-                {refreshButton ? <div className="shrink-0">{refreshButton}</div> : null}
-              </div>
-            }
-            searchSlot={
-              <div className="flex w-full flex-col gap-2">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
-                    <Search className="exp-queue-search-icon" aria-hidden />
-                    <input
-                      type="search"
-                      value={data.appliedFilters.search}
-                      onChange={(e) => {
-                        data.setPage(1);
-                        setActiveCustomFilterId(null);
-                        data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
-                      }}
-                      placeholder="Número do pedido..."
-                      className="exp-queue-search"
-                    />
+          <div className="exp-queue-filters-area">
+            <div className="exp-queue-toolbar-row-1">
+              <div className="exp-queue-filters-btn-wrap" ref={filtersWrapRef}>
+                <button
+                  type="button"
+                  className={`exp-queue-filters-btn exp-queue-toolbar-btn ${filtersOpen ? 'exp-queue-filters-btn--open' : ''}`}
+                  onClick={openFilters}
+                  aria-expanded={filtersOpen}
+                >
+                  <Filter className="h-4 w-4 shrink-0" aria-hidden />
+                  Filtros
+                  {hasActiveFilters ? (
+                    <span className="exp-queue-filters-badge">{filterBadges.length}</span>
+                  ) : null}
+                </button>
+                {filtersOpen ? (
+                  <div className="exp-queue-filters-dropdown exp-queue-filters-dropdown--status">
+                    <div className="exp-queue-status-filter-list">
+                      {HEADER_STATUS_FILTERS.map((f) => {
+                        const on = data.statusFilter === f.id;
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            className="exp-queue-status-filter-item"
+                            style={headerStatusFilterStyle(f.id, on)}
+                            onClick={() => {
+                              handleStatusFilterChange(f.id);
+                              setFiltersOpen(false);
+                            }}
+                          >
+                            {f.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {hasActiveFilters ? (
+                      <button
+                        type="button"
+                        className="exp-queue-filters-clear-btn"
+                        onClick={() => {
+                          handleClearAll();
+                          setFiltersOpen(false);
+                        }}
+                      >
+                        Limpar filtros
+                      </button>
+                    ) : null}
                   </div>
-                  <select
-                    value={data.appliedFilters.filterField}
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="exp-queue-save-filter-btn exp-queue-toolbar-btn shrink-0"
+                onClick={() => setNewFilterOpen(true)}
+              >
+                Salvar filtro
+              </button>
+              <div className="exp-queue-toolbar-period shrink-0">{periodFilterNode}</div>
+              <button
+                type="button"
+                className="exp-queue-print-btn exp-queue-print-btn--inline exp-queue-toolbar-btn shrink-0"
+                disabled={selectedForPrintCount === 0}
+                onClick={handleSavePdf}
+              >
+                <Download className="h-4 w-4 shrink-0" aria-hidden />
+                Salvar PDF
+              </button>
+              {refreshButton}
+            </div>
+
+            <div className="exp-queue-toolbar-row-2">
+              <div className="exp-queue-search-wrap min-w-0 flex-1">
+                <Search className="exp-queue-search-icon" aria-hidden />
+                <input
+                  type="search"
+                  value={data.appliedFilters.search}
+                  onChange={(e) => {
+                    data.setPage(1);
+                    setActiveCustomFilterId(null);
+                    data.setAppliedFilters((f) => ({ ...f, search: e.target.value }));
+                  }}
+                  placeholder="Buscar pedido..."
+                  className="exp-queue-search exp-queue-search--compact"
+                  aria-label="Buscar por número do pedido"
+                />
+              </div>
+              {data.appliedFilters.filterField ? (
+                <div className="exp-queue-search-wrap min-w-0 flex-1">
+                  <input
+                    type="search"
+                    value={data.appliedFilters.filterValue}
                     onChange={(e) => {
                       data.setPage(1);
                       setActiveCustomFilterId(null);
-                      const next = e.target.value as PedidosFilterField;
                       data.setAppliedFilters((f) => ({
                         ...f,
-                        filterField: next,
-                        filterValue: next ? f.filterValue : '',
+                        filterValue: e.target.value,
                       }));
                     }}
-                    className="h-9 min-w-[9.5rem] shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                    aria-label="Filtrar por campo"
-                  >
-                    <option value="">Filtrar por...</option>
-                    {PEDIDOS_FIELD_FILTER_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  {data.appliedFilters.filterField ? (
-                    <>
-                      <div className="exp-queue-search-wrap erp-filter-search-slot min-w-[10rem] flex-1">
-                        <input
-                          type="search"
-                          value={data.appliedFilters.filterValue}
-                          onChange={(e) => {
-                            data.setPage(1);
-                            setActiveCustomFilterId(null);
-                            data.setAppliedFilters((f) => ({
-                              ...f,
-                              filterValue: e.target.value,
-                            }));
-                          }}
-                          placeholder={pedidosFieldFilterPlaceholder(
-                            data.appliedFilters.filterField,
-                          )}
-                          className="exp-queue-search !pl-3"
-                          aria-label={`Valor do filtro ${pedidosFieldFilterLabel(data.appliedFilters.filterField)}`}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          data.setPage(1);
-                          setActiveCustomFilterId(null);
-                          data.setAppliedFilters((f) => ({
-                            ...f,
-                            filterField: '',
-                            filterValue: '',
-                          }));
-                        }}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:bg-white/5 hover:text-[var(--text-primary)]"
-                        aria-label="Limpar filtro selecionado"
-                        title="Limpar filtro"
-                      >
-                        <X className="h-4 w-4" aria-hidden />
-                      </button>
-                    </>
-                  ) : null}
+                    placeholder={pedidosFieldFilterPlaceholder(
+                      data.appliedFilters.filterField,
+                    )}
+                    className="exp-queue-search exp-queue-search--compact exp-queue-search--iconless"
+                    aria-label={`Valor do filtro ${pedidosFieldFilterLabel(data.appliedFilters.filterField)}`}
+                  />
                 </div>
-                <PedidosSavedFiltersBar
-                  storageKey={pedidosFiltersKey}
-                  savedFiltersVersion={savedFiltersVersion}
-                  activeCustomFilterId={activeCustomFilterId}
-                  onApply={(preset, filterId) => {
-                    applyPedidosPreset(
-                      preset,
-                      data,
-                      onSourceFilterChange,
-                      filterId,
-                      setActiveCustomFilterId,
-                    );
+              ) : null}
+              <select
+                value={data.appliedFilters.filterField}
+                onChange={(e) => {
+                  data.setPage(1);
+                  setActiveCustomFilterId(null);
+                  const next = e.target.value as PedidosFilterField;
+                  data.setAppliedFilters((f) => ({
+                    ...f,
+                    filterField: next,
+                    filterValue: next ? f.filterValue : '',
+                  }));
+                }}
+                className="exp-queue-filter-select shrink-0"
+                aria-label="Filtrar por campo"
+              >
+                <option value="">Filtrar por...</option>
+                {PEDIDOS_FIELD_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              {data.appliedFilters.filterField ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    data.setPage(1);
+                    setActiveCustomFilterId(null);
+                    data.setAppliedFilters((f) => ({
+                      ...f,
+                      filterField: '',
+                      filterValue: '',
+                    }));
                   }}
-                  onDelete={(filterId) => {
-                    setSavedFiltersVersion((v) => v + 1);
-                    if (activeCustomFilterId === filterId) {
-                      setActiveCustomFilterId(null);
-                    }
-                  }}
-                />
-              </div>
-            }
-          >
-            <div className="space-y-3">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                  Status
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {HEADER_STATUS_FILTERS.map((f) => {
-                    const on = data.statusFilter === f.id;
-                    return (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => handleStatusFilterChange(f.id)}
-                        className={on ? STATUS_PILL_ACTIVE : STATUS_PILL_INACTIVE}
-                      >
-                        {f.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <p className="text-xs text-[var(--text-secondary)]">
-                Busque por pedido, cliente ou SKU. Filtros salvos aparecem abaixo.
-              </p>
+                  className={`${HEADER_BTN_ICON} shrink-0`}
+                  aria-label="Limpar filtro selecionado"
+                  title="Limpar filtro"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ) : null}
             </div>
-          </ErpFilterBar>
+
+            <PedidosSavedFiltersBar
+              storageKey={pedidosFiltersKey}
+              savedFiltersVersion={savedFiltersVersion}
+              activeCustomFilterId={activeCustomFilterId}
+              onApply={(preset, filterId) => {
+                applyPedidosPreset(
+                  preset,
+                  data,
+                  onSourceFilterChange,
+                  filterId,
+                  setActiveCustomFilterId,
+                );
+              }}
+              onDelete={(filterId) => {
+                setSavedFiltersVersion((v) => v + 1);
+                if (activeCustomFilterId === filterId) {
+                  setActiveCustomFilterId(null);
+                }
+              }}
+            />
+          </div>
         ) : (
           <div className="exp-queue-header-row !mb-1.5 !gap-2">
             {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
@@ -682,26 +689,7 @@ export function OrderQueue(props: {
         />
       ) : null}
 
-      {isPedidosMode ? (
-        <div className="exp-queue-print-toolbar shrink-0">
-          {selectedForPrintCount > 0 ? (
-            <span className="exp-queue-print-count">
-              {selectedForPrintCount} pedido(s) selecionado(s)
-            </span>
-          ) : (
-            <span className="exp-queue-print-count exp-queue-print-count--empty" />
-          )}
-          <button
-            type="button"
-            className="exp-queue-print-btn"
-            disabled={selectedForPrintCount === 0}
-            onClick={handleSavePdf}
-          >
-            <Download className="h-4 w-4" aria-hidden />
-            Salvar PDF
-          </button>
-        </div>
-      ) : (
+      {!isPedidosMode ? (
         <div className="exp-queue-print-toolbar shrink-0">
           {selectedForRemovalCount > 0 ? (
             <span className="exp-queue-print-count">
@@ -719,7 +707,7 @@ export function OrderQueue(props: {
             Remover da Separação
           </button>
         </div>
-      )}
+      ) : null}
 
       {removeModalOpen ? (
         <RemoveFromSeparationModal
@@ -732,11 +720,22 @@ export function OrderQueue(props: {
 
       <div
         ref={listScrollRef}
-        className="exp-queue-panel-list erp-scrollbar min-h-0 flex-1 overflow-y-auto !p-2 !pb-4"
+        className={`exp-queue-panel-list erp-scrollbar min-h-0 w-full flex-1 overflow-x-hidden ${
+          isPedidosMode
+            ? 'flex flex-col overflow-hidden !p-2.5'
+            : 'overflow-y-auto !p-2.5'
+        }`}
+        {...pullRefresh.handlers}
       >
+        <div
+          className="erp-ptr-indicator md:hidden"
+          style={{ height: pullRefresh.pullDistance > 0 || pullRefresh.refreshing ? 32 : 0 }}
+        >
+          {pullRefresh.refreshing ? 'Atualizando…' : pullRefresh.pullDistance > 48 ? 'Solte para atualizar' : ''}
+        </div>
         {data.ordersLoading && data.orders.length === 0 ? (
           <div className="exp-queue-empty p-2">
-            <CardGridSkeleton count={6} />
+            <ListSkeleton rows={6} />
           </div>
         ) : data.orders.length === 0 ? (
           <div className="p-3">
@@ -756,17 +755,35 @@ export function OrderQueue(props: {
             />
           </div>
         ) : isPedidosMode ? (
-          <>
-            <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
-              {data.orders.map(renderOrderCard)}
-            </div>
-            {data.ordersHasMore ? (
-              <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
-            ) : null}
-            {data.ordersLoadingMore ? (
-              <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
-            ) : null}
-          </>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <PedidosOrdersTable
+              userId={user.id}
+              orders={data.orders}
+              selectedOrderId={selectedOrderId}
+              onSelectOrder={onSelectOrder}
+              onOrderChosen={onOrderChosen}
+              selectedForPrintIds={selectedForPrintIds}
+              onTogglePrint={togglePrintSelection}
+              isAdmin={isAdmin}
+              onEditOrder={onEditOrder}
+              onDeleteOrder={onDeleteOrder}
+              scrollContainerRef={pedidosTableScrollRef}
+              listFooter={
+                <>
+                  {data.ordersHasMore ? (
+                    <div
+                      ref={loadMoreSentinelRef}
+                      className="exp-queue-load-more-sentinel shrink-0"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {data.ordersLoadingMore ? (
+                    <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
+                  ) : null}
+                </>
+              }
+            />
+          </div>
         ) : separationSections ? (
           <>
             <div className="exp-queue-sections gap-2">
@@ -802,6 +819,44 @@ export function OrderQueue(props: {
           </p>
         </div>
       ) : null}
+
+      <MobileBottomDrawer
+        open={filtersDrawerOpen}
+        onClose={() => setFiltersDrawerOpen(false)}
+        title="Filtros"
+      >
+        <div className="exp-queue-status-filter-list">
+          {HEADER_STATUS_FILTERS.map((f) => {
+            const on = data.statusFilter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                className="exp-queue-status-filter-item min-h-[44px] w-full"
+                style={headerStatusFilterStyle(f.id, on)}
+                onClick={() => {
+                  handleStatusFilterChange(f.id);
+                  setFiltersDrawerOpen(false);
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              className="exp-queue-filters-clear-btn min-h-[44px] w-full"
+              onClick={() => {
+                handleClearAll();
+                setFiltersDrawerOpen(false);
+              }}
+            >
+              Limpar filtros
+            </button>
+          ) : null}
+        </div>
+      </MobileBottomDrawer>
     </aside>
   );
 }

@@ -11,8 +11,8 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
   const { currentStep } = props;
 
   return (
-    <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] !p-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="exp-wb-stepper-block rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)]">
+      <div className="exp-wb-stepper-inner flex flex-wrap items-center gap-2">
         {STEPS.map((step, idx) => {
           const active = step.id === currentStep;
           const isWorkflowComplete = currentStep === STEPS.length;
@@ -25,7 +25,7 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
           return (
             <div key={step.id} className="flex items-center gap-2">
               <span
-                className={`inline-flex h-7 items-center rounded-full border px-3 text-[11px] font-semibold ${cls}`}
+                className={`exp-wb-stepper-pill inline-flex items-center rounded-full border px-2 text-[11px] font-semibold ${cls}`}
               >
                 {done ? '✓ ' : `${step.id} `}
                 {step.label}

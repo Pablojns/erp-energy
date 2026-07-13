@@ -141,7 +141,7 @@ export function TabFinanceiro({ period, refreshKey }: TabFinanceiroProps) {
       {table.length > 0 ? (
         <div className="dash-card w-full p-4 md:p-6">
           <h3 className="mb-3 text-sm font-semibold text-[var(--dash-text)]">Pedidos por mês</h3>
-          <div className={`${DASH_SCROLL} max-h-[400px]`}>
+          <div className={DASH_SCROLL}>
             <table className="dash-table">
             <thead>
               <tr>

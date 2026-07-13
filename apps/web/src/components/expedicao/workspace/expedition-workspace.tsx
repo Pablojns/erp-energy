@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect -- seleção/tabs sincronizam com atualização da fila */
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { AdminOrderEditModal } from '@/src/components/expedicao/workspace/admin-order-edit-modal';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
 import { NewSiteOrderModal } from '@/src/components/expedicao/workspace/new-site-order-modal';
@@ -17,6 +17,7 @@ import {
   useExpeditionSelectedPedido,
 } from '@/src/hooks/useExpeditionPedidosBridge';
 import { useExpedicaoHeaderActions } from '@/src/components/expedicao/layout/expedicao-header-actions-context';
+import { useSwipeBack } from '@/src/hooks/use-swipe-back';
 
 export type ExpeditionWorkspaceMode = 'orders' | 'separation';
 
@@ -47,7 +48,10 @@ export function ExpeditionWorkspace(props: {
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<OrderDto | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'fila' | 'detalhes'>('fila');
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  const handleMobileBack = () => setMobileDetailOpen(false);
+  const swipeBack = useSwipeBack({ onBack: handleMobileBack, enabled: mobileDetailOpen });
 
   const selectedInList =
     data.orders.find((o) => o.id === selectedOrderId) ?? null;
@@ -77,7 +81,7 @@ export function ExpeditionWorkspace(props: {
 
   useEffect(() => {
     setSelectedOrderId(null);
-    setActiveTab('fila');
+    setMobileDetailOpen(false);
   }, [data.statusFilter, mode, sourceFilter]);
 
   useEffect(() => {
@@ -122,7 +126,7 @@ export function ExpeditionWorkspace(props: {
       data={data}
       selectedOrderId={selectedOrderId}
       onSelectOrder={setSelectedOrderId}
-      onOrderChosen={() => setActiveTab('detalhes')}
+      onOrderChosen={() => setMobileDetailOpen(true)}
       title={mode === 'separation' ? 'Fila de Pedidos p/ Separação' : undefined}
       sourceFilter={mode === 'orders' ? sourceFilter : undefined}
       onSourceFilterChange={mode === 'orders' ? setSourceFilter : undefined}
@@ -186,9 +190,9 @@ export function ExpeditionWorkspace(props: {
     }
 
     const secondaryBtnClass =
-      'inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/20 bg-transparent px-3 py-1.5 text-sm font-semibold text-[var(--text-primary)] transition hover:bg-white/5';
+      'inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-[14px] text-[13px] font-semibold text-[var(--text-secondary)] transition hover:border-[#2AACE2] hover:text-[#2AACE2]';
     const primaryBtnClass =
-      'inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-500';
+      'inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2AACE2] px-[14px] text-[13px] font-semibold text-white transition hover:bg-[#1E96CC]';
 
     const handleNewOrder = () => {
       if (mode !== 'orders') return;
@@ -206,8 +210,8 @@ export function ExpeditionWorkspace(props: {
     };
 
     setTopActions(
-      <div className="flex w-full items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="flex w-full flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" className={primaryBtnClass} onClick={handleNewOrder}>
             {sourceFilter === 'WEG'
               ? '+ Novo Pedido'
@@ -232,7 +236,7 @@ export function ExpeditionWorkspace(props: {
     );
 
     setBelowSubnavActions(
-      <div className="flex w-full items-center gap-2">
+      <div className="hidden w-full flex-wrap items-center gap-2 md:flex">
         <button
           type="button"
           className={
@@ -270,52 +274,79 @@ export function ExpeditionWorkspace(props: {
     );
   }, [mode, onNewOrder, setBelowSubnavActions, setTopActions, sourceFilter]);
 
-  return (
-    <div className="flex h-[calc(100dvh-11.5rem)] min-h-0 w-full flex-col gap-2 overflow-hidden px-2 pt-2 pb-2 max-lg:h-[calc(100dvh-14.5rem)]">
-      <div className="exp-mobile-tabs flex shrink-0 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setActiveTab('fila')}
-          className={`exp-mobile-tab-btn ${activeTab === 'fila' ? 'exp-mobile-tab-btn--active' : ''}`}
-        >
-          📋 Fila de Pedidos
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('detalhes')}
-          className={`exp-mobile-tab-btn ${activeTab === 'detalhes' ? 'exp-mobile-tab-btn--active' : ''}`}
-        >
-          🔍 Detalhes
-        </button>
+  const workbenchContent =
+    detailLoading && !displayOrder ? (
+      <div className="exp-wb-panel exp-wb-panel--empty">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
+        <p className="exp-wb-empty-title">Carregando detalhes do pedido…</p>
       </div>
+    ) : detailError && !displayOrder ? (
+      <div className="exp-wb-panel exp-wb-panel--empty">
+        <p className="exp-wb-empty-title text-red-400">{detailError}</p>
+      </div>
+    ) : (
+      <SeparationWorkbench
+        order={displayOrder}
+        data={data}
+        mode={mode}
+        isAdmin={isAdmin}
+        onEditOrder={mode === 'orders' && isAdmin ? openOrderEdit : undefined}
+        onDeleteOrder={mode === 'orders' ? (order) => setDeleteOrder(order) : undefined}
+        onAfterAction={() => void handleAfterAction()}
+        mobileLayout={mobileDetailOpen}
+      />
+    );
 
-      <div className="exp-page-layout flex h-full min-h-0 flex-1 flex-col">
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
+      {mode === 'orders' ? (
+        <div className="exp-mobile-source-chips md:hidden">
+          {(['WEG', 'SITE', 'VENDA_EXTERNA'] as const).map((src) => (
+            <button
+              key={src}
+              type="button"
+              className={`exp-mobile-source-chip${sourceFilter === src ? ' exp-mobile-source-chip--active' : ''}`}
+              onClick={() => setSourceFilter(src)}
+            >
+              {src === 'VENDA_EXTERNA' ? 'Venda Externa' : src}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="exp-page-layout flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
-          className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col ${activeTab === 'fila' ? 'block' : 'hidden'} lg:block`}
+          className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col ${mobileDetailOpen ? 'hidden md:flex' : 'flex'} exp-mobile-list-screen md:!h-auto md:!overflow-hidden`}
         >
           {orderQueue}
         </div>
-        <div className={`exp-page-col-workbench w-full ${activeTab === 'detalhes' ? 'block' : 'hidden'} lg:block`}>
-          {detailLoading && !displayOrder ? (
-            <div className="exp-wb-panel exp-wb-panel--empty">
-              <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
-              <p className="exp-wb-empty-title">Carregando detalhes do pedido…</p>
-            </div>
-          ) : detailError && !displayOrder ? (
-            <div className="exp-wb-panel exp-wb-panel--empty">
-              <p className="exp-wb-empty-title text-red-400">{detailError}</p>
-            </div>
-          ) : (
-            <SeparationWorkbench
-              order={displayOrder}
-              data={data}
-              mode={mode}
-              isAdmin={isAdmin}
-              onEditOrder={mode === 'orders' && isAdmin ? openOrderEdit : undefined}
-              onAfterAction={() => void handleAfterAction()}
-            />
-          )}
+
+        <div className={`exp-page-col-workbench hidden w-full md:block ${mobileDetailOpen ? '' : ''}`}>
+          {workbenchContent}
         </div>
+
+        {mobileDetailOpen ? (
+          <div
+            className="exp-mobile-detail-screen md:hidden"
+            onTouchStart={swipeBack.onTouchStart}
+            onTouchEnd={swipeBack.onTouchEnd}
+          >
+            <header className="exp-mobile-detail-header">
+              <button
+                type="button"
+                className="erp-mobile-touch-target"
+                onClick={handleMobileBack}
+                aria-label="Voltar para lista"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <span className="text-sm font-semibold text-[var(--text-primary)]">
+                {displayOrder ? `Pedido #${displayOrder.externalOrderNumber ?? displayOrder.id.slice(0, 8)}` : 'Detalhe'}
+              </span>
+            </header>
+            <div className="exp-mobile-detail-body">{workbenchContent}</div>
+          </div>
+        ) : null}
       </div>
 
       {data.banner ? (
@@ -357,7 +388,7 @@ export function ExpeditionWorkspace(props: {
               window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
-                setActiveTab('detalhes');
+                setMobileDetailOpen(true);
               }
               data.setToast({
                 variant: 'ok',
@@ -378,7 +409,7 @@ export function ExpeditionWorkspace(props: {
               window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
-                setActiveTab('detalhes');
+                setMobileDetailOpen(true);
               }
               data.setToast({
                 variant: 'ok',
@@ -402,7 +433,7 @@ export function ExpeditionWorkspace(props: {
               window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
-                setActiveTab('detalhes');
+                setMobileDetailOpen(true);
               }
               data.setToast({
                 variant: 'ok',

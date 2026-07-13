@@ -5,6 +5,8 @@ import { ExpedicaoHeaderFrame } from '@/src/components/expedicao/layout/expedica
 
 export default function ExpedicaoLayout({ children }: { children: ReactNode }) {
   return (
-    <ExpedicaoHeaderFrame>{children}</ExpedicaoHeaderFrame>
+    <div className="expedition-viewport-host">
+      <ExpedicaoHeaderFrame>{children}</ExpedicaoHeaderFrame>
+    </div>
   );
 }

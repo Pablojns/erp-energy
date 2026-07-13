@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  NOTIFICATION_PRIORITY,
+  NOTIFICATION_TYPES,
+} from '../notifications/notification.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { CreateCrmCardDto } from './dto/create-crm-card.dto';
 import type { CreateCrmChannelDto } from './dto/create-crm-channel.dto';
 import type { CreateCrmFunilDto } from './dto/create-crm-funil.dto';
@@ -105,7 +110,10 @@ export class CrmService {
     motivoPerda: true,
   } satisfies Prisma.CrmCardInclude;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private serializeFunil(row: CrmFunilRow) {
     return {
@@ -704,6 +712,25 @@ export class CrmService {
       data,
       include: this.cardInclude,
     });
+
+    if (
+      dto.responsavelId &&
+      dto.responsavelId !== before.responsavelId
+    ) {
+      void this.notifications.create(
+        dto.responsavelId,
+        'Lead atribuído a você',
+        `O lead "${updated.name}" foi atribuído a você.`,
+        NOTIFICATION_TYPES.CRM_LEAD_ASSIGNED,
+        '/app/crm',
+        {
+          entityId: updated.id,
+          entityType: 'crm_card',
+          priority: NOTIFICATION_PRIORITY.NORMAL,
+        },
+      );
+    }
+
     const statusMap = await this.loadStatusMap();
     return this.serializeCard(updated, statusMap);
   }

@@ -13,6 +13,7 @@ import {
 import { updatePurchaseStatus } from './compras-api';
 import { ComprasCardPreview } from './compras-card';
 import { ComprasKanbanColumn } from './compras-kanban-column';
+import { MobileKanbanCarousel } from '@/src/components/mobile/mobile-kanban-carousel';
 import type { KanbanColumnId, PurchaseRequest } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
 import { kanbanColumnForStatus } from './compras-utils';
@@ -86,7 +87,7 @@ export function ComprasKanbanBoard(props: {
       onDragStart={handleDragStart}
       onDragEnd={(event) => void handleDragEnd(event)}
     >
-      <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
+      <div className="hidden h-full min-h-0 gap-3 overflow-x-auto pb-2 md:flex">
         {KANBAN_COLUMNS.map((column) => (
           <ComprasKanbanColumn
             key={column.id}
@@ -98,6 +99,23 @@ export function ComprasKanbanBoard(props: {
             activeDragId={activeId ?? movingId}
           />
         ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 md:hidden">
+        <MobileKanbanCarousel
+          columns={KANBAN_COLUMNS.map((c) => ({ id: c.id, title: c.label }))}
+          renderColumn={(column) => (
+            <ComprasKanbanColumn
+              key={column.id}
+              id={column.id as KanbanColumnId}
+              label={column.title}
+              items={grouped[column.id as KanbanColumnId]}
+              loading={props.loading}
+              onOpenCard={props.onOpenCard}
+              activeDragId={activeId ?? movingId}
+            />
+          )}
+        />
       </div>
 
       <DragOverlay dropAnimation={null}>

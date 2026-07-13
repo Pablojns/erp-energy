@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Bell,
   KeyRound,
   Package,
   Pencil,
@@ -14,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { NotificationPreferencesPanel } from '@/src/components/configuracoes/notification-preferences-panel';
 import { UserPermissionsPanel } from '@/src/components/configuracoes/user-permissions-panel';
 
 type AdminUser = {
@@ -74,35 +76,52 @@ type ProductListResponse = {
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 };
 
-type Tab = 'users' | 'products';
+type Tab = 'users' | 'products' | 'notifications';
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 });
 
-export function ConfiguracoesAdminClient() {
-  const [activeTab, setActiveTab] = useState<Tab>('users');
+export function ConfiguracoesAdminClient(props: { isAdmin: boolean }) {
+  const { isAdmin } = props;
+  const [activeTab, setActiveTab] = useState<Tab>(
+    isAdmin ? 'users' : 'notifications',
+  );
 
   return (
     <div className="space-y-4">
       <div className="erp-tab-group w-fit">
+        {isAdmin ? (
+          <>
+            <TabButton
+              active={activeTab === 'users'}
+              onClick={() => setActiveTab('users')}
+              icon={<Users size={16} />}
+              label="Usuários"
+            />
+            <TabButton
+              active={activeTab === 'products'}
+              onClick={() => setActiveTab('products')}
+              icon={<Package size={16} />}
+              label="Produtos Inativos"
+            />
+          </>
+        ) : null}
         <TabButton
-          active={activeTab === 'users'}
-          onClick={() => setActiveTab('users')}
-          icon={<Users size={16} />}
-          label="Usuários"
-        />
-        <TabButton
-          active={activeTab === 'products'}
-          onClick={() => setActiveTab('products')}
-          icon={<Package size={16} />}
-          label="Produtos Inativos"
+          active={activeTab === 'notifications'}
+          onClick={() => setActiveTab('notifications')}
+          icon={<Bell size={16} />}
+          label="Notificações"
         />
       </div>
 
       <section className="erp-module-card min-h-[320px] overflow-hidden">
-        {activeTab === 'users' ? <UsersTable /> : <InactiveProductsTable />}
+        {activeTab === 'users' ? <UsersTable /> : null}
+        {activeTab === 'products' ? <InactiveProductsTable /> : null}
+        {activeTab === 'notifications' ? (
+          <NotificationPreferencesPanel />
+        ) : null}
       </section>
     </div>
   );
@@ -297,7 +316,7 @@ function UsersTable() {
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             role === 'ADMIN'
                               ? 'bg-amber-500/15 text-amber-300'
-                              : 'bg-blue-500/15 text-blue-300'
+                              : 'bg-[#2AACE2]/15 text-[#1E96CC]'
                           }`}
                         >
                           {role === 'ADMIN' ? <ShieldCheck size={12} /> : null}

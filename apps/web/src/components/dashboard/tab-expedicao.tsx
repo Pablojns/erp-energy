@@ -138,7 +138,7 @@ export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
           ) : delayed.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--dash-text-muted)]">Nenhum pedido atrasado.</p>
           ) : (
-            <ul className={`mt-4 ${DASH_SCROLL} max-h-[300px]`}>
+            <ul className={`mt-4 ${DASH_SCROLL}`}>
               {delayed.map((row) => (
                 <li key={row.id}>
                   <Link href="/app/expedicao/pedidos" className="dash-link-row">
@@ -167,7 +167,7 @@ export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
           ) : !resumo?.topTransportadoras.length ? (
             <p className="mt-4 text-sm text-[var(--dash-text-muted)]">Sem saídas no período.</p>
           ) : (
-            <ul className={`mt-4 ${DASH_SCROLL} max-h-[300px]`}>
+            <ul className={`mt-4 ${DASH_SCROLL}`}>
               {resumo.topTransportadoras.map((t) => (
                 <li key={t.nome} className="dash-list-row">
                   <span className="truncate text-sm">{t.nome}</span>

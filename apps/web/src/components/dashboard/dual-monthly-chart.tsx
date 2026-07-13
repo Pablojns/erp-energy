@@ -117,8 +117,8 @@ export function DualMonthlyChart({
       <div className="dash-chart-wrap">
         <svg
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          preserveAspectRatio="xMinYMid meet"
-          style={{ minWidth: layout.width }}
+          preserveAspectRatio="xMidYMid meet"
+          className="mx-auto block h-full w-full max-w-full"
           role="img"
           aria-label="Gráfico de barras pedidos versus faturado"
           onMouseLeave={() => setActiveIndex(null)}

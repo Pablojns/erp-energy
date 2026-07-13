@@ -28,8 +28,9 @@ export function OrderClickableStatusBadge(props: {
   order: OrderDto;
   onStatusChanged?: () => void;
   readOnly?: boolean;
+  compact?: boolean;
 }) {
-  const { order, onStatusChanged, readOnly = false } = props;
+  const { order, onStatusChanged, readOnly = false, compact = false } = props;
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<OrderStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -88,10 +89,14 @@ export function OrderClickableStatusBadge(props: {
     }
   };
 
+  const badgeClass = compact
+    ? 'exp-wb-order-badge exp-pedidos-status-badge'
+    : 'exp-wb-order-badge';
+
   if (readOnly) {
     return (
       <span
-        className="exp-wb-order-badge"
+        className={badgeClass}
         style={orderWorkflowCardBadgeStyle(badge.color)}
       >
         {badge.label}
@@ -139,14 +144,17 @@ export function OrderClickableStatusBadge(props: {
     <div className="exp-order-status-badge-wrap" ref={wrapRef}>
       <button
         type="button"
-        className="exp-wb-order-badge exp-order-status-badge-btn"
+        className={`${badgeClass} exp-order-status-badge-btn`}
         style={orderWorkflowCardBadgeStyle(badge.color)}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
         {badge.label}
-        <ChevronDown className="exp-order-status-chevron" aria-hidden />
+        <ChevronDown
+          className={compact ? 'exp-order-status-chevron !h-3 !w-3' : 'exp-order-status-chevron'}
+          aria-hidden
+        />
       </button>
       {open ? (
         <ul className="exp-order-status-dropdown" role="listbox">

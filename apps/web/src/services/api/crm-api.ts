@@ -624,7 +624,7 @@ export const CRM_ORIGIN_LABEL: Record<CrmCardOrigin, string> = {
 };
 
 export const CRM_ORIGIN_BADGE_CLASS: Record<CrmCardOrigin, string> = {
-  ANUNCIO: 'border-blue-400/60 bg-blue-500/30 text-blue-100',
+  ANUNCIO: 'border-[#2AACE2]/60 bg-[#2AACE2]/20 text-[#0f172a]',
   INDICACAO: 'border-emerald-400/60 bg-emerald-500/30 text-emerald-100',
   FRIO: 'border-violet-400/60 bg-violet-500/25 text-violet-100',
 };

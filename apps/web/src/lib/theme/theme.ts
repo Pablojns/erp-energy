@@ -1,4 +1,4 @@
-export type ErpTheme = 'dark' | 'light';
+export type ErpTheme = 'light';
 
 export const ERP_THEME_STORAGE_KEY = 'theme';
 export const ERP_THEME_STORAGE_LEGACY_KEY = 'erp-theme';
@@ -6,35 +6,25 @@ export const ERP_THEME_STORAGE_LEGACY_KEY = 'erp-theme';
 export const DEFAULT_ERP_THEME: ErpTheme = 'light';
 
 export function isErpTheme(value: string | null | undefined): value is ErpTheme {
-  return value === 'dark' || value === 'light';
+  return value === 'light';
 }
 
 export function getStoredErpTheme(): ErpTheme {
-  if (typeof window === 'undefined') {
-    return DEFAULT_ERP_THEME;
-  }
-  try {
-    const stored =
-      localStorage.getItem(ERP_THEME_STORAGE_KEY) ??
-      localStorage.getItem(ERP_THEME_STORAGE_LEGACY_KEY);
-    return isErpTheme(stored) ? stored : DEFAULT_ERP_THEME;
-  } catch {
-    return DEFAULT_ERP_THEME;
-  }
+  return DEFAULT_ERP_THEME;
 }
 
-export function applyErpTheme(theme: ErpTheme): void {
-  document.documentElement.classList.toggle('dark', theme === 'dark');
-  document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.style.colorScheme = theme;
+export function applyErpTheme(_theme: ErpTheme): void {
+  document.documentElement.classList.remove('dark');
+  document.documentElement.setAttribute('data-theme', DEFAULT_ERP_THEME);
+  document.documentElement.style.colorScheme = DEFAULT_ERP_THEME;
 }
 
-export function persistErpTheme(theme: ErpTheme): void {
+export function persistErpTheme(_theme: ErpTheme): void {
   try {
-    localStorage.setItem(ERP_THEME_STORAGE_KEY, theme);
-    localStorage.setItem(ERP_THEME_STORAGE_LEGACY_KEY, theme);
+    localStorage.setItem(ERP_THEME_STORAGE_KEY, DEFAULT_ERP_THEME);
+    localStorage.setItem(ERP_THEME_STORAGE_LEGACY_KEY, DEFAULT_ERP_THEME);
   } catch {
     /* storage indisponível */
   }
-  applyErpTheme(theme);
+  applyErpTheme(DEFAULT_ERP_THEME);
 }

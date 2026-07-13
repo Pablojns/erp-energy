@@ -24,7 +24,7 @@ export function CrmActivityTimeline(props: { items: CrmActivityItem[] }) {
                 ? 'bg-amber-400'
                 : item.kind === 'touchpoint'
                   ? 'bg-emerald-400'
-                  : 'bg-blue-400'
+                  : 'bg-[#2AACE2]'
             }`}
           />
           <div className="rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2">

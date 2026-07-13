@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Activity,
   Box,
   ClipboardList,
   LayoutDashboard,
@@ -51,7 +51,7 @@ export function MobileNavDrawer() {
     <>
       <button
         type="button"
-        className="erp-focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-erp-fg lg:hidden"
+        className="erp-focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white lg:hidden"
         aria-label="Abrir menu de módulos"
         aria-expanded={open}
         onClick={() => setOpen(true)}
@@ -67,21 +67,17 @@ export function MobileNavDrawer() {
             aria-hidden
           />
           <aside
-            className="fixed bottom-0 left-0 top-0 z-[59] flex w-[min(88vw,18rem)] flex-col border-r border-white/10 bg-[#0d0f14] shadow-2xl lg:hidden"
+            className="fixed bottom-0 left-0 top-0 z-[59] flex w-[min(88vw,18rem)] flex-col border-r border-white/10 bg-[#0f172a] shadow-2xl lg:hidden"
             aria-label="Menu lateral"
           >
             <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500">
-                  <Activity className="h-4 w-4 text-white" strokeWidth={2.25} aria-hidden />
-                </span>
-                <div className="leading-tight">
-                  <p className="text-sm font-semibold text-white">ERP Energy</p>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-white/50">
-                    Módulos
-                  </p>
-                </div>
-              </div>
+              <Image
+                src="/brand/energy-brands-logo.png"
+                alt="Energy Brands"
+                width={150}
+                height={40}
+                className="h-9 w-auto object-contain"
+              />
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -104,7 +100,7 @@ export function MobileNavDrawer() {
                         onClick={() => setOpen(false)}
                         className={`flex min-h-[40px] items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs font-medium transition ${
                           active
-                            ? 'bg-[#5b5ef4]/20 text-[#a5b4fc]'
+                            ? 'bg-[#2AACE2]/20 text-[#2AACE2]'
                             : 'text-white/80 hover:bg-white/5 hover:text-white'
                         }`}
                       >

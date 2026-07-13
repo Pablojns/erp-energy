@@ -2,8 +2,7 @@ export type DashboardTabId =
   | 'overview'
   | 'financeiro'
   | 'expedicao'
-  | 'estoque'
-  | 'alertas';
+  | 'estoque';
 
 export type DashboardFluxo = {
   NOVO: number;

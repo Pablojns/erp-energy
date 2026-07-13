@@ -1,5 +1,6 @@
 'use client';
 
+import { Lock } from 'lucide-react';
 import { useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
 import {
   OrderItemOrderedQtyCell,
@@ -27,12 +28,20 @@ export function SeparationItemsTable(props: {
 
   return (
     <div className="exp-wb-table-wrap">
-      <div className="exp-wb-table-head !px-3 !py-1.5">
-        <h3 className="text-xs font-semibold">
-          {isOrdersMode ? 'Itens do pedido (leitura)' : 'Itens para separação'}
-        </h3>
+      <div className="exp-wb-table-head exp-wb-table-head--compact">
+        {isOrdersMode ? (
+          <span
+            className="exp-wb-table-head-lock"
+            title="Itens do pedido (somente leitura)"
+            aria-label="Itens do pedido (somente leitura)"
+          >
+            <Lock className="h-3 w-3" aria-hidden />
+          </span>
+        ) : (
+          <h3 className="exp-wb-table-head-title">Itens para separação</h3>
+        )}
         {isOrdersMode && receiptSummary.recebidos + receiptSummary.emFalta > 0 ? (
-          <p className="exp-wb-item-receipt-summary text-xs">
+          <p className="exp-wb-item-receipt-summary text-[10px]">
             <span className="exp-wb-item-receipt-summary__recebido">
               {receiptSummary.recebidos} recebido(s)
             </span>
@@ -45,7 +54,7 @@ export function SeparationItemsTable(props: {
       </div>
       <div className="exp-wb-table-scroll">
         <table
-          className={`exp-wb-table text-xs [&_thead_th]:!px-2 [&_thead_th]:!py-1 [&_thead_th]:!text-xs [&_tbody_td]:!px-2 [&_tbody_td]:!py-1 [&_tbody_td]:!text-xs [&_tbody_td]:!min-h-0 ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
+          className={`exp-wb-table exp-wb-table--compact exp-wb-table--mobile-cards ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
         >
           <colgroup>
             <col className="exp-wb-col-linha" />
@@ -105,21 +114,21 @@ export function SeparationItemsTable(props: {
 
               return (
                 <tr key={it.id}>
-                  <td className="exp-wb-cell-linha text-xs">{it.lineNumber}</td>
-                  <td className="exp-wb-cell-sku text-xs">{it.sku || '—'}</td>
-                  <td className="exp-wb-cell-item text-xs" title={it.description}>
+                  <td className="exp-wb-cell-linha text-xs" data-label="Linha">{it.lineNumber}</td>
+                  <td className="exp-wb-cell-sku text-xs" data-label="SKU">{it.sku || '—'}</td>
+                  <td className="exp-wb-cell-item text-xs" data-label="Item" title={it.description}>
                     {it.description}
                   </td>
-                  <td className="text-center">
+                  <td className="text-center" data-label="Qtd">
                     <OrderItemOrderedQtyCell qty={it.quantity} />
                   </td>
                   {!isVendaExterna ? (
-                    <td className="text-center">
+                    <td className="text-center" data-label="Estoque">
                       <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
                     </td>
                   ) : null}
                   {isVendaExterna ? (
-                    <td className="text-center text-xs">
+                    <td className="text-center text-xs" data-label="Preço unit.">
                       {Number(it.unitPrice).toLocaleString('pt-BR', {
                         style: 'currency',
                         currency: 'BRL',
@@ -127,7 +136,7 @@ export function SeparationItemsTable(props: {
                     </td>
                   ) : null}
                   {isVendaExterna ? (
-                    <td className="text-center text-xs">
+                    <td className="text-center text-xs" data-label="Total">
                       {Number(it.totalPrice).toLocaleString('pt-BR', {
                         style: 'currency',
                         currency: 'BRL',
@@ -135,7 +144,7 @@ export function SeparationItemsTable(props: {
                     </td>
                   ) : null}
                   {!isVendaExterna ? (
-                    <td className="text-center">
+                    <td className="text-center" data-label="Status item">
                       <OrderItemReceiptStatusBadge
                         status={resolveItemReceiptStatusForOrder(it, order.status)}
                       />

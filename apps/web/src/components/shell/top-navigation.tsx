@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Activity,
   Box,
   ClipboardList,
   LayoutDashboard,
@@ -23,7 +23,6 @@ import { useNavPermissions } from '@/src/components/layout/nav-permissions-conte
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
 import { MobileNavDrawer } from '@/src/components/shell/mobile-nav-drawer';
 import { useGlobalSearch } from '@/src/components/shell/global-search-provider';
-import { ThemeToggle } from '@/src/components/theme/theme-toggle';
 import type { AuthUser } from '@/src/services/api/auth';
 import { type NavIconName } from './nav-config';
 
@@ -62,26 +61,17 @@ export function TopNavigation({ user }: TopNavigationProps) {
       <div className="mx-auto flex max-w-[1600px] items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4 lg:gap-5 lg:px-6">
         <Link
           href="/app"
-          className="erp-focus-ring group relative flex shrink-0 items-center gap-3 rounded-2xl px-1 py-0.5 outline-none transition duration-300"
+          className="erp-focus-ring group relative flex shrink-0 items-center rounded-2xl px-1 py-0.5 outline-none transition duration-300"
+          aria-label="Energy Brands ERP"
         >
-          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-600 to-cyan-500 shadow-[0_0_0_1px_rgba(255,255,255,0.14)_inset,0_8px_32px_-10px_var(--erp-glow-blue),0_0_48px_-12px_var(--erp-glow-violet)] transition duration-300 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.22)_inset,0_12px_40px_-8px_var(--erp-glow-blue)]">
-            <span
-              className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-transparent opacity-60"
-              aria-hidden
-            />
-            <Activity
-              className="relative h-[22px] w-[22px] text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]"
-              strokeWidth={2.25}
-            />
-          </span>
-          <span className="hidden min-w-0 leading-tight sm:block">
-            <span className="block text-[15px] font-semibold tracking-tight text-erp-fg">
-              ERP Energy
-            </span>
-            <span className="block text-[10px] font-medium uppercase tracking-[0.22em] text-erp-fg-muted">
-              OPS SUITE
-            </span>
-          </span>
+          <Image
+            src="/brand/energy-brands-logo.png"
+            alt="Energy Brands"
+            width={190}
+            height={50}
+            priority
+            className="h-8 w-auto object-contain sm:h-10"
+          />
         </Link>
 
         <MobileNavDrawer />
@@ -117,21 +107,20 @@ export function TopNavigation({ user }: TopNavigationProps) {
           <button
             type="button"
             onClick={openSearch}
-            className="erp-focus-ring flex items-center gap-2 rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)]/60 px-2.5 py-2 text-xs text-[var(--erp-fg-muted)] transition hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)] hover:text-[var(--erp-fg)] sm:px-3"
+            className="erp-focus-ring flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-2 text-xs text-white/75 transition hover:border-[color-mix(in_srgb,var(--accent)_45%,transparent)] hover:text-[#2AACE2] sm:px-3"
             aria-label="Busca global (Ctrl+K)"
           >
             <Search className="h-4 w-4 shrink-0" aria-hidden />
             <span className="hidden sm:inline">Buscar</span>
-            <kbd className="hidden rounded border border-[var(--erp-border)] px-1 py-0.5 text-[10px] md:inline">
+            <kbd className="hidden rounded border border-white/15 px-1 py-0.5 text-[10px] text-white/70 md:inline">
               Ctrl+K
             </kbd>
           </button>
-          <ThemeToggle />
           <NotificationsBell />
           <div className="erp-divider hidden h-9 w-px sm:block" />
           <div className="hidden max-w-[148px] text-right md:block lg:max-w-[180px]">
-            <p className="truncate text-sm font-medium text-erp-fg">{user.name}</p>
-            <p className="truncate text-xs text-erp-fg-muted">{user.email}</p>
+            <p className="truncate text-sm font-medium text-white">{user.name}</p>
+            <p className="truncate text-xs text-white/60">{user.email}</p>
           </div>
           <LogoutButton variant="icon" />
         </div>

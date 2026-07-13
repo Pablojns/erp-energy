@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Columns3, List, Plus } from 'lucide-react';
+import { Columns3, List, MoreVertical, Plus } from 'lucide-react';
 import { CrmCardDetailModal } from '@/src/components/crm/crm-card-detail-modal';
 import { CrmClientesList } from '@/src/components/crm/crm-clientes-list';
 import { CrmCreateCardModal } from '@/src/components/crm/crm-create-card-modal';
@@ -12,7 +12,8 @@ import { CrmKanbanListView } from '@/src/components/crm/crm-kanban-list-view';
 import { CrmMetasModal } from '@/src/components/crm/crm-metas-modal';
 import { CrmRelatorios } from '@/src/components/crm/crm-relatorios';
 import { CrmSettingsModal } from '@/src/components/crm/crm-settings-modal';
-import { CrmSidebar, type CrmView } from '@/src/components/crm/crm-sidebar';
+import { CrmMobileNav, CrmSidebar, type CrmView } from '@/src/components/crm/crm-sidebar';
+import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import type { CrmDashboardPeriod } from '@/src/components/crm/crm-helpers';
 import {
   getCrmDashboard,
@@ -57,6 +58,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const [metasModalOpen, setMetasModalOpen] = useState(false);
   const [detailCardId, setDetailCardId] = useState<string | null>(null);
   const [kanbanLayout, setKanbanLayout] = useState<'kanban' | 'list'>('kanban');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -153,7 +155,17 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
 
       <div className="flex min-w-0 flex-1 flex-col bg-[var(--erp-bg)]">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--erp-border)] px-4 py-3 sm:px-5">
-          <h2 className="text-lg font-semibold text-[var(--erp-fg)]">{viewTitle}</h2>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="erp-focus-ring -ml-2 flex h-11 w-11 items-center justify-center rounded-lg text-[var(--erp-fg)] md:hidden"
+              aria-label="Abrir menu do CRM"
+            >
+              <MoreVertical className="h-5 w-5" aria-hidden />
+            </button>
+            <h2 className="truncate text-lg font-semibold text-[var(--erp-fg)]">{viewTitle}</h2>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {showKanbanActions ? (
@@ -228,7 +240,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
           ) : null}
 
           {activeView === 'kanban' ? (
-            <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+            <section className="erp-module-panel relative flex min-h-0 flex-1 flex-col overflow-hidden p-3">
               {kanbanLayout === 'kanban' ? (
                 <CrmKanbanBoard
                   funis={funis}
@@ -248,6 +260,17 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
                   onOpenCard={(card) => setDetailCardId(card.id)}
                 />
               )}
+              {showNewLeadAction && kanbanLayout === 'kanban' ? (
+                <button
+                  type="button"
+                  className="erp-mobile-kanban-fab md:hidden"
+                  aria-label="Novo lead"
+                  disabled={funis.length === 0}
+                  onClick={() => setCardModalOpen(true)}
+                >
+                  <Plus className="h-6 w-6" />
+                </button>
+              ) : null}
             </section>
           ) : null}
 
@@ -266,6 +289,24 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
           {activeView === 'relatorios' ? <CrmRelatorios /> : null}
         </div>
       </div>
+
+      <MobileBottomDrawer
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        title="Menu CRM"
+      >
+        <CrmMobileNav
+          activeView={activeView}
+          onViewChange={(view) => {
+            setActiveView(view);
+            setMobileNavOpen(false);
+          }}
+          onOpenSettings={() => {
+            setMobileNavOpen(false);
+            setSettingsOpen(true);
+          }}
+        />
+      </MobileBottomDrawer>
 
       <CrmCreateFunilModal
         open={funilModalOpen}

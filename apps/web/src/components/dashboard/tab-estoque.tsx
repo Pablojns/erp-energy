@@ -123,7 +123,7 @@ export function TabEstoque({ period, refreshKey }: TabEstoqueProps) {
         {critical.length === 0 ? (
           <p className="text-sm text-[var(--dash-text-muted)]">Nenhum produto crítico.</p>
         ) : (
-          <div className={`${DASH_SCROLL} max-h-[350px]`}>
+          <div className={`${DASH_SCROLL}`}>
             <table className="dash-table">
               <thead>
                 <tr>
@@ -163,7 +163,7 @@ export function TabEstoque({ period, refreshKey }: TabEstoqueProps) {
         {movements.length === 0 ? (
           <p className="text-sm text-[var(--dash-text-muted)]">Sem movimentações no período.</p>
         ) : (
-          <div className={`${DASH_SCROLL} max-h-[350px]`}>
+          <div className={DASH_SCROLL}>
             <table className="dash-table">
               <thead>
                 <tr>

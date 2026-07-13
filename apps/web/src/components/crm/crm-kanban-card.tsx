@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { MessageCircle, XCircle } from 'lucide-react';
+import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import { crmUserInitials, isCrmFollowUpOverdue } from '@/src/components/crm/crm-helpers';
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import {
@@ -10,6 +11,7 @@ import {
   formatCrmCurrency,
   type CrmCardDto,
 } from '@/src/services/api/crm-api';
+import type { CrmFunilDto } from '@/src/services/api/crm-api';
 
 const DRAG_MIME = 'application/x-crm-card-id';
 
@@ -28,9 +30,13 @@ export function CrmKanbanCard(props: {
   isMoving?: boolean;
   onDragStart: (cardId: string) => void;
   onDragEnd: () => void;
+  moveTargets?: CrmFunilDto[];
+  onMoveToFunil?: (cardId: string, funilId: string) => void;
 }) {
-  const { card, onOpen, isDragging, isMoving, onDragStart, onDragEnd } = props;
+  const { card, onOpen, isDragging, isMoving, onDragStart, onDragEnd, moveTargets, onMoveToFunil } = props;
   const didDrag = useRef(false);
+  const longPressTimer = useRef<number | null>(null);
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false);
   const followUpOverdue = isCrmFollowUpOverdue(card);
   const perdido = isPerdido(card);
   const fechado = isFechado(card);
@@ -58,15 +64,33 @@ export function CrmKanbanCard(props: {
     onOpen();
   }, [isDragging, isMoving, onOpen]);
 
+  const handleTouchStart = () => {
+    if (!moveTargets?.length || !onMoveToFunil) return;
+    longPressTimer.current = window.setTimeout(() => {
+      setMoveMenuOpen(true);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   const dragging = isDragging || isMoving;
 
   return (
+    <>
     <article
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
-      className={`erp-module-card relative cursor-grab p-3.5 transition active:cursor-grabbing ${
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      className={`erp-module-card relative min-h-[88px] cursor-grab p-3.5 transition active:cursor-grabbing md:min-h-0 ${
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
@@ -158,6 +182,30 @@ export function CrmKanbanCard(props: {
         </div>
       </div>
     </article>
+    <MobileBottomDrawer
+      open={moveMenuOpen}
+      onClose={() => setMoveMenuOpen(false)}
+      title="Mover para…"
+    >
+      <div className="grid gap-1">
+        {(moveTargets ?? [])
+          .filter((f) => f.id !== card.funilId)
+          .map((funil) => (
+            <button
+              key={funil.id}
+              type="button"
+              className="erp-mobile-action-item"
+              onClick={() => {
+                setMoveMenuOpen(false);
+                onMoveToFunil?.(card.id, funil.id);
+              }}
+            >
+              {funil.name}
+            </button>
+          ))}
+      </div>
+    </MobileBottomDrawer>
+    </>
   );
 }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, FileText, Loader2, PackageOpen, Tag } from 'lucide-react';
+import { MobileActionMenu, type MobileActionItem } from '@/src/components/mobile/mobile-action-menu';
 import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
 import { isWegItemAlreadyReceived, orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-panel';
@@ -43,8 +44,10 @@ export function SeparationWorkbench(props: {
   onAfterAction?: () => void;
   isAdmin?: boolean;
   onEditOrder?: (order: OrderDto) => void;
+  onDeleteOrder?: (order: OrderDto) => void;
+  mobileLayout?: boolean;
 }) {
-  const { order, data, mode = 'orders', onAfterAction, isAdmin = false, onEditOrder } = props;
+  const { order, data, mode = 'orders', onAfterAction, isAdmin = false, onEditOrder, onDeleteOrder, mobileLayout = false } = props;
   const [nfModalOpen, setNfModalOpen] = useState(false);
   const [nfFlaskModalOpen, setNfFlaskModalOpen] = useState(false);
   const [nfFlaskLoading, setNfFlaskLoading] = useState(false);
@@ -380,13 +383,76 @@ export function SeparationWorkbench(props: {
     return 1;
   })();
 
+  const mobileActions: MobileActionItem[] = [];
+  if (isAdmin && onEditOrder) {
+    mobileActions.push({
+      id: 'edit',
+      label: 'Editar',
+      onClick: () => onEditOrder(order),
+    });
+  }
+  if (onDeleteOrder) {
+    mobileActions.push({
+      id: 'delete',
+      label: 'Excluir',
+      destructive: true,
+      onClick: () => onDeleteOrder(order),
+    });
+  }
+  if (canAttachNf) {
+    mobileActions.push({
+      id: 'gerar-nf',
+      label: 'Gerar NF',
+      onClick: () => openNfFlaskModal(),
+      disabled: nfFlaskLoading,
+    });
+  }
+  if (canPrintEtiquetaAndExit) {
+    mobileActions.push({
+      id: 'etiqueta',
+      label: 'Imprimir Etiqueta',
+      onClick: () => void handleImprimirEtiquetaAndExit(),
+      disabled: printingEtiqueta,
+    });
+  }
+  if (shouldShowSaveAction) {
+    mobileActions.push({
+      id: 'rascunho',
+      label: 'Salvar Rascunho',
+      onClick: () => {
+        if (typeof data.saveSeparationProgress === 'function') {
+          void data.saveSeparationProgress(order.id);
+        } else {
+          void data.refreshAll();
+        }
+      },
+    });
+  }
+  if (canRemessaExit) {
+    mobileActions.push({
+      id: 'remessa',
+      label: 'Dar saída (Remessa)',
+      onClick: () => {
+        void data.attachRemessaExit(order.id).then((ok) => {
+          if (ok) onAfterAction?.();
+        });
+      },
+    });
+  }
+
   return (
-    <div className="exp-wb-panel !gap-2 !p-3">
+    <div className="exp-wb-panel relative !gap-1.5 !p-3">
+      {mobileLayout ? (
+        <div className="fixed right-3 top-[calc(env(safe-area-inset-top)+70px)] z-[48] md:hidden">
+          <MobileActionMenu actions={mobileActions} />
+        </div>
+      ) : null}
       <OrderInfoPanel
         order={order}
         panelMode={mode}
         isAdmin={isAdmin}
         hideVolumes={mode === 'separation'}
+        compactHeaderActions={mobileLayout}
         onEditOrder={onEditOrder ? () => onEditOrder(order) : undefined}
         carrierSaving={carrierSaving}
         onCarrierChange={async (carrierId) => {
@@ -463,10 +529,10 @@ export function SeparationWorkbench(props: {
       />
 
       {canSendToSeparation ? (
-        <div className="exp-wb-triage exp-wb-triage--sticky !pt-2">
+        <div className="exp-wb-triage exp-wb-triage--sticky !pt-2 hidden md:block">
           <button
             type="button"
-            className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs"
+            className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full exp-wb-send-separation"
             onClick={async () => {
               if (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO') {
                 await data.sendToPicking(order.id);
@@ -485,10 +551,33 @@ export function SeparationWorkbench(props: {
         </div>
       ) : null}
 
+      {mobileLayout && canSendToSeparation ? (
+        <div className="exp-mobile-fixed-cta md:hidden">
+          <button
+            type="button"
+            className="exp-mobile-fixed-cta-btn"
+            onClick={async () => {
+              if (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO') {
+                await data.sendToPicking(order.id);
+              } else {
+                await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
+                data.setToast({
+                  variant: 'ok',
+                  message: `Pedido #${numero} enviado para separação ✓`,
+                });
+              }
+              onAfterAction?.();
+            }}
+          >
+            Enviar para Separação
+          </button>
+        </div>
+      ) : null}
+
       {mode === 'separation' ? (
         <>
           <div className="exp-wb-footer-spacer min-[1025px]:hidden" />
-          <footer className="exp-wb-footer !gap-2 !pt-2">
+          <footer className="exp-wb-footer !gap-2 !pt-2 hidden md:flex">
             {shouldShowConcludeAction ? (
               <button
                 type="button"
@@ -578,6 +667,19 @@ export function SeparationWorkbench(props: {
               </Link>
             ) : null}
           </footer>
+          {mobileLayout && shouldShowConcludeAction ? (
+            <div className="exp-mobile-fixed-cta md:hidden">
+              <button
+                type="button"
+                className="exp-mobile-fixed-cta-btn exp-mobile-fixed-cta-btn--success"
+                disabled={concluding || !canFinalizeSeparation || !volumesValid}
+                onClick={() => void handleFinalizeSeparation()}
+              >
+                <CheckCircle2 className="h-5 w-5" aria-hidden />
+                Concluir Separação
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
 

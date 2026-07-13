@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { LayoutGrid } from 'lucide-react';
 import { CrmKanbanColumn } from '@/src/components/crm/crm-kanban-column';
+import { MobileKanbanCarousel } from '@/src/components/mobile/mobile-kanban-carousel';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import {
   moveCrmCard,
@@ -68,6 +69,42 @@ export function CrmKanbanBoard(props: {
     }
   };
 
+  const handleMoveCard = async (cardId: string, funilId: string) => {
+    const card = props.cards.find((item) => item.id === cardId);
+    if (!card || card.funilId === funilId) return;
+    setMovingId(cardId);
+    try {
+      const updated = await moveCrmCard(cardId, funilId);
+      props.onCardMoved(updated);
+    } catch (err) {
+      props.onError(err instanceof Error ? err.message : 'Falha ao mover card.');
+    } finally {
+      setMovingId(null);
+    }
+  };
+
+  const renderColumn = (funil: CrmFunilDto) => (
+    <CrmKanbanColumn
+      key={funil.id}
+      funil={funil}
+      cards={grouped[funil.id] ?? []}
+      loading={props.loading}
+      onOpenCard={props.onOpenCard}
+      draggedCardId={draggedCardId}
+      movingId={movingId}
+      isDropTarget={dropTargetFunilId === funil.id}
+      onDragEnter={() => setDropTargetFunilId(funil.id)}
+      onDragLeave={() =>
+        setDropTargetFunilId((current) => (current === funil.id ? null : current))
+      }
+      onDrop={() => void handleDrop(funil.id)}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      mobileMoveTargets={props.funis}
+      onMobileMoveCard={handleMoveCard}
+    />
+  );
+
   if (!props.loading && props.funis.length === 0) {
     return (
       <div className="flex flex-1 p-4">
@@ -82,28 +119,16 @@ export function CrmKanbanBoard(props: {
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
-      {props.funis.map((funil) => (
-        <CrmKanbanColumn
-          key={funil.id}
-          funil={funil}
-          cards={grouped[funil.id] ?? []}
-          loading={props.loading}
-          onOpenCard={props.onOpenCard}
-          draggedCardId={draggedCardId}
-          movingId={movingId}
-          isDropTarget={dropTargetFunilId === funil.id}
-          onDragEnter={() => setDropTargetFunilId(funil.id)}
-          onDragLeave={() =>
-            setDropTargetFunilId((current) =>
-              current === funil.id ? null : current,
-            )
-          }
-          onDrop={() => void handleDrop(funil.id)}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
+    <>
+      <div className="hidden h-full min-h-0 gap-3 overflow-x-auto pb-2 md:flex">
+        {props.funis.map((funil) => renderColumn(funil))}
+      </div>
+      <div className="flex min-h-0 flex-1 md:hidden">
+        <MobileKanbanCarousel
+          columns={props.funis.map((f) => ({ id: f.id, title: f.name }))}
+          renderColumn={(_, index) => renderColumn(props.funis[index]!)}
         />
-      ))}
-    </div>
+      </div>
+    </>
   );
 }

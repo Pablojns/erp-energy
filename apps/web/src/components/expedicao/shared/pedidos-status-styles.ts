@@ -2,7 +2,31 @@ import type { CSSProperties } from 'react';
 import type { OrderWorkflowStatusColor } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderStatus, StatusFilterId } from '@/src/components/expedicao/shared/types';
 
-/** Cores fixas de badge — contraste com texto branco em claro/escuro. */
+type BadgeTone = {
+  base: string;
+  text: string;
+};
+
+const BADGE_TONES: Partial<Record<StatusFilterId, BadgeTone>> = {
+  novo: { base: '#2563eb', text: '#1d4ed8' },
+  em_separacao: { base: '#2563eb', text: '#1d4ed8' },
+  aguardando_nf: { base: '#ea580c', text: '#c2410c' },
+  finalizado: { base: '#16a34a', text: '#15803d' },
+  parcial: { base: '#ca8a04', text: '#a16207' },
+  cancelado: { base: '#dc2626', text: '#b91c1c' },
+  urgente: { base: '#dc2626', text: '#b91c1c' },
+};
+
+const WORKFLOW_TO_TONE: Record<OrderWorkflowStatusColor, BadgeTone> = {
+  novo: BADGE_TONES.novo!,
+  em_separacao: BADGE_TONES.em_separacao!,
+  aguardando_nf: BADGE_TONES.aguardando_nf!,
+  finalizado: BADGE_TONES.finalizado!,
+  parcial: BADGE_TONES.parcial!,
+  cancelado: BADGE_TONES.cancelado!,
+};
+
+/** Cores fixas de badge — mantidas para referência semântica. */
 export const PEDIDOS_STATUS_BG: Partial<Record<StatusFilterId, string>> = {
   novo: '#2563eb',
   em_separacao: '#2563eb',
@@ -13,43 +37,35 @@ export const PEDIDOS_STATUS_BG: Partial<Record<StatusFilterId, string>> = {
   urgente: '#dc2626',
 };
 
-const WORKFLOW_TO_BG: Record<OrderWorkflowStatusColor, string> = {
-  novo: PEDIDOS_STATUS_BG.novo!,
-  em_separacao: PEDIDOS_STATUS_BG.em_separacao!,
-  aguardando_nf: PEDIDOS_STATUS_BG.aguardando_nf!,
-  finalizado: PEDIDOS_STATUS_BG.finalizado!,
-  parcial: PEDIDOS_STATUS_BG.parcial!,
-  cancelado: PEDIDOS_STATUS_BG.cancelado!,
-};
-
-export function pedidosStatusBadgeStyle(
-  tone: StatusFilterId | string | undefined,
-  active = false,
-): CSSProperties | undefined {
-  const bg = PEDIDOS_STATUS_BG[tone as StatusFilterId];
-  if (!bg) return undefined;
+function gradientBadgeStyle(tone: BadgeTone, active = false): CSSProperties {
+  const { base, text } = tone;
   return {
-    background: bg,
-    color: 'var(--color-text-inverse)',
-    border: 'none',
+    background: `linear-gradient(135deg, ${base}20, ${base}35)`,
+    color: text,
+    border: `1px solid ${base}50`,
     ...(active
       ? {
-          boxShadow:
-            '0 0 0 2px var(--bg-card), 0 0 0 4px color-mix(in srgb, var(--bg-card) 35%, transparent)',
+          boxShadow: `0 0 0 2px var(--bg-card), 0 0 0 3px ${base}30`,
         }
       : {}),
   };
 }
 
-export const URGENT_BADGE_STYLE: CSSProperties = {
-  background: '#dc2626',
-  color: 'var(--color-text-inverse)',
-};
+export function pedidosStatusBadgeStyle(
+  tone: StatusFilterId | string | undefined,
+  active = false,
+): CSSProperties | undefined {
+  const badgeTone = BADGE_TONES[tone as StatusFilterId];
+  if (!badgeTone) return undefined;
+  return gradientBadgeStyle(badgeTone, active);
+}
 
-export const MANUAL_URGENT_BADGE_STYLE: CSSProperties = {
-  background: '#ea580c',
-  color: '#ffffff',
-};
+export const URGENT_BADGE_STYLE: CSSProperties = gradientBadgeStyle(BADGE_TONES.urgente!);
+
+export const MANUAL_URGENT_BADGE_STYLE: CSSProperties = gradientBadgeStyle({
+  base: '#ea580c',
+  text: '#c2410c',
+});
 
 export function orderStatusToWorkflowColor(
   status: OrderStatus,
@@ -90,15 +106,5 @@ export function orderWorkflowCardBadgeStyle(
   color: OrderWorkflowStatusColor,
   active = false,
 ): CSSProperties {
-  return {
-    background: WORKFLOW_TO_BG[color],
-    color: 'var(--color-text-inverse)',
-    border: 'none',
-    ...(active
-      ? {
-          boxShadow:
-            '0 0 0 2px var(--bg-card), 0 0 0 4px color-mix(in srgb, var(--bg-card) 35%, transparent)',
-        }
-      : {}),
-  };
+  return gradientBadgeStyle(WORKFLOW_TO_TONE[color], active);
 }

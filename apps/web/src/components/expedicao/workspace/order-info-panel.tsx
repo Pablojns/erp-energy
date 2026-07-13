@@ -39,25 +39,50 @@ export type OrderInfoPanelHandle = {
 function HeaderField(props: { label: string; children: ReactNode }) {
   const { label, children } = props;
   return (
-    <div className="exp-wb-order-header-field gap-1">
-      <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}</span>
-      <div className="exp-wb-order-header-value text-sm">{children}</div>
+    <div className="exp-wb-order-header-field gap-0.5">
+      <span className="exp-wb-order-header-label">{label}</span>
+      <div className="exp-wb-order-header-value">{children}</div>
     </div>
   );
 }
 
-function HeaderPair(props: {
+function PartyCell(props: {
   label: string;
   value: string;
-  align?: 'start' | 'end';
+  copyValue?: string;
+  multiline?: boolean;
 }) {
-  const { label, value, align = 'start' } = props;
+  const { label, value, copyValue, multiline = false } = props;
   return (
     <div
-      className={`exp-wb-order-header-pair${align === 'end' ? ' exp-wb-order-header-pair--end' : ''}`}
+      className={`exp-wb-order-party-cell${multiline ? ' exp-wb-order-party-cell--wrap' : ''}`}
     >
-      <span className="exp-wb-order-header-label text-xs text-zinc-400">{label}:</span>
-      <span className="exp-wb-order-header-value text-sm">{value}</span>
+      <span className="exp-wb-order-party-label">{label}</span>
+      <div className="exp-wb-order-party-value-row min-w-0">
+        <span
+          className={`exp-wb-order-party-value${
+            multiline
+              ? ' exp-wb-order-party-value--wrap'
+              : copyValue
+                ? ' exp-wb-order-party-value--ellipsis'
+                : ''
+          }`}
+          title={multiline ? undefined : value}
+        >
+          {value}
+        </span>
+        {copyValue && !multiline ? (
+          <button
+            type="button"
+            className="exp-wb-order-party-copy"
+            aria-label="Copiar endereço"
+            title="Copiar endereço"
+            onClick={() => void navigator.clipboard.writeText(copyValue)}
+          >
+            📋
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -78,6 +103,7 @@ export const OrderInfoPanel = forwardRef<
     panelMode?: 'orders' | 'separation';
     isAdmin?: boolean;
     onEditOrder?: () => void;
+    compactHeaderActions?: boolean;
   }
 >(function OrderInfoPanel(props, ref) {
   const {
@@ -94,6 +120,7 @@ export const OrderInfoPanel = forwardRef<
     panelMode = 'separation',
     isAdmin = false,
     onEditOrder,
+    compactHeaderActions = false,
   } = props;
 
   const isOrdersMode = panelMode === 'orders';
@@ -441,7 +468,7 @@ export const OrderInfoPanel = forwardRef<
   }));
 
   const inputClassName =
-    'w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
+    'exp-wb-transport-input w-full min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 text-[12px] outline-none placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default disabled:opacity-60 text-[var(--color-text-secondary,var(--text-secondary))]';
 
   return (
     <div className="exp-wb-section-card exp-wb-order-data-card exp-wb-order-data-card--blocks !gap-1.5 !p-3">
@@ -455,14 +482,14 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       ) : null}
-      <div className="exp-wb-order-header-meta !gap-2 !py-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <p className="exp-wb-order-number m-0 shrink-0 text-sm font-semibold">#{numero}</p>
-          <OrderClickableStatusBadge
-            order={order}
-            onStatusChanged={onStatusChanged}
-            readOnly={fieldsReadOnly}
-          />
+      <div className="exp-wb-order-header-meta exp-wb-order-header-meta--row">
+        <p className="exp-wb-order-number m-0 shrink-0 text-[13px] font-semibold">#{numero}</p>
+        <OrderClickableStatusBadge
+          order={order}
+          onStatusChanged={onStatusChanged}
+          readOnly={fieldsReadOnly}
+        />
+        <div className={`exp-wb-order-header-actions${compactHeaderActions ? ' hidden md:flex' : ''}`}>
           {onToggleUrgent ? (
             urgent ? (
               <button
@@ -475,7 +502,7 @@ export const OrderInfoPanel = forwardRef<
             ) : (
               <button
                 type="button"
-                className="exp-wb-urgency-toggle text-xs"
+                className="exp-wb-urgency-toggle text-[12px]"
                 onClick={() => void onToggleUrgent()}
               >
                 Marcar urgente
@@ -489,17 +516,17 @@ export const OrderInfoPanel = forwardRef<
           {isAdmin && onEditOrder ? (
             <button
               type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px]"
               onClick={onEditOrder}
             >
               <Pencil className="h-3.5 w-3.5" />
-              Editar pedido
+              Editar
             </button>
           ) : null}
           {canEmitEtiqueta ? (
             <button
               type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => void handleEmitEtiqueta()}
               disabled={emittingEtiqueta || cancellingEtiqueta}
             >
@@ -508,13 +535,13 @@ export const OrderInfoPanel = forwardRef<
               ) : (
                 <Tag className="h-3.5 w-3.5" />
               )}
-              Imprimir Etiqueta
+              Etiqueta
             </button>
           ) : null}
           {canCancelCorreiosEtiqueta ? (
             <button
               type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => void handleCancelCorreiosEtiqueta()}
               disabled={cancellingEtiqueta || emittingEtiqueta}
             >
@@ -523,73 +550,61 @@ export const OrderInfoPanel = forwardRef<
               ) : (
                 <Trash2 className="h-3.5 w-3.5" />
               )}
-              Cancelar Etiqueta
+              Cancelar
             </button>
           ) : null}
-          {etiquetaError ? (
-            <p className="basis-full text-xs text-red-500">{etiquetaError}</p>
-          ) : null}
+          <div className="exp-wb-order-header-delivery">
+            <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
+            <span className="exp-wb-order-header-label">Entrega:</span>
+            <span className="exp-wb-order-header-value">
+              {order.requestedDeliveryDate
+                ? formatDayDisplay(order.requestedDeliveryDate)
+                : 'não informada'}
+            </span>
+            {overdue !== null ? (
+              <span className="exp-wb-late-badge">{formatOverdueLabel(overdue)}</span>
+            ) : null}
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
-          <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
-          <span className="exp-wb-order-header-label text-xs text-zinc-400">Entrega:</span>
-          <span className="exp-wb-order-header-value text-sm">
-            {order.requestedDeliveryDate
-              ? formatDayDisplay(order.requestedDeliveryDate)
-              : 'não informada'}
-          </span>
-          {overdue !== null ? (
-            <span className="exp-wb-late-badge">{formatOverdueLabel(overdue)}</span>
-          ) : null}
-        </div>
+        {etiquetaError ? (
+          <p className="exp-wb-order-header-error text-[12px] text-red-500">{etiquetaError}</p>
+        ) : null}
       </div>
 
-      <div className="exp-wb-order-header-body !mt-1.5 !gap-1.5">
-        {isSimpleCustomerLayout ? (
-          <div className="exp-wb-order-header-block !p-3">
-            <div className="exp-wb-order-header-row !gap-2">
-              <HeaderPair label="Cliente" value={displayOrDash(order.customerName)} />
-              <HeaderPair
+      <div className="exp-wb-order-header-body">
+        <div className="exp-wb-order-parties-grid">
+          {isSimpleCustomerLayout ? (
+            <>
+              <PartyCell label="Cliente" value={displayOrDash(order.customerName)} />
+              <PartyCell
                 label="Endereço"
                 value={formatDeliveryAddressDisplay(
                   order.deliveryAddress ?? order.unloadingPoint,
                 )}
-                align="end"
+                multiline
               />
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="exp-wb-order-header-block !p-3">
-              <div className="exp-wb-order-header-row !gap-2">
-                <HeaderPair label="Comprador" value={cnpj} />
-                <HeaderPair label="Endereço" value={address} align="end" />
-              </div>
-            </div>
-
-            <div className="exp-wb-order-header-block !p-3">
-              <div className="exp-wb-order-header-row !gap-2">
-                <HeaderPair label="Recebedor" value={receiver} />
-                <HeaderPair label="Ponto de descarga" value={point} align="end" />
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="exp-wb-order-header-block !p-3">
-          <div className="exp-wb-order-header-obs gap-1">
-            <span className="exp-wb-order-header-label text-xs text-zinc-400">Observações:</span>
-            <p
-              className="exp-wb-order-header-value m-0 whitespace-pre-wrap text-sm"
-              title={notes ?? undefined}
-            >
-              {notes ?? '—'}
-            </p>
-          </div>
+              <PartyCell label="Recebedor" value={receiver} />
+              <PartyCell label="Ponto de descarga" value={point} />
+            </>
+          ) : (
+            <>
+              <PartyCell label="Comprador" value={cnpj} />
+              <PartyCell label="Endereço" value={address} multiline />
+              <PartyCell label="Recebedor" value={receiver} />
+              <PartyCell label="Ponto de descarga" value={point} />
+            </>
+          )}
         </div>
 
-        <div className="exp-wb-order-header-block !p-3">
-          <div className="exp-wb-order-header-grid !gap-2">
+        <div className="exp-wb-order-obs-compact" title={notes ?? undefined}>
+          <span className="exp-wb-order-obs-icon" aria-hidden>
+            📝
+          </span>
+          <span className="exp-wb-order-obs-text">{notes ?? '—'}</span>
+        </div>
+
+        <div className="exp-wb-order-header-block exp-wb-order-header-block--transport !p-2">
+          <div className="exp-wb-transport-grid">
             <HeaderField label="Transportadora:">
               {onCarrierChange && !carrierLocked && !fieldsReadOnly ? (
                 <div className="flex items-center gap-1.5">
@@ -735,45 +750,45 @@ export const OrderInfoPanel = forwardRef<
                   </div>
                 ) : (
                   <>
-                    <div className="flex flex-col gap-1.5">
-                      <input
-                        type="text"
-                        value={notaRemessa}
-                        onChange={(e) => {
-                          setNotaRemessa(e.target.value);
-                          setNotaRemessaError(null);
-                        }}
-                        onBlur={() => void saveNotaRemessa()}
-                        disabled={savingNotaRemessa}
-                        placeholder="Número da remessa"
-                        className={inputClassName}
-                      />
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
-                        <input
-                          type="checkbox"
-                          checked={notaRemessaConfirmada}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setNotaRemessaConfirmada(checked);
-                            void saveNotaRemessa({ confirmed: checked });
-                          }}
-                          disabled={savingNotaRemessa}
-                          className="h-4 w-4 accent-[var(--accent)]"
-                        />
-                        Confirmar nota de remessa
-                      </label>
-                    </div>
+                    <input
+                      type="text"
+                      value={notaRemessa}
+                      onChange={(e) => {
+                        setNotaRemessa(e.target.value);
+                        setNotaRemessaError(null);
+                      }}
+                      onBlur={() => void saveNotaRemessa()}
+                      disabled={savingNotaRemessa}
+                      placeholder="Número da remessa"
+                      className={inputClassName}
+                    />
                     {savingNotaRemessa ? (
                       <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" />
                     ) : null}
                     {notaRemessaError ? (
-                      <p className="mt-1 text-xs text-red-500">{notaRemessaError}</p>
+                      <p className="mt-1 text-[12px] text-red-500">{notaRemessaError}</p>
                     ) : null}
                   </>
                 )}
               </HeaderField>
             ) : null}
           </div>
+          {!isSiteOrder && !fieldsReadOnly ? (
+            <label className="exp-wb-remessa-confirm">
+              <input
+                type="checkbox"
+                checked={notaRemessaConfirmada}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setNotaRemessaConfirmada(checked);
+                  void saveNotaRemessa({ confirmed: checked });
+                }}
+                disabled={savingNotaRemessa}
+                className="h-3.5 w-3.5 accent-[var(--accent)]"
+              />
+              Confirmar nota de remessa
+            </label>
+          ) : null}
         </div>
       </div>
     </div>

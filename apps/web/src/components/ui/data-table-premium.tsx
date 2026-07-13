@@ -49,6 +49,8 @@ type DataTablePremiumProps = {
     columnClassName?: string;
     render: (row: TableRow) => ReactNode;
   };
+  /** Controles extras no cabeçalho (ex.: configurar colunas) */
+  headerActions?: ReactNode;
 };
 
 const PRIORITY_DOT: Record<NonNullable<TableRow['priority']>, string> = {
@@ -105,6 +107,7 @@ export function DataTablePremium({
   bodyClassName,
   dense = false,
   actionsColumn,
+  headerActions,
 }: DataTablePremiumProps) {
   const cellPad = dense ? 'px-1.5 py-0.5' : 'px-2 py-1';
   const headPad = dense ? 'px-1.5 py-1' : 'px-2 py-1.5';
@@ -126,10 +129,15 @@ export function DataTablePremium({
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[var(--border-color)]"
           aria-hidden
         />
-        <h3 className="text-xs font-semibold tracking-tight text-[var(--text-primary)]">{title}</h3>
-        {subtitle ? (
-          <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{subtitle}</p>
-        ) : null}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-xs font-semibold tracking-tight text-[var(--text-primary)]">{title}</h3>
+            {subtitle ? (
+              <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{subtitle}</p>
+            ) : null}
+          </div>
+          {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
+        </div>
       </div>
 
       <div

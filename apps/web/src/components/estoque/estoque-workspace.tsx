@@ -34,6 +34,10 @@ import {
   ErpFilterBar,
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
+import { TableColumnsPicker } from '@/src/components/shared/table-columns-picker';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
+import { useTableColumnPreferences } from '@/src/hooks/use-table-column-preferences';
+import type { ColumnDefinition } from '@/src/lib/table-column-preferences';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -319,15 +323,15 @@ const MOVEMENT_KIND_CHIP: Record<MovementKind, string> = {
 
 const QUICK_ACTION_CLASS: Record<MovementKind, string> = {
   entrada:
-    'border border-[#86efac] bg-[#dcfce7] text-[#16a34a] hover:brightness-95 dark:border-transparent dark:bg-[#22c55e] dark:text-white',
+    'border border-[#86efac] bg-[#dcfce7] text-[#16a34a] hover:brightness-95',
   saida:
-    'border border-[#fca5a5] bg-[#fee2e2] text-[#dc2626] hover:brightness-95 dark:border-transparent dark:bg-[#ef4444] dark:text-white',
+    'border border-[#fca5a5] bg-[#fee2e2] text-[#dc2626] hover:brightness-95',
   ajuste:
-    'border border-[#fcd34d] bg-[#fef3c7] text-[#d97706] hover:brightness-95 dark:border-transparent dark:bg-[#f59e0b] dark:text-white',
+    'border border-[#fcd34d] bg-[#fef3c7] text-[#d97706] hover:brightness-95',
   reserva:
-    'border border-[#c4b5fd] bg-[#ede9fe] text-[#7c3aed] hover:brightness-95 dark:border-transparent dark:bg-[#8b5cf6] dark:text-white',
+    'border border-[#c4b5fd] bg-[#ede9fe] text-[#7c3aed] hover:brightness-95',
   cancelamento_reserva:
-    'border border-[#cbd5e1] bg-[#f1f5f9] text-[#64748b] hover:brightness-95 dark:border-transparent dark:bg-[#1e2130] dark:text-[#8b8fa8]',
+    'border border-[#cbd5e1] bg-[#f1f5f9] text-[#64748b] hover:brightness-95',
 };
 
 type AuthMeResponse = {
@@ -513,21 +517,21 @@ function buildMovementDeleteRevertMessage(m: MovementRow): string {
 
 function movementBadgeClass(type: string) {
   if (type === 'INBOUND') {
-    return 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200';
+    return 'erp-movement-badge erp-movement-badge--inbound';
   }
   if (type === 'OUTBOUND') {
-    return 'bg-rose-500/20 text-rose-800 dark:text-rose-200';
+    return 'erp-movement-badge erp-movement-badge--outbound';
   }
   if (isAjusteMovementType(type)) {
-    return 'bg-amber-500/20 text-amber-900 dark:text-amber-200';
+    return 'erp-movement-badge erp-movement-badge--adjust';
   }
   if (type === 'RESERVE' || type === 'RESERVA') {
-    return 'bg-violet-500/20 text-violet-800 dark:text-violet-200';
+    return 'erp-movement-badge erp-movement-badge--reserve';
   }
   if (type === 'RESERVE_CANCEL') {
-    return 'bg-slate-500/20 text-slate-700 dark:text-slate-200';
+    return 'erp-movement-badge erp-movement-badge--neutral';
   }
-  return 'bg-zinc-500/20 text-zinc-700 dark:text-zinc-200';
+  return 'erp-movement-badge erp-movement-badge--neutral';
 }
 
 function formatDateTime(iso: string) {
@@ -642,11 +646,33 @@ function ProductCategoryCell({
   );
 }
 
+const MOVEMENT_TABLE_COLUMN_DEFINITIONS: ColumnDefinition[] = [
+  { key: 'pedido', label: 'Nº pedido', required: true },
+  { key: 'status', label: 'Status', required: true },
+  { key: 'recebedor', label: 'Recebedor', defaultVisible: false },
+  { key: 'pontoDescarga', label: 'Ponto de descarga', defaultVisible: false },
+  { key: 'transportadora', label: 'Transportadora', defaultVisible: false },
+  { key: 'nf', label: 'NF' },
+  { key: 'dataPedido', label: 'Data pedido' },
+  { key: 'dataEntrega', label: 'Data entrega', defaultVisible: false },
+  { key: 'valor', label: 'Valor', defaultVisible: false },
+  { key: 'product', label: 'Produto' },
+  { key: 'qty', label: 'Qtd' },
+  { key: 'user', label: 'Responsável' },
+];
+
+const MOVEMENT_TABLE_ID = 'estoque-movimentacoes';
+
 const movementColumnsBase: TableColumn[] = [
-  { key: 'date', header: 'Data', className: 'whitespace-nowrap' },
-  { key: 'type', header: 'Tipo' },
+  { key: 'dataPedido', header: 'Data pedido', className: 'whitespace-nowrap' },
+  { key: 'status', header: 'Status' },
   { key: 'pedido', header: 'Pedido', className: 'whitespace-nowrap min-w-[4.5rem]' },
   { key: 'nf', header: 'NF', className: 'whitespace-nowrap min-w-[3rem]' },
+  { key: 'recebedor', header: 'Recebedor' },
+  { key: 'pontoDescarga', header: 'Ponto de descarga' },
+  { key: 'transportadora', header: 'Transportadora' },
+  { key: 'dataEntrega', header: 'Data entrega', className: 'whitespace-nowrap' },
+  { key: 'valor', header: 'Valor', className: 'whitespace-nowrap' },
   { key: 'product', header: 'Produto' },
   { key: 'qty', header: 'Qtd', className: 'text-center w-12' },
   { key: 'user', header: 'Responsável' },
@@ -675,6 +701,12 @@ const emptyForm: ProductFormState = {
 };
 
 export function EstoqueWorkspace() {
+  const { user } = useNavPermissions();
+  const movementColumnPrefs = useTableColumnPreferences(
+    user.id,
+    MOVEMENT_TABLE_ID,
+    MOVEMENT_TABLE_COLUMN_DEFINITIONS,
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<TabId>('dashboard');
@@ -1984,40 +2016,39 @@ export function EstoqueWorkspace() {
     }
   };
 
-  const movementTableColumns: TableColumn[] = useMemo(
-    () =>
-      movementColumnsBase.map((col) => {
-        if (col.key === 'type') {
-          return {
-            ...col,
-            renderCell: ({ value, rowId }) => {
-              const item = movementsData?.data.find((m) => m.id === rowId);
-              const type = item?.movementType ?? '';
-              return (
-                <span
-                  className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${movementBadgeClass(type)}`}
-                >
-                  {value}
-                </span>
-              );
-            },
-          };
-        }
-        if (col.key === 'pedido' || col.key === 'nf') {
-          return {
-            ...col,
-            renderCell: ({ value }) =>
-              value !== '—' ? (
-                <span className="font-semibold text-[var(--accent)]">{value}</span>
-              ) : (
-                <span className="text-[var(--text-muted)]">—</span>
-              ),
-          };
-        }
-        return col;
-      }),
-    [movementsData],
-  );
+  const movementTableColumns: TableColumn[] = useMemo(() => {
+    const allColumns = movementColumnsBase.map((col) => {
+      if (col.key === 'status') {
+        return {
+          ...col,
+          renderCell: ({ value, rowId }: { value: string; rowId: string }) => {
+            const item = movementsData?.data.find((m) => m.id === rowId);
+            const type = item?.movementType ?? '';
+            return (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${movementBadgeClass(type)}`}
+              >
+                {value}
+              </span>
+            );
+          },
+        };
+      }
+      if (col.key === 'pedido' || col.key === 'nf') {
+        return {
+          ...col,
+          renderCell: ({ value }: { value: string }) =>
+            value !== '—' ? (
+              <span className="font-semibold text-[var(--accent)]">{value}</span>
+            ) : (
+              <span className="text-[var(--text-muted)]">—</span>
+            ),
+        };
+      }
+      return col;
+    });
+    return movementColumnPrefs.applyToColumns(allColumns);
+  }, [movementsData, movementColumnPrefs.preferences, movementColumnPrefs.applyToColumns]);
 
   const movementRows: TableRow[] = useMemo(() => {
     if (!movementsData) return [];
@@ -2026,10 +2057,15 @@ export function EstoqueWorkspace() {
       return {
         id: m.id,
         values: {
-          date: formatDateTime(m.movementDate),
-          type: MOVEMENT_LABEL[m.movementType] ?? m.movementType,
+          dataPedido: formatDateTime(m.movementDate),
+          status: MOVEMENT_LABEL[m.movementType] ?? m.movementType,
           pedido,
           nf,
+          recebedor: '—',
+          pontoDescarga: '—',
+          transportadora: '—',
+          dataEntrega: '—',
+          valor: '—',
           product: `${m.product.name} (${m.product.sku})`,
           qty: String(m.quantity),
           user: m.movedBy?.name ?? '—',
@@ -2556,10 +2592,10 @@ export function EstoqueWorkspace() {
         <span
           className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
             selectedInventoryProduct.stockQty <= 0
-              ? 'border border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
+              ? 'border border-rose-300 bg-rose-500/10 text-rose-500'
               : selectedInventoryProduct.stockQty <= selectedInventoryProduct.minStock
-                ? 'border border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
-                : 'border border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
+                ? 'border border-amber-300 bg-amber-500/10 text-amber-600'
+                : 'border border-[#86efac] bg-[#dcfce7] text-[#16a34a]'
           }`}
         >
           {selectedInventoryProduct.stockQty <= 0
@@ -3091,7 +3127,7 @@ export function EstoqueWorkspace() {
             </GlowButton>
           </div>
 
-          <GlassCard className="shrink-0 border-[var(--border-color)] bg-[var(--bg-card)] p-2.5">
+          <GlassCard className="relative z-20 shrink-0 border-[var(--border-color)] bg-[var(--bg-card)] p-2.5">
             <ErpFilterBar<MovementFilterPreset>
               storageKey={MOVEMENTS_FILTER_KEY}
               badges={movementFilterBadges}
@@ -3211,7 +3247,7 @@ export function EstoqueWorkspace() {
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Total entradas
                 </p>
-                <p className="mt-0.5 text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                <p className="mt-0.5 text-xl font-bold text-emerald-600">
                   {movementsSummary?.totalInbound ?? 0}
                 </p>
                 <p className="text-[10px] text-[var(--text-secondary)]">no período</p>
@@ -3231,7 +3267,7 @@ export function EstoqueWorkspace() {
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Total saídas
                 </p>
-                <p className="mt-0.5 text-xl font-bold text-rose-600 dark:text-rose-400">
+                <p className="mt-0.5 text-xl font-bold text-rose-600">
                   {movementsSummary?.totalOutbound ?? 0}
                 </p>
                 <p className="text-[10px] text-[var(--text-secondary)]">no período</p>
@@ -3254,7 +3290,7 @@ export function EstoqueWorkspace() {
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Reservados
                 </p>
-                <p className="mt-0.5 text-xl font-bold text-violet-600 dark:text-violet-400">
+                <p className="mt-0.5 text-xl font-bold text-violet-600">
                   {movementsSummary?.totalReserved ?? 0}
                 </p>
                 <p className="text-[10px] text-[var(--text-secondary)]">
@@ -3279,7 +3315,7 @@ export function EstoqueWorkspace() {
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Ajustes
                 </p>
-                <p className="mt-0.5 text-xl font-bold text-amber-600 dark:text-amber-400">
+                <p className="mt-0.5 text-xl font-bold text-amber-600">
                   {movementsSummary?.totalAdjustments ?? 0}
                 </p>
                 <p className="text-[10px] text-[var(--text-secondary)]">
@@ -3310,6 +3346,16 @@ export function EstoqueWorkspace() {
                 showStatusColumn={false}
                 dense
                 bodyClassName="max-h-full"
+                headerActions={
+                  <TableColumnsPicker
+                    definitions={movementColumnPrefs.definitions}
+                    preferences={movementColumnPrefs.preferences}
+                    onToggle={movementColumnPrefs.setVisible}
+                    onReorder={movementColumnPrefs.reorder}
+                    onReset={movementColumnPrefs.reset}
+                    ariaLabel="Configurar colunas da tabela de movimentações"
+                  />
+                }
                 onRowClick={(row) => setMovementDetailId(row.id)}
                 actionsColumn={
                   isAdmin ||
@@ -3548,7 +3594,7 @@ export function EstoqueWorkspace() {
                     <div className="flex items-center gap-1.5">
                       <p className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">{p.name}</p>
                       {!p.isActive ? (
-                        <span className="shrink-0 rounded-full border border-rose-300 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200">
+                        <span className="shrink-0 rounded-full border border-rose-300 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-500">
                           Inativo
                         </span>
                       ) : null}
@@ -3557,10 +3603,10 @@ export function EstoqueWorkspace() {
                     <div className="mt-1 flex items-center justify-between text-[11px]">
                       <span className={`rounded-full border px-2 py-0.5 ${
                         p.stockQty <= 0
-                          ? 'border-rose-300 bg-rose-500/10 text-rose-500 dark:border-rose-400/25 dark:bg-rose-500/20 dark:text-rose-200'
+                          ? 'border-rose-300 bg-rose-500/10 text-rose-500'
                           : p.stockQty <= p.minStock
-                            ? 'border-amber-300 bg-amber-500/10 text-amber-600 dark:border-amber-400/25 dark:bg-amber-500/20 dark:text-amber-200'
-                            : 'border-[#86efac] bg-[#dcfce7] text-[#16a34a] dark:border-transparent dark:bg-[#22c55e20] dark:text-[#22c55e]'
+                            ? 'border-amber-300 bg-amber-500/10 text-amber-600'
+                            : 'border-[#86efac] bg-[#dcfce7] text-[#16a34a]'
                       }`}>
                         {p.stockQty <= 0 ? 'Sem Estoque' : p.stockQty <= p.minStock ? 'Baixo Estoque' : 'Em Estoque'}
                       </span>

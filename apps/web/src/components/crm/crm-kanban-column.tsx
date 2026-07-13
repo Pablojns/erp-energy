@@ -31,6 +31,8 @@ export function CrmKanbanColumn(props: {
   onDrop: () => void;
   onDragStart: (cardId: string) => void;
   onDragEnd: () => void;
+  mobileMoveTargets?: CrmFunilDto[];
+  onMobileMoveCard?: (cardId: string, funilId: string) => void;
 }) {
   const accent = props.funil.color ?? 'var(--erp-accent)';
 
@@ -40,7 +42,7 @@ export function CrmKanbanColumn(props: {
   };
 
   return (
-    <div className="erp-module-panel flex h-full min-h-0 w-[280px] shrink-0 flex-col">
+    <div className="erp-module-panel flex h-full min-h-0 w-full shrink-0 flex-col md:w-[280px]">
       <header
         className="shrink-0 border-b border-[var(--erp-border)] px-3 py-3"
         style={{ borderTopWidth: 3, borderTopColor: accent, borderTopStyle: 'solid' }}
@@ -92,6 +94,8 @@ export function CrmKanbanColumn(props: {
               isMoving={props.movingId === card.id}
               onDragStart={props.onDragStart}
               onDragEnd={props.onDragEnd}
+              moveTargets={props.mobileMoveTargets}
+              onMoveToFunil={props.onMobileMoveCard}
             />
           ))
         )}

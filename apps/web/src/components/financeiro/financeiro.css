@@ -1,4 +1,4 @@
-/* Financeiro module — scoped theme tokens (light / dark via data-theme on html) */
+/* Financeiro module — scoped light theme tokens */
 
 .fin-root {
   background: var(--fin-bg);
@@ -24,32 +24,6 @@
   --fin-chart-grid: rgba(26, 26, 46, 0.06);
   --fin-shadow: 0 4px 24px -6px rgba(26, 26, 46, 0.08);
   --fin-glow: none;
-}
-
-.dark .fin-root,
-[data-theme='dark'] .fin-root {
-  --fin-bg: #0f0f1a;
-  --fin-card: #1a1a2e;
-  --fin-card-muted: #141425;
-  --fin-text: #e8e8f0;
-  --fin-text-secondary: #a1a1b5;
-  --fin-text-muted: #6b6b80;
-  --fin-border: rgba(232, 232, 240, 0.1);
-  --fin-border-strong: rgba(232, 232, 240, 0.16);
-  --fin-accent: var(--accent);
-  --fin-accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
-  --fin-success: #34d399;
-  --fin-success-soft: rgba(52, 211, 153, 0.14);
-  --fin-danger: #f87171;
-  --fin-danger-soft: rgba(248, 113, 113, 0.14);
-  --fin-danger-deep: #ef4444;
-  --fin-warning: #fbbf24;
-  --fin-warning-soft: rgba(251, 191, 36, 0.14);
-  --fin-chart-faturado: var(--accent);
-  --fin-chart-recebido: color-mix(in srgb, var(--accent) 55%, #38bdf8);
-  --fin-chart-grid: rgba(232, 232, 240, 0.06);
-  --fin-shadow: 0 8px 32px -12px rgba(0, 0, 0, 0.45);
-  --fin-glow: 0 0 48px -16px rgba(91, 94, 244, 0.25);
 }
 
 .fin-card {

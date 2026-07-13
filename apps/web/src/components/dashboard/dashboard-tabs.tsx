@@ -7,7 +7,6 @@ const TABS: { id: DashboardTabId; label: string }[] = [
   { id: 'financeiro', label: 'Financeiro' },
   { id: 'expedicao', label: 'Expedição' },
   { id: 'estoque', label: 'Estoque' },
-  { id: 'alertas', label: 'Alertas' },
 ];
 
 type DashboardTabsProps = {

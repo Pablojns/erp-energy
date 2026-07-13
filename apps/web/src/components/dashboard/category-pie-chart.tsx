@@ -33,13 +33,14 @@ export function CategoryPieChart({ slices }: CategoryPieChartProps) {
     <div className="dash-card w-full p-4 md:p-6">
       <h3 className="mb-3 text-sm font-semibold text-[var(--dash-text)]">Produtos por categoria</h3>
       <div className="flex w-full flex-col items-stretch gap-4 sm:flex-row sm:items-start">
-        <div className="w-full sm:w-1/3">
+        <div className="mx-auto w-full max-w-[240px] shrink-0 overflow-visible p-2 sm:mx-0 sm:w-[38%] sm:max-w-none">
           <svg
             width="100%"
             viewBox={`0 0 ${size} ${size}`}
             preserveAspectRatio="xMidYMid meet"
             role="img"
-            className="block h-auto w-full"
+            className="block h-auto w-full overflow-visible"
+            aria-label="Gráfico de pizza por categoria"
           >
           {arcs.map((a) => (
             <path key={a.slice.label} d={a.d} fill={a.color} stroke="var(--dash-card)" strokeWidth="2" />

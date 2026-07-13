@@ -36,8 +36,11 @@ export function OrderItemStockQtyCell(props: {
     return <span className="exp-wb-cell-muted text-xs">—</span>;
   }
   const tone = getStockAvailabilityTone(orderedQty, stock.available);
+  const isLow = stock.available < orderedQty;
   return (
-    <span className={`exp-wb-cell-num text-xs font-semibold ${stockQtyToneClass(tone)}`}>
+    <span
+      className={`exp-wb-stock-qty-badge text-[12px] font-semibold tabular-nums ${stockQtyToneClass(tone)}${isLow ? ' exp-wb-stock-qty-badge--low' : ''}`}
+    >
       {stock.available}
     </span>
   );

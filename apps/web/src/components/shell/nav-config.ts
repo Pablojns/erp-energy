@@ -30,7 +30,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { href: '/app/compras', label: 'Compras', iconName: 'shoppingCart', module: 'compras' },
   { href: '/app/financeiro', label: 'Financeiro', iconName: 'wallet', module: 'financeiro' },
   { href: '/app/chat', label: 'Chat', iconName: 'messageSquare', module: 'chat' },
-  { href: '/app/configuracoes', label: 'Configurações', iconName: 'settings', adminOnly: true },
+  { href: '/app/configuracoes', label: 'Configurações', iconName: 'settings' },
   { href: '/app/cadastros', label: 'Cadastros', iconName: 'clipboardList', module: 'cadastros' },
   { href: '/app/auditoria', label: 'Auditoria', iconName: 'shield', adminOnly: true },
 ];

@@ -9,6 +9,10 @@ import { Prisma } from '@erp/database';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  NOTIFICATION_PRIORITY,
+  NOTIFICATION_TYPES,
+} from '../notifications/notification.constants';
 import { R2StorageService } from '../storage/r2-storage.service';
 import {
   CreatePurchaseRequestDto,
@@ -442,8 +446,13 @@ export class PurchaseRequestService {
         comprasAction,
         'Item recebido',
         `${itemLabel} chegou — separe os pedidos pendentes`,
-        'compra_recebida',
+        NOTIFICATION_TYPES.PURCHASE_RECEIVED,
         '/app/compras',
+        {
+          entityId: updated.id,
+          entityType: 'purchase',
+          priority: NOTIFICATION_PRIORITY.NORMAL,
+        },
       );
     }
 
