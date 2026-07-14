@@ -1529,7 +1529,9 @@
 
   .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Qtd'],
   .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Qtd Estoque'],
-  .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Estoque'] {
+  .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Estoque'],
+  .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Qtd Separada'],
+  .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Falta'] {
     display: inline-flex !important;
     float: left;
     width: 50%;
@@ -1538,6 +1540,10 @@
   }
 
   .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Qtd'] {
+    clear: left;
+  }
+
+  .exp-wb-table--orders.exp-wb-table--mobile-cards td[data-label='Qtd Separada'] {
     clear: left;
   }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, Loader2, Pencil, Tag, Trash2 } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
@@ -137,6 +137,20 @@ export const OrderInfoPanel = forwardRef<
   const cnpj = displayOrDash(order.deliveryCnpj ?? order.customerDocument);
   const address = formatDeliveryAddressDisplay(order.deliveryAddress);
   const receiver = displayOrDash(order.receiverName);
+
+  const separationTotals = useMemo(() => {
+    let ordered = 0;
+    let picked = 0;
+    for (const it of order.items ?? []) {
+      ordered += it.quantity ?? 0;
+      picked += it.pickedQty ?? 0;
+    }
+    return {
+      ordered,
+      picked,
+      missing: Math.max(0, ordered - picked),
+    };
+  }, [order.items]);
   const point = displayOrDash(order.unloadingPoint);
   const notes = order.notes?.trim() || null;
   const notaVenda = order.invoiceNumber?.trim() || null;
@@ -603,6 +617,15 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       </div>
+
+      {separationTotals.ordered > 0 ? (
+        <p className="exp-wb-order-sep-summary mt-1.5 text-[12px] text-[var(--text-secondary)]">
+          Separação: {separationTotals.picked} de {separationTotals.ordered} unidades
+          {separationTotals.missing > 0
+            ? ` — faltam ${separationTotals.missing}`
+            : ' — completo'}
+        </p>
+      ) : null}
 
       <div className="exp-wb-order-header-body">
         <div className="exp-wb-order-parties-grid">

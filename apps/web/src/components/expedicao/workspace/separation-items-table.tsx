@@ -71,6 +71,8 @@ export function SeparationItemsTable(props: {
                 <col className="exp-wb-col-sku" />
                 <col className="exp-wb-col-item" />
                 <col className="exp-wb-col-qtd-pedida" />
+                <col className="exp-wb-col-qtd-sep" />
+                <col className="exp-wb-col-qtd-falta" />
                 {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
                 {isVendaExterna ? <col /> : null}
                 {isVendaExterna ? <col /> : null}
@@ -97,6 +99,10 @@ export function SeparationItemsTable(props: {
                   <th>SKU</th>
                   <th>Item</th>
                   <th className="text-center">Qtd</th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Qtd Separada
+                  </th>
+                  <th className="text-center">Falta</th>
                   {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
                   {isVendaExterna ? <th className="text-center">Preço unit.</th> : null}
                   {isVendaExterna ? <th className="text-center">Total</th> : null}
@@ -131,6 +137,8 @@ export function SeparationItemsTable(props: {
           <tbody>
             {order.items.map((it) => {
               const stock = stockByItemId[it.id] ?? { available: null, loading: true };
+              const picked = it.pickedQty ?? 0;
+              const missing = Math.max(0, (it.quantity ?? 0) - picked);
 
               if (!isOrdersMode) {
                 return (
@@ -157,6 +165,15 @@ export function SeparationItemsTable(props: {
                   </td>
                   <td className="text-center" data-label="Qtd">
                     <OrderItemOrderedQtyCell qty={it.quantity} />
+                  </td>
+                  <td className="text-center text-xs font-semibold" data-label="Qtd Separada">
+                    {picked}
+                  </td>
+                  <td
+                    className={`text-center text-xs font-semibold ${missing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}
+                    data-label="Falta"
+                  >
+                    {missing}
                   </td>
                   {!isVendaExterna ? (
                     <td className="text-center" data-label="Estoque">

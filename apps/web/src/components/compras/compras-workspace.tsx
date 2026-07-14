@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, Filter, Plus, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, Filter, Plus, Search, X } from 'lucide-react';
 import { fetchPurchaseRequests } from './compras-api';
 import { ComprasDashboard } from './compras-dashboard';
 import { ComprasDetailModal } from './compras-detail-modal';
@@ -14,12 +14,56 @@ import {
 import { ComprasResolveModal } from './compras-resolve-modal';
 import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
 
+const COMPRAS_FILTERS_STORAGE_KEY = 'erp.compras.filters';
+
+type StoredComprasFilters = {
+  typeFilter: 'all' | PurchaseType;
+  priorityFilter: 'all' | PurchasePriority;
+};
+
+function readStoredFilters(): StoredComprasFilters {
+  const fallback: StoredComprasFilters = {
+    typeFilter: 'all',
+    priorityFilter: 'all',
+  };
+  try {
+    const raw = window.localStorage.getItem(COMPRAS_FILTERS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<StoredComprasFilters>;
+    const typeFilter =
+      parsed.typeFilter === 'WEG_CONTRATO' ||
+      parsed.typeFilter === 'VENDA_EXTERNA' ||
+      parsed.typeFilter === 'MARKETPLACE' ||
+      parsed.typeFilter === 'all'
+        ? parsed.typeFilter
+        : 'all';
+    const priorityFilter =
+      parsed.priorityFilter === 'URGENTE' ||
+      parsed.priorityFilter === 'NORMAL' ||
+      parsed.priorityFilter === 'all'
+        ? parsed.priorityFilter
+        : 'all';
+    return { typeFilter, priorityFilter };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredFilters(filters: StoredComprasFilters): void {
+  try {
+    window.localStorage.setItem(COMPRAS_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const [activeView, setActiveView] = useState<'dashboard' | 'compras'>('dashboard');
   const [search, setSearch] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | PurchasePriority>('all');
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
   const [dateFrom, setDateFrom] = useState(() => getCurrentMonthRange().from);
   const [dateTo, setDateTo] = useState(() => getCurrentMonthRange().to);
   const [rows, setRows] = useState<PurchaseRequest[]>([]);
@@ -40,7 +84,39 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     setDateTo(to);
   }, []);
 
+  const hasActiveFilters = typeFilter !== 'all' || priorityFilter !== 'all';
+
   useEffect(() => {
+    const stored = readStoredFilters();
+    setTypeFilter(stored.typeFilter);
+    setPriorityFilter(stored.priorityFilter);
+    setFiltersHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) return;
+    writeStoredFilters({ typeFilter, priorityFilter });
+  }, [filtersHydrated, typeFilter, priorityFilter]);
+
+  const applyTypeFilter = useCallback((value: 'all' | PurchaseType) => {
+    setTypeFilter(value);
+    setFiltersOpen(false);
+  }, []);
+
+  const applyPriorityFilter = useCallback((value: 'all' | PurchasePriority) => {
+    setPriorityFilter(value);
+    setFiltersOpen(false);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setTypeFilter('all');
+    setPriorityFilter('all');
+    setFiltersOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) return;
+
     const controller = new AbortController();
     const load = async () => {
       setLoading(true);
@@ -77,7 +153,16 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeView, dateFrom, dateTo, priorityFilter, refreshToken, search, typeFilter]);
+  }, [
+    activeView,
+    dateFrom,
+    dateTo,
+    filtersHydrated,
+    priorityFilter,
+    refreshToken,
+    search,
+    typeFilter,
+  ]);
 
   const handleStatusChanged = (updated: PurchaseRequest) => {
     setRows((current) => {
@@ -92,25 +177,53 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     });
   };
 
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (typeFilter !== 'all') parts.push(typeFilter);
+    if (priorityFilter !== 'all') parts.push(priorityFilter);
+    return parts.join(' · ');
+  }, [priorityFilter, typeFilter]);
+
   const toolbarFilters = (
     <>
-      <div className="relative">
+      <div className="relative flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setFiltersOpen((value) => !value)}
-          className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
+          className={`erp-focus-ring erp-btn erp-btn-secondary erp-btn--md relative${
+            hasActiveFilters ? ' border-[var(--accent)]' : ''
+          }`}
+          aria-expanded={filtersOpen}
+          title={hasActiveFilters ? `Filtros: ${filterSummary}` : 'Filtros'}
         >
           <Filter className="erp-icon-sm" />
           Filtros
           <ChevronDown className="erp-icon-sm" />
+          {hasActiveFilters ? (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[var(--accent)] ring-2 ring-white"
+              aria-hidden
+            />
+          ) : null}
         </button>
+
+        {hasActiveFilters ? (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
+          >
+            <X className="erp-icon-sm" />
+            Limpar filtros
+          </button>
+        ) : null}
 
         {filtersOpen ? (
           <div className="erp-module-card absolute right-0 top-12 z-20 w-[min(92vw,20rem)] p-3 shadow-lg">
             <FilterSelect
               label="Tipo"
               value={typeFilter}
-              onChange={(value) => setTypeFilter(value as typeof typeFilter)}
+              onChange={(value) => applyTypeFilter(value as typeof typeFilter)}
             >
               <option value="all">Todos</option>
               <option value="WEG_CONTRATO">WEG</option>
@@ -120,7 +233,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             <FilterSelect
               label="Prioridade"
               value={priorityFilter}
-              onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
+              onChange={(value) => applyPriorityFilter(value as typeof priorityFilter)}
             >
               <option value="all">Todas</option>
               <option value="URGENTE">Urgente</option>
