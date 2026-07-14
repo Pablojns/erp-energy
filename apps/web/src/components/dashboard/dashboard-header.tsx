@@ -4,11 +4,11 @@ import { LayoutDashboard, Plus, RotateCcw } from 'lucide-react';
 import { PeriodSelector } from '@/src/components/dashboard/period-selector';
 import type { DashboardTabId, PeriodPreset } from '@/src/components/dashboard/types';
 
-const TABS: { id: DashboardTabId; label: string }[] = [
-  { id: 'overview', label: 'Visão Geral' },
-  { id: 'financeiro', label: 'Financeiro' },
-  { id: 'expedicao', label: 'Expedição' },
-  { id: 'estoque', label: 'Estoque' },
+const TABS: { id: DashboardTabId; label: string; shortLabel: string }[] = [
+  { id: 'overview', label: 'Visão Geral', shortLabel: 'Visão' },
+  { id: 'financeiro', label: 'Financeiro', shortLabel: 'Financ.' },
+  { id: 'expedicao', label: 'Expedição', shortLabel: 'Exped.' },
+  { id: 'estoque', label: 'Estoque', shortLabel: 'Estoque' },
 ];
 
 type DashboardHeaderProps = {
@@ -40,7 +40,7 @@ export function DashboardHeader({
     <header className="dash-fixed-header w-full">
       <div className="dash-shell w-full space-y-4 pb-4">
         <nav
-          className="flex flex-wrap gap-2 overflow-x-auto"
+          className="dash-header-tabs flex flex-nowrap gap-2 overflow-x-auto"
           aria-label="Abas do dashboard"
         >
           {TABS.map((tab) => {
@@ -53,8 +53,8 @@ export function DashboardHeader({
                 aria-current={isActive ? 'page' : undefined}
                 className={
                   isActive
-                    ? 'rounded-lg border border-[#2AACE2]/50 px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_15px_rgba(42,172,226,0.32)] transition-transform -translate-y-px'
-                    : 'rounded-lg border border-[var(--dash-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--dash-text-muted)] shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-colors hover:text-[#2AACE2]'
+                    ? 'dash-header-tab shrink-0 whitespace-nowrap rounded-lg border border-[#2AACE2]/50 px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_15px_rgba(42,172,226,0.32)] transition-transform -translate-y-px'
+                    : 'dash-header-tab shrink-0 whitespace-nowrap rounded-lg border border-[var(--dash-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--dash-text-muted)] shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-colors hover:text-[#2AACE2]'
                 }
                 style={
                   isActive
@@ -66,7 +66,8 @@ export function DashboardHeader({
                       }
                 }
               >
-                {tab.label}
+                <span className="dash-header-tab-label-full">{tab.label}</span>
+                <span className="dash-header-tab-label-short">{tab.shortLabel}</span>
               </button>
             );
           })}

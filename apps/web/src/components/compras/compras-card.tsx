@@ -81,38 +81,51 @@ export function ComprasCard(props: {
       {...(dragEnabled ? attributes : {})}
       {...(dragEnabled ? dragListeners : {})}
       onClick={handleClick}
-      className={`erp-module-card cursor-pointer p-3 transition ${
+      className={`erp-module-card cursor-pointer p-2.5 transition md:p-3 ${
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
       }`}
     >
-      <div className="mb-2 flex flex-wrap gap-1.5">
+      <div className="mb-1 flex flex-wrap gap-1 md:mb-2 md:gap-1.5">
         <ComprasBadge tone={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
         <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
       </div>
 
-      <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
+      <h3 className="line-clamp-1 text-sm font-semibold text-[var(--erp-fg)] md:line-clamp-2">
+        {displayName(row)}
+      </h3>
       {displaySupplierName(row) ? (
-        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{displaySupplierName(row)}</p>
+        <p className="mt-0.5 hidden truncate text-xs text-[var(--erp-fg-muted)] md:mt-1 md:block">
+          {displaySupplierName(row)}
+        </p>
       ) : null}
-      <p className="mt-2 text-xs text-[var(--erp-fg-secondary)]">
+      <p className="mt-1 truncate text-xs text-[var(--erp-fg-secondary)] md:mt-2">
         Qtd. <span className="font-semibold text-[var(--erp-fg)]">{displayQty(row)}</span>
-        {' · '}
-        {row.type === 'WEG_CONTRATO' ? 'Base' : 'Preço'}{' '}
-        <span className="font-semibold text-[var(--erp-fg)]">
-          {row.type === 'WEG_CONTRATO'
-            ? formatMoneyNumber(Number(purchaseUnitPrice(row)))
-            : formatMoney(purchaseUnitPrice(row) || null)}
+        <span className="hidden md:inline">
+          {' · '}
+          {row.type === 'WEG_CONTRATO' ? 'Base' : 'Preço'}{' '}
+          <span className="font-semibold text-[var(--erp-fg)]">
+            {row.type === 'WEG_CONTRATO'
+              ? formatMoneyNumber(Number(purchaseUnitPrice(row)))
+              : formatMoney(purchaseUnitPrice(row) || null)}
+          </span>
+          {' · '}
+          Total{' '}
+          <span className="font-semibold text-[var(--erp-fg)]">
+            {formatMoneyNumber(calcPurchaseTotalFromRow(row))}
+          </span>
         </span>
-        {' · '}
-        Total <span className="font-semibold text-[var(--erp-fg)]">{formatMoneyNumber(calcPurchaseTotalFromRow(row))}</span>
+        <span className="font-semibold text-[var(--erp-fg)] md:hidden">
+          {' · '}
+          {formatMoneyNumber(calcPurchaseTotalFromRow(row))}
+        </span>
       </p>
-      <p className="mt-2 text-xs text-[var(--erp-fg-muted)]">
+      <p className="mt-2 hidden text-xs text-[var(--erp-fg-muted)] md:block">
         {row.requestedBy.name} · {formatDate(row.createdAt)}
       </p>
       {row.expectedArrival ? (
-        <p className="mt-0.5 text-xs text-[var(--erp-fg-muted)]">
+        <p className="mt-0.5 hidden text-xs text-[var(--erp-fg-muted)] md:block">
           Previsão: {formatDate(row.expectedArrival)}
         </p>
       ) : null}

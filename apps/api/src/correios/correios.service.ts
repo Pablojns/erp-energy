@@ -859,20 +859,38 @@ export class CorreiosService {
     }
 
     const headers = await this.authHeader();
+    const indisponivelMsg =
+      'Comprovante de entrega ainda não disponível para este objeto. Tente novamente em alguns minutos.';
 
-    try {
+    const tentarArDigital = async (): Promise<Buffer | null> => {
       const { data } = await this.api.get('/srorastro/v1/ar-digital', {
         headers,
         params: { objetos: cod },
       });
-      const pdf = await this.extrairComprovantePdf(data, cod);
-      if (pdf) return pdf;
-    } catch (err: any) {
-      this.logger.warn(
-        `AR digital indisponível para ${cod}: ${err?.message ?? err}`,
-      );
+      return this.extrairComprovantePdf(data, cod);
+    };
+
+    // AR digital: 1ª tentativa; se falhar, aguarda 2s e tenta de novo antes do fallback
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      try {
+        const pdf = await tentarArDigital();
+        if (pdf) return pdf;
+        this.logger.warn(
+          `AR digital sem PDF para ${cod} (tentativa ${tentativa}/2)`,
+        );
+      } catch (err: any) {
+        const status = err?.response?.status as number | undefined;
+        this.logger.warn(
+          `AR digital indisponível para ${cod} (tentativa ${tentativa}/2)` +
+            `${status ? ` status=${status}` : ''}: ${err?.message ?? err}`,
+        );
+      }
+      if (tentativa < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
     }
 
+    // Fallback assíncrono: /objetos/imagens → /recibo/{recibo}
     let reciboNum: string | undefined;
     try {
       const { data: recibo } = await this.api.post(
@@ -883,37 +901,48 @@ export class CorreiosService {
       reciboNum =
         typeof recibo?.numero === 'string' ? recibo.numero : undefined;
     } catch (err: any) {
+      const status = err?.response?.status as number | undefined;
       const apiBody = err?.response?.data;
       this.logger.error(
-        `Solicitação de imagem Correios falhou — body: ${JSON.stringify(apiBody)}`,
+        `Solicitação de imagem Correios falhou — status=${status ?? '?'} body: ${JSON.stringify(apiBody)}`,
       );
+      if (status === 404) {
+        throw new BadRequestException(indisponivelMsg);
+      }
       const msg =
         apiBody?.msgs?.join?.(' ') ||
         apiBody?.message ||
         apiBody?.detail ||
-        'Não foi possível solicitar o comprovante de entrega nos Correios.';
+        indisponivelMsg;
       throw new BadRequestException(msg);
     }
 
     if (!reciboNum) {
-      throw new BadRequestException(
-        'Correios não retornou recibo para o comprovante de entrega.',
-      );
+      throw new BadRequestException(indisponivelMsg);
     }
 
     for (let i = 0; i < 15; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      const { data: result } = await this.api.get(
-        `/srorastro/v1/recibo/${reciboNum}`,
-        { headers },
-      );
-      const pdf = await this.extrairComprovantePdf(result, cod);
-      if (pdf) return pdf;
+      try {
+        const { data: result } = await this.api.get(
+          `/srorastro/v1/recibo/${reciboNum}`,
+          { headers },
+        );
+        const pdf = await this.extrairComprovantePdf(result, cod);
+        if (pdf) return pdf;
+      } catch (err: any) {
+        const status = err?.response?.status as number | undefined;
+        this.logger.warn(
+          `Recibo ${reciboNum} tentativa ${i + 1}/15 falhou` +
+            `${status ? ` status=${status}` : ''}: ${err?.message ?? err}`,
+        );
+        if (status === 404) {
+          throw new BadRequestException(indisponivelMsg);
+        }
+      }
     }
 
-    throw new BadRequestException(
-      'Comprovante de entrega ainda não disponível nos Correios.',
-    );
+    throw new BadRequestException(indisponivelMsg);
   }
 
   private isObjetoEntregue(rastreio: unknown): boolean {

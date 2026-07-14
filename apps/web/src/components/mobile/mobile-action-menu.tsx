@@ -18,9 +18,8 @@ export function MobileActionMenu(props: {
 }) {
   const { actions, ariaLabel = 'Ações' } = props;
   const [open, setOpen] = useState(false);
-  const visible = actions.filter((a) => !a.disabled);
 
-  if (visible.length === 0) return null;
+  if (actions.length === 0) return null;
 
   return (
     <>
@@ -33,13 +32,15 @@ export function MobileActionMenu(props: {
         <MoreVertical className="h-5 w-5" />
       </button>
       <MobileBottomDrawer open={open} onClose={() => setOpen(false)} title="Ações">
-        <div className="grid gap-1">
-          {visible.map((action) => (
+        <div className="bottom-sheet-content flex flex-col gap-2">
+          {actions.map((action) => (
             <button
               key={action.id}
               type="button"
+              disabled={action.disabled}
               className={`erp-mobile-action-item${action.destructive ? ' erp-mobile-action-item--danger' : ''}`}
               onClick={() => {
+                if (action.disabled) return;
                 setOpen(false);
                 action.onClick();
               }}

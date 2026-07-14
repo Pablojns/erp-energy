@@ -21,7 +21,6 @@ import {
 import { LogoutButton } from '@/src/components/auth/logout-button';
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
-import { MobileNavDrawer } from '@/src/components/shell/mobile-nav-drawer';
 import { useGlobalSearch } from '@/src/components/shell/global-search-provider';
 import type { AuthUser } from '@/src/services/api/auth';
 import { type NavIconName } from './nav-config';
@@ -58,7 +57,7 @@ export function TopNavigation({ user }: TopNavigationProps) {
 
   return (
     <header className="erp-header fixed left-0 right-0 top-0 z-50 backdrop-saturate-150">
-      <div className="mx-auto flex max-w-[1600px] items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4 lg:gap-5 lg:px-6">
+      <div className="mx-auto flex max-w-[1600px] items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4 sm:py-3 lg:gap-5 lg:px-6">
         <Link
           href="/app"
           className="erp-focus-ring group relative flex shrink-0 items-center rounded-2xl px-1 py-0.5 outline-none transition duration-300"
@@ -70,11 +69,9 @@ export function TopNavigation({ user }: TopNavigationProps) {
             width={190}
             height={50}
             priority
-            className="h-8 w-auto object-contain sm:h-10"
+            className="h-7 w-auto object-contain sm:h-10"
           />
         </Link>
-
-        <MobileNavDrawer />
 
         <nav
           className="scrollbar-hide erp-scrollbar hidden flex-1 items-stretch justify-start gap-2 overflow-x-auto py-0.5 sm:justify-center sm:gap-2.5 sm:px-1 lg:flex"

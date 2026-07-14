@@ -92,7 +92,7 @@ export function FinanceiroDashboardTab(props: {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <FinMetricSkeleton key={i} />
           ))}
@@ -114,7 +114,7 @@ export function FinanceiroDashboardTab(props: {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
         <FinMetricCard
           label="Pedidos no Período"
           value={formatCurrency(data.valorPedidosPeriodo)}

@@ -384,17 +384,24 @@ export function SeparationWorkbench(props: {
   })();
 
   const mobileActions: MobileActionItem[] = [];
+  mobileActions.push({
+    id: 'urgente',
+    label: order.isUrgentManual ? 'Remover urgente' : 'Marcar urgente',
+    onClick: () => {
+      void data.toggleOrderUrgent(order).then(() => onAfterAction?.());
+    },
+  });
   if (isAdmin && onEditOrder) {
     mobileActions.push({
       id: 'edit',
-      label: 'Editar',
+      label: 'Editar pedido',
       onClick: () => onEditOrder(order),
     });
   }
   if (onDeleteOrder) {
     mobileActions.push({
       id: 'delete',
-      label: 'Excluir',
+      label: 'Excluir pedido',
       destructive: true,
       onClick: () => onDeleteOrder(order),
     });
@@ -442,17 +449,15 @@ export function SeparationWorkbench(props: {
 
   return (
     <div className="exp-wb-panel relative !gap-1.5 !p-3">
-      {mobileLayout ? (
-        <div className="fixed right-3 top-[calc(env(safe-area-inset-top)+70px)] z-[48] md:hidden">
-          <MobileActionMenu actions={mobileActions} />
-        </div>
-      ) : null}
       <OrderInfoPanel
         order={order}
         panelMode={mode}
         isAdmin={isAdmin}
         hideVolumes={mode === 'separation'}
         compactHeaderActions={mobileLayout}
+        headerTrailing={
+          mobileLayout ? <MobileActionMenu actions={mobileActions} /> : undefined
+        }
         onEditOrder={onEditOrder ? () => onEditOrder(order) : undefined}
         carrierSaving={carrierSaving}
         onCarrierChange={async (carrierId) => {

@@ -42,20 +42,20 @@ function MetricCard(props: {
 }) {
   return (
     <div
-      className={`erp-module-card p-4 ${props.alert ? 'ring-1 ring-rose-500/40' : ''}`}
+      className={`erp-module-card flex h-20 max-h-20 flex-col justify-center p-3 md:h-auto md:max-h-none md:p-4 ${props.alert ? 'ring-1 ring-rose-500/40' : ''}`}
     >
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--erp-fg-muted)]">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--erp-fg-muted)] md:text-xs">
         {props.label}
       </p>
       <p
-        className={`mt-2 text-2xl font-semibold ${
+        className={`mt-1 text-xl font-semibold md:mt-2 md:text-2xl ${
           props.alert ? 'text-rose-600' : 'text-[var(--erp-fg)]'
         }`}
       >
         {props.value}
       </p>
       {props.hint ? (
-        <p className="mt-1 text-xs text-[var(--erp-fg-muted)]">{props.hint}</p>
+        <p className="mt-0.5 hidden text-xs text-[var(--erp-fg-muted)] md:mt-1 md:block">{props.hint}</p>
       ) : null}
     </div>
   );
@@ -298,7 +298,7 @@ export function CrmDashboard(props: {
       ) : null}
 
       {loading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, idx) => (
             <div
               key={idx}
@@ -308,7 +308,7 @@ export function CrmDashboard(props: {
         </div>
       ) : resumo ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
             <MetricCard label="Leads" value={String(resumo.leads)} />
             <MetricCard label="Orçamentos" value={String(resumo.orcamentos)} />
             <MetricCard label="Fechados" value={String(resumo.fechados)} />

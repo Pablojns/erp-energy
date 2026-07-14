@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { isWegItemAlreadyReceived } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 import type { OrderItemStockState } from '@/src/components/expedicao/shared/use-order-items-stock';
@@ -53,78 +53,110 @@ export function SeparationItemRow(props: {
     void Promise.resolve(onConfirmLine(qtyClamped)).finally(() => setConfirming(false));
   };
 
+  const qtyInput = alreadyReceived ? (
+    <span className="item-value text-[var(--text-muted)]">—</span>
+  ) : (
+    <input
+      type="number"
+      min={0}
+      max={item.quantity}
+      value={qtyDraft}
+      disabled={!editable}
+      onChange={(e) => setQtyDraft(Number(e.target.value))}
+      className="exp-wb-qty-input qtd-sep-input item-value !min-h-0"
+      aria-label="Qtd sep."
+    />
+  );
+
+  const statusNode = alreadyReceived ? (
+    <OrderItemReceiptStatusBadge
+      status={item.mercadoEletronicoItemStatus ?? 'Recebido'}
+    />
+  ) : (
+    <span
+      className={`exp-wb-line-status exp-wb-line-status--${statusLabel.toLowerCase()} text-xs`}
+    >
+      {statusLabel}
+    </span>
+  );
+
+  const actionNode = alreadyReceived ? (
+    <span className="text-[10px] font-medium text-[var(--text-muted)]">Já recebido</span>
+  ) : (
+    <button
+      type="button"
+      disabled={!editable || confirming}
+      className="exp-wb-confirm-btn btn-confirmar exp-wb-sep-checkbox disabled:cursor-not-allowed disabled:opacity-50"
+      onClick={handleConfirm}
+    >
+      {confirming ? <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" /> : 'Confirmar'}
+    </button>
+  );
+
   return (
-    <tr className={alreadyReceived ? 'opacity-80' : undefined}>
-      <td className="exp-wb-cell-linha text-xs" data-label="Linha">{item.lineNumber}</td>
-      <td className="exp-wb-cell-sku text-xs" data-label="SKU">{item.sku}</td>
-      <td className="exp-wb-cell-item text-xs" data-label="Item" title={item.description}>
-        {item.description}
-      </td>
-      <td className="text-center" data-label="Qtd">
-        <OrderItemOrderedQtyCell qty={item.quantity} />
-      </td>
-      <td className="text-center text-xs" data-label="Qtd Sep.">
-        {alreadyReceived ? (
-          <span className="text-[var(--text-muted)]">—</span>
-        ) : (item.pickedQty ?? 0) > 0 ? (
-          item.pickedQty
-        ) : (
-          '—'
-        )}
-      </td>
-      {!hideStockColumn ? (
-        <td className="text-center" data-label="Qtd Estoque">
-          <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
+    <Fragment>
+      {/* Mobile — card em flex coluna (visível só &lt;768px via CSS) */}
+      <tr className="exp-sep-mobile-card-row">
+        <td colSpan={8}>
+          <div className="item-card">
+            <div className="item-row">
+              <span className="item-linha">Linha</span>
+              <span className="item-linha">{item.lineNumber}</span>
+            </div>
+            <div className="item-row">
+              <span className="item-sku">{item.sku}</span>
+              <span className="item-nome">{item.description}</span>
+            </div>
+            <div className="item-row">
+              <span>
+                <span className="item-label">Qtd: </span>
+                <span className="item-value">
+                  <OrderItemOrderedQtyCell qty={item.quantity} />
+                </span>
+              </span>
+              {!hideStockColumn ? (
+                <span>
+                  <span className="item-label">Qtd Estoque: </span>
+                  <span className="item-value">
+                    <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
+                  </span>
+                </span>
+              ) : null}
+            </div>
+            <div className="item-row item-row--stack">
+              <span className="item-label">Qtd Sep.:</span>
+              {qtyInput}
+            </div>
+            <div className="item-row">
+              <span className="item-label">Status</span>
+              {statusNode}
+            </div>
+            <div className="item-row item-row--action">{actionNode}</div>
+          </div>
         </td>
-      ) : null}
-      <td className="text-center" data-label="Qtd. separada">
-        {alreadyReceived ? (
-          <span className="text-xs text-[var(--text-muted)]">—</span>
-        ) : (
-          <input
-            type="number"
-            min={0}
-            max={item.quantity}
-            value={qtyDraft}
-            disabled={!editable}
-            onChange={(e) => setQtyDraft(Number(e.target.value))}
-            className="exp-wb-qty-input !min-h-0 !py-1 !text-xs"
-          />
-        )}
-      </td>
-      <td className="text-center" data-label="Status">
-        {alreadyReceived ? (
-          <OrderItemReceiptStatusBadge
-            status={item.mercadoEletronicoItemStatus ?? 'Recebido'}
-          />
-        ) : (
-          <span
-            className={`exp-wb-line-status exp-wb-line-status--${statusLabel.toLowerCase()} text-xs`}
-          >
-            {statusLabel}
-          </span>
-        )}
-      </td>
-      <td className="text-center" data-label="Ação">
-        {alreadyReceived ? (
-          <span className="text-[10px] font-medium text-[var(--text-muted)]">
-            Já recebido
-          </span>
-        ) : (
-          <button
-            type="button"
-            disabled={!editable || confirming}
-            className="exp-wb-confirm-btn exp-wb-sep-checkbox w-full !min-h-[48px] !min-w-[48px] !px-3 !py-2.5 !text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={handleConfirm}
-          >
-            {confirming ? (
-              <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
-            ) : (
-              'Confirmar'
-            )}
-          </button>
-        )}
-      </td>
-    </tr>
+      </tr>
+
+      {/* Desktop — linha de tabela (visível ≥768px via CSS) */}
+      <tr
+        className={`exp-sep-desktop-row${alreadyReceived ? ' opacity-80' : ''}`}
+      >
+        <td className="exp-wb-cell-linha text-xs">{item.lineNumber}</td>
+        <td className="exp-wb-cell-sku text-xs">{item.sku}</td>
+        <td className="exp-wb-cell-item text-xs" title={item.description}>
+          {item.description}
+        </td>
+        <td className="text-center">
+          <OrderItemOrderedQtyCell qty={item.quantity} />
+        </td>
+        {!hideStockColumn ? (
+          <td className="text-center">
+            <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
+          </td>
+        ) : null}
+        <td className="text-center">{qtyInput}</td>
+        <td className="text-center">{statusNode}</td>
+        <td className="text-center">{actionNode}</td>
+      </tr>
+    </Fragment>
   );
 }

@@ -283,14 +283,16 @@
 .dash-card-grid,
 .dash-grid-metrics {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
   width: 100%;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .dash-card-grid,
-  .dash-grid-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid-metrics {
+    gap: 0.75rem;
+  }
 }
 
 @media (min-width: 1024px) {

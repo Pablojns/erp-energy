@@ -20,17 +20,17 @@ export function ComprasModalShell(props: {
         onClick={props.onClose}
         aria-label="Fechar"
       />
-      <section className={`erp-modal-panel ${maxWidth}`}>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="erp-text-lg font-semibold text-[var(--erp-fg)]">{props.title}</h2>
-          <button
-            type="button"
-            onClick={props.onClose}
-            className="erp-icon-btn rounded-xl p-2"
-            aria-label="Fechar modal"
-          >
-            <X className="erp-icon-md" />
-          </button>
+      <section className={`erp-modal-panel relative ${maxWidth}`}>
+        <button
+          type="button"
+          onClick={props.onClose}
+          className="compras-close-btn"
+          aria-label="Fechar"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+        <div className="mb-3 pr-10 md:mb-4">
+          <h2 className="text-base font-semibold text-[var(--erp-fg)] md:text-lg">{props.title}</h2>
         </div>
         {props.children}
       </section>

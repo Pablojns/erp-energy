@@ -299,7 +299,7 @@ export function TabOverview({
   const useOrderedLayout = editMode || !isDefaultOverviewOrder(cardOrder);
 
   const renderExpedicaoCard = () => (
-    <MobileCollapsibleSection title="Expedição">
+    <MobileCollapsibleSection title="Expedição" mobileAlwaysOpen>
     <section className="overview-block" aria-label="Expedição">
       <div className="overview-hero">
         <span
@@ -331,7 +331,7 @@ export function TabOverview({
             </div>
           </div>
 
-          <div className="overview-progress">
+          <div className="overview-progress overview-desktop-only">
             <div className="overview-progress-meta">
               <span className="overview-label">Finalizados / total</span>
               <span>
@@ -347,7 +347,7 @@ export function TabOverview({
         <p className="overview-empty">Dados indisponíveis.</p>
       )}
 
-      <div className="overview-scroll">
+      <div className="overview-scroll overview-desktop-only">
         {delayed.length === 0 ? (
           <p className="overview-empty">Nenhum pedido atrasado.</p>
         ) : (
@@ -367,7 +367,7 @@ export function TabOverview({
   );
 
   const renderEstoqueCard = () => (
-    <MobileCollapsibleSection title="Estoque">
+    <MobileCollapsibleSection title="Estoque" mobileAlwaysOpen>
     <section className="overview-block" aria-label="Estoque">
       <div className="overview-hero">
         <span
@@ -393,7 +393,7 @@ export function TabOverview({
         <p className="overview-empty">Dados indisponíveis.</p>
       )}
 
-      <div className="overview-scroll">
+      <div className="overview-scroll overview-desktop-only">
         {critical.length === 0 ? (
           <p className="overview-empty">Nenhum produto crítico.</p>
         ) : (
@@ -423,43 +423,55 @@ export function TabOverview({
   );
 
   const renderFinanceiroCard = () => (
-    <MobileCollapsibleSection title="Financeiro">
+    <MobileCollapsibleSection
+      title="Financeiro"
+      mobileAlwaysOpen
+      mobileCardClassName="dash-mobile-module-card--finance"
+    >
     <section className="overview-block overview-block--finance" aria-label="Financeiro">
       <div className="overview-finance-layout">
         <div className="overview-finance-metrics">
           {fin ? (
-            <div className="overview-finance-metrics-row">
-              <div className="overview-metric-cell">
-                <div className="overview-label">Pedidos período</div>
-                <div className="overview-metric-value">
+            <>
+              <div className="overview-hero md:hidden">
+                <span className="overview-hero-value">
                   {formatCurrency(fin.valorPedidosPeriodo)}
+                </span>
+                <span className="overview-label">Pedidos período</span>
+              </div>
+              <div className="overview-finance-metrics-row">
+                <div className="overview-metric-cell">
+                  <div className="overview-label">Pedidos período</div>
+                  <div className="overview-metric-value">
+                    {formatCurrency(fin.valorPedidosPeriodo)}
+                  </div>
+                </div>
+                <div className="overview-metric-cell">
+                  <div className="overview-label">Faturado período</div>
+                  <div className="overview-metric-value">
+                    {formatCurrency(fin.valorFaturadoPeriodo)}
+                  </div>
+                </div>
+                <div className="overview-metric-cell">
+                  <div className="overview-label">Hist. pedidos</div>
+                  <div className="overview-metric-value">
+                    {formatCurrency(fin.valorPedidosHistorico)}
+                  </div>
+                </div>
+                <div className="overview-metric-cell">
+                  <div className="overview-label">Hist. faturado</div>
+                  <div className="overview-metric-value">
+                    {formatCurrency(fin.valorFaturadoHistorico)}
+                  </div>
                 </div>
               </div>
-              <div className="overview-metric-cell">
-                <div className="overview-label">Faturado período</div>
-                <div className="overview-metric-value">
-                  {formatCurrency(fin.valorFaturadoPeriodo)}
-                </div>
-              </div>
-              <div className="overview-metric-cell">
-                <div className="overview-label">Hist. pedidos</div>
-                <div className="overview-metric-value">
-                  {formatCurrency(fin.valorPedidosHistorico)}
-                </div>
-              </div>
-              <div className="overview-metric-cell">
-                <div className="overview-label">Hist. faturado</div>
-                <div className="overview-metric-value">
-                  {formatCurrency(fin.valorFaturadoHistorico)}
-                </div>
-              </div>
-            </div>
+            </>
           ) : (
             <p className="overview-empty">Dados indisponíveis.</p>
           )}
 
           {comparePrevious && comparison ? (
-            <div className="overview-compare-strip">
+            <div className="overview-compare-strip overview-desktop-only">
               <span>
                 Atual: <strong>{formatCurrency(comparison.current)}</strong>
               </span>
@@ -481,7 +493,7 @@ export function TabOverview({
           ) : null}
         </div>
 
-        <div className="overview-finance-chart dash-mobile-chart">
+        <div className="overview-finance-chart dash-mobile-chart overview-desktop-only">
           <button
             type="button"
             className={`overview-compare-toggle ${comparePrevious ? 'overview-compare-toggle--on' : ''}`}

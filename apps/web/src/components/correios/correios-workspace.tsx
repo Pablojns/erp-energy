@@ -77,6 +77,10 @@ export function CorreiosWorkspace() {
   const [cepOrigem, setCepOrigem] = useState(DEFAULT_CEP_ORIGEM);
   const [cepDestino, setCepDestino] = useState('');
   const [servico, setServico] = useState<CorreiosServiceId>('PAC');
+  const [pesoGramas, setPesoGramas] = useState('500');
+  const [comprimentoCm, setComprimentoCm] = useState('20');
+  const [larguraCm, setLarguraCm] = useState('15');
+  const [alturaCm, setAlturaCm] = useState('10');
   const [cotando, setCotando] = useState(false);
   const [cotacaoErro, setCotacaoErro] = useState<string | null>(null);
   const [cotacaoValor, setCotacaoValor] = useState<string | null>(null);
@@ -248,10 +252,35 @@ export function CorreiosWorkspace() {
     setCotacaoValor(null);
     setCotacaoPrazo(null);
     try {
+      const peso = Number(pesoGramas);
+      const comprimento = Number(comprimentoCm);
+      const largura = Number(larguraCm);
+      const altura = Number(alturaCm);
+
+      if (!Number.isFinite(peso) || peso < 1) {
+        setCotacaoErro('Peso mínimo: 1g.');
+        return;
+      }
+      if (
+        !Number.isFinite(comprimento) ||
+        !Number.isFinite(largura) ||
+        !Number.isFinite(altura) ||
+        comprimento < 16 ||
+        largura < 11 ||
+        altura < 2
+      ) {
+        setCotacaoErro('Dimensões mínimas dos Correios: 16 × 11 × 2 cm.');
+        return;
+      }
+
       const result = await cotarCorreios({
         codigoServico: servicoSelecionado.codigo,
         cepOrigem,
         cepDestino,
+        pesoGramas: Math.round(peso),
+        comprimento,
+        largura,
+        altura,
       });
       if (result.erro) {
         setCotacaoErro(result.erro);
@@ -562,7 +591,7 @@ export function CorreiosWorkspace() {
             </h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <label className="block text-sm">
               <span className="mb-1 block text-[var(--text-secondary)]">CEP de origem</span>
               <input
@@ -581,7 +610,7 @@ export function CorreiosWorkspace() {
                 className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
               />
             </label>
-            <label className="block text-sm md:col-span-2 xl:col-span-1">
+            <label className="block text-sm">
               <span className="mb-1 block text-[var(--text-secondary)]">Serviço</span>
               <select
                 value={servico}
@@ -595,17 +624,69 @@ export function CorreiosWorkspace() {
                 ))}
               </select>
             </label>
-            <div className="flex items-end">
-              <button
-                type="button"
-                disabled={cotando}
-                onClick={() => void handleCotar()}
-                className="inline-flex h-[42px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
-              >
-                {cotando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Cotar
-              </button>
-            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--text-secondary)]">Peso (gramas)</span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={pesoGramas}
+                onChange={(e) => setPesoGramas(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--text-secondary)]">Comprimento (cm)</span>
+              <input
+                type="number"
+                min={16}
+                step={1}
+                inputMode="numeric"
+                value={comprimentoCm}
+                onChange={(e) => setComprimentoCm(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--text-secondary)]">Largura (cm)</span>
+              <input
+                type="number"
+                min={11}
+                step={1}
+                inputMode="numeric"
+                value={larguraCm}
+                onChange={(e) => setLarguraCm(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--text-secondary)]">Altura (cm)</span>
+              <input
+                type="number"
+                min={2}
+                step={1}
+                inputMode="numeric"
+                value={alturaCm}
+                onChange={(e) => setAlturaCm(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex items-end">
+            <button
+              type="button"
+              disabled={cotando}
+              onClick={() => void handleCotar()}
+              className="inline-flex h-[42px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60 sm:w-auto sm:min-w-[10rem]"
+            >
+              {cotando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Cotar
+            </button>
           </div>
 
           {cotacaoErro ? (

@@ -114,12 +114,14 @@ export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
         <p className="dash-section-error" role="alert">{errorResumo}</p>
       ) : f && fluxo ? (
         <>
-          <div className="dash-card-grid">
+          <div className="dash-card-grid dash-card-grid--exp-metrics">
             <MetricCard label="Total Pedidos" value={formatNumber(f.totalPedidosMes)} icon={ShoppingCart} />
-            <MetricCard label="Finalizados" value={formatNumber(f.pedidosConcluidos)} icon={CheckCircle2} tone="success" />
             <MetricCard label="Atrasados" value={formatNumber(atrasados)} icon={AlertTriangle} tone={atrasados > 0 ? 'danger' : 'default'} />
             <MetricCard label="Em Separação" value={formatNumber(fluxo.EM_SEPARACAO)} icon={Package} />
-            <MetricCard label="Aguardando NF" value={formatNumber(fluxo.AGUARDANDO_NF)} icon={FileWarning} tone={fluxo.AGUARDANDO_NF > 0 ? 'warning' : 'default'} />
+            <MetricCard label="Finalizados" value={formatNumber(f.pedidosConcluidos)} icon={CheckCircle2} tone="success" />
+            <div className="hidden md:contents">
+              <MetricCard label="Aguardando NF" value={formatNumber(fluxo.AGUARDANDO_NF)} icon={FileWarning} tone={fluxo.AGUARDANDO_NF > 0 ? 'warning' : 'default'} />
+            </div>
           </div>
           <ProgressBlock finalized={f.pedidosConcluidos} total={f.totalPedidosMes} />
           <StatusBarChart fluxo={fluxo} />

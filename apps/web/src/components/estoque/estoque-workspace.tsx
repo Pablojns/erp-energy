@@ -2870,34 +2870,34 @@ export function EstoqueWorkspace() {
             <MetricCardsSkeleton count={6} className="shrink-0 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6" />
           ) : null}
 
-          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">SKUs Ativos</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.activeProducts ?? 0}</p>
+          <div className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">SKUs Ativos</p>
+              <p className="mt-0.5 text-xl font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-2xl">{summary?.activeProducts ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">Total em Estoque</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.totalUnitsOnHand ?? 0}</p>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">Total em Estoque</p>
+              <p className="mt-0.5 text-xl font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-2xl">{summary?.totalUnitsOnHand ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">Crítico</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{summary?.skusBelowMinStock ?? 0}</p>
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">Crítico</p>
+              <p className="mt-0.5 text-xl font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-2xl">{summary?.skusBelowMinStock ?? 0}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">
                 {dashboardPeriod === 'today' ? 'Entradas hoje' : 'Entradas no período'}
               </p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{entriesInPeriod}</p>
+              <p className="mt-0.5 text-xl font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-2xl">{entriesInPeriod}</p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor em Estoque</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">Valor em Estoque</p>
+              <p className="mt-0.5 text-base font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-xl">
                 {formatBrl(String(summary?.valorEstoque ?? 0))}
               </p>
             </GlassCard>
-            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-sm" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">Valor a Venda</p>
-              <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
+            <GlassCard className="border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 shadow-sm md:p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] md:text-xs">Valor a Venda</p>
+              <p className="mt-0.5 text-base font-bold tabular-nums text-[var(--text-primary)] md:mt-1 md:text-xl">
                 {formatBrl(String(summary?.valorVenda ?? 0))}
               </p>
             </GlassCard>

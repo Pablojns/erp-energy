@@ -104,6 +104,8 @@ export const OrderInfoPanel = forwardRef<
     isAdmin?: boolean;
     onEditOrder?: () => void;
     compactHeaderActions?: boolean;
+    /** Slot mobile (ex.: menu ⋮) alinhado à direita da linha do número/status. */
+    headerTrailing?: ReactNode;
   }
 >(function OrderInfoPanel(props, ref) {
   const {
@@ -121,6 +123,7 @@ export const OrderInfoPanel = forwardRef<
     isAdmin = false,
     onEditOrder,
     compactHeaderActions = false,
+    headerTrailing,
   } = props;
 
   const isOrdersMode = panelMode === 'orders';
@@ -482,79 +485,26 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       ) : null}
-      <div className="exp-wb-order-header-meta exp-wb-order-header-meta--row">
-        <p className="exp-wb-order-number m-0 shrink-0 text-[13px] font-semibold">#{numero}</p>
-        <OrderClickableStatusBadge
-          order={order}
-          onStatusChanged={onStatusChanged}
-          readOnly={fieldsReadOnly}
-        />
-        <div className={`exp-wb-order-header-actions${compactHeaderActions ? ' hidden md:flex' : ''}`}>
-          {onToggleUrgent ? (
-            urgent ? (
-              <button
-                type="button"
-                className="exp-wb-order-badge exp-wb-order-badge--urgent exp-wb-order-badge--pulse"
-                onClick={() => void onToggleUrgent()}
-              >
-                Urgente
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="exp-wb-urgency-toggle text-[12px]"
-                onClick={() => void onToggleUrgent()}
-              >
-                Marcar urgente
-              </button>
-            )
-          ) : urgent ? (
-            <span className="exp-wb-order-badge exp-wb-order-badge--urgent exp-wb-order-badge--pulse">
-              Urgente
-            </span>
+      <div className="exp-wb-order-header-meta">
+        <div className="pedido-header-row1 exp-wb-order-header-meta--row">
+          <p className="pedido-numero exp-wb-order-number m-0 shrink-0 text-[13px] font-semibold">
+            #{numero}
+          </p>
+          <div className="pedido-status-badge shrink-0">
+            <OrderClickableStatusBadge
+              order={order}
+              onStatusChanged={onStatusChanged}
+              readOnly={fieldsReadOnly}
+            />
+          </div>
+          {headerTrailing ? (
+            <div className="pedido-menu-btn ml-auto shrink-0 md:hidden">{headerTrailing}</div>
           ) : null}
-          {isAdmin && onEditOrder ? (
-            <button
-              type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px]"
-              onClick={onEditOrder}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Editar
-            </button>
-          ) : null}
-          {canEmitEtiqueta ? (
-            <button
-              type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => void handleEmitEtiqueta()}
-              disabled={emittingEtiqueta || cancellingEtiqueta}
-            >
-              {emittingEtiqueta ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Tag className="h-3.5 w-3.5" />
-              )}
-              Etiqueta
-            </button>
-          ) : null}
-          {canCancelCorreiosEtiqueta ? (
-            <button
-              type="button"
-              className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => void handleCancelCorreiosEtiqueta()}
-              disabled={cancellingEtiqueta || emittingEtiqueta}
-            >
-              {cancellingEtiqueta ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="h-3.5 w-3.5" />
-              )}
-              Cancelar
-            </button>
-          ) : null}
-          <div className="exp-wb-order-header-delivery">
-            <CalendarDays className="h-3.5 w-3.5 text-[var(--color-text-secondary,var(--text-secondary))]" aria-hidden />
+          <div className="pedido-entrega exp-wb-order-header-delivery exp-wb-order-header-delivery--inline ml-auto min-w-0">
+            <CalendarDays
+              className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-secondary,var(--text-secondary))]"
+              aria-hidden
+            />
             <span className="exp-wb-order-header-label">Entrega:</span>
             <span className="exp-wb-order-header-value">
               {order.requestedDeliveryDate
@@ -562,13 +512,96 @@ export const OrderInfoPanel = forwardRef<
                 : 'não informada'}
             </span>
             {overdue !== null ? (
-              <span className="exp-wb-late-badge">{formatOverdueLabel(overdue)}</span>
+              <span className="badge-atrasado exp-wb-late-badge shrink-0">
+                {formatOverdueLabel(overdue)}
+              </span>
             ) : null}
           </div>
+          <div
+            className={`exp-wb-order-header-actions${compactHeaderActions ? ' hidden md:flex' : ''}`}
+          >
+            {onToggleUrgent ? (
+              urgent ? (
+                <button
+                  type="button"
+                  className="exp-wb-order-badge exp-wb-order-badge--urgent exp-wb-order-badge--pulse"
+                  onClick={() => void onToggleUrgent()}
+                >
+                  Urgente
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="exp-wb-urgency-toggle text-[12px]"
+                  onClick={() => void onToggleUrgent()}
+                >
+                  Marcar urgente
+                </button>
+              )
+            ) : urgent ? (
+              <span className="exp-wb-order-badge exp-wb-order-badge--urgent exp-wb-order-badge--pulse">
+                Urgente
+              </span>
+            ) : null}
+            {isAdmin && onEditOrder ? (
+              <button
+                type="button"
+                className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px]"
+                onClick={onEditOrder}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Editar
+              </button>
+            ) : null}
+            {canEmitEtiqueta ? (
+              <button
+                type="button"
+                className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleEmitEtiqueta()}
+                disabled={emittingEtiqueta || cancellingEtiqueta}
+              >
+                {emittingEtiqueta ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Tag className="h-3.5 w-3.5" />
+                )}
+                Etiqueta
+              </button>
+            ) : null}
+            {canCancelCorreiosEtiqueta ? (
+              <button
+                type="button"
+                className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleCancelCorreiosEtiqueta()}
+                disabled={cancellingEtiqueta || emittingEtiqueta}
+              >
+                {cancellingEtiqueta ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Cancelar
+              </button>
+            ) : null}
+          </div>
+          {etiquetaError ? (
+            <p className="exp-wb-order-header-error text-[12px] text-red-500">{etiquetaError}</p>
+          ) : null}
         </div>
-        {etiquetaError ? (
-          <p className="exp-wb-order-header-error text-[12px] text-red-500">{etiquetaError}</p>
-        ) : null}
+        <div className="pedido-header-row2 pedido-entrega exp-wb-order-header-delivery--mobile md:hidden">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>Entrega:</span>
+          <span>
+            {order.requestedDeliveryDate
+              ? formatDayDisplay(order.requestedDeliveryDate)
+              : 'não informada'}
+          </span>
+          {overdue !== null ? (
+            <span className="badge-atrasado exp-wb-late-badge shrink-0">
+              {formatOverdueLabel(overdue)}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="exp-wb-order-header-body">

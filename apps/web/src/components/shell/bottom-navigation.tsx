@@ -60,7 +60,7 @@ export function BottomNavigation() {
       </MobileBottomDrawer>
 
       <nav className="erp-bottom-nav fixed inset-x-0 bottom-0 z-[60] border-t border-white/10 bg-[#0f172a] md:hidden">
-        <ul className="mx-auto grid h-[60px] max-w-[640px] grid-cols-5">
+        <ul className="mx-auto grid h-14 max-w-[640px] grid-cols-5">
           {primaryItems.map((item) => {
             const active = isNavActive(pathname, item.href);
             const Icon = item.icon;
@@ -68,12 +68,12 @@ export function BottomNavigation() {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`inline-flex h-full w-full min-h-[48px] min-w-[48px] flex-col items-center justify-center gap-0.5 text-xs transition active:scale-[0.98] ${
+                  className={`inline-flex h-full w-full min-h-[40px] min-w-[40px] flex-col items-center justify-center gap-0.5 text-[10px] leading-tight transition active:scale-[0.98] ${
                     active ? 'text-[#2AACE2]' : 'text-white'
                   }`}
                 >
                   <span
-                    className={`inline-flex items-center justify-center rounded-lg p-1 ${
+                    className={`inline-flex items-center justify-center rounded-md p-0.5 ${
                       active ? 'text-white' : ''
                     }`}
                     style={
@@ -93,12 +93,12 @@ export function BottomNavigation() {
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className={`inline-flex h-full w-full min-h-[48px] min-w-[48px] flex-col items-center justify-center gap-0.5 text-xs transition active:scale-[0.98] ${
+              className={`inline-flex h-full w-full min-h-[40px] min-w-[40px] flex-col items-center justify-center gap-0.5 text-[10px] leading-tight transition active:scale-[0.98] ${
                 open ? 'text-[#2AACE2]' : 'text-white'
               }`}
             >
               <span
-                className={`inline-flex items-center justify-center rounded-lg p-1 ${
+                className={`inline-flex items-center justify-center rounded-md p-0.5 ${
                   open ? 'text-white' : ''
                 }`}
                 style={

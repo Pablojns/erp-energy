@@ -290,8 +290,8 @@ export function ExpeditionWorkspace(props: {
         data={data}
         mode={mode}
         isAdmin={isAdmin}
-        onEditOrder={mode === 'orders' && isAdmin ? openOrderEdit : undefined}
-        onDeleteOrder={mode === 'orders' ? (order) => setDeleteOrder(order) : undefined}
+        onEditOrder={isAdmin ? openOrderEdit : undefined}
+        onDeleteOrder={(order) => setDeleteOrder(order)}
         onAfterAction={() => void handleAfterAction()}
         mobileLayout={mobileDetailOpen}
       />

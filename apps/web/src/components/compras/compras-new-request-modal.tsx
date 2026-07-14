@@ -473,7 +473,7 @@ export function ComprasNewRequestModal(props: {
   return (
     <>
     <ComprasModalShell title="Nova Solicitação" onClose={onClose} size="lg">
-      <div className="space-y-4">
+      <div className="space-y-2 md:space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
           {(
             [

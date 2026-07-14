@@ -13,7 +13,11 @@ import {
 import { usePullToRefresh } from '@/src/hooks/use-pull-to-refresh';
 import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
-import { PedidosOrdersTable } from '@/src/components/expedicao/workspace/pedidos-orders-table';
+import {
+  PedidosListaToolbar,
+  PedidosOrdersTable,
+  usePedidosTableColumns,
+} from '@/src/components/expedicao/workspace/pedidos-orders-table';
 import {
   pedidosStatusFilterLabel,
   pedidosStatusFilterTone,
@@ -228,6 +232,7 @@ export function OrderQueue(props: {
   const isPedidosMode = queueMode === 'orders';
   const { user } = useNavPermissions();
   const pedidosFiltersKey = pedidosFiltersStorageKey(user.id);
+  const pedidosColumnPrefs = usePedidosTableColumns(user.id);
 
   const [selectedForRemovalIds, setSelectedForRemovalIds] = useState<Set<string>>(
     () => new Set(),
@@ -246,7 +251,10 @@ export function OrderQueue(props: {
   );
   const listScrollRef = useRef<HTMLDivElement>(null);
   const pedidosTableScrollRef = useRef<HTMLDivElement>(null);
+  const pedidosMobileScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelDesktopRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelMobileRef = useRef<HTMLDivElement>(null);
   const loadMoreQueuedRef = useRef(false);
   const filtersWrapRef = useRef<HTMLDivElement>(null);
 
@@ -355,9 +363,18 @@ export function OrderQueue(props: {
 
   useEffect(() => {
     if (!data.ordersHasMore) return;
-    const sentinel = loadMoreSentinelRef.current;
+    const isPhone =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 767px)').matches;
+    const sentinel = isPedidosMode
+      ? isPhone
+        ? loadMoreSentinelMobileRef.current
+        : loadMoreSentinelDesktopRef.current
+      : loadMoreSentinelRef.current;
     const root = isPedidosMode
-      ? pedidosTableScrollRef.current
+      ? isPhone
+        ? pedidosMobileScrollRef.current
+        : pedidosTableScrollRef.current
       : listScrollRef.current;
     if (!sentinel || !root) return;
 
@@ -755,35 +772,58 @@ export function OrderQueue(props: {
             />
           </div>
         ) : isPedidosMode ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <PedidosOrdersTable
-              userId={user.id}
-              orders={data.orders}
-              selectedOrderId={selectedOrderId}
-              onSelectOrder={onSelectOrder}
-              onOrderChosen={onOrderChosen}
-              selectedForPrintIds={selectedForPrintIds}
-              onTogglePrint={togglePrintSelection}
-              isAdmin={isAdmin}
-              onEditOrder={onEditOrder}
-              onDeleteOrder={onDeleteOrder}
-              scrollContainerRef={pedidosTableScrollRef}
-              listFooter={
-                <>
-                  {data.ordersHasMore ? (
-                    <div
-                      ref={loadMoreSentinelRef}
-                      className="exp-queue-load-more-sentinel shrink-0"
-                      aria-hidden
-                    />
-                  ) : null}
-                  {data.ordersLoadingMore ? (
-                    <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
-                  ) : null}
-                </>
-              }
-            />
-          </div>
+          <>
+            <PedidosListaToolbar columnPrefs={pedidosColumnPrefs} />
+            <div className="hidden min-h-0 flex-1 flex-col overflow-hidden md:flex">
+              <PedidosOrdersTable
+                userId={user.id}
+                orders={data.orders}
+                selectedOrderId={selectedOrderId}
+                onSelectOrder={onSelectOrder}
+                onOrderChosen={onOrderChosen}
+                selectedForPrintIds={selectedForPrintIds}
+                onTogglePrint={togglePrintSelection}
+                isAdmin={isAdmin}
+                onEditOrder={onEditOrder}
+                onDeleteOrder={onDeleteOrder}
+                scrollContainerRef={pedidosTableScrollRef}
+                columnPrefs={pedidosColumnPrefs}
+                hideToolbar
+                listFooter={
+                  <>
+                    {data.ordersHasMore ? (
+                      <div
+                        ref={loadMoreSentinelDesktopRef}
+                        className="exp-queue-load-more-sentinel shrink-0"
+                        aria-hidden
+                      />
+                    ) : null}
+                    {data.ordersLoadingMore ? (
+                      <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
+                    ) : null}
+                  </>
+                }
+              />
+            </div>
+            <div
+              ref={pedidosMobileScrollRef}
+              className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto md:hidden"
+            >
+              {data.orders.map((order) => (
+                <div key={order.id}>{renderOrderCard(order)}</div>
+              ))}
+              {data.ordersHasMore ? (
+                <div
+                  ref={loadMoreSentinelMobileRef}
+                  className="exp-queue-load-more-sentinel shrink-0"
+                  aria-hidden
+                />
+              ) : null}
+              {data.ordersLoadingMore ? (
+                <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
+              ) : null}
+            </div>
+          </>
         ) : separationSections ? (
           <>
             <div className="exp-queue-sections gap-2">

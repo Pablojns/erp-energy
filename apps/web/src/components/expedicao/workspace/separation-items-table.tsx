@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Lock } from 'lucide-react';
 import { useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
 import {
@@ -25,6 +26,13 @@ export function SeparationItemsTable(props: {
   const isVendaExterna = order.source === 'VENDA_EXTERNA';
   const stockByItemId = useOrderItemsStock(order.items);
   const receiptSummary = summarizeItemReceiptStatus(order.items);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && !isOrdersMode) {
+      console.log('itens separacao:', order.items);
+    }
+  }, [isOrdersMode, order.id, order.items]);
+
 
   return (
     <div className="exp-wb-table-wrap">
@@ -54,42 +62,70 @@ export function SeparationItemsTable(props: {
       </div>
       <div className="exp-wb-table-scroll">
         <table
-          className={`exp-wb-table exp-wb-table--compact exp-wb-table--mobile-cards ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
+          className={`exp-wb-table exp-wb-table--compact exp-wb-table--mobile-cards w-full table-fixed ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
         >
           <colgroup>
-            <col className="exp-wb-col-linha" />
-            <col className="exp-wb-col-sku" />
-            <col className="exp-wb-col-item" />
-            <col className="exp-wb-col-qtd-pedida" />
-            {!isOrdersMode ? <col /> : null}
-            {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
-            {isOrdersMode && isVendaExterna ? <col /> : null}
-            {isOrdersMode && isVendaExterna ? <col /> : null}
-            {isOrdersMode && !isVendaExterna ? <col className="exp-wb-col-item-status" /> : null}
-            {!isOrdersMode ? <col className="exp-wb-col-sep-qty" /> : null}
-            {!isOrdersMode ? <col className="exp-wb-col-status" /> : null}
-            {!isOrdersMode ? <col className="exp-wb-col-action" /> : null}
+            {isOrdersMode ? (
+              <>
+                <col className="exp-wb-col-linha" />
+                <col className="exp-wb-col-sku" />
+                <col className="exp-wb-col-item" />
+                <col className="exp-wb-col-qtd-pedida" />
+                {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
+                {isVendaExterna ? <col /> : null}
+                {isVendaExterna ? <col /> : null}
+                {!isVendaExterna ? <col className="exp-wb-col-item-status" /> : null}
+              </>
+            ) : (
+              <>
+                <col style={{ width: '44px' }} />
+                <col style={{ width: '80px' }} />
+                <col />
+                <col style={{ width: '50px' }} />
+                {!isVendaExterna ? <col style={{ width: '90px' }} /> : null}
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '90px' }} />
+              </>
+            )}
           </colgroup>
           <thead>
             <tr>
-              <th>Linha</th>
-              <th>SKU</th>
-              <th>Item</th>
-              <th className="text-center">Qtd</th>
-              {!isOrdersMode ? <th className="text-center">Qtd Sep.</th> : null}
-              {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
-              {isOrdersMode && isVendaExterna ? (
-                <th className="text-center">Preço unit.</th>
-              ) : null}
-              {isOrdersMode && isVendaExterna ? (
-                <th className="text-center">Total</th>
-              ) : null}
-              {isOrdersMode && !isVendaExterna ? (
-                <th className="text-center">Status item</th>
-              ) : null}
-              {!isOrdersMode ? <th className="text-center">Qtd. separada</th> : null}
-              {!isOrdersMode ? <th className="text-center">Status</th> : null}
-              {!isOrdersMode ? <th className="text-center">Ação</th> : null}
+              {isOrdersMode ? (
+                <>
+                  <th>Linha</th>
+                  <th>SKU</th>
+                  <th>Item</th>
+                  <th className="text-center">Qtd</th>
+                  {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
+                  {isVendaExterna ? <th className="text-center">Preço unit.</th> : null}
+                  {isVendaExterna ? <th className="text-center">Total</th> : null}
+                  {!isVendaExterna ? <th className="text-center">Status item</th> : null}
+                </>
+              ) : (
+                <>
+                  <th style={{ whiteSpace: 'nowrap' }}>Linha</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>SKU</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Item</th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Qtd
+                  </th>
+                  {!isVendaExterna ? (
+                    <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                      Qtd Estoque
+                    </th>
+                  ) : null}
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Qtd Sep.
+                  </th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Status
+                  </th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Ação
+                  </th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>

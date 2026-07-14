@@ -192,28 +192,97 @@ export function ExpeditionDashboardView() {
     );
   }
 
+  const mUrgentes = topMetrics.find((m) => m.label === 'Urgentes');
+  const mParciais = smallMetrics.find((m) => m.label === 'Parciais');
+  const mTotal = topMetrics.find((m) => m.label === 'Total Pedidos');
+  const mAtrasados = topMetrics.find((m) => m.label === 'Atrasados');
+  const mConcluidos = topMetrics.find((m) => m.label === 'Concluídos');
+  const mEmSeparacao = topMetrics.find((m) => m.label === 'Em Separação');
+
   return (
     <div className="space-y-4 px-2 pt-2 sm:px-4 sm:pt-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+      {/* Mobile (<768px) — compacto: linha 1 (Urgentes/Parciais) + grid 2x2 */}
+      <div className="exp-dash-mobile-only hidden flex-col gap-2.5">
+        <div className="exp-dash-mobile-row1 flex gap-2.5">
+          {mUrgentes ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mUrgentes.filter}`}
+              className="exp-dash-mini-card flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-mini-label">Urgentes</p>
+              <p className="exp-dash-mini-value">{mUrgentes.value}</p>
+            </Link>
+          ) : null}
+          {mParciais ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mParciais.filter}`}
+              className="exp-dash-mini-card flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-mini-label">Parciais</p>
+              <p className="exp-dash-mini-value">{mParciais.value}</p>
+            </Link>
+          ) : null}
+        </div>
+        <div className="exp-dash-mobile-row2 grid grid-cols-2">
+          {mTotal ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mTotal.filter}`}
+              className="exp-dash-2x2-card rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-2x2-label">Total Pedidos</p>
+              <p className="exp-dash-2x2-value">{mTotal.value}</p>
+            </Link>
+          ) : null}
+          {mAtrasados ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mAtrasados.filter}`}
+              className="exp-dash-2x2-card rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-2x2-label">Atrasados</p>
+              <p className="exp-dash-2x2-value exp-dash-2x2-value--danger">{mAtrasados.value}</p>
+            </Link>
+          ) : null}
+          {mConcluidos ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mConcluidos.filter}`}
+              className="exp-dash-2x2-card rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-2x2-label">Concluídos</p>
+              <p className="exp-dash-2x2-value">{mConcluidos.value}</p>
+            </Link>
+          ) : null}
+          {mEmSeparacao ? (
+            <Link
+              href={`/app/expedicao/pedidos?filter=${mEmSeparacao.filter}`}
+              className="exp-dash-2x2-card rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition hover:border-[var(--accent)]"
+            >
+              <p className="exp-dash-2x2-label">Em Separação</p>
+              <p className="exp-dash-2x2-value">{mEmSeparacao.value}</p>
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="exp-dash-desktop-only grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-5">
         {topMetrics.map((m) => (
           <Link
             key={m.label}
             href={`/app/expedicao/pedidos?filter=${m.filter}`}
-            className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 transition hover:border-[var(--accent)]"
+            className="max-h-20 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 transition hover:border-[var(--accent)] md:max-h-none md:overflow-visible md:p-4"
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">{m.label}</p>
-            <p className="mt-2 text-xl font-bold text-[var(--text-primary)] sm:text-3xl">{m.value}</p>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">{m.hint}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">{m.label}</p>
+            <p className="mt-1 text-[28px] font-bold leading-none text-[var(--text-primary)] sm:mt-2 sm:text-3xl">{m.value}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--text-secondary)] sm:mt-1 sm:text-xs">{m.hint}</p>
           </Link>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="exp-dash-desktop-only grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {smallMetrics.map((m) => (
           <Link
             key={m.label}
             href={`/app/expedicao/pedidos?filter=${m.filter}`}
-            className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 transition hover:border-[var(--accent)]"
+            className="max-h-20 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 transition hover:border-[var(--accent)] md:max-h-none md:overflow-visible"
           >
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">{m.label}</p>
             <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{m.value}</p>
@@ -223,7 +292,7 @@ export function ExpeditionDashboardView() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <GlassCard className="p-4 xl:col-span-6">
+        <GlassCard className="exp-dash-desktop-only p-4 xl:col-span-6">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Pedidos por status (7 dias)</h3>
           <div className="mt-4 space-y-2">
             {barSeries.rows.map((r) => (

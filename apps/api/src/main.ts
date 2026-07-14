@@ -26,6 +26,8 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://192.168.0.11:3000',
       'https://erp-energy-web.vercel.app',
       'http://174.138.41.33:3000',
     ],

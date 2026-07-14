@@ -60,6 +60,33 @@ const FIXED_COL_WIDTH_PX: Partial<Record<string, number>> = {
   valor: 72,
 };
 
+export function usePedidosTableColumns(userId: string) {
+  return useTableColumnPreferences(
+    userId,
+    PEDIDOS_TABLE_ID,
+    PEDIDOS_TABLE_COLUMN_DEFINITIONS,
+  );
+}
+
+export function PedidosListaToolbar(props: {
+  columnPrefs: ReturnType<typeof usePedidosTableColumns>;
+}) {
+  const { columnPrefs } = props;
+  return (
+    <div className="exp-pedidos-table-toolbar">
+      <p className="exp-pedidos-table-toolbar-title">Lista de pedidos</p>
+      <TableColumnsPicker
+        definitions={columnPrefs.definitions}
+        preferences={columnPrefs.preferences}
+        onToggle={columnPrefs.setVisible}
+        onReorder={columnPrefs.reorder}
+        onReset={columnPrefs.reset}
+        ariaLabel="Configurar colunas da tabela de pedidos"
+      />
+    </div>
+  );
+}
+
 type PedidosOrdersTableProps = {
   userId: string;
   orders: OrderDto[];
@@ -73,10 +100,11 @@ type PedidosOrdersTableProps = {
   onDeleteOrder?: (order: OrderDto) => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   listFooter?: ReactNode;
+  columnPrefs: ReturnType<typeof usePedidosTableColumns>;
+  hideToolbar?: boolean;
 };
 
 export function PedidosOrdersTable({
-  userId,
   orders,
   selectedOrderId,
   onSelectOrder,
@@ -88,12 +116,9 @@ export function PedidosOrdersTable({
   onDeleteOrder,
   scrollContainerRef,
   listFooter,
+  columnPrefs,
+  hideToolbar = false,
 }: PedidosOrdersTableProps) {
-  const columnPrefs = useTableColumnPreferences(
-    userId,
-    PEDIDOS_TABLE_ID,
-    PEDIDOS_TABLE_COLUMN_DEFINITIONS,
-  );
 
   const visibleColumns = useMemo(() => {
     const labelByKey = new Map(
@@ -140,17 +165,7 @@ export function PedidosOrdersTable({
 
   return (
     <div className="exp-pedidos-table-wrap flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <div className="exp-pedidos-table-toolbar">
-        <p className="exp-pedidos-table-toolbar-title">Lista de pedidos</p>
-        <TableColumnsPicker
-          definitions={columnPrefs.definitions}
-          preferences={columnPrefs.preferences}
-          onToggle={columnPrefs.setVisible}
-          onReorder={columnPrefs.reorder}
-          onReset={columnPrefs.reset}
-          ariaLabel="Configurar colunas da tabela de pedidos"
-        />
-      </div>
+      {hideToolbar ? null : <PedidosListaToolbar columnPrefs={columnPrefs} />}
 
       <div
         ref={scrollContainerRef}

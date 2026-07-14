@@ -7,9 +7,30 @@ export function MobileCollapsibleSection(props: {
   title: string;
   defaultOpen?: boolean;
   children: ReactNode;
+  /** No mobile, sempre mostra o conteúdo (sem seta/expandir). Desktop inalterado. */
+  mobileAlwaysOpen?: boolean;
+  /** Classe extra aplicada ao card mobile (ex.: variante Financeiro). */
+  mobileCardClassName?: string;
 }) {
-  const { title, defaultOpen = true, children } = props;
+  const {
+    title,
+    defaultOpen = true,
+    children,
+    mobileAlwaysOpen = false,
+    mobileCardClassName = '',
+  } = props;
   const [open, setOpen] = useState(defaultOpen);
+
+  if (mobileAlwaysOpen) {
+    return (
+      <section
+        className={`dash-mobile-module-card md:!border-none md:!bg-transparent md:!shadow-none ${mobileCardClassName}`}
+      >
+        <header className="dash-mobile-module-card-title md:hidden">{title}</header>
+        <div className="dash-mobile-module-card-body md:contents">{children}</div>
+      </section>
+    );
+  }
 
   return (
     <section className="dash-mobile-collapse md:!border-none md:!bg-transparent md:!shadow-none">

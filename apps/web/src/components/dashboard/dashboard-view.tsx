@@ -21,7 +21,7 @@ export function DashboardView() {
   const [preset, setPreset] = useState<PeriodPreset>('mes');
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [refreshKey] = useState(0);
-  const mainRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const panel = mainRef.current?.querySelector('.dash-tab-panel');
@@ -51,7 +51,11 @@ export function DashboardView() {
         onOverviewLayoutReset={handleOverviewLayoutReset}
       />
 
-      <main ref={mainRef} className="dash-scroll-main">
+      {/* div, não <main>: já existe um <main> no AppShell — dois <main>
+          aninhados são semanticamente inválidos e fazem seletores como
+          `.erp-app-bg main` (descendente) baterem nos dois, duplicando
+          padding. */}
+      <div ref={mainRef} className="dash-scroll-main">
         {activeTab === 'overview' ? (
           <TabOverview
             period={period}
@@ -68,7 +72,7 @@ export function DashboardView() {
         ) : (
           <TabEstoque period={period} refreshKey={refreshKey} />
         )}
-      </main>
+      </div>
 
       <NewOrderModal
         isOpen={newOrderOpen}

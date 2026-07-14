@@ -1,6 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 type MobileBottomDrawerProps = {
@@ -14,10 +16,16 @@ type MobileBottomDrawerProps = {
 
 export function MobileBottomDrawer(props: MobileBottomDrawerProps) {
   const { open, onClose, title, children, zIndex = 70 } = props;
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
 
-  return (
-    <div className="erp-mobile-drawer-root" style={{ zIndex }}>
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!open || !mounted) return null;
+
+  return createPortal(
+    <div className="erp-mobile-drawer-root bottom-sheet" style={{ zIndex }}>
       <button
         type="button"
         className="erp-mobile-drawer-backdrop"
@@ -32,7 +40,7 @@ export function MobileBottomDrawer(props: MobileBottomDrawerProps) {
       >
         <div className="erp-mobile-drawer-handle" aria-hidden />
         {title ? (
-          <div className="erp-mobile-drawer-head">
+          <div className="erp-mobile-drawer-head bottom-sheet-header">
             <h3 className="erp-mobile-drawer-title">{title}</h3>
             <button
               type="button"
@@ -44,8 +52,9 @@ export function MobileBottomDrawer(props: MobileBottomDrawerProps) {
             </button>
           </div>
         ) : null}
-        <div className="erp-mobile-drawer-body">{children}</div>
+        <div className="erp-mobile-drawer-body bottom-sheet-content">{children}</div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }

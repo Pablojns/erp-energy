@@ -72,7 +72,26 @@
 
 @media (max-width: 1023px) {
   .overview-block {
-    min-height: 280px;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .overview-block {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .overview-hero {
+    margin-bottom: 0.4rem;
+  }
+
+  .overview-hero-value {
+    font-size: 1.25rem;
+  }
+
+  .overview-stat-grid {
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
   }
 }
 

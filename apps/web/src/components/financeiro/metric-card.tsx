@@ -22,31 +22,31 @@ export function FinMetricCard(props: {
           : 'text-[var(--fin-text)]';
 
   return (
-    <article className="fin-card group relative overflow-hidden rounded-2xl p-4 transition hover:border-[var(--fin-border-strong)] sm:p-5">
+    <article className="fin-card group relative overflow-hidden rounded-xl p-3 transition hover:border-[var(--fin-border-strong)] sm:rounded-2xl sm:p-5">
       <div
-        className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-[0.07]"
+        className="pointer-events-none absolute -right-6 -top-6 hidden h-24 w-24 rounded-full opacity-[0.07] sm:block"
         style={{ background: 'var(--fin-accent)' }}
         aria-hidden
       />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--fin-text-muted)]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--fin-text-muted)] sm:text-[11px] sm:tracking-[0.12em]">
           {label}
         </p>
         {Icon ? (
-          <Icon className="h-4 w-4 shrink-0 text-[var(--fin-text-muted)]" aria-hidden />
+          <Icon className="hidden h-4 w-4 shrink-0 text-[var(--fin-text-muted)] sm:block" aria-hidden />
         ) : null}
       </div>
       <p
-        className={`mt-2 font-bold tabular-nums tracking-tight ${valueColor} ${
-          large ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'
+        className={`mt-1 font-bold tabular-nums tracking-tight sm:mt-2 ${valueColor} ${
+          large ? 'text-xl sm:text-3xl' : 'text-xl sm:text-2xl'
         }`}
       >
         {value}
       </p>
       {hint ? (
-        <p className="mt-1.5 text-xs text-[var(--fin-text-secondary)]">{hint}</p>
+        <p className="mt-1 text-[11px] text-[var(--fin-text-secondary)] sm:mt-1.5 sm:text-xs">{hint}</p>
       ) : null}
-      {extra ? <div className="mt-3">{extra}</div> : null}
+      {extra ? <div className="mt-2 sm:mt-3">{extra}</div> : null}
     </article>
   );
 }

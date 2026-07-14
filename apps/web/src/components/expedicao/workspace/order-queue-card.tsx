@@ -26,7 +26,7 @@ function formatCurrency(value: number | string | null | undefined): string {
   return brl.format(Number.isFinite(n) ? n : 0);
 }
 
-const SWIPE_SECTIONS = 4;
+const SWIPE_SECTIONS = 2;
 
 export function OrderQueueCard(props: {
   order: OrderDto;
@@ -114,6 +114,7 @@ export function OrderQueueCard(props: {
         >
           <input
             type="checkbox"
+            className="pedido-card-checkbox"
             checked={checkedForPrint}
             onChange={() => onTogglePrint()}
             aria-label={`Selecionar pedido ${numero} para PDF`}
@@ -127,6 +128,7 @@ export function OrderQueueCard(props: {
         >
           <input
             type="checkbox"
+            className="pedido-card-checkbox"
             checked={checkedForRemoval}
             onChange={() => onToggleRemoval()}
             aria-label={`Selecionar pedido ${numero} para remover da separação`}
@@ -218,108 +220,55 @@ export function OrderQueueCard(props: {
         {adminActions}
       </div>
 
-      {/* Mobile &lt;768px — swipe horizontal com 4 seções */}
+      {/* Mobile &lt;768px — linha única 44px com swipe revelando recebedor/data/ações */}
       <div className="exp-queue-card-body exp-queue-card-body--swipe w-full min-w-0">
-        <div className="exp-queue-swipe-card">
-          {onTogglePrint || onToggleRemoval ? (
-            <div className="exp-queue-swipe-card-checks" onClick={(e) => e.stopPropagation()}>
-              {selectionChecks}
-            </div>
-          ) : null}
-          <div
-            ref={swipe.setViewportRef}
-            className="exp-queue-swipe-viewport"
-            {...swipe.handlers}
-          >
-            <div className="exp-queue-swipe-track" style={swipe.trackStyle}>
-              <section className="exp-queue-swipe-section">
-                <div className="exp-queue-swipe-section-inner">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="exp-queue-card-num text-sm">#{numero}</span>
-                    {sourceBadge}
-                    {urgentBadge}
-                  </div>
-                  <span
-                    className="exp-queue-status-badge mt-1.5 text-xs"
-                    style={orderWorkflowCardBadgeStyle(statusBadge.color)}
-                  >
-                    {statusBadge.label}
-                  </span>
-                  <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
-                    Entrega: {deliveryWhen}
-                  </p>
-                </div>
-              </section>
-              <section className="exp-queue-swipe-section">
-                <div className="exp-queue-swipe-section-inner">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-                    Recebedor
-                  </p>
-                  <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text-primary)]">
-                    {displayOrDash(order.receiverName ?? order.customerName)}
-                  </p>
-                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-                    Ponto de descarga
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
-                    {displayOrDash(order.unloadingPoint)}
-                  </p>
-                </div>
-              </section>
-              <section className="exp-queue-swipe-section">
-                <div className="exp-queue-swipe-section-inner">
-                  <p className="text-sm font-bold text-[var(--text-primary)]">
-                    {formatCurrency(order.totalValue)}
-                  </p>
-                  <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
-                    Transportadora: {displayOrDash(order.carrierName)}
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    NF:{' '}
-                    {order.invoiceNumber?.trim()
-                      ? order.invoiceNumber
-                      : showNfPendente
-                        ? 'Pendente'
-                        : '—'}
-                  </p>
-                </div>
-              </section>
-              <section className="exp-queue-swipe-section">
-                <div className="exp-queue-swipe-section-inner">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-                    Observações
-                  </p>
-                  <p className="mt-0.5 line-clamp-2 text-xs text-[var(--text-secondary)]">
-                    {displayOrDash(order.obsExpedicao ?? order.notes)}
-                  </p>
-                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-                    CNPJ
-                  </p>
-                  <p className="mt-0.5 truncate text-xs font-medium text-[var(--text-primary)]">
-                    {comprador}
-                  </p>
-                </div>
-              </section>
-            </div>
-          </div>
-          <div className="exp-queue-swipe-dots" role="tablist" aria-label="Seções do pedido">
-            {Array.from({ length: SWIPE_SECTIONS }).map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                role="tab"
-                aria-selected={swipe.index === i}
-                aria-label={`Seção ${i + 1}`}
-                className={`exp-queue-swipe-dot${swipe.index === i ? ' exp-queue-swipe-dot--active' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  swipe.goTo(i);
-                }}
-              />
-            ))}
+        <div
+          ref={swipe.setViewportRef}
+          className="exp-queue-row-viewport"
+          role="button"
+          tabIndex={0}
+          onKeyDown={handleCardKeyDown}
+          {...swipe.handlers}
+        >
+          <div className="exp-queue-row-track" style={swipe.trackStyle}>
+            <section className="exp-queue-row-section exp-queue-row-front">
+              {onTogglePrint || onToggleRemoval ? (
+                <span onClick={(e) => e.stopPropagation()}>{selectionChecks}</span>
+              ) : null}
+              <span className="exp-queue-row-num">#{numero}</span>
+              <span
+                className="exp-queue-status-badge exp-queue-row-badge"
+                style={orderWorkflowCardBadgeStyle(statusBadge.color)}
+              >
+                {statusBadge.label}
+              </span>
+              <span className="exp-queue-row-value">{formatCurrency(order.totalValue)}</span>
+            </section>
+            <section className="exp-queue-row-section exp-queue-row-back">
+              <span className="exp-queue-row-receiver truncate">
+                {displayOrDash(order.receiverName ?? order.customerName)}
+              </span>
+              <span className="exp-queue-row-date shrink-0">{deliveryWhen}</span>
+              {adminActions}
+            </section>
           </div>
         </div>
-        {adminActions}
+        <div className="exp-queue-row-dots" role="tablist" aria-label="Detalhes do pedido">
+          {Array.from({ length: SWIPE_SECTIONS }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              role="tab"
+              aria-selected={swipe.index === i}
+              aria-label={i === 0 ? 'Resumo do pedido' : 'Recebedor e ações'}
+              className={`exp-queue-swipe-dot${swipe.index === i ? ' exp-queue-swipe-dot--active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                swipe.goTo(i);
+              }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
