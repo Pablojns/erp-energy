@@ -1915,10 +1915,16 @@ export class PedidosService {
       }
     }
 
+    const nextPicked =
+      pickedQty !== undefined ? Math.min(pickedQty, item.quantity) : undefined;
+
     return this.prisma.client.orderItem.update({
       where: { id: item.id },
       data: {
-        pickedQty: pickedQty ?? undefined,
+        pickedQty: nextPicked,
+        ...(nextPicked !== undefined
+          ? { missingQty: Math.max(0, item.quantity - nextPicked) }
+          : {}),
         stockStatus: dto.status_item ? mapStatusItemToStockStatus(dto.status_item) : undefined,
       },
     });

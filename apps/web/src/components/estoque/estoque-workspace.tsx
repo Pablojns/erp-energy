@@ -272,6 +272,20 @@ function parseMovementOrderRefs(
   return { pedido, nf };
 }
 
+const OUTBOUND_MOVEMENT_TYPES = new Set([
+  'OUTBOUND',
+  'SAIDA_EXPEDICAO',
+  'BAIXA_EXPEDICAO',
+]);
+
+function isOutboundMovementType(type: string): boolean {
+  return OUTBOUND_MOVEMENT_TYPES.has(type);
+}
+
+function isInboundMovementType(type: string): boolean {
+  return type === 'INBOUND' || type === 'RETURN';
+}
+
 const MOVEMENT_LABEL: Record<string, string> = {
   INBOUND: 'Entrada',
   OUTBOUND: 'Saída',
@@ -519,7 +533,7 @@ function movementBadgeClass(type: string) {
   if (type === 'INBOUND') {
     return 'erp-movement-badge erp-movement-badge--inbound';
   }
-  if (type === 'OUTBOUND') {
+  if (type === 'OUTBOUND' || type === 'SAIDA_EXPEDICAO' || type === 'BAIXA_EXPEDICAO') {
     return 'erp-movement-badge erp-movement-badge--outbound';
   }
   if (isAjusteMovementType(type)) {
@@ -1115,6 +1129,7 @@ export function EstoqueWorkspace() {
       page?: number;
       pageSize?: number;
       includeTypeFilters?: boolean;
+      productId?: string;
     }) => {
       const params = new URLSearchParams();
       params.set('page', String(opts?.page ?? 1));
@@ -1145,7 +1160,15 @@ export function EstoqueWorkspace() {
         if (startDate) params.set('startDate', startDate);
         if (endDate) params.set('endDate', endDate);
       } else {
-        params.set('pageSize', String(opts?.pageSize ?? 50));
+        params.set('pageSize', String(opts?.pageSize ?? 100));
+        if (opts?.productId) {
+          params.set('productId', opts.productId);
+          const end = new Date();
+          const start = new Date(end.getTime() - 1000 * 60 * 60 * 24 * 30);
+          params.set('types', 'entrada,saida');
+          params.set('startDate', start.toISOString().slice(0, 10));
+          params.set('endDate', end.toISOString().slice(0, 10));
+        }
       }
 
       return params;
@@ -1216,7 +1239,11 @@ export function EstoqueWorkspace() {
         });
         await loadMovementsSummary();
       } else {
-        const params = buildMovementQueryParams();
+        const params = buildMovementQueryParams(
+          tab === 'inventory'
+            ? { productId: selectedInventoryId ?? undefined }
+            : undefined,
+        );
         const res = await erpFetchJson<Paginated<MovementRow>>(
           `stock/movements?${params.toString()}`,
         );
@@ -1231,7 +1258,7 @@ export function EstoqueWorkspace() {
     } finally {
       setMovementsLoading(false);
     }
-  }, [buildMovementQueryParams, tab, loadMovementsSummary]);
+  }, [buildMovementQueryParams, tab, loadMovementsSummary, selectedInventoryId]);
 
   useEffect(() => {
     if (tab === 'movements') {
@@ -1256,7 +1283,7 @@ export function EstoqueWorkspace() {
     if (tab === 'movements' || tab === 'inventory' || tab === 'dashboard') {
       void loadMovements();
     }
-  }, [tab, loadMovements]);
+  }, [tab, loadMovements, selectedInventoryId]);
 
   const openCreateProduct = () => {
     syncInventoryListScroll();
@@ -2369,10 +2396,10 @@ export function EstoqueWorkspace() {
         now - new Date(m.movementDate).getTime() < 1000 * 60 * 60 * 24 * 30,
     );
     const inbound = recent
-      .filter((m) => m.movementType === 'INBOUND')
+      .filter((m) => isInboundMovementType(m.movementType))
       .reduce((acc, m) => acc + m.quantity, 0);
     const outbound = recent
-      .filter((m) => m.movementType === 'OUTBOUND')
+      .filter((m) => isOutboundMovementType(m.movementType))
       .reduce((acc, m) => acc + m.quantity, 0);
     return { inbound, outbound };
   }, [movementItems, selectedInventoryProduct]);
@@ -2384,13 +2411,13 @@ export function EstoqueWorkspace() {
     const inPeak = Math.max(
       0,
       ...selectedProductMovementsAll
-        .filter((m) => m.movementType === 'INBOUND')
+        .filter((m) => isInboundMovementType(m.movementType))
         .map((m) => m.quantity),
     );
     const outPeak = Math.max(
       0,
       ...selectedProductMovementsAll
-        .filter((m) => m.movementType === 'OUTBOUND')
+        .filter((m) => isOutboundMovementType(m.movementType))
         .map((m) => m.quantity),
     );
     const availableMax = Math.max(1, selectedInventoryProduct.stockQty);
@@ -2705,8 +2732,8 @@ export function EstoqueWorkspace() {
                   <td className="px-2 py-1 text-[var(--text-primary)]">{formatDateTime(m.movementDate)}</td>
                   <td className="px-2 py-1">
                     <span className={`rounded-full px-2 py-0.5 text-xs ${
-                      m.movementType === 'INBOUND' ? 'bg-emerald-100 text-emerald-800' :
-                      m.movementType === 'OUTBOUND' ? 'bg-rose-100 text-rose-800' :
+                      m.movementType === 'INBOUND' || m.movementType === 'RETURN' ? 'bg-emerald-100 text-emerald-800' :
+                      isOutboundMovementType(m.movementType) ? 'bg-rose-100 text-rose-800' :
                       isAjusteMovementType(m.movementType) ? 'bg-amber-100 text-amber-800' :
                       'bg-violet-100 text-violet-800'
                     }`}>

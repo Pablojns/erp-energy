@@ -201,6 +201,14 @@ export function getQueueCardVisual(order: OrderDto): {
       badgeLabel: 'ATRASADO',
     };
   }
+  if (order.status === 'PARCIAL') {
+    return {
+      icon: Box,
+      tone: 'wait',
+      badgeTone: 'partial',
+      badgeLabel: 'PARCIAL',
+    };
+  }
   if ((order.unidadesFaltantes ?? 0) > 0) {
     return {
       icon: Box,
@@ -239,14 +247,6 @@ export function getQueueCardVisual(order: OrderDto): {
       tone: 'ship',
       badgeTone: 'separating',
       badgeLabel: 'EM SEPARAÇÃO',
-    };
-  }
-  if (order.status === 'PARCIAL') {
-    return {
-      icon: Box,
-      tone: 'wait',
-      badgeTone: 'partial',
-      badgeLabel: 'PARCIAL',
     };
   }
   return {
@@ -303,6 +303,9 @@ export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
     return { label: 'CANCELADO', color: 'cancelado' };
   }
   if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') {
+    if (getOrderSendState(order) === 'partial') {
+      return { label: 'PARCIAL', color: 'parcial' };
+    }
     return { label: 'FINALIZADO', color: 'finalizado' };
   }
   if (order.status === 'PARCIAL') {

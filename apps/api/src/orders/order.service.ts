@@ -1537,6 +1537,15 @@ export class OrderService {
         );
       }
 
+      for (const it of lines) {
+        await tx.orderItem.update({
+          where: { id: it.id },
+          data: {
+            missingQty: Math.max(0, it.quantity - (it.pickedQty ?? 0)),
+          },
+        });
+      }
+
       const partialLines = lines.filter(
         (it) => it.pickedQty > 0 && it.pickedQty < it.quantity,
       );
@@ -1624,7 +1633,10 @@ export class OrderService {
 
       await tx.orderItem.update({
         where: { id: itemId },
-        data: { pickedQty: clamped },
+        data: {
+          pickedQty: clamped,
+          missingQty: Math.max(0, item.quantity - clamped),
+        },
       });
 
       const updated = await tx.order.findUnique({
@@ -1786,7 +1798,7 @@ export class OrderService {
             productId,
             movementType: StockMovementType.SAIDA_EXPEDICAO,
             quantity: qtyOut,
-            reference: inv,
+            reference: before.code,
             invoiceNumber: inv,
             notes: `Saída pedido ${before.code} · NF ${inv}`,
             movedById: userId,
@@ -1805,15 +1817,29 @@ export class OrderService {
           }
         }
 
+        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : qtyOut;
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
             productId,
-            pickedQty: it.pickedQty > 0 ? it.pickedQty : qtyOut,
+            pickedQty: pickedFinal,
+            missingQty: Math.max(0, it.quantity - pickedFinal),
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
             invoicedQty: qtyOut,
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
+          },
+        });
+      }
+
+      // Itens sem baixa (SKU sem produto / qtyOut 0) ainda precisam de missingQty.
+      for (const it of before.items) {
+        const qtyOut = OrderService.resolveExitQuantity(it);
+        if (qtyOut > 0) continue;
+        await tx.orderItem.update({
+          where: { id: it.id },
+          data: {
+            missingQty: Math.max(0, it.quantity - (it.pickedQty ?? 0)),
           },
         });
       }
@@ -1824,10 +1850,11 @@ export class OrderService {
         );
       }
 
+      const finalStatus = OrderService.resolveExitOrderStatus(before.items);
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
-          status: OrderStatus.FINALIZADO,
+          status: finalStatus,
           invoiceNumber: inv,
           invoiceStatus: InvoiceStatus.INVOICED,
           invoicedAt: new Date(),
@@ -1952,15 +1979,28 @@ export class OrderService {
           }
         }
 
+        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : qtyOut;
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
             productId,
-            pickedQty: it.pickedQty > 0 ? it.pickedQty : qtyOut,
+            pickedQty: pickedFinal,
+            missingQty: Math.max(0, it.quantity - pickedFinal),
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
             invoicedQty: qtyOut,
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
+          },
+        });
+      }
+
+      for (const it of before.items) {
+        const qtyOut = OrderService.resolveExitQuantity(it);
+        if (qtyOut > 0) continue;
+        await tx.orderItem.update({
+          where: { id: it.id },
+          data: {
+            missingQty: Math.max(0, it.quantity - (it.pickedQty ?? 0)),
           },
         });
       }
@@ -1971,10 +2011,11 @@ export class OrderService {
         );
       }
 
+      const finalStatus = OrderService.resolveExitOrderStatus(before.items);
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
-          status: OrderStatus.FINALIZADO,
+          status: finalStatus,
           shippedAt: new Date(),
         },
         include: OrderService.orderInclude(),
@@ -2656,6 +2697,18 @@ export class OrderService {
     return 0;
   }
 
+  /** FINALIZADO só se todos os itens foram 100% separados/enviados; senão PARCIAL. */
+  private static resolveExitOrderStatus(
+    items: Array<{ quantity: number; pickedQty: number; invoicedQty: number }>,
+  ): typeof OrderStatus.FINALIZADO | typeof OrderStatus.PARCIAL {
+    if (items.length === 0) return OrderStatus.FINALIZADO;
+    const fullyShipped = items.every((it) => {
+      if (it.quantity <= 0) return true;
+      return OrderService.resolveExitQuantity(it) >= it.quantity;
+    });
+    return fullyShipped ? OrderStatus.FINALIZADO : OrderStatus.PARCIAL;
+  }
+
   private async resolveOrderItemProductId(
     tx: Tx,
     item: { id: string; sku: string; productId: string | null },
@@ -2956,10 +3009,13 @@ export class OrderService {
 
   private serializeOrder(row: OrderSerializeSource) {
     const qtySum = row.items.reduce((a, x) => a + x.quantity, 0);
-    const unidadesFaltantes = row.items.reduce(
-      (a, x) => a + (x.missingQty ?? 0),
-      0,
-    );
+    const unidadesFaltantes = row.items.reduce((a, x) => {
+      const fulfilled = Math.max(x.pickedQty ?? 0, x.invoicedQty ?? 0);
+      if (fulfilled > 0 || (x.pickedQty ?? 0) > 0) {
+        return a + Math.max(0, x.quantity - fulfilled);
+      }
+      return a + (x.missingQty ?? 0);
+    }, 0);
 
     const physicalReservationActive =
       (row.stockReservations?.length ?? 0) > 0;
@@ -3039,7 +3095,11 @@ export class OrderService {
           description: it.description,
           quantity: it.quantity,
           reservedQuantity: it.reservedQuantity,
-          missingQty: it.missingQty ?? 0,
+          missingQty: (() => {
+            const fulfilled = Math.max(it.pickedQty ?? 0, it.invoicedQty ?? 0);
+            if (fulfilled > 0) return Math.max(0, it.quantity - fulfilled);
+            return it.missingQty ?? 0;
+          })(),
           pickedQty: it.pickedQty ?? 0,
           invoicedQty: it.invoicedQty ?? 0,
           mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus ?? null,
