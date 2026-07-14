@@ -312,7 +312,7 @@ export function TabOverview({
 
       {f && fluxo ? (
         <>
-          <div className="overview-stat-grid">
+          <div className="overview-stat-grid dash-mobile-metrics-grid">
             <div className="overview-stat-cell">
               <div className="overview-label">Total</div>
               <div className="overview-stat-value">{formatNumber(total)}</div>
@@ -379,7 +379,7 @@ export function TabOverview({
       </div>
 
       {stock ? (
-        <div className="overview-stat-grid overview-stat-grid--2">
+        <div className="overview-stat-grid overview-stat-grid--2 dash-mobile-metrics-grid">
           <div className="overview-stat-cell">
             <div className="overview-label">Produtos ativos</div>
             <div className="overview-stat-value">{formatNumber(stock.activeProducts)}</div>

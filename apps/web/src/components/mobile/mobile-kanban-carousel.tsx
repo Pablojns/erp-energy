@@ -6,12 +6,14 @@ type MobileKanbanCarouselProps<T extends { id: string; title: string }> = {
   columns: T[];
   renderColumn: (column: T, index: number) => ReactNode;
   className?: string;
+  /** Colunas a 85vw com peek da próxima (CRM). */
+  peekColumns?: boolean;
 };
 
 export function MobileKanbanCarousel<T extends { id: string; title: string }>(
   props: MobileKanbanCarouselProps<T>,
 ) {
-  const { columns, renderColumn, className = '' } = props;
+  const { columns, renderColumn, className = '', peekColumns = false } = props;
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
@@ -21,13 +23,17 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
     if (!el) return;
     const clamped = Math.max(0, Math.min(index, columns.length - 1));
     setActiveIndex(clamped);
-    el.scrollTo({ left: clamped * el.clientWidth, behavior: 'smooth' });
+    const slide = el.querySelector<HTMLElement>('.erp-mobile-kanban-slide');
+    const slideWidth = slide?.offsetWidth ?? el.clientWidth;
+    el.scrollTo({ left: clamped * slideWidth, behavior: 'smooth' });
   }, [columns.length]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || el.clientWidth <= 0) return;
-    const index = Math.round(el.scrollLeft / el.clientWidth);
+    const slide = el.querySelector<HTMLElement>('.erp-mobile-kanban-slide');
+    const slideWidth = slide?.offsetWidth || el.clientWidth;
+    const index = Math.round(el.scrollLeft / slideWidth);
     setActiveIndex(Math.max(0, Math.min(index, columns.length - 1)));
   }, [columns.length]);
 
@@ -44,7 +50,7 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
   if (columns.length === 0) return null;
 
   return (
-    <div className={`erp-mobile-kanban ${className}`}>
+    <div className={`erp-mobile-kanban${peekColumns ? ' erp-mobile-kanban--peek' : ''} ${className}`}>
       <div
         ref={scrollRef}
         className="erp-mobile-kanban-track"

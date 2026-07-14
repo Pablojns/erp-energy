@@ -68,7 +68,7 @@ export function CrmKanbanColumn(props: {
           event.preventDefault();
           props.onDrop();
         }}
-        className={`min-h-0 flex-1 space-y-2 overflow-y-auto p-2 transition ${
+        className={`lista-container space-y-2 p-2 transition ${
           props.isDropTarget
             ? 'bg-[var(--erp-accent-soft)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--erp-accent)_30%,transparent)]'
             : ''

@@ -8,7 +8,6 @@ import {
   Package,
   Truck,
   Users,
-  X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
@@ -22,8 +21,8 @@ function isNavActive(pathname: string, href: string): boolean {
 const PRIMARY = [
   { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/app/expedicao', label: 'Expedição', icon: Truck },
-  { href: '/app/estoque', label: 'Estoque', icon: Package },
   { href: '/app/crm', label: 'CRM', icon: Users },
+  { href: '/app/estoque', label: 'Estoque', icon: Package },
 ] as const;
 
 export function BottomNavigation() {
@@ -69,11 +68,22 @@ export function BottomNavigation() {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`inline-flex h-full w-full min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-xs ${
+                  className={`inline-flex h-full w-full min-h-[48px] min-w-[48px] flex-col items-center justify-center gap-0.5 text-xs transition active:scale-[0.98] ${
                     active ? 'text-[#2AACE2]' : 'text-white'
                   }`}
                 >
-                  <Icon className="h-5 w-5" />
+                  <span
+                    className={`inline-flex items-center justify-center rounded-lg p-1 ${
+                      active ? 'text-white' : ''
+                    }`}
+                    style={
+                      active
+                        ? { background: 'linear-gradient(to right, #2AACE2, #5BBFB0)' }
+                        : undefined
+                    }
+                  >
+                    <Icon className="h-5 w-5" />
+                  </span>
                   <span>{item.label}</span>
                 </Link>
               </li>
@@ -83,11 +93,22 @@ export function BottomNavigation() {
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className={`inline-flex h-full w-full min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-xs ${
+              className={`inline-flex h-full w-full min-h-[48px] min-w-[48px] flex-col items-center justify-center gap-0.5 text-xs transition active:scale-[0.98] ${
                 open ? 'text-[#2AACE2]' : 'text-white'
               }`}
             >
-              <Menu className="h-5 w-5" />
+              <span
+                className={`inline-flex items-center justify-center rounded-lg p-1 ${
+                  open ? 'text-white' : ''
+                }`}
+                style={
+                  open
+                    ? { background: 'linear-gradient(to right, #2AACE2, #5BBFB0)' }
+                    : undefined
+                }
+              >
+                <Menu className="h-5 w-5" />
+              </span>
               <span>Mais</span>
             </button>
           </li>

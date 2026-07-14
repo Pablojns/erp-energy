@@ -6,8 +6,8 @@ export default async function CadastrosPage() {
   const isAdmin = user.roles.includes('ADMIN');
 
   return (
-    <div className="space-y-6">
-      <section className="erp-module-card p-6">
+    <div className="erp-module-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col gap-4 overflow-hidden">
+      <section className="erp-module-card shrink-0 p-6">
         <h2 className="text-2xl font-semibold text-gray-900">Cadastros</h2>
         <p className="mt-2 text-sm text-gray-600">
           Recebedores, pontos de descarga, transportadoras, fornecedores e clientes.

@@ -114,7 +114,7 @@ export function SeparationItemRow(props: {
           <button
             type="button"
             disabled={!editable || confirming}
-            className="exp-wb-confirm-btn exp-wb-sep-checkbox w-full !min-h-[44px] !px-3 !py-2.5 !text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="exp-wb-confirm-btn exp-wb-sep-checkbox w-full !min-h-[48px] !min-w-[48px] !px-3 !py-2.5 !text-sm disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleConfirm}
           >
             {confirming ? (

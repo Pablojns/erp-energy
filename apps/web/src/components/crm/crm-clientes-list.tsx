@@ -142,7 +142,7 @@ export function CrmClientesList(props: {
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="lista-container overflow-x-auto">
         {props.loading ? (
           <div className="space-y-2 p-3">
             {Array.from({ length: 6 }).map((_, idx) => (

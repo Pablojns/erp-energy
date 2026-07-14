@@ -152,14 +152,14 @@ export function FinanceiroNfsTab(props: {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       {error ? (
-        <p className="text-sm text-[var(--fin-danger)]" role="alert">
+        <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">
           {error}
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <FinFiltersDropdown
             activeCount={activeFilterCount}
@@ -208,8 +208,8 @@ export function FinanceiroNfsTab(props: {
         </p>
       </div>
 
-      <div className="fin-card overflow-hidden rounded-2xl">
-        <div className="erp-scrollbar max-h-[min(68vh,720px)] overflow-x-auto overflow-y-auto">
+      <div className="fin-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
+        <div className="lista-container erp-scrollbar overflow-x-auto">
           <table className="min-w-[760px] w-full text-left text-xs sm:text-sm">
             <thead
               className="sticky top-0 z-[1] text-[10px] font-semibold uppercase tracking-wider text-[var(--fin-text-muted)]"

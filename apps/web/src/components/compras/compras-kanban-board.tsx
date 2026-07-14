@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -17,21 +17,7 @@ import { MobileKanbanCarousel } from '@/src/components/mobile/mobile-kanban-caro
 import type { KanbanColumnId, PurchaseRequest } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
 import { kanbanColumnForStatus } from './compras-utils';
-
-/** Viewport < 768px — alinhado ao carrossel mobile em mobile.css */
-function useMobileKanbanView(): boolean {
-  const [mobile, setMobile] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const update = () => setMobile(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
-  }, []);
-
-  return mobile;
-}
+import { useIsMobileKanban } from '@/src/hooks/use-is-mobile-kanban';
 
 export function ComprasKanbanBoard(props: {
   rows: PurchaseRequest[];
@@ -40,7 +26,7 @@ export function ComprasKanbanBoard(props: {
   onStatusChanged: (updated: PurchaseRequest) => void;
   onError: (message: string) => void;
 }) {
-  const isMobileView = useMobileKanbanView();
+  const isMobileView = useIsMobileKanban();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
 
@@ -103,6 +89,7 @@ export function ComprasKanbanBoard(props: {
       onDragStart={handleDragStart}
       onDragEnd={(event) => void handleDragEnd(event)}
     >
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {isMobileView ? (
         <div className="flex min-h-0 flex-1">
           <MobileKanbanCarousel
@@ -137,6 +124,7 @@ export function ComprasKanbanBoard(props: {
           ))}
         </div>
       )}
+      </div>
 
       <DragOverlay dropAnimation={null}>
         {activeRow ? <ComprasCardPreview row={activeRow} /> : null}

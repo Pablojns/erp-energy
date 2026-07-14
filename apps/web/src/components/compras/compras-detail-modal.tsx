@@ -5,6 +5,7 @@ import { Download, Loader2, Save, Trash2, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { fetchPurchaseDetail } from './compras-api';
 import { ComprasDetailField, ComprasModalShell } from './compras-modal-shell';
+import { ComprasStageActions } from './compras-stage-actions';
 import type { PurchaseRequest, PurchaseRequestImage } from './compras-types';
 import { TYPE_LABEL } from './compras-types';
 import {
@@ -20,6 +21,7 @@ import {
   purchaseUnitPrice,
   purchaseImageSrc,
 } from './compras-utils';
+import { useIsMobileKanban } from '@/src/hooks/use-is-mobile-kanban';
 
 const OBSERVATION_URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
 
@@ -60,7 +62,9 @@ export function ComprasDetailModal(props: {
   onClose: () => void;
   onAction: (action: 'comprado' | 'recusar', row: PurchaseRequest) => void;
   onDeleted: () => void;
+  onStatusChanged?: (updated: PurchaseRequest) => void;
 }) {
+  const isMobile = useIsMobileKanban();
   const [row, setRow] = useState<PurchaseRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -449,20 +453,31 @@ export function ComprasDetailModal(props: {
                   <button
                     type="button"
                     onClick={() => props.onAction('recusar', row)}
-                    className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white"
+                    className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white active:scale-[0.98]"
                   >
                     Recusar
                   </button>
                   <button
                     type="button"
                     onClick={() => props.onAction('comprado', row)}
-                    className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white"
+                    className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white active:scale-[0.98]"
                   >
                     Marcar Comprado
                   </button>
                 </div>
               ) : null}
             </div>
+
+            <ComprasStageActions
+              row={row}
+              layout={isMobile ? 'sheet' : 'inline'}
+              onStatusChanged={(updated) => {
+                setRow(updated);
+                props.onStatusChanged?.(updated);
+              }}
+              onError={setError}
+              onDone={props.onClose}
+            />
           </>
         ) : null}
       </ComprasModalShell>

@@ -186,7 +186,7 @@ export function RomaneioPage() {
         <p className="erp-alert-danger shrink-0">{error}</p>
       ) : null}
 
-      <section className="erp-module-card erp-scrollbar min-h-0 flex-1 overflow-auto">
+      <section className="erp-module-card lista-container erp-scrollbar">
         {loading ? (
           <div className="p-4">
             <TableSkeleton rows={6} columns={6} />

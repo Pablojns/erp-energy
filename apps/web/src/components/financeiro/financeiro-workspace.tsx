@@ -165,31 +165,35 @@ export function FinanceiroWorkspace() {
 
   return (
     <div
-      className="fin-root min-h-[50vh] space-y-4 rounded-2xl p-2 sm:space-y-5 sm:p-0"
+      className="fin-root flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col gap-4 overflow-hidden rounded-2xl p-2 sm:gap-5 sm:p-0"
       style={{ color: 'var(--fin-text)' }}
     >
-      <FinanceiroHeader
-        tab={tab}
-        onTabChange={setTab}
-        period={period}
-        periodPreset={periodPreset}
-        onPeriodPresetChange={handlePeriodPresetChange}
-        onPeriodChange={handlePeriodChange}
-        syncing={syncing}
-        onSync={() => void handleSync()}
-        onExport={() => void handleExport()}
-        nfsCount={nfsCount}
-      />
+      <div className="shrink-0">
+        <FinanceiroHeader
+          tab={tab}
+          onTabChange={setTab}
+          period={period}
+          periodPreset={periodPreset}
+          onPeriodPresetChange={handlePeriodPresetChange}
+          onPeriodChange={handlePeriodChange}
+          syncing={syncing}
+          onSync={() => void handleSync()}
+          onExport={() => void handleExport()}
+          nfsCount={nfsCount}
+        />
+      </div>
 
       {exportError ? (
-        <p className="text-sm text-[var(--fin-danger)]" role="alert">
+        <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">
           {exportError}
         </p>
       ) : null}
 
-      <section>
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {tab === 'dashboard' ? (
-          <FinanceiroDashboardTab period={period} refreshToken={refreshToken} />
+          <div className="lista-container">
+            <FinanceiroDashboardTab period={period} refreshToken={refreshToken} />
+          </div>
         ) : null}
         {tab === 'nfs' ? (
           <FinanceiroNfsTab

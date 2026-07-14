@@ -316,7 +316,7 @@ export function ExpeditionWorkspace(props: {
 
       <div className="exp-page-layout flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
-          className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col ${mobileDetailOpen ? 'hidden md:flex' : 'flex'} exp-mobile-list-screen md:!h-auto md:!overflow-hidden`}
+          className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col overflow-hidden ${mobileDetailOpen ? 'hidden md:flex' : 'flex'} exp-mobile-list-screen`}
         >
           {orderQueue}
         </div>

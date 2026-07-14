@@ -91,14 +91,14 @@ export function FinanceiroExtratoTab(props: {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       {error ? (
-        <p className="text-sm text-[var(--fin-danger)]" role="alert">
+        <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">
           {error}
         </p>
       ) : null}
 
-      <div className="min-w-0 max-w-md overflow-visible">
+      <div className="min-w-0 max-w-md shrink-0 overflow-visible">
         <FinFiltersDropdown
           activeCount={activeFilterCount}
           title="Filtrar extrato"
@@ -127,8 +127,8 @@ export function FinanceiroExtratoTab(props: {
         </FinFiltersDropdown>
       </div>
 
-      <div className="fin-card overflow-hidden rounded-2xl">
-        <div className="erp-scrollbar max-h-[min(62vh,640px)] overflow-y-auto">
+      <div className="fin-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
+        <div className="lista-container erp-scrollbar">
           {timeline.length === 0 ? (
             <p className="px-4 py-16 text-center text-sm text-[var(--fin-text-muted)]">
               Nenhum lançamento no período.
@@ -205,7 +205,7 @@ export function FinanceiroExtratoTab(props: {
 
         {data ? (
           <div
-            className="grid grid-cols-1 gap-3 border-t px-4 py-4 sm:grid-cols-3"
+            className="grid shrink-0 grid-cols-1 gap-3 border-t px-4 py-4 sm:grid-cols-3"
             style={{
               borderColor: 'var(--fin-border)',
               background: 'var(--fin-card-muted)',

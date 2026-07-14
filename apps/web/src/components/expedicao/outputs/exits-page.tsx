@@ -90,8 +90,8 @@ export function ExitsPage(props: { isAdmin?: boolean }) {
   }, [selectedId]);
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 px-2 pt-2 sm:px-4 sm:pt-4">
-      <div className="grid h-full w-full grid-cols-1 gap-4 lg:grid-cols-[40fr_60fr]">
+    <div className="flex h-[calc(100dvh-11.5rem)] min-h-0 w-full flex-col gap-4 overflow-hidden px-2 pt-2 sm:px-4 sm:pt-4 max-lg:h-[calc(100dvh-14.5rem)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[40fr_60fr]">
         <OutputsList
           search={search}
           onSearchChange={setSearch}
@@ -106,18 +106,20 @@ export function ExitsPage(props: { isAdmin?: boolean }) {
           onPageChange={setPage}
         />
 
-        <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
           {!selected ? (
             <div className="flex h-full min-h-[260px] items-center justify-center text-sm text-[var(--text-secondary)]">
               Selecione uma saída para visualizar os detalhes.
             </div>
           ) : (
-            <OutputDetailPanel
-              exit={selected}
-              canDeleteExit={isAdmin}
-              onDeleteExit={() => setDeleteModalOpen(true)}
-              onObsExpedicaoSaved={handleObsExpedicaoSaved}
-            />
+            <div className="lista-container">
+              <OutputDetailPanel
+                exit={selected}
+                canDeleteExit={isAdmin}
+                onDeleteExit={() => setDeleteModalOpen(true)}
+                onObsExpedicaoSaved={handleObsExpedicaoSaved}
+              />
+            </div>
           )}
         </section>
       </div>

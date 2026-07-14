@@ -98,8 +98,8 @@ export function OutputsList(props: {
   };
 
   return (
-    <aside className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)]">
-      <div className="border-b border-[var(--border-color)] p-3">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)]">
+      <div className="shrink-0 border-b border-[var(--border-color)] p-3">
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">Histórico de Saídas</h2>
         <div className="mt-3">
           <ErpFilterBar<ExitsFilterPreset>
@@ -144,7 +144,7 @@ export function OutputsList(props: {
         </div>
       </div>
 
-      <div className="max-h-[calc(100vh-300px)] min-h-[220px] overflow-y-auto p-3">
+      <div className="lista-container p-3">
         {loading ? (
           <div className="p-2">
             <ListSkeleton rows={5} />
@@ -204,7 +204,7 @@ export function OutputsList(props: {
       </div>
 
       {meta && meta.totalPages > 1 ? (
-        <div className="flex items-center justify-between border-t border-[var(--border-color)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+        <div className="flex shrink-0 items-center justify-between border-t border-[var(--border-color)] px-3 py-2 text-xs text-[var(--text-secondary)]">
           <span>
             {showingFrom}-{showingTo} de {meta.total}
           </span>

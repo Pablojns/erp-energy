@@ -125,6 +125,7 @@ export function CrmKanbanBoard(props: {
       </div>
       <div className="flex min-h-0 flex-1 md:hidden">
         <MobileKanbanCarousel
+          peekColumns
           columns={props.funis.map((f) => ({ id: f.id, title: f.name }))}
           renderColumn={(_, index) => renderColumn(props.funis[index]!)}
         />

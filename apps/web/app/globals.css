@@ -1887,11 +1887,19 @@ label,
 .expedition-viewport-host {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  height: calc(100dvh - 7.5rem);
+  max-height: calc(100dvh - 7.5rem);
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
   margin-top: 0;
   margin-bottom: 0;
+}
+
+@media (max-width: 1023px) {
+  .expedition-viewport-host {
+    height: calc(100dvh - 10.5rem);
+    max-height: calc(100dvh - 10.5rem);
+  }
 }
 
 @media (min-width: 640px) {
@@ -1919,7 +1927,7 @@ label,
   padding: 0;
   min-height: 0;
   flex: 1;
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 6px;

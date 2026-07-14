@@ -112,8 +112,8 @@ export function FinanceiroDespesasTab(props: {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="overflow-visible">
           <FinFiltersDropdown
             activeCount={activeFilterCount}
@@ -151,20 +151,20 @@ export function FinanceiroDespesasTab(props: {
       </div>
 
       {error ? (
-        <p className="text-sm text-[var(--fin-danger)]" role="alert">
+        <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">
           {error}
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.6fr_1fr]">
-        <div className="fin-card overflow-hidden rounded-2xl">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[1.6fr_1fr]">
+        <div className="fin-card flex min-h-0 flex-col overflow-hidden rounded-2xl">
           <div
-            className="border-b px-4 py-3"
+            className="shrink-0 border-b px-4 py-3"
             style={{ borderColor: 'var(--fin-border)' }}
           >
             <h2 className="text-sm font-semibold text-[var(--fin-text)]">Lançamentos</h2>
           </div>
-          <div className="erp-scrollbar max-h-[min(56vh,560px)] overflow-x-auto overflow-y-auto">
+          <div className="lista-container erp-scrollbar overflow-x-auto">
             <table className="min-w-[640px] w-full text-left text-xs sm:text-sm">
               <thead
                 className="sticky top-0 z-[1] text-[10px] font-semibold uppercase tracking-wider text-[var(--fin-text-muted)]"
@@ -237,7 +237,7 @@ export function FinanceiroDespesasTab(props: {
             </table>
           </div>
           <div
-            className="flex flex-col gap-1 border-t px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+            className="flex shrink-0 flex-col gap-1 border-t px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
             style={{ borderColor: 'var(--fin-border)' }}
           >
             <span className="text-[var(--fin-text-muted)]">
@@ -249,7 +249,7 @@ export function FinanceiroDespesasTab(props: {
           </div>
         </div>
 
-        <div className="fin-card rounded-2xl p-5">
+        <div className="fin-card lista-container rounded-2xl p-5">
           <h2 className="text-sm font-semibold text-[var(--fin-text)]">
             Distribuição por categoria
           </h2>

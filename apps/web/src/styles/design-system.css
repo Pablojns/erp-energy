@@ -49,6 +49,13 @@
   color: var(--erp-fg);
 }
 
+/* Listagens/tabelas: scroll interno sem rolar a página */
+.lista-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .erp-module-title {
   font-size: 1.5rem;
   font-weight: 600;

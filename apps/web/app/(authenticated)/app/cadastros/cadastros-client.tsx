@@ -651,17 +651,17 @@ function CadastroTable({
   };
 
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
       {toast ? (
         <div
           role="status"
-          className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800"
+          className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800"
         >
           {toast}
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
         <p className="text-sm text-gray-500">
           {rows.length} registro{rows.length === 1 ? '' : 's'}
         </p>
@@ -687,7 +687,7 @@ function CadastroTable({
       ) : null}
 
       {!loading && !error && rows.length > 0 ? (
-        <div className="overflow-x-auto">
+        <div className="lista-container overflow-x-auto">
           <table className="w-full min-w-[480px] text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
@@ -827,8 +827,8 @@ export function CadastrosClient({ isAdmin }: { isAdmin: boolean }) {
   const tab = tabById(activeTab);
 
   return (
-    <div className="space-y-4">
-      <div className="erp-tab-group w-full flex-wrap">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="erp-tab-group w-full shrink-0 flex-wrap">
         {TABS.map((item) => (
           <TabButton
             key={item.id}
@@ -840,7 +840,7 @@ export function CadastrosClient({ isAdmin }: { isAdmin: boolean }) {
         ))}
       </div>
 
-      <section className="erp-module-card min-h-[320px] overflow-hidden">
+      <section className="erp-module-card flex min-h-0 flex-1 flex-col overflow-hidden">
         <CadastroTable key={activeTab} tab={tab} isAdmin={isAdmin} />
       </section>
     </div>

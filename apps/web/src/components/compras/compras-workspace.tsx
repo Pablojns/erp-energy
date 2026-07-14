@@ -202,7 +202,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       {activeView === 'dashboard' ? (
         <ComprasDashboard rows={rows} loading={loading} />
       ) : (
-        <section className="erp-module-panel min-h-0 flex-1 overflow-hidden p-3">
+        <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           <ComprasKanbanBoard
             rows={rows}
             loading={loading}
@@ -223,6 +223,17 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         />
       ) : null}
 
+      {activeView === 'compras' ? (
+        <button
+          type="button"
+          className="erp-mobile-kanban-fab md:hidden"
+          aria-label="Nova solicitação"
+          onClick={() => setNewOpen(true)}
+        >
+          <Plus className="h-6 w-6" />
+        </button>
+      ) : null}
+
       {detailId ? (
         <ComprasDetailModal
           rowId={detailId}
@@ -232,6 +243,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             setDetailId(null);
             setResolveAction({ row, action });
           }}
+          onStatusChanged={handleStatusChanged}
           onDeleted={() => {
             setDetailId(null);
             refresh();

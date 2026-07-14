@@ -128,7 +128,7 @@ export function CrmKanbanListView(props: {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="lista-container overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead className="sticky top-0 z-10 bg-[var(--erp-bg-elevated)]">
           <tr className="border-b border-[var(--erp-border)] text-left text-xs uppercase tracking-wide text-[var(--erp-fg-muted)]">

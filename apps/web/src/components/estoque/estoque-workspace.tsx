@@ -2767,24 +2767,24 @@ export function EstoqueWorkspace() {
     <div
       className={`scroll-mt-8 pt-2 sm:pt-6 ${
         tab === 'inventory' || tab === 'movements'
-          ? 'space-y-3'
+          ? 'flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col gap-3 overflow-hidden'
           : 'space-y-9 sm:space-y-10'
       }`}
     >
 
       {bannerError ? (
-        <GlassCard className="border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-800">
+        <GlassCard className="shrink-0 border border-rose-500/30 bg-rose-100 px-4 py-3 text-sm text-rose-800">
           {bannerError}
         </GlassCard>
       ) : null}
 
       {bannerSuccess && !bannerError ? (
-        <GlassCard className="border border-emerald-500/35 bg-emerald-100 px-4 py-3 text-sm text-emerald-800">
+        <GlassCard className="shrink-0 border border-emerald-500/35 bg-emerald-100 px-4 py-3 text-sm text-emerald-800">
           {bannerSuccess}
         </GlassCard>
       ) : null}
 
-      <GlassCard glow="none" className="flex flex-wrap gap-2 border-gray-200 p-3">
+      <GlassCard glow="none" className="flex shrink-0 flex-wrap gap-2 border-gray-200 p-3">
         {tabButton(
           'dashboard',
           'Dashboard',
@@ -3107,7 +3107,7 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'movements' ? (
-        <div className="flex max-h-[calc(100dvh-10.5rem)] flex-col gap-2 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--text-primary)]">
               Movimentações de estoque
@@ -3380,7 +3380,7 @@ export function EstoqueWorkspace() {
       ) : null}
 
       {tab === 'inventory' ? (
-        <div className="grid min-h-0 grid-cols-1 gap-4 overflow-hidden lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[38fr_62fr]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[38fr_62fr]">
           <GlassCard className="flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-color)] bg-[var(--bg-card)] p-3 sm:p-4">
             <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
@@ -3391,6 +3391,7 @@ export function EstoqueWorkspace() {
                 Cadastrar item
               </GlowButton>
             </div>
+            <div className="shrink-0">
             <ErpFilterBar<InventoryFilterPreset>
               storageKey={INVENTORY_FILTER_KEY}
               badges={inventoryFilterBadges}
@@ -3531,15 +3532,16 @@ export function EstoqueWorkspace() {
                 ) : null}
               </div>
             </ErpFilterBar>
+            </div>
             {productsLoading ? (
-              <div className="mt-3 min-h-0 flex-1">
+              <div className="lista-container mt-3">
                 <CardGridSkeleton count={6} className="md:grid-cols-2" />
               </div>
             ) : (
               <div
                 ref={inventoryListScrollRef}
                 onScroll={syncInventoryListScroll}
-                className="erp-scrollbar mt-3 min-h-0 flex-1 overflow-x-auto overflow-y-auto pr-1"
+                className="lista-container erp-scrollbar mt-3 overflow-x-auto pr-1"
               >
                 {inventoryProducts.length === 0 ? (
                   <EmptyState
@@ -3672,7 +3674,7 @@ export function EstoqueWorkspace() {
             </p>
           </GlassCard>
 
-          <GlassCard className="hidden h-full min-h-0 overflow-y-auto p-3 sm:p-4 lg:block">
+          <GlassCard className="lista-container hidden h-full p-3 sm:p-4 lg:block">
             {selectedInventoryProduct ? (
               inventoryDetailPanelContent
             ) : (

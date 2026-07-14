@@ -15,11 +15,11 @@
     padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  /* Touch targets */
+  /* Touch targets (mín. 48×48) */
   .erp-mobile-touch-target {
     display: inline-flex;
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 48px;
+    min-width: 48px;
     align-items: center;
     justify-content: center;
     border-radius: 0.65rem;
@@ -27,6 +27,80 @@
     background: transparent;
     border: none;
     cursor: pointer;
+  }
+
+  /* Order queue: desktop layout vs swipe card */
+  .exp-queue-card-body--desktop {
+    display: none;
+  }
+
+  .exp-queue-card-body--swipe {
+    display: block;
+  }
+
+  .exp-queue-swipe-card {
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    transition: transform 200ms ease-out;
+  }
+
+  .exp-queue-swipe-card:active {
+    transform: scale(0.98);
+  }
+
+  .exp-queue-swipe-card-checks {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.5rem 0.75rem 0;
+  }
+
+  .exp-queue-swipe-viewport {
+    overflow: hidden;
+    width: 100%;
+    touch-action: pan-y;
+  }
+
+  .exp-queue-swipe-track {
+    display: flex;
+    will-change: transform;
+  }
+
+  .exp-queue-swipe-section {
+    flex: 0 0 25%;
+    width: 25%;
+    box-sizing: border-box;
+    padding: 0.65rem 0.75rem 0.35rem;
+    min-height: 5.5rem;
+  }
+
+  .exp-queue-swipe-section-inner {
+    min-width: 0;
+  }
+
+  .exp-queue-swipe-dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0 0.65rem;
+  }
+
+  .exp-queue-swipe-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    border: none;
+    padding: 0;
+    background: var(--border-color);
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .exp-queue-swipe-dot--active {
+    width: 1.1rem;
+    background: var(--accent);
   }
 
   /* Bottom drawer */
@@ -145,6 +219,12 @@
     padding-top: calc(64px + env(safe-area-inset-top, 0px));
     padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
     overflow: hidden;
+    animation: exp-slide-in-right 0.25s ease-out;
+  }
+
+  @keyframes exp-slide-in-right {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
   }
 
   /* Footer/triage legados da expedição têm CSS não-camadado (position fixed)
@@ -208,7 +288,7 @@
     bottom: calc(60px + env(safe-area-inset-bottom, 0px));
     z-index: 46;
     display: flex;
-    height: 56px;
+    min-height: 56px;
     padding: 0 16px;
     background: var(--bg-card);
     border-top: 1px solid var(--border-color);
@@ -221,18 +301,23 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    height: 48px;
+    height: 56px;
     margin: auto 0;
     border: none;
     border-radius: 0.75rem;
-    background: var(--accent);
+    background: linear-gradient(to right, #2AACE2, #5BBFB0);
     font-size: 14px;
     font-weight: 700;
     color: #fff;
+    transition: transform 200ms ease-out;
+  }
+
+  .exp-mobile-fixed-cta-btn:active {
+    transform: scale(0.98);
   }
 
   .exp-mobile-fixed-cta-btn--success {
-    background: var(--success);
+    background: linear-gradient(to right, #2AACE2, #5BBFB0);
   }
 
   .exp-mobile-source-chips {
@@ -314,8 +399,8 @@
   }
 
   .exp-wb-sep-checkbox {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 48px;
+    min-width: 48px;
   }
 
   /* Pull to refresh */
@@ -356,6 +441,13 @@
     scroll-snap-align: start;
     min-height: 0;
     padding: 0 0 0.5rem;
+  }
+
+  .erp-mobile-kanban--peek .erp-mobile-kanban-slide {
+    flex: 0 0 85vw;
+    width: 85vw;
+    max-width: 85vw;
+    padding-right: 0.5rem;
   }
 
   .erp-mobile-kanban-dots {
@@ -404,8 +496,8 @@
   }
 
   .dash-mobile-chart {
-    height: 200px !important;
-    max-height: 200px !important;
+    height: 180px !important;
+    max-height: 180px !important;
   }
 
   .dash-mobile-collapse {
@@ -472,14 +564,14 @@
     display: none !important;
   }
 
-  /* Form fields min size */
+  /* Form fields min size — 16px evita zoom automático iOS/Android */
   input:not([type='checkbox']):not([type='radio']),
   select,
   textarea,
   .erp-input,
   .erp-select-trigger {
-    font-size: 14px !important;
-    min-height: 44px;
+    font-size: 16px !important;
+    min-height: 48px;
   }
 
   label,
@@ -504,6 +596,14 @@
   }
 
   .exp-queue-filters-drawer-trigger {
+    display: none !important;
+  }
+
+  .exp-queue-card-body--desktop {
+    display: block;
+  }
+
+  .exp-queue-card-body--swipe {
     display: none !important;
   }
 }

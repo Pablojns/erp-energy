@@ -241,11 +241,11 @@ export function CrmCardDetailModal(props: {
   return (
     <div
       role="presentation"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className="h-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto"
+        className="h-[90dvh] max-h-[90dvh] w-full max-w-4xl overflow-y-auto sm:h-auto sm:max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
@@ -467,7 +467,33 @@ export function CrmCardDetailModal(props: {
                     {doneCount} de 7 concluídos
                   </span>
                 </div>
-                <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
+                <div className="flex gap-2 overflow-x-auto pb-2 md:hidden">
+                  {touchpoints.map((tp) => (
+                    <label
+                      key={tp.number}
+                      className={`flex min-h-[48px] min-w-[4.5rem] shrink-0 cursor-pointer flex-col items-center justify-center rounded-xl border px-3 py-2 text-xs font-semibold transition active:scale-[0.98] ${
+                        tp.done
+                          ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
+                          : 'border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={tp.done}
+                        onChange={(e) =>
+                          updateTouchpoint(tp.number, { done: e.target.checked })
+                        }
+                      />
+                      <span>TP{tp.number}</span>
+                      <span className="mt-0.5 text-[10px] font-medium opacity-80">
+                        {tp.done ? 'Feito' : 'Pendente'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="hidden overflow-x-auto rounded-xl border border-[var(--border-color)] md:block">
                   <table className="min-w-full text-xs">
                     <thead className="bg-[var(--input-bg)] text-[var(--text-muted)]">
                       <tr>
