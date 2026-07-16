@@ -313,6 +313,14 @@ export function isSeparationWorkspaceOrder(order: OrderDto): boolean {
 
 /** Pedido com lote parcial ou itens ainda não enviados na separação. */
 export function orderMatchesParcialFilter(order: OrderDto): boolean {
+  // Status terminal manual (ex.: FINALIZADO) prevalece sobre derivação por itens.
+  if (
+    order.status === 'FINALIZADO' ||
+    order.status === 'EXPEDIDO' ||
+    order.status === 'CANCELADO'
+  ) {
+    return false;
+  }
   if (order.status === 'PARCIAL') return true;
   return getOrderSendState(order) === 'partial';
 }
@@ -334,9 +342,7 @@ export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
     return { label: 'CANCELADO', color: 'cancelado' };
   }
   if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') {
-    if (getOrderSendState(order) === 'partial') {
-      return { label: 'PARCIAL', color: 'parcial' };
-    }
+    // Status salvo no banco prevalece — não recalcular PARCIAL a partir de pickedQty.
     return { label: 'FINALIZADO', color: 'finalizado' };
   }
   if (order.status === 'PARCIAL') {

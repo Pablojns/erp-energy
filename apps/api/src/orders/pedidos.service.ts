@@ -994,16 +994,24 @@ export class PedidosService {
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
 
+    const code = trackingCode.trim() || null;
+
     const exit = await this.prisma.client.orderExit.findUnique({
       where: { orderId: order.id },
       select: { id: true },
     });
-    if (!exit) throw new NotFoundException('Saída do pedido não encontrada.');
 
-    await this.prisma.client.orderExit.update({
-      where: { id: exit.id },
-      data: { trackingCode: trackingCode.trim() || null },
-    });
+    if (exit) {
+      await this.prisma.client.orderExit.update({
+        where: { id: exit.id },
+        data: { trackingCode: code },
+      });
+    } else {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: { trackingCode: code },
+      });
+    }
 
     return this.orders.findOne(order.id);
   }
