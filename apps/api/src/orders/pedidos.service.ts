@@ -292,6 +292,22 @@ export class PedidosService {
     });
   }
 
+  /** Pedidos a partir desta data entram no fluxo automático de Separação. */
+  private static readonly SEPARATION_MIN_ORDER_DATE = new Date(
+    '2025-07-01T00:00:00.000Z',
+  );
+
+  /** orderDate >= cutoff; se orderDate for null, usa createdAt. */
+  private static separationMinDateWhere(): Prisma.OrderWhereInput {
+    const cutoff = PedidosService.SEPARATION_MIN_ORDER_DATE;
+    return {
+      OR: [
+        { orderDate: { gte: cutoff } },
+        { AND: [{ orderDate: null }, { createdAt: { gte: cutoff } }] },
+      ],
+    };
+  }
+
   /** Lista da aba Separação — filtra só pelo status do pedido, nunca pelo status WEG dos itens. */
   private buildSeparationListWhere(query: OrderQueryDto): Prisma.OrderWhereInput {
     const baseWhere: Prisma.OrderWhereInput =
@@ -302,6 +318,7 @@ export class PedidosService {
     return PedidosService.stripSeparationItemVisualFilters({
       AND: [
         baseWhere,
+        PedidosService.separationMinDateWhere(),
         {
           status: {
             in: [
@@ -2271,7 +2288,10 @@ export class PedidosService {
   async filaSeparacao() {
     return this.prisma.client.order.findMany({
       where: {
-        status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO] },
+        AND: [
+          PedidosService.separationMinDateWhere(),
+          { status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO] } },
+        ],
       },
       orderBy: [
         { requestedDeliveryDate: 'asc' },

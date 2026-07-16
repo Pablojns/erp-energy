@@ -2568,15 +2568,31 @@ export class OrderService {
 
     const ws = query.workspace?.trim();
     if (ws === 'separation') {
+      const separationMinDate = new Date('2025-07-01T00:00:00.000Z');
       clauses.push({
-        status: {
-          in: [
-            OrderStatus.PARCIAL,
-            OrderStatus.RESERVADO,
-            OrderStatus.EM_SEPARACAO,
-            OrderStatus.SEPARADO,
-          ],
-        },
+        AND: [
+          {
+            OR: [
+              { orderDate: { gte: separationMinDate } },
+              {
+                AND: [
+                  { orderDate: null },
+                  { createdAt: { gte: separationMinDate } },
+                ],
+              },
+            ],
+          },
+          {
+            status: {
+              in: [
+                OrderStatus.PARCIAL,
+                OrderStatus.RESERVADO,
+                OrderStatus.EM_SEPARACAO,
+                OrderStatus.SEPARADO,
+              ],
+            },
+          },
+        ],
       });
     } else if (ws === 'invoices') {
       clauses.push({
