@@ -123,6 +123,13 @@ export function SeparationWorkbench(props: {
 
   useEffect(() => {
     if (mode !== 'separation' || !order) return;
+    // SITE + Correios: etiqueta antes da NF — não abre modal de NF automaticamente.
+    if (
+      order.source === 'SITE' &&
+      isCorreiosCarrier(order.carrierName)
+    ) {
+      return;
+    }
     const awaitingNfWithoutInvoice =
       order.status === 'AGUARDANDO_NF' && !order.invoiceNumber?.trim();
     if (!awaitingNfWithoutInvoice) return;
@@ -131,7 +138,7 @@ export function SeparationWorkbench(props: {
     setNfFlaskLogs([]);
     setNfFlaskError(null);
     setNfFlaskSuccess(null);
-  }, [mode, order?.id, order?.status, order?.invoiceNumber]);
+  }, [mode, order?.id, order?.status, order?.invoiceNumber, order?.source, order?.carrierName]);
 
   useEffect(() => {
     const initial = order?.volumes ?? null;
@@ -336,6 +343,8 @@ export function SeparationWorkbench(props: {
   };
 
   const orderStatus = order.status as string;
+  const isSiteCorreiosOrder =
+    order.source === 'SITE' && isCorreiosCarrier(order.carrierName);
   const canGenerateExit =
     order.status === 'SEPARADO' ||
     order.status === 'AGUARDANDO_NF' ||
@@ -347,12 +356,19 @@ export function SeparationWorkbench(props: {
       orderStatus === 'NF_PENDENTE');
   const canAttachNf = canGerarNfFlask;
   const hasInvoice = Boolean(order.invoiceNumber?.trim());
+  // SITE + Correios: etiqueta sem exigir NF. Demais fontes/transportadoras: NF obrigatória.
   const canPrintEtiquetaAndExit =
     mode === 'separation' &&
-    hasInvoice &&
-    (order.status === 'NF_ATRELADA' || readyForEtiqueta) &&
     order.status !== 'FINALIZADO' &&
-    order.status !== 'EXPEDIDO';
+    order.status !== 'EXPEDIDO' &&
+    (isSiteCorreiosOrder
+      ? order.status === 'SEPARADO' ||
+        order.status === 'AGUARDANDO_NF' ||
+        orderStatus === 'NF_PENDENTE' ||
+        order.status === 'NF_ATRELADA' ||
+        readyForEtiqueta
+      : hasInvoice &&
+        (order.status === 'NF_ATRELADA' || readyForEtiqueta));
   const shouldShowNfAction = mode === 'separation' && canGenerateExit;
   const canRemessaExit =
     mode === 'separation' &&
@@ -700,7 +716,12 @@ export function SeparationWorkbench(props: {
                   message: `Lote concluído — Pedido #${numero} marcado como ${finalLotStatus}`,
                 });
                 onAfterAction?.();
-                if (!order.invoiceNumber?.trim()) {
+                if (
+                  order.source === 'SITE' &&
+                  isCorreiosCarrier(order.carrierName)
+                ) {
+                  setReadyForEtiqueta(true);
+                } else if (!order.invoiceNumber?.trim()) {
                   openNfFlaskModal();
                 }
               })
