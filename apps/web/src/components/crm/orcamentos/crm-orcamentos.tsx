@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Filter, Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { CrmOrcamentoCatalog } from '@/src/components/crm/orcamentos/crm-orcamento-catalog';
+import { CrmOrcamentoEngraving } from '@/src/components/crm/orcamentos/crm-orcamento-engraving';
 import { CrmOrcamentoDashboard } from '@/src/components/crm/orcamentos/crm-orcamento-dashboard';
 import { CrmOrcamentoForm } from '@/src/components/crm/orcamentos/crm-orcamento-form';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -20,7 +21,7 @@ import {
 } from '@/src/services/api/quotes-api';
 
 type StatusTab = 'TODOS' | QuoteStatus;
-type WorkspaceTab = 'lista' | 'catalogo' | 'dashboard';
+type WorkspaceTab = 'lista' | 'catalogo' | 'dashboard' | 'gravacoes';
 
 const STATUS_TABS: Array<{ id: StatusTab; label: string }> = [
   { id: 'TODOS', label: 'Todos' },
@@ -187,10 +188,22 @@ export function CrmOrcamentos(props: {
         >
           Catálogo
         </button>
+        <button
+          type="button"
+          onClick={() => setWorkspaceTab('gravacoes')}
+          className={`erp-focus-ring rounded-t-lg px-3 py-2 text-sm font-semibold ${
+            workspaceTab === 'gravacoes'
+              ? 'bg-white text-[#2AACE2] shadow-sm'
+              : 'text-[var(--erp-fg-muted)] hover:text-[var(--erp-fg)]'
+          }`}
+        >
+          Gravações
+        </button>
       </div>
 
       {workspaceTab === 'dashboard' ? <CrmOrcamentoDashboard /> : null}
       {workspaceTab === 'catalogo' ? <CrmOrcamentoCatalog /> : null}
+      {workspaceTab === 'gravacoes' ? <CrmOrcamentoEngraving /> : null}
 
       {workspaceTab === 'lista' ? (
         <>

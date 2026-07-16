@@ -222,38 +222,46 @@ export function ComprasPeriodFilter(props: {
 
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {hideAllPreset ? null : (
-        <div className="inline-flex items-center gap-0.5">
+      {hideAllPreset ? null : !hasPeriod ? (
+        <div className="exp-period-filter-group inline-flex items-center rounded-lg border border-gray-200 bg-transparent">
           <button
             type="button"
-            className={`exp-period-filter-btn exp-period-filter-btn--preset${!hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
+            className="exp-period-filter-btn exp-period-filter-btn--preset exp-period-filter-btn--group border-0 bg-transparent"
             onClick={() => onChange('', '')}
             title="Ver todo o período (sem filtro de data)"
-            aria-pressed={!hasPeriod}
+            aria-pressed
           >
             Todos
           </button>
-          {!hasPeriod ? (
-            <button
-              type="button"
-              className="exp-period-filter-btn exp-period-filter-btn--preset px-1.5"
-              onClick={() => {
-                const current = getCurrentMonthRange();
-                onChange(current.from, current.to);
-              }}
-              title="Cancelar seleção de Todos (voltar ao mês atual)"
-              aria-label="Cancelar filtro Todos"
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="exp-period-filter-btn exp-period-filter-btn--preset exp-period-filter-btn--group border-0 bg-transparent px-1.5"
+            onClick={() => {
+              const current = getCurrentMonthRange();
+              onChange(current.from, current.to);
+            }}
+            title="Cancelar seleção de Todos (voltar ao mês atual)"
+            aria-label="Cancelar filtro Todos"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
         </div>
-      )}
-
-      <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50">
+      ) : (
         <button
           type="button"
-          className="exp-period-filter-btn rounded-none border-0 bg-transparent px-2"
+          className="exp-period-filter-btn exp-period-filter-btn--preset"
+          onClick={() => onChange('', '')}
+          title="Ver todo o período (sem filtro de data)"
+          aria-pressed={false}
+        >
+          Todos
+        </button>
+      )}
+
+      <div className="exp-period-filter-group inline-flex items-center rounded-lg border border-gray-200 bg-transparent">
+        <button
+          type="button"
+          className="exp-period-filter-btn exp-period-filter-btn--group rounded-none border-0 bg-transparent px-2"
           onClick={() => goMonth(-1)}
           aria-label="Mês anterior"
         >
@@ -261,7 +269,7 @@ export function ComprasPeriodFilter(props: {
         </button>
         <button
           type="button"
-          className={`exp-period-filter-btn rounded-none border-0 bg-transparent px-2 text-xs font-semibold${
+          className={`exp-period-filter-btn exp-period-filter-btn--group rounded-none border-0 bg-transparent px-2 text-xs font-semibold${
             hasPeriod && isFullMonthRange(dateFrom, dateTo)
               ? ' exp-period-filter-btn--active'
               : ''
@@ -276,7 +284,7 @@ export function ComprasPeriodFilter(props: {
         </button>
         <button
           type="button"
-          className="exp-period-filter-btn rounded-none border-0 bg-transparent px-2"
+          className="exp-period-filter-btn exp-period-filter-btn--group rounded-none border-0 bg-transparent px-2"
           onClick={() => goMonth(1)}
           aria-label="Próximo mês"
         >

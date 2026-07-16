@@ -459,3 +459,125 @@ export function formatQuoteCurrency(value: string | number | null | undefined) {
     currency: 'BRL',
   }).format(Number.isFinite(n) ? n : 0);
 }
+
+// ——— Gravações (técnicas de preço) ———
+
+export type EngravingPriceTierDto = {
+  id?: string;
+  qtyFrom: number;
+  qtyTo: number;
+  cost: string;
+  costType: 'Unidade' | 'Intervalo';
+  fixedFee: string;
+  applicationCost: string;
+};
+
+export type EngravingTechniqueDto = {
+  id: string;
+  name: string;
+  active: boolean;
+  calculationType: string;
+  multiplyColors: boolean;
+  supplierCompany: string | null;
+  tierCount: number;
+  tiers: EngravingPriceTierDto[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EngravingImportSummary = {
+  criadas: number;
+  atualizadas: number;
+  faixas: number;
+  ignoradas: number;
+  erros: string[];
+};
+
+const ENGRAVING_BASE = `${BASE}/engraving`;
+
+export async function listEngravingTechniques() {
+  return erpFetchJson<{ data: EngravingTechniqueDto[] }>(ENGRAVING_BASE);
+}
+
+export async function createEngravingTechnique(body: {
+  name: string;
+  calculationType?: string;
+  multiplyColors?: boolean;
+  supplierCompany?: string | null;
+  active?: boolean;
+  tiers: Array<{
+    qtyFrom: number;
+    qtyTo: number;
+    cost: number;
+    costType: 'Unidade' | 'Intervalo';
+    fixedFee?: number;
+    applicationCost?: number;
+  }>;
+}) {
+  return erpFetchJson<EngravingTechniqueDto>(ENGRAVING_BASE, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateEngravingTechnique(
+  id: string,
+  body: Partial<{
+    name: string;
+    calculationType: string;
+    multiplyColors: boolean;
+    supplierCompany: string | null;
+    active: boolean;
+    tiers: Array<{
+      qtyFrom: number;
+      qtyTo: number;
+      cost: number;
+      costType: 'Unidade' | 'Intervalo';
+      fixedFee?: number;
+      applicationCost?: number;
+    }>;
+  }>,
+) {
+  return erpFetchJson<EngravingTechniqueDto>(`${ENGRAVING_BASE}/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteEngravingTechnique(id: string) {
+  return erpFetchJson<{ ok: boolean }>(`${ENGRAVING_BASE}/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function importEngravingExcel(file: File): Promise<EngravingImportSummary> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/erp/quotes/engraving/import', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  const text = await res.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = { message: text };
+    }
+  }
+  if (!res.ok) {
+    const msg =
+      typeof body === 'object' &&
+      body !== null &&
+      'message' in body &&
+      body.message !== undefined
+        ? String(
+            Array.isArray(body.message) ? body.message.join(' · ') : body.message,
+          )
+        : `Erro HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return body as EngravingImportSummary;
+}

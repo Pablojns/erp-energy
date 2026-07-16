@@ -32,6 +32,7 @@ import {
   groupByNumeroPed,
   isoDateStringToUtcDate,
   normalizePlanilhaItemStatus,
+  normalizePlanilhaInvoiceNumber,
   parseBrlMoneyToDecimalString,
   pickFirstLineOfOrderGroup,
   readPedidosSheet,
@@ -2346,8 +2347,10 @@ export class PedidosService {
             obsExpedicao: header.observacao_logistica?.trim() || null,
             mercadoEletronicoStatus: header.status_me?.trim() || null,
             contaAzulStatus: header.status_ca?.trim() || null,
-            invoiceNumber: header.nota_fiscal?.trim() || null,
-            invoiceStatus: header.nota_fiscal ? InvoiceStatus.PENDING : InvoiceStatus.NOT_FOUND,
+            invoiceNumber: normalizePlanilhaInvoiceNumber(header.nota_fiscal),
+            invoiceStatus: normalizePlanilhaInvoiceNumber(header.nota_fiscal)
+              ? InvoiceStatus.PENDING
+              : InvoiceStatus.NOT_FOUND,
             orderDate: isoDateStringToUtcDate(header.data_pedido),
             requestedDeliveryDate: isoDateStringToUtcDate(header.data_entrega),
             status: resolveOrderStatusFromPlanilha(header.status_me, header.status_ca),

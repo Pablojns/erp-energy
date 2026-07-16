@@ -102,23 +102,6 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
           </div>
         ))}
       </div>
-      {columns.length > 1 ? (
-        <div className="erp-mobile-kanban-dots" role="tablist" aria-label="Colunas">
-          {columns.map((column, index) => (
-            <button
-              key={column.id}
-              type="button"
-              role="tab"
-              aria-selected={index === activeIndex}
-              aria-label={column.title}
-              className={`erp-mobile-kanban-dot${
-                index === activeIndex ? ' erp-mobile-kanban-dot--active' : ''
-              }`}
-              onClick={() => scrollToIndex(index)}
-            />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -309,7 +309,7 @@
   width: 100%;
   height: auto !important;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dash-chart-hover-slot {

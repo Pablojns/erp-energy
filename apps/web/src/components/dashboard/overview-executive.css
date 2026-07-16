@@ -202,11 +202,21 @@
 
 .exec-card--chart .dash-chart-wrap {
   flex: 1 1 auto;
-  min-height: 140px;
+  min-height: 160px;
   height: 100% !important;
   max-height: none;
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
+}
+
+@media (min-width: 1280px) {
+  .exec-card--chart .dash-chart-wrap {
+    min-height: 200px;
+  }
+
+  .exec-overview-middle {
+    min-height: 240px;
+  }
 }
 
 .exec-card--chart .dash-card > .shrink-0 {

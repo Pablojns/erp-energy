@@ -20,6 +20,7 @@ import {
   pedidosListFetchInit,
 } from '@/src/services/api/pedidos-normalize';
 import '@/src/components/dashboard/overview-executive.css';
+import { WegImportStatusPanel } from '@/src/components/dashboard/weg-import-status-panel';
 
 type OrderRow = {
   id: string;
@@ -230,6 +231,8 @@ export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
             {error}
           </p>
         ) : null}
+
+        <WegImportStatusPanel />
 
         <div className="exec-overview-kpis">
           <OverviewKpiCard

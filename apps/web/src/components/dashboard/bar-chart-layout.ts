@@ -25,7 +25,7 @@ export function buildBarChartLayout(opts: BarChartLayoutOptions) {
   const count = Math.max(opts.count, 1);
   const innerH = height - margin.top - margin.bottom;
   const baselineY = margin.top + innerH;
-  const labelY = baselineY + 18;
+  const labelY = height - Math.max(8, Math.floor(margin.bottom * 0.35));
 
   const maxBarW = opts.maxBarWidth ?? 18;
   const minBarW = opts.minBarWidth ?? 6;

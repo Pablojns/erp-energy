@@ -62,7 +62,7 @@ export function DualMonthlyChart({
       height: size.height,
       maxBarWidth: points.length > 14 ? 8 : points.length > 10 ? 10 : 14,
       minBarWidth: 3,
-      margin: { top: 12, right: 12, bottom: 28, left: 52 },
+      margin: { top: 12, right: 12, bottom: 40, left: 52 },
     });
 
     const groupGap = 3;
@@ -115,10 +115,10 @@ export function DualMonthlyChart({
 
   return (
     <div className="dash-card flex h-full min-h-0 w-full flex-col p-2 md:p-3">
-      <div className="mb-0.5 flex shrink-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-0.5 flex shrink-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-[var(--dash-text)]">{title}</h3>
-          <p className="text-xs text-[var(--dash-text-muted)]">{subtitle}</p>
+          <p className="hidden text-xs text-[var(--dash-text-muted)] sm:block">{subtitle}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-[var(--dash-text-muted)]">
           <span className="inline-flex items-center gap-1.5">
@@ -165,8 +165,8 @@ export function DualMonthlyChart({
           width="100%"
           height="100%"
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          preserveAspectRatio="none"
-          className="block h-full w-full"
+          preserveAspectRatio="xMidYMid meet"
+          className="block h-full w-full max-h-full"
           role="img"
           aria-label={`${primaryLabel} versus ${secondaryLabel}`}
           onMouseLeave={() => setActiveIndex(null)}
@@ -264,7 +264,7 @@ export function DualMonthlyChart({
               x={b.labelX}
               y={b.labelY}
               textAnchor="middle"
-              fontSize="10"
+              fontSize="11"
               fill={activeIndex === i ? 'var(--dash-text)' : 'var(--dash-text-muted)'}
               fontWeight={activeIndex === i ? 600 : 400}
               pointerEvents="none"

@@ -204,6 +204,21 @@ export class PedidosController {
     return this.pedidos.filaSeparacao();
   }
 
+  @Get('importacoes-log')
+  listImportacoesLog(
+    @CurrentUser() user: AuthUser,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = limit ? Number(limit) : 30;
+    const safeLimit = Number.isFinite(parsed) ? parsed : 30;
+    if (safeLimit > 10 && !user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Apenas administradores podem consultar histórico completo de importações.',
+      );
+    }
+    return this.orderImportService.listImportLogs(safeLimit);
+  }
+
   @Get('saidas')
   listSaidas(
     @Query('search') search?: string,
@@ -550,7 +565,11 @@ export class PedidosController {
       throw new BadRequestException('CSV ainda não suportado. Envie .xlsx.');
     }
     const shouldReset = reset === 'true' || reset === '1';
-    return this.pedidos.importarPlanilha(file.buffer, { reset: shouldReset });
+    return this.orderImportService.importFromUpload(new Uint8Array(file.buffer), {
+      trigger: 'MANUAL',
+      fileName: file.originalname ?? 'planilha.xlsx',
+      reset: shouldReset,
+    });
   }
 }
 

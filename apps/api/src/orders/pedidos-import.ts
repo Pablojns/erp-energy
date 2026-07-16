@@ -51,6 +51,19 @@ function normalizeText(v: unknown): string | null {
   return s ? s : null;
 }
 
+/** Traço/vazio na coluna "Nota Fiscal" da planilha WEG → null no banco. */
+const INVOICE_PLACEHOLDER = /^[\s\-–—−―‐‑‒]*$/;
+
+export function normalizePlanilhaInvoiceNumber(
+  v: string | null | undefined,
+): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (INVOICE_PLACEHOLDER.test(s)) return null;
+  return s;
+}
+
 export function parseBrlMoneyToDecimalString(v: unknown): string | null {
   if (typeof v === 'number' && Number.isFinite(v)) {
     return v.toFixed(2);
@@ -286,8 +299,10 @@ export function readPedidosSheet(buffer: Uint8Array): {
       status_ca: normalizeText(
         cellByHeader(row, headers, 'Status CA') ?? row[12],
       ),
-      nota_fiscal: normalizeText(
-        cellByHeader(row, headers, 'Nota Fiscal') ?? row[13],
+      nota_fiscal: normalizePlanilhaInvoiceNumber(
+        normalizeText(
+          cellByHeader(row, headers, 'Nota Fiscal') ?? row[13],
+        ),
       ),
       valor_total: (cellByHeader(row, headers, 'Valor Total') ?? row[14]) as
         | string

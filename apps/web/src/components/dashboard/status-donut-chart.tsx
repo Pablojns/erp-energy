@@ -29,11 +29,11 @@ export function StatusDonutChart({
   })).filter((s) => s.value > 0);
 
   const total = slices.reduce((sum, s) => sum + s.value, 0);
-  const size = 200;
+  const size = 220;
   const cx = size / 2;
   const cy = size / 2;
-  const r = 72;
-  const ri = 46;
+  const r = 88;
+  const ri = 62;
   let angle = -Math.PI / 2;
 
   const arcs =
@@ -59,8 +59,8 @@ export function StatusDonutChart({
   return (
     <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5 md:p-3">
       <h3 className="exec-card-title shrink-0">{title}</h3>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden sm:flex-row sm:items-center">
-        <div className="relative mx-auto aspect-square w-[min(100%,9.5rem)] shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden sm:flex-row sm:items-center sm:gap-4">
+        <div className="relative mx-auto aspect-square w-[min(100%,12rem)] shrink-0 lg:w-[min(100%,14rem)]">
           <svg
             viewBox={`0 0 ${size} ${size}`}
             className="h-full w-full"
@@ -91,20 +91,20 @@ export function StatusDonutChart({
             </span>
           </div>
         </div>
-        <ul className="min-w-0 w-full flex-1 space-y-1 overflow-auto text-xs sm:w-auto">
+        <ul className="min-w-0 w-full flex-1 space-y-1.5 overflow-auto text-sm sm:w-auto">
           {ORDER.map((key) => {
             const value = Number(fluxo[key]) || 0;
             if (value === 0 && total > 0) return null;
             return (
               <li key={key} className="flex items-center justify-between gap-2">
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-[var(--dash-text-muted)]">
+                <span className="inline-flex min-w-0 items-center gap-2 text-[var(--dash-text-muted)]">
                   <span
-                    className="inline-block h-2 w-2 shrink-0 rounded-full"
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ background: FLUXO_COLORS[key] }}
                   />
                   <span className="truncate">{FLUXO_LABELS[key]}</span>
                 </span>
-                <span className="shrink-0 font-semibold tabular-nums text-[var(--dash-text)]">
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--dash-text)]">
                   {formatNumber(value)}
                 </span>
               </li>

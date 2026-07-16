@@ -672,21 +672,31 @@ enum OrderImportStatus {
   FAILED
 }
 
+enum OrderImportTrigger {
+  MANUAL
+  AUTOMATIC
+  SCHEDULED
+}
+
 /// Job de importação (ME / planilha / futura API 24h) — dedupe por source + externalHash
 model OrderImportJob {
-  id             String            @id @default(uuid()) @db.Uuid
+  id             String              @id @default(uuid()) @db.Uuid
   source         OrderSource
-  importStatus   OrderImportStatus @default(PENDING)
+  importStatus   OrderImportStatus   @default(PENDING)
+  trigger        OrderImportTrigger  @default(MANUAL)
+  fileName       String?
   importedAt     DateTime?
   externalHash   String?
   payloadSummary String?
   errorMessage   String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([source])
   @@index([importStatus])
+  @@index([trigger])
   @@index([externalHash])
+  @@index([createdAt])
 }
 
 model AuditLog {
@@ -1148,4 +1158,34 @@ model QuoteCatalogEngravingOption {
   @@unique([productSku, supplier, techniqueName])
   @@index([productSku])
   @@index([supplier])
+}
+
+/// Técnicas de gravação (tabela de preços Brinde) — módulo Orçamentos CRM.
+model EngravingTechnique {
+  id              String               @id @default(cuid())
+  name            String
+  active          Boolean              @default(true)
+  calculationType String               @default("Unidade/Intervalo")
+  multiplyColors  Boolean              @default(false)
+  supplierCompany String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  tiers           EngravingPriceTier[]
+
+  @@unique([name])
+  @@index([active])
+}
+
+model EngravingPriceTier {
+  id              String             @id @default(cuid())
+  techniqueId     String
+  technique       EngravingTechnique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+  qtyFrom         Int
+  qtyTo           Int
+  cost            Decimal            @db.Decimal(12, 4)
+  costType        String
+  fixedFee        Decimal?           @default(0) @db.Decimal(12, 4)
+  applicationCost Decimal?           @default(0) @db.Decimal(12, 4)
+
+  @@index([techniqueId])
 }

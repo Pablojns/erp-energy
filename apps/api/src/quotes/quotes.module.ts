@@ -9,16 +9,21 @@ import { QuotesController } from './quotes.controller';
 import { QuotesService } from './quotes.service';
 import { SpotIntegrationService } from './spot-integration.service';
 import { XbzIntegrationService } from './xbz-integration.service';
+import { EngravingController } from './engraving/engraving.controller';
+import { EngravingService } from './engraving/engraving.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, PermissionsModule, CrmModule],
-  controllers: [QuotesController],
+  // Importante: registrar primeiro o engraving (rota fixa /engraving)
+  // para não deixar Express resolver /api/quotes/engraving como /api/quotes/:id.
+  controllers: [EngravingController, QuotesController],
   providers: [
     QuotesService,
     XbzIntegrationService,
     SpotIntegrationService,
     QuoteProposalService,
     MailService,
+    EngravingService,
   ],
   exports: [
     QuotesService,

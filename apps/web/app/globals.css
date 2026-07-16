@@ -2413,6 +2413,29 @@ label,
   color: var(--color-text-primary, var(--text-primary));
 }
 
+.exp-period-filter-group {
+  flex-shrink: 0;
+}
+
+.exp-period-filter-group .exp-period-filter-btn {
+  border: none;
+  background: transparent;
+}
+
+.exp-period-filter-btn--group {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.exp-period-filter-btn--group:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.exp-period-filter-btn--preset {
+  border: 1px solid var(--exp-border, #e5e7eb);
+  background: transparent;
+}
+
 .exp-period-filter-popover {
   position: absolute;
   top: calc(100% + 0.35rem);
