@@ -26,14 +26,7 @@ import {
   DEFAULT_PEDIDOS_SORT_ORDER,
   type PedidosSortOrder,
 } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
-
-function isAguardandoNfSeparationStatus(status: string): boolean {
-  return (
-    status === 'SEPARADO' ||
-    status === 'AGUARDANDO_NF' ||
-    status === 'NF_ATRELADA'
-  );
-}
+import { isSeparationWorkspaceOrder } from '@/src/components/expedicao/shared/order-helpers';
 
 export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}) {
   const mode = opts.mode ?? 'expedition';
@@ -105,10 +98,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
 
   const orders = useMemo(() => {
     if (mode === 'separation') {
-      return fetchedOrders.filter(
-        (o) =>
-          o.status === 'EM_SEPARACAO' || isAguardandoNfSeparationStatus(o.status),
-      );
+      return fetchedOrders.filter(isSeparationWorkspaceOrder);
     }
     return fetchedOrders;
   }, [fetchedOrders, mode]);
@@ -444,14 +434,12 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       for (const order of targetOrders) {
         const numero = numeroPedFromOrder(order);
         if (numero) {
-          await erpFetchJson(pedidoApiUrl(numero, 'status'), {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'NOVO' }),
+          await erpFetchJson(pedidoApiUrl(numero, 'remover-separacao'), {
+            method: 'POST',
           });
         } else {
-          await erpFetchJson(`orders/${order.id}/status`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'NOVO' }),
+          await erpFetchJson(`orders/${order.id}/remove-from-separation`, {
+            method: 'POST',
           });
         }
       }
@@ -591,22 +579,43 @@ function mergeListOrderIntoDetail(pedido: OrderDto, fromList: OrderDto): OrderDt
     ? new Date(fromList.updatedAt).getTime()
     : 0;
   const detailIsNewer = pedidoUpdated >= listUpdated;
+  const status = detailIsNewer ? pedido.status : fromList.status;
+
+  // Após remover da separação a lista pode já estar limpa enquanto o detalhe
+  // ainda carrega NF antiga — não deixar invoice residual com status pré-pipeline.
+  const prePipeline =
+    status === 'NOVO' ||
+    status === 'ANALISADO' ||
+    status === 'RESERVADO' ||
+    status === 'PARCIAL' ||
+    (status as string) === 'PENDENTE';
+  const listInvoice = fromList.invoiceNumber?.trim() || null;
+  const detailInvoice = pedido.invoiceNumber?.trim() || null;
+  let invoiceNumber: string | null;
+  if (prePipeline && !listInvoice) {
+    invoiceNumber = null;
+  } else if (detailIsNewer) {
+    invoiceNumber = detailInvoice;
+  } else {
+    invoiceNumber = listInvoice ?? detailInvoice;
+  }
 
   return {
     ...pedido,
-    status: detailIsNewer ? pedido.status : fromList.status,
+    status,
     priority: fromList.priority,
     volumes: fromList.volumes ?? pedido.volumes,
     notaRemessa: fromList.notaRemessa ?? pedido.notaRemessa,
     notaRemessaConfirmada: fromList.notaRemessaConfirmada ?? pedido.notaRemessaConfirmada,
     carrierId: fromList.carrierId ?? pedido.carrierId,
     carrierName: fromList.carrierName ?? pedido.carrierName,
-    invoiceNumber: detailIsNewer
-      ? pedido.invoiceNumber
-      : (fromList.invoiceNumber ?? pedido.invoiceNumber),
-    invoiceStatus: detailIsNewer
-      ? pedido.invoiceStatus
-      : (fromList.invoiceStatus ?? pedido.invoiceStatus),
+    invoiceNumber,
+    invoiceStatus:
+      prePipeline && !listInvoice
+        ? 'NOT_FOUND'
+        : detailIsNewer
+          ? pedido.invoiceStatus
+          : (fromList.invoiceStatus ?? pedido.invoiceStatus),
     mercadoEletronicoStatus: fromList.mercadoEletronicoStatus,
     contaAzulStatus: fromList.contaAzulStatus,
     physicalReservationActive: fromList.physicalReservationActive,

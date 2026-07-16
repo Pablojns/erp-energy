@@ -1,183 +1,443 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { DASH_SCROLL } from '@/src/components/dashboard/scroll-classes';
 import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { OverviewKpiCard, OverviewKpiCardSkeleton } from '@/src/components/dashboard/overview-kpi-card';
+import { StatusBarChart } from '@/src/components/dashboard/status-bar-chart';
+import type { DashboardResumo, DateRange } from '@/src/components/dashboard/types';
 import {
-  AlertTriangle,
-  CheckCircle2,
-  FileWarning,
-  Package,
-  ShoppingCart,
-} from 'lucide-react';
-import { MetricCard, MetricCardSkeleton } from '@/src/components/dashboard/metric-card';
-import {
-  StatusBarChart,
-  StatusBarChartSkeleton,
-} from '@/src/components/dashboard/status-bar-chart';
-import type { DashboardResumo, DateRange, DelayedOrderRow } from '@/src/components/dashboard/types';
-import {
+  computeVariationPct,
   fetchDashboardResumo,
+  formatCurrency,
+  formatDateBr,
   formatNumber,
+  formatPercent,
 } from '@/src/components/dashboard/utils';
 import { getOverdueDays } from '@/src/components/expedicao/shared/order-helpers';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi, pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
+import {
+  normalizePedidoFromApi,
+  pedidosListFetchInit,
+} from '@/src/services/api/pedidos-normalize';
+import '@/src/components/dashboard/overview-executive.css';
+
+type OrderRow = {
+  id: string;
+  code: string;
+  customer: string;
+  date: string;
+  daysLate?: number;
+  total: number;
+  status: string;
+};
 
 type TabExpedicaoProps = {
   period: DateRange;
   refreshKey: number;
 };
 
-function ProgressBlock({ finalized, total }: { finalized: number; total: number }) {
+function ProgressDonut({ finalized, total }: { finalized: number; total: number }) {
   const pct = total > 0 ? Math.min(100, Math.round((finalized / total) * 100)) : 0;
+  const pending = Math.max(0, total - finalized);
+  const size = 160;
+  const r = 58;
+  const c = 2 * Math.PI * r;
+  const done = (pct / 100) * c;
+
   return (
-    <div className="dash-card w-full p-4 md:p-6">
-      <div className="mb-2 flex justify-between text-sm">
-        <span className="font-medium text-[var(--dash-text)]">Progresso de finalização</span>
-        <span className="tabular-nums text-[var(--dash-text-muted)]">
-          {formatNumber(finalized)} / {formatNumber(total)} ({pct}%)
-        </span>
+    <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5 md:p-3">
+      <h3 className="exec-card-title shrink-0">Progresso de Finalização</h3>
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-3 overflow-hidden">
+        <div className="relative shrink-0">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke="var(--dash-border)"
+              strokeWidth={14}
+            />
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke="#16a34a"
+              strokeWidth={14}
+              strokeLinecap="round"
+              strokeDasharray={`${done} ${c - done}`}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          </svg>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-2xl font-bold tabular-nums text-[var(--dash-text)]">{pct}%</span>
+            <span className="text-[10px] font-semibold uppercase text-[var(--dash-text-muted)]">
+              Finalizados
+            </span>
+          </div>
+        </div>
+        <ul className="min-w-0 space-y-2 text-xs">
+          <li className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1.5 text-[var(--dash-text-muted)]">
+              <span className="h-2 w-2 rounded-full bg-[#16a34a]" />
+              Finalizados
+            </span>
+            <span className="font-semibold tabular-nums">
+              {formatNumber(finalized)} · {pct}%
+            </span>
+          </li>
+          <li className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1.5 text-[var(--dash-text-muted)]">
+              <span className="h-2 w-2 rounded-full bg-slate-300" />
+              Pendentes
+            </span>
+            <span className="font-semibold tabular-nums">
+              {formatNumber(pending)} · {total > 0 ? Math.round((pending / total) * 100) : 0}%
+            </span>
+          </li>
+        </ul>
       </div>
-      <div className="dash-progress-track">
-        <div className="dash-progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
+    </article>
   );
 }
 
 export function TabExpedicao({ period, refreshKey }: TabExpedicaoProps) {
   const [resumo, setResumo] = useState<DashboardResumo | null>(null);
-  const [delayed, setDelayed] = useState<DelayedOrderRow[]>([]);
-  const [loadingResumo, setLoadingResumo] = useState(true);
-  const [loadingDelayed, setLoadingDelayed] = useState(true);
-  const [errorResumo, setErrorResumo] = useState<string | null>(null);
+  const [prevTotal, setPrevTotal] = useState<number | null>(null);
+  const [delayed, setDelayed] = useState<OrderRow[]>([]);
+  const [awaitingNf, setAwaitingNf] = useState<OrderRow[]>([]);
+  const [finalized, setFinalized] = useState<OrderRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadResumo = useCallback(async () => {
-    setLoadingResumo(true);
-    setErrorResumo(null);
-    try {
-      setResumo(await fetchDashboardResumo(period));
-    } catch (e) {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const mapOrder = (raw: Record<string, unknown>): OrderRow => {
+      const p = normalizePedidoFromApi(raw);
+      return {
+        id: p.id,
+        code: p.externalOrderNumber ?? p.code,
+        customer: p.customerName ?? p.receiverName ?? '—',
+        date: p.createdAt ?? '',
+        daysLate: getOverdueDays(p) ?? undefined,
+        total: Number(p.totalValue) || 0,
+        status: String(p.status ?? ''),
+      };
+    };
+
+    const results = await Promise.allSettled([
+      fetchDashboardResumo(period),
+      erpFetchJson<{ data: Record<string, unknown>[] }>(
+        'api/pedidos?status=delayed&pageSize=6&page=1&sortBy=requestedDeliveryDate&sortOrder=asc',
+        pedidosListFetchInit,
+      ),
+      erpFetchJson<{ data: Record<string, unknown>[] }>(
+        'api/pedidos?status=AGUARDANDO_NF&pageSize=6&page=1&sortBy=createdAt&sortOrder=desc',
+        pedidosListFetchInit,
+      ),
+      erpFetchJson<{ data: Record<string, unknown>[] }>(
+        'api/pedidos?status=FINALIZADO&pageSize=6&page=1&sortBy=createdAt&sortOrder=desc',
+        pedidosListFetchInit,
+      ),
+    ]);
+
+    if (results[0].status === 'fulfilled') setResumo(results[0].value);
+    else {
       setResumo(null);
-      setErrorResumo(e instanceof Error ? e.message : 'Erro ao carregar expedição.');
-    } finally {
-      setLoadingResumo(false);
+      setError('Não foi possível carregar o resumo de expedição.');
     }
+
+    if (results[1].status === 'fulfilled') {
+      setDelayed(results[1].value.data.map(mapOrder).slice(0, 5));
+    } else setDelayed([]);
+
+    if (results[2].status === 'fulfilled') {
+      setAwaitingNf(results[2].value.data.map(mapOrder).slice(0, 5));
+    } else setAwaitingNf([]);
+
+    if (results[3].status === 'fulfilled') {
+      setFinalized(results[3].value.data.map(mapOrder).slice(0, 5));
+    } else setFinalized([]);
+
+    setLoading(false);
   }, [period.dataInicio, period.dataFim]);
 
-  const loadDelayed = useCallback(async () => {
-    setLoadingDelayed(true);
-    try {
-      const res = await erpFetchJson<{ data: Record<string, unknown>[] }>(
-        'api/pedidos?status=delayed&pageSize=5&page=1&sortBy=requestedDeliveryDate&sortOrder=asc',
-        pedidosListFetchInit,
-      );
-      const rows = res.data
-        .map((raw) => {
-          const p = normalizePedidoFromApi(raw);
-          return {
-            id: p.id,
-            pedido: p.externalOrderNumber ?? p.code,
-            recebedor: p.receiverName ?? p.customerName ?? '—',
-            diasAtraso: getOverdueDays(p) ?? 0,
-          };
-        })
-        .sort((a, b) => b.diasAtraso - a.diasAtraso)
-        .slice(0, 5);
-      setDelayed(rows);
-    } catch {
-      setDelayed([]);
-    } finally {
-      setLoadingDelayed(false);
-    }
-  }, []);
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
 
   useEffect(() => {
-    void loadResumo();
-    void loadDelayed();
-  }, [loadResumo, loadDelayed, refreshKey]);
+    if (!period.dataInicio.trim() || !period.dataFim.trim()) {
+      setPrevTotal(null);
+      return;
+    }
+    const [y, m] = period.dataInicio.split('-').map(Number);
+    const prevStart = new Date(Date.UTC(y, m - 2, 1));
+    const prevEnd = new Date(Date.UTC(y, m - 1, 0));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    void fetchDashboardResumo({
+      dataInicio: `${prevStart.getUTCFullYear()}-${pad(prevStart.getUTCMonth() + 1)}-${pad(prevStart.getUTCDate())}`,
+      dataFim: `${prevEnd.getUTCFullYear()}-${pad(prevEnd.getUTCMonth() + 1)}-${pad(prevEnd.getUTCDate())}`,
+    })
+      .then((r) => setPrevTotal(Number(r.financeiro.totalPedidosMes) || 0))
+      .catch(() => setPrevTotal(null));
+  }, [period.dataInicio, period.dataFim]);
 
   const f = resumo?.financeiro;
   const fluxo = resumo?.fluxo;
+  const total = Number(f?.totalPedidosMes) || 0;
   const atrasados = Number(f?.pedidosAtrasados) || 0;
+  const concluidos = Number(f?.pedidosConcluidos) || 0;
+  const emSep = Number(fluxo?.EM_SEPARACAO) || 0;
+  const aguardNf = Number(fluxo?.AGUARDANDO_NF) || 0;
+  const totalDelta =
+    prevTotal != null ? computeVariationPct(total, prevTotal) : null;
+
+  const spark = useMemo(() => [total * 0.7, total * 0.85, total * 0.9, total], [total]);
+
+  if (loading) {
+    return (
+      <div className="dash-overview-panel">
+        <div className="exec-overview">
+          <div className="exec-overview-kpis">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <OverviewKpiCardSkeleton key={i} />
+            ))}
+          </div>
+          <div className="exec-overview-middle">
+            <div className="exec-card dash-skeleton min-h-[160px]" />
+            <div className="exec-card dash-skeleton min-h-[160px]" />
+            <div className="exec-card dash-skeleton min-h-[160px]" />
+          </div>
+          <div className="exec-overview-bottom">
+            <div className="exec-card dash-skeleton min-h-[140px]" />
+            <div className="exec-card dash-skeleton min-h-[140px]" />
+            <div className="exec-card dash-skeleton min-h-[140px]" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="dash-tab-panel">
-      {loadingResumo ? (
-        <div className="dash-card-grid">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <MetricCardSkeleton key={i} />
-          ))}
+    <div className="dash-overview-panel">
+      <div className="exec-overview exec-overview--expedicao">
+        {error ? (
+          <p className="exec-overview-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="exec-overview-kpis">
+          <OverviewKpiCard
+            label="Total de Pedidos"
+            value={formatNumber(total)}
+            delta={totalDelta}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Atrasados"
+            value={formatNumber(atrasados)}
+            tone={atrasados > 0 ? 'danger' : 'default'}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Em Separação"
+            value={formatNumber(emSep)}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Aguardando NF"
+            value={formatNumber(aguardNf)}
+            tone={aguardNf > 0 ? 'warning' : 'default'}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Finalizados"
+            value={formatNumber(concluidos)}
+            tone="success"
+            sparkline={spark}
+          />
         </div>
-      ) : errorResumo ? (
-        <p className="dash-section-error" role="alert">{errorResumo}</p>
-      ) : f && fluxo ? (
-        <>
-          <div className="dash-card-grid dash-card-grid--exp-metrics">
-            <MetricCard label="Total Pedidos" value={formatNumber(f.totalPedidosMes)} icon={ShoppingCart} />
-            <MetricCard label="Atrasados" value={formatNumber(atrasados)} icon={AlertTriangle} tone={atrasados > 0 ? 'danger' : 'default'} />
-            <MetricCard label="Em Separação" value={formatNumber(fluxo.EM_SEPARACAO)} icon={Package} />
-            <MetricCard label="Finalizados" value={formatNumber(f.pedidosConcluidos)} icon={CheckCircle2} tone="success" />
-            <div className="hidden md:contents">
-              <MetricCard label="Aguardando NF" value={formatNumber(fluxo.AGUARDANDO_NF)} icon={FileWarning} tone={fluxo.AGUARDANDO_NF > 0 ? 'warning' : 'default'} />
-            </div>
+
+        <div className="exec-overview-middle">
+          <div className="exec-card exec-card--fill exec-card--chart min-h-0 overflow-hidden p-1">
+            {fluxo ? (
+              <StatusBarChart fluxo={fluxo} />
+            ) : (
+              <p className="exec-empty p-3">Dados de status indisponíveis.</p>
+            )}
           </div>
-          <ProgressBlock finalized={f.pedidosConcluidos} total={f.totalPedidosMes} />
-          <StatusBarChart fluxo={fluxo} />
-        </>
-      ) : null}
 
-      <div className="dash-grid-2">
-        <div className="dash-card w-full p-4 md:p-6">
-          <h3 className="text-sm font-semibold text-[var(--dash-text)]">Top 5 pedidos atrasados</h3>
-          {loadingDelayed ? (
-            <div className="mt-4 space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="dash-skeleton h-10 w-full" />
-              ))}
-            </div>
-          ) : delayed.length === 0 ? (
-            <p className="mt-4 text-sm text-[var(--dash-text-muted)]">Nenhum pedido atrasado.</p>
-          ) : (
-            <ul className={`mt-4 ${DASH_SCROLL}`}>
-              {delayed.map((row) => (
-                <li key={row.id}>
-                  <Link href="/app/expedicao/pedidos" className="dash-link-row">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{row.pedido}</p>
-                      <p className="truncate text-xs text-[var(--dash-text-muted)]">{row.recebedor}</p>
-                    </div>
-                    <span className="shrink-0 text-sm font-semibold text-[var(--dash-danger)]">
-                      {formatNumber(row.diasAtraso)}d
+          <ProgressDonut finalized={concluidos} total={total} />
+
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5 md:p-3">
+            <h3 className="exec-card-title mb-2 shrink-0">Alertas e Pendências</h3>
+            <ul className="exec-scroll-list min-h-0 flex-1 space-y-1">
+              {[
+                { label: 'Pedidos Atrasados', value: atrasados, tone: 'danger' as const },
+                { label: 'Aguardando NF', value: aguardNf, tone: 'warning' as const },
+                { label: 'Separação Pendente', value: emSep, tone: 'neutral' as const },
+                {
+                  label: 'Prontos para Envio',
+                  value: Number(fluxo?.PARCIAL) || 0,
+                  tone: 'success' as const,
+                },
+              ].map((item) => (
+                <li key={item.label} className="exec-list-row">
+                  <div className="min-w-0">
+                    <p className="exec-list-title">{item.label}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`exec-status exec-status--${item.tone === 'neutral' ? 'neutral' : item.tone}`}>
+                      {formatNumber(item.value)}
                     </span>
-                  </Link>
+                    <Link href="/app/expedicao" className="dash-tab-link text-[10px]">
+                      Ver todos
+                    </Link>
+                  </div>
                 </li>
               ))}
             </ul>
-          )}
+          </article>
         </div>
 
-        <div className="dash-card w-full p-4 md:p-6">
-          <h3 className="text-sm font-semibold text-[var(--dash-text)]">Top 5 transportadoras</h3>
-          {loadingResumo ? (
-            <div className="mt-4 space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="dash-skeleton h-10 w-full" />
-              ))}
+        <div className="exec-overview-bottom exec-exp-bottom">
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+              <h3 className="exec-card-title">
+                Pedidos Atrasados
+                <span className="exec-badge exec-badge--danger">{atrasados}</span>
+              </h3>
             </div>
-          ) : !resumo?.topTransportadoras.length ? (
-            <p className="mt-4 text-sm text-[var(--dash-text-muted)]">Sem saídas no período.</p>
-          ) : (
-            <ul className={`mt-4 ${DASH_SCROLL}`}>
-              {resumo.topTransportadoras.map((t) => (
-                <li key={t.nome} className="dash-list-row">
-                  <span className="truncate text-sm">{t.nome}</span>
-                  <span className="text-sm font-semibold tabular-nums">{formatNumber(t.total)} saídas</span>
-                </li>
-              ))}
-            </ul>
-          )}
+            <div className="exec-table-wrap min-h-0 flex-1 overflow-auto">
+              <table className="exec-table">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Dias</th>
+                    <th>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delayed.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="exec-empty">
+                        Nenhum pedido atrasado.
+                      </td>
+                    </tr>
+                  ) : (
+                    delayed.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-semibold text-[#2AACE2]">{row.code}</td>
+                        <td>{row.customer}</td>
+                        <td>
+                          <span className="exec-status exec-status--danger">
+                            {formatNumber(row.daysLate ?? 0)}d
+                          </span>
+                        </td>
+                        <td>{formatCurrency(row.total)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5">
+            <h3 className="exec-card-title mb-1 shrink-0">
+              Pedidos Aguardando NF
+              <span className="exec-badge">{aguardNf}</span>
+            </h3>
+            <div className="exec-table-wrap min-h-0 flex-1 overflow-auto">
+              {awaitingNf.length === 0 ? (
+                <p className="exec-empty">Nenhum pedido aguardando NF.</p>
+              ) : (
+                <table className="exec-table">
+                  <thead>
+                    <tr>
+                      <th>Pedido</th>
+                      <th>Cliente</th>
+                      <th>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {awaitingNf.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-semibold text-[#2AACE2]">{row.code}</td>
+                        <td>{row.customer}</td>
+                        <td>{formatCurrency(row.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-2.5">
+            <h3 className="exec-card-title mb-1 shrink-0">Últimos Finalizados</h3>
+            <div className="exec-table-wrap min-h-0 flex-1 overflow-auto">
+              <table className="exec-table">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Data</th>
+                    <th>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalized.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="exec-empty">
+                        Nenhum finalizado recente.
+                      </td>
+                    </tr>
+                  ) : (
+                    finalized.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-semibold text-[#2AACE2]">{row.code}</td>
+                        <td>{row.customer}</td>
+                        <td>{formatDateBr(row.date)}</td>
+                        <td>{formatCurrency(row.total)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <div className="exec-exp-foot-kpis">
+          <OverviewKpiCard
+            label="Taxa de Entrega no Prazo"
+            value={formatPercent(100 - (Number(f?.taxaSLA) || 0))}
+            tone="success"
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Pedidos no Período"
+            value={formatNumber(total)}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Taxa SLA (atraso)"
+            value={formatPercent(Number(f?.taxaSLA) || 0)}
+            tone={(Number(f?.taxaSLA) || 0) > 10 ? 'danger' : 'default'}
+            sparkline={spark}
+          />
+          <OverviewKpiCard
+            label="Ticket Médio"
+            value={formatCurrency(Number(f?.ticketMedio) || 0)}
+            sparkline={spark}
+          />
         </div>
       </div>
     </div>

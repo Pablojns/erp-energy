@@ -19,6 +19,7 @@ export const NOTIFICATION_TYPES = {
   CRM_FOLLOWUP: 'CRM_FOLLOWUP',
   CRM_PROPOSAL_EXPIRING: 'CRM_PROPOSAL_EXPIRING',
   CRM_LEAD_ASSIGNED: 'CRM_LEAD_ASSIGNED',
+  QUOTE_PENDING_APPROVAL: 'QUOTE_PENDING_APPROVAL',
   MENTION: 'MENTION',
   SYSTEM: 'SYSTEM',
   DAILY_DIGEST: 'DAILY_DIGEST',
@@ -93,6 +94,12 @@ export const CONFIGURABLE_NOTIFICATION_TYPES: {
     label: 'Lead atribuído',
     description: 'Lead atribuído a você',
     defaultPriority: NOTIFICATION_PRIORITY.NORMAL,
+  },
+  {
+    type: NOTIFICATION_TYPES.QUOTE_PENDING_APPROVAL,
+    label: 'Orçamento pendente',
+    description: 'Orçamento aguardando aprovação',
+    defaultPriority: NOTIFICATION_PRIORITY.HIGH,
   },
   {
     type: NOTIFICATION_TYPES.MENTION,

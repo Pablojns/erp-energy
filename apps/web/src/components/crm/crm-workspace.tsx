@@ -10,6 +10,7 @@ import { CrmDashboard } from '@/src/components/crm/crm-dashboard';
 import { CrmKanbanBoard } from '@/src/components/crm/crm-kanban-board';
 import { CrmKanbanListView } from '@/src/components/crm/crm-kanban-list-view';
 import { CrmMetasModal } from '@/src/components/crm/crm-metas-modal';
+import { CrmOrcamentos } from '@/src/components/crm/orcamentos/crm-orcamentos';
 import { CrmRelatorios } from '@/src/components/crm/crm-relatorios';
 import { CrmSettingsModal } from '@/src/components/crm/crm-settings-modal';
 import { CrmMobileNav, CrmSidebar, type CrmView } from '@/src/components/crm/crm-sidebar';
@@ -35,6 +36,7 @@ const VIEW_TITLE: Record<Exclude<CrmView, 'relatorios'>, string> = {
   dashboard: 'Dashboard',
   kanban: 'Kanban',
   clientes: 'Clientes',
+  orcamentos: 'Orçamentos',
 };
 
 export function CrmWorkspace(props: { isAdmin?: boolean }) {
@@ -285,6 +287,8 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
               onImported={handleDataChanged}
             />
           ) : null}
+
+          {activeView === 'orcamentos' ? <CrmOrcamentos users={users} /> : null}
 
           {activeView === 'relatorios' ? <CrmRelatorios /> : null}
         </div>

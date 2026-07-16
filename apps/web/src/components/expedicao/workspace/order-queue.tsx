@@ -35,12 +35,15 @@ import {
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { PedidosPeriodFilter } from '@/src/components/expedicao/workspace/pedidos-period-filter';
 import { RemoveFromSeparationModal } from '@/src/components/expedicao/workspace/remove-from-separation-modal';
+import { NfLoteModal } from '@/src/components/expedicao/workspace/nf-lote-modal';
 import { pedidosStatusBadgeStyle } from '@/src/components/expedicao/shared/pedidos-status-styles';
 import type { PedidosFilterField, StatusFilterId } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
 import { downloadWaybillPdf } from '@/src/utils/download-waybill-pdf';
+import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import {
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
@@ -175,18 +178,14 @@ function normalizePedidosStatusFilter(id: string): StatusFilterId {
     : 'all';
 }
 
-function isAguardandoNfStatus(status: string): boolean {
+function canSelectForNfLote(order: OrderDto): boolean {
+  // Histórico/NF de ciclo anterior não bloqueia. Só pedidos já em etapa de NF do ciclo atual.
   return (
-    status === 'SEPARADO' ||
-    status === 'AGUARDANDO_NF' ||
-    status === 'NF_ATRELADA'
+    order.status === 'AGUARDANDO_NF' ||
+    order.status === 'SEPARADO' ||
+    (order.status as string) === 'NF_PENDENTE'
   );
 }
-
-const SEPARATION_SECTIONS = [
-  { id: 'em_separacao' as const, label: 'Em Separação' },
-  { id: 'aguardando_nf' as const, label: 'Aguardando NF' },
-] as const;
 
 /* Header padrão (todas as abas): height 32px */
 const HEADER_BTN_ICON =
@@ -234,7 +233,7 @@ export function OrderQueue(props: {
   const pedidosFiltersKey = pedidosFiltersStorageKey(user.id);
   const pedidosColumnPrefs = usePedidosTableColumns(user.id);
 
-  const [selectedForRemovalIds, setSelectedForRemovalIds] = useState<Set<string>>(
+  const [selectedForSeparationIds, setSelectedForSeparationIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [removeModalOpen, setRemoveModalOpen] = useState(false);
@@ -242,6 +241,7 @@ export function OrderQueue(props: {
   const [selectedForPrintIds, setSelectedForPrintIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [nfLoteModalOpen, setNfLoteModalOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
   const [newFilterOpen, setNewFilterOpen] = useState(false);
@@ -353,7 +353,20 @@ export function OrderQueue(props: {
   }, [filtersOpen]);
 
   const selectedForPrintCount = selectedForPrintIds.size;
-  const selectedForRemovalCount = selectedForRemovalIds.size;
+  const selectedSeparationCount = selectedForSeparationIds.size;
+
+  const selectedNfLoteEligibleCount = useMemo(
+    () =>
+      data.orders.filter(
+        (o) => selectedForSeparationIds.has(o.id) && canSelectForNfLote(o),
+      ).length,
+    [data.orders, selectedForSeparationIds],
+  );
+
+  const allSeparationSelected =
+    !isPedidosMode &&
+    data.orders.length > 0 &&
+    data.orders.every((o) => selectedForSeparationIds.has(o.id));
 
   useEffect(() => {
     if (!data.ordersLoadingMore) {
@@ -413,8 +426,8 @@ export function OrderQueue(props: {
     });
   };
 
-  const toggleRemovalSelection = (orderId: string) => {
-    setSelectedForRemovalIds((prev) => {
+  const toggleSeparationSelection = (orderId: string) => {
+    setSelectedForSeparationIds((prev) => {
       const next = new Set(prev);
       if (next.has(orderId)) {
         next.delete(orderId);
@@ -425,15 +438,49 @@ export function OrderQueue(props: {
     });
   };
 
+  const toggleSelectAllSeparation = () => {
+    if (allSeparationSelected) {
+      setSelectedForSeparationIds(new Set());
+      return;
+    }
+    setSelectedForSeparationIds(new Set(data.orders.map((o) => o.id)));
+  };
+
+  const selectedNfLoteNumeroPeds = useMemo(
+    () =>
+      data.orders
+        .filter((o) => selectedForSeparationIds.has(o.id) && canSelectForNfLote(o))
+        .map((o) => numeroPedFromOrder(o))
+        .filter((n): n is string => Boolean(n)),
+    [data.orders, selectedForSeparationIds],
+  );
+
   const handleConfirmRemoveFromSeparation = async () => {
-    const targets = data.orders.filter((o) => selectedForRemovalIds.has(o.id));
+    const targets = data.orders.filter((o) => selectedForSeparationIds.has(o.id));
     if (targets.length === 0) return;
     setRemoving(true);
     const ok = await data.removeOrdersFromSeparation(targets);
     setRemoving(false);
     if (ok) {
       setRemoveModalOpen(false);
-      setSelectedForRemovalIds(new Set());
+      setSelectedForSeparationIds(new Set());
+    }
+  };
+
+  const handleRemoveSingleFromSeparation = async (order: OrderDto) => {
+    const label = orderDisplayNumber(order);
+    if (
+      !window.confirm(`Remover o pedido #${label} da separação?`)
+    ) {
+      return;
+    }
+    const ok = await data.removeOrdersFromSeparation([order]);
+    if (ok) {
+      setSelectedForSeparationIds((prev) => {
+        const next = new Set(prev);
+        next.delete(order.id);
+        return next;
+      });
     }
   };
 
@@ -444,18 +491,6 @@ export function OrderQueue(props: {
     downloadWaybillPdf(pedidos);
   };
 
-  const separationSections = useMemo(() => {
-    if (isPedidosMode) return null;
-    return SEPARATION_SECTIONS.map((section) => ({
-      ...section,
-      orders: data.orders.filter((o) =>
-        section.id === 'em_separacao'
-          ? o.status === 'EM_SEPARACAO'
-          : isAguardandoNfStatus(o.status),
-      ),
-    }));
-  }, [data.orders, isPedidosMode]);
-
   const renderOrderCard = (o: OrderDto) => (
     <OrderQueueCard
       key={o.id}
@@ -463,8 +498,18 @@ export function OrderQueue(props: {
       selected={selectedOrderId === o.id}
       checkedForPrint={isPedidosMode ? selectedForPrintIds.has(o.id) : undefined}
       onTogglePrint={isPedidosMode ? () => togglePrintSelection(o.id) : undefined}
-      checkedForRemoval={!isPedidosMode ? selectedForRemovalIds.has(o.id) : undefined}
-      onToggleRemoval={!isPedidosMode ? () => toggleRemovalSelection(o.id) : undefined}
+      checkedForSeparation={
+        !isPedidosMode ? selectedForSeparationIds.has(o.id) : undefined
+      }
+      onToggleSeparation={
+        !isPedidosMode ? () => toggleSeparationSelection(o.id) : undefined
+      }
+      showSeparationProgress={!isPedidosMode}
+      onRemoveFromSeparation={
+        !isPedidosMode
+          ? () => void handleRemoveSingleFromSeparation(o)
+          : undefined
+      }
       onSelect={() => {
         onSelectOrder(o.id);
         onOrderChosen?.();
@@ -707,28 +752,68 @@ export function OrderQueue(props: {
       ) : null}
 
       {!isPedidosMode ? (
-        <div className="exp-queue-print-toolbar shrink-0">
-          {selectedForRemovalCount > 0 ? (
+        <div className="exp-queue-print-toolbar shrink-0 flex flex-wrap items-center gap-2">
+          {data.orders.length > 0 ? (
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                className="pedido-card-checkbox"
+                checked={allSeparationSelected}
+                onChange={toggleSelectAllSeparation}
+                aria-label="Selecionar todos"
+              />
+              Selecionar todos
+            </label>
+          ) : null}
+          {selectedSeparationCount > 0 ? (
             <span className="exp-queue-print-count">
-              {selectedForRemovalCount} pedido(s) selecionado(s)
+              {selectedSeparationCount} selecionado{selectedSeparationCount > 1 ? 's' : ''}
             </span>
           ) : (
             <span className="exp-queue-print-count exp-queue-print-count--empty" />
           )}
-          <button
-            type="button"
-            className="exp-queue-remove-sep-btn"
-            disabled={selectedForRemovalCount === 0}
-            onClick={() => setRemoveModalOpen(true)}
-          >
-            Remover da Separação
-          </button>
+          {selectedSeparationCount > 0 ? (
+            <>
+              <button
+                type="button"
+                className="exp-wb-btn exp-wb-btn--danger !min-h-0 !px-3 !py-1.5 !text-xs"
+                onClick={() => {
+                  if (selectedNfLoteEligibleCount === 0) return;
+                  setNfLoteModalOpen(true);
+                }}
+              >
+                Gerar NF em Lote
+                {selectedNfLoteEligibleCount > 0
+                  ? ` (${selectedNfLoteEligibleCount})`
+                  : ''}
+              </button>
+              <button
+                type="button"
+                className="exp-queue-remove-sep-btn"
+                onClick={() => setRemoveModalOpen(true)}
+              >
+                Remover da Separação
+              </button>
+            </>
+          ) : null}
         </div>
+      ) : null}
+
+      {nfLoteModalOpen && selectedNfLoteNumeroPeds.length > 0 ? (
+        <NfLoteModal
+          numeroPeds={selectedNfLoteNumeroPeds}
+          onClose={() => setNfLoteModalOpen(false)}
+          onFinished={() => {
+            setSelectedForSeparationIds(new Set());
+            void data.refreshAll();
+            onRefresh?.();
+          }}
+        />
       ) : null}
 
       {removeModalOpen ? (
         <RemoveFromSeparationModal
-          count={selectedForRemovalCount}
+          count={selectedSeparationCount}
           loading={removing}
           onCancel={() => setRemoveModalOpen(false)}
           onConfirm={() => void handleConfirmRemoveFromSeparation()}
@@ -754,21 +839,24 @@ export function OrderQueue(props: {
           <div className="exp-queue-empty p-2">
             <ListSkeleton rows={6} />
           </div>
-        ) : data.orders.length === 0 ? (
+        ) : isPedidosMode && data.orders.length === 0 ? (
           <div className="p-3">
             <EmptyState
               compact
-              icon={isPedidosMode ? Truck : PackageOpen}
-              title={
-                isPedidosMode ? 'Nenhum pedido encontrado' : 'Nenhum pedido nesta etapa'
-              }
-              description={
-                isPedidosMode
-                  ? 'Importe pedidos WEG ou crie um pedido manual para começar.'
-                  : 'Os pedidos em separação aparecerão aqui conforme forem liberados.'
-              }
-              actionLabel={isPedidosMode && onImportWeg ? 'Importar WEG' : undefined}
-              onAction={isPedidosMode && onImportWeg ? onImportWeg : undefined}
+              icon={Truck}
+              title="Nenhum pedido encontrado"
+              description="Importe pedidos WEG ou crie um pedido manual para começar."
+              actionLabel={onImportWeg ? 'Importar WEG' : undefined}
+              onAction={onImportWeg ?? undefined}
+            />
+          </div>
+        ) : !isPedidosMode && data.orders.length === 0 ? (
+          <div className="p-3">
+            <EmptyState
+              compact
+              icon={PackageOpen}
+              title="Nenhum pedido na separação"
+              description="Envie pedidos para separação pela aba Pedidos. Eles aparecerão aqui em lista simples, com progresso por etapa."
             />
           </div>
         ) : isPedidosMode ? (
@@ -824,23 +912,10 @@ export function OrderQueue(props: {
               ) : null}
             </div>
           </>
-        ) : separationSections ? (
+        ) : (
           <>
-            <div className="exp-queue-sections gap-2">
-              {separationSections.map((section) => (
-                <section key={section.id} className="exp-queue-section">
-                  <h3 className="exp-queue-section-title">{section.label}</h3>
-                  {section.orders.length === 0 ? (
-                    <p className="exp-queue-section-empty text-xs text-[var(--text-muted)]">
-                      Nenhum pedido nesta etapa.
-                    </p>
-                  ) : (
-                    <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
-                      {section.orders.map(renderOrderCard)}
-                    </div>
-                  )}
-                </section>
-              ))}
+            <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
+              {data.orders.map(renderOrderCard)}
             </div>
             {data.ordersHasMore ? (
               <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />
@@ -849,7 +924,7 @@ export function OrderQueue(props: {
               <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
             ) : null}
           </>
-        ) : null}
+        )}
       </div>
 
       {data.meta && !data.ordersLoading && isPedidosMode ? (

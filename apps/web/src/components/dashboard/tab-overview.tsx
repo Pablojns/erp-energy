@@ -1,23 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useState, type DragEvent, type ReactNode } from 'react';
-import { GripVertical } from 'lucide-react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  OverviewFinanceChart,
-  OverviewFinanceChartSkeleton,
-} from '@/src/components/dashboard/overview-finance-chart';
+  BarChart3,
+  ClipboardList,
+  FileSpreadsheet,
+  Package,
+  Plus,
+  ShoppingCart,
+} from 'lucide-react';
+import { DualMonthlyChart } from '@/src/components/dashboard/dual-monthly-chart';
+import { OverviewKpiCard, OverviewKpiCardSkeleton } from '@/src/components/dashboard/overview-kpi-card';
 import {
-  DEFAULT_OVERVIEW_CARD_ORDER,
-  isDefaultOverviewOrder,
-  loadOverviewCardOrder,
-  resetOverviewCardOrder,
-  saveOverviewCardOrder,
-  type OverviewCardId,
-} from '@/src/components/dashboard/overview-card-layout';
+  StatusDonutChart,
+  StatusDonutChartSkeleton,
+} from '@/src/components/dashboard/status-donut-chart';
 import type {
   DashboardResumo,
   DateRange,
-  DelayedOrderRow,
   FinanceiroDashboardData,
   MonthlyOrdersPoint,
 } from '@/src/components/dashboard/types';
@@ -26,186 +27,101 @@ import {
   fetchDashboardResumo,
   fetchFinanceiroDashboard,
   fetchMonthlyOrdersChart,
-  fetchPeriodComparison,
   fetchStockSummary,
   formatCurrency,
+  formatDateBr,
   formatNumber,
   formatPercent,
 } from '@/src/components/dashboard/utils';
-import { getOverdueDays } from '@/src/components/expedicao/shared/order-helpers';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizePedidoFromApi, pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
+import {
+  normalizePedidoFromApi,
+  pedidosListFetchInit,
+} from '@/src/services/api/pedidos-normalize';
 import '@/src/components/dashboard/overview-executive.css';
-import { MobileCollapsibleSection } from '@/src/components/mobile/mobile-collapsible-section';
+
+type RecentOrderRow = {
+  id: string;
+  code: string;
+  customer: string;
+  status: string;
+  statusTone: 'danger' | 'success' | 'neutral';
+  total: number;
+  date: string;
+};
 
 type TabOverviewProps = {
   period: DateRange;
   refreshKey: number;
   onNavigateTab?: (tab: 'expedicao' | 'estoque' | 'financeiro') => void;
-  userId: string;
+  onNewOrderClick?: () => void;
+  userId?: string;
   editMode?: boolean;
   layoutResetKey?: number;
 };
 
-function OverviewDraggableCard(props: {
-  cardId: OverviewCardId;
-  editMode: boolean;
-  onReorder: (from: OverviewCardId, to: OverviewCardId) => void;
-  children: ReactNode;
-  className?: string;
-}) {
-  const { cardId, editMode, onReorder, children, className = '' } = props;
-  const [dragOver, setDragOver] = useState(false);
-
-  const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', cardId);
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const from = e.dataTransfer.getData('text/plain') as OverviewCardId;
-    if (from) onReorder(from, cardId);
-    setDragOver(false);
-  };
-
-  return (
-    <div
-      className={`dash-overview-card-wrap ${editMode ? 'dash-overview-card-wrap--edit' : ''} ${dragOver ? 'dash-overview-card-wrap--over' : ''} ${className}`}
-      draggable={editMode}
-      onDragStart={editMode ? handleDragStart : undefined}
-      onDragEnd={() => setDragOver(false)}
-      onDragOver={
-        editMode
-          ? (e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              setDragOver(true);
-            }
-          : undefined
-      }
-      onDragLeave={editMode ? () => setDragOver(false) : undefined}
-      onDrop={editMode ? handleDrop : undefined}
-    >
-      {editMode ? (
-        <div className="overview-drag-handle" aria-hidden>
-          <GripVertical className="h-4 w-4" />
-          <span>Arrastar</span>
-        </div>
-      ) : null}
-      {children}
-    </div>
-  );
-}
-
-function OverviewBlockSkeleton({ tall }: { tall?: boolean }) {
-  return (
-    <div className={`overview-block ${tall ? 'min-h-[280px]' : ''}`}>
-      <div className="overview-skeleton mb-3 h-8 w-24" />
-      <div className="overview-stat-grid mb-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="overview-skeleton h-12" />
-        ))}
-      </div>
-      <div className="overview-skeleton mb-3 h-1.5 w-full" />
-      <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="overview-skeleton h-8" />
-        ))}
-      </div>
-    </div>
-  );
+function statusMeta(raw: string): { label: string; tone: RecentOrderRow['statusTone'] } {
+  const s = raw.toUpperCase();
+  if (s.includes('ATRAS') || s === 'DELAYED') {
+    return { label: 'Atrasado', tone: 'danger' };
+  }
+  if (s.includes('FINAL') || s === 'FINALIZADO' || s === 'COMPLETED') {
+    return { label: 'Finalizado', tone: 'success' };
+  }
+  if (s.includes('PEND') || s === 'NOVO' || s === 'NEW') {
+    return { label: 'Pendente', tone: 'neutral' };
+  }
+  return { label: raw || '—', tone: 'neutral' };
 }
 
 export function TabOverview({
   period,
   refreshKey,
-  userId,
-  editMode = false,
-  layoutResetKey = 0,
+  onNavigateTab,
+  onNewOrderClick,
 }: TabOverviewProps) {
-  const [cardOrder, setCardOrder] = useState<OverviewCardId[]>(
-    () => DEFAULT_OVERVIEW_CARD_ORDER,
-  );
-  const [cardOrderHydrated, setCardOrderHydrated] = useState(false);
-
-  useEffect(() => {
-    setCardOrder(loadOverviewCardOrder(userId));
-    setCardOrderHydrated(true);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!cardOrderHydrated) return;
-    saveOverviewCardOrder(userId, cardOrder);
-  }, [cardOrder, cardOrderHydrated, userId]);
-
-  useEffect(() => {
-    if (layoutResetKey === 0) return;
-    resetOverviewCardOrder(userId);
-    setCardOrder([...DEFAULT_OVERVIEW_CARD_ORDER]);
-  }, [layoutResetKey, userId]);
-
-  const reorderCards = useCallback((from: OverviewCardId, to: OverviewCardId) => {
-    if (from === to) return;
-    setCardOrder((prev) => {
-      const next = [...prev];
-      const fromIndex = next.indexOf(from);
-      const toIndex = next.indexOf(to);
-      if (fromIndex < 0 || toIndex < 0) return prev;
-      next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, from);
-      return next;
-    });
-  }, []);
   const [fin, setFin] = useState<FinanceiroDashboardData | null>(null);
   const [resumo, setResumo] = useState<DashboardResumo | null>(null);
   const [stock, setStock] = useState<Awaited<ReturnType<typeof fetchStockSummary>> | null>(null);
-  const [delayed, setDelayed] = useState<DelayedOrderRow[]>([]);
-  const [comparePrevious, setComparePrevious] = useState(false);
-  const [comparisonLoading, setComparisonLoading] = useState(false);
-  const [comparison, setComparison] = useState<{
-    current: number;
-    previous: number;
-    currentLabel: string;
-    previousLabel: string;
-  } | null>(null);
-  const [chart, setChart] = useState<MonthlyOrdersPoint[] | null>(null);
+  const [chart, setChart] = useState<MonthlyOrdersPoint[]>([]);
+  const [recentOrders, setRecentOrders] = useState<RecentOrderRow[]>([]);
+  const [prevPedidos, setPrevPedidos] = useState<number | null>(null);
+  const [prevStockValue, setPrevStockValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
-
-  const periodHasRange = Boolean(period.dataInicio.trim() && period.dataFim.trim());
 
   const load = useCallback(async () => {
     setLoading(true);
     setErrors([]);
     const errs: string[] = [];
 
-    const delayedPromise = erpFetchJson<{ data: Record<string, unknown>[] }>(
-      'api/pedidos?status=delayed&pageSize=5&page=1&sortBy=requestedDeliveryDate&sortOrder=asc',
+    const recentPromise = erpFetchJson<{ data: Record<string, unknown>[] }>(
+      'api/pedidos?pageSize=6&page=1&sortBy=createdAt&sortOrder=desc',
       pedidosListFetchInit,
     )
       .then((res) =>
-        res.data
-          .map((raw) => {
-            const p = normalizePedidoFromApi(raw);
-            return {
-              id: p.id,
-              pedido: p.externalOrderNumber ?? p.code,
-              recebedor: p.receiverName ?? p.customerName ?? '—',
-              diasAtraso: getOverdueDays(p) ?? 0,
-            };
-          })
-          .sort((a, b) => b.diasAtraso - a.diasAtraso)
-          .slice(0, 3),
+        res.data.map((raw) => {
+          const p = normalizePedidoFromApi(raw);
+          const meta = statusMeta(String(p.status ?? ''));
+          return {
+            id: p.id,
+            code: p.externalOrderNumber ?? p.code,
+            customer: p.customerName ?? p.receiverName ?? '—',
+            status: meta.label,
+            statusTone: meta.tone,
+            total: Number(p.totalValue) || 0,
+            date: p.createdAt ?? '',
+          };
+        }),
       )
-      .catch(() => [] as DelayedOrderRow[]);
+      .catch(() => [] as RecentOrderRow[]);
 
     const results = await Promise.allSettled([
       fetchFinanceiroDashboard(period),
       fetchDashboardResumo(period),
       fetchStockSummary(period),
       fetchMonthlyOrdersChart(period),
-      delayedPromise,
+      recentPromise,
     ]);
 
     if (results[0].status === 'fulfilled') setFin(results[0].value);
@@ -219,351 +135,331 @@ export function TabOverview({
       setChart([]);
       errs.push('Gráfico');
     }
-    if (results[4].status === 'fulfilled') setDelayed(results[4].value);
-    else setDelayed([]);
+    if (results[4].status === 'fulfilled') setRecentOrders(results[4].value);
+    else setRecentOrders([]);
 
     setErrors(errs);
     setLoading(false);
   }, [period.dataInicio, period.dataFim]);
 
-  const loadComparison = useCallback(async () => {
-    if (!periodHasRange) {
-      setComparison(null);
-      return;
-    }
-    setComparisonLoading(true);
-    try {
-      setComparison(await fetchPeriodComparison(period));
-    } catch {
-      setComparison(null);
-    } finally {
-      setComparisonLoading(false);
-    }
-  }, [period.dataInicio, period.dataFim, periodHasRange]);
-
   useEffect(() => {
     void load();
-    setComparePrevious(false);
-    setComparison(null);
   }, [load, refreshKey]);
 
   useEffect(() => {
-    if (comparePrevious && periodHasRange) {
-      void loadComparison();
+    if (!period.dataInicio.trim() || !period.dataFim.trim()) {
+      setPrevPedidos(null);
+      setPrevStockValue(null);
       return;
     }
-    setComparison(null);
-    setComparisonLoading(false);
-  }, [comparePrevious, loadComparison, periodHasRange]);
+    const [y, m] = period.dataInicio.split('-').map(Number);
+    const prevStart = new Date(Date.UTC(y, m - 2, 1));
+    const prevEnd = new Date(Date.UTC(y, m - 1, 0));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const prevRange = {
+      dataInicio: `${prevStart.getUTCFullYear()}-${pad(prevStart.getUTCMonth() + 1)}-${pad(prevStart.getUTCDate())}`,
+      dataFim: `${prevEnd.getUTCFullYear()}-${pad(prevEnd.getUTCMonth() + 1)}-${pad(prevEnd.getUTCDate())}`,
+    };
+    void Promise.allSettled([
+      fetchDashboardResumo(prevRange),
+      fetchStockSummary(prevRange),
+    ]).then(([resumoPrev, stockPrev]) => {
+      if (resumoPrev.status === 'fulfilled') {
+        setPrevPedidos(Number(resumoPrev.value.financeiro.totalPedidosMes) || 0);
+      } else setPrevPedidos(null);
+      if (stockPrev.status === 'fulfilled') {
+        setPrevStockValue(Number(stockPrev.value.valorEstoque) || 0);
+      } else setPrevStockValue(null);
+    });
+  }, [period.dataInicio, period.dataFim]);
+
+  const f = resumo?.financeiro;
+  const fluxo = resumo?.fluxo;
+  const totalPedidos = Number(f?.totalPedidosMes) || 0;
+  const finalized = Number(f?.pedidosConcluidos) || 0;
+  const delayed = Number(f?.pedidosAtrasados) || 0;
+  const emSeparacao = Number(fluxo?.EM_SEPARACAO) || 0;
+  const stockValue = Number(stock?.valorEstoque) || 0;
+  const zeroProducts = (stock?.criticalProducts ?? []).filter((p) => p.stockQty <= 0);
+
+  const pedidosDelta =
+    prevPedidos != null ? computeVariationPct(totalPedidos, prevPedidos) : null;
+  const stockDelta =
+    prevStockValue != null ? computeVariationPct(stockValue, prevStockValue) : null;
+
+  const sparkPedidos = useMemo(
+    () => chart.slice(-6).map((p) => Number(p.pedidos) || 0),
+    [chart],
+  );
+  const sparkStock = useMemo(
+    () => chart.slice(-6).map((p) => Number(p.faturado) || 0),
+    [chart],
+  );
+
+  const showExpedicao = true;
+  const showEstoque = true;
+  const showFinanceiro = true;
+
+  const finalizedPct =
+    totalPedidos > 0 ? formatPercent((finalized / totalPedidos) * 100) : '0%';
+  const delayedPct =
+    totalPedidos > 0 ? formatPercent((delayed / totalPedidos) * 100) : '0%';
+  const separacaoPct =
+    totalPedidos > 0 ? formatPercent((emSeparacao / totalPedidos) * 100) : '0%';
 
   if (loading) {
     return (
       <div className="dash-overview-panel">
-        <div className="dash-overview-grid">
-          <div className="dash-overview-row-top">
-            <OverviewBlockSkeleton />
-            <OverviewBlockSkeleton />
+        <div className="exec-overview">
+          <div className="exec-overview-kpis">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <OverviewKpiCardSkeleton key={i} />
+            ))}
           </div>
-          <div className="overview-block">
-            <div className="overview-finance-layout">
-              <div className="overview-finance-metrics">
-                <div className="overview-finance-metrics-row">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="overview-skeleton h-14" />
-                  ))}
-                </div>
-              </div>
-              <div className="overview-finance-chart">
-                <OverviewFinanceChartSkeleton />
-              </div>
-            </div>
+          <div className="exec-overview-middle">
+            <div className="exec-card exec-card--fill dash-skeleton min-h-[180px]" />
+            <StatusDonutChartSkeleton />
+            <div className="exec-card exec-card--fill dash-skeleton min-h-[180px]" />
+          </div>
+          <div className="exec-overview-bottom">
+            <div className="exec-card exec-card--fill dash-skeleton min-h-[140px]" />
+            <div className="exec-card exec-card--fill dash-skeleton min-h-[140px]" />
+            <div className="exec-card exec-card--fill dash-skeleton min-h-[140px]" />
           </div>
         </div>
       </div>
     );
   }
 
-  const f = resumo?.financeiro;
-  const fluxo = resumo?.fluxo;
-  const atrasados = Number(f?.pedidosAtrasados) || 0;
-  const zeroCount = stock?.criticalProducts?.filter((p) => p.stockQty <= 0).length ?? 0;
-  const finalized = Number(f?.pedidosConcluidos) || 0;
-  const total = Number(f?.totalPedidosMes) || 0;
-  const pct = total > 0 ? Math.min(100, Math.round((finalized / total) * 100)) : 0;
-  const critical = stock?.criticalProducts ?? [];
-  const variation =
-    comparison != null
-      ? computeVariationPct(comparison.current, comparison.previous)
-      : 0;
-
-  const useOrderedLayout = editMode || !isDefaultOverviewOrder(cardOrder);
-
-  const renderExpedicaoCard = () => (
-    <MobileCollapsibleSection title="Expedição" mobileAlwaysOpen>
-    <section className="overview-block" aria-label="Expedição">
-      <div className="overview-hero">
-        <span
-          className={`overview-hero-value ${atrasados > 0 ? 'overview-hero-value--danger' : ''}`}
-        >
-          {formatNumber(atrasados)}
-        </span>
-        <span className="overview-label">Atrasados</span>
-      </div>
-
-      {f && fluxo ? (
-        <>
-          <div className="overview-stat-grid dash-mobile-metrics-grid">
-            <div className="overview-stat-cell">
-              <div className="overview-label">Total</div>
-              <div className="overview-stat-value">{formatNumber(total)}</div>
-            </div>
-            <div className="overview-stat-cell">
-              <div className="overview-label">Finalizados</div>
-              <div className="overview-stat-value">{formatNumber(finalized)}</div>
-            </div>
-            <div className="overview-stat-cell">
-              <div className="overview-label">Em separação</div>
-              <div className="overview-stat-value">{formatNumber(fluxo.EM_SEPARACAO)}</div>
-            </div>
-            <div className="overview-stat-cell">
-              <div className="overview-label">Aguard. NF</div>
-              <div className="overview-stat-value">{formatNumber(fluxo.AGUARDANDO_NF)}</div>
-            </div>
-          </div>
-
-          <div className="overview-progress overview-desktop-only">
-            <div className="overview-progress-meta">
-              <span className="overview-label">Finalizados / total</span>
-              <span>
-                {formatNumber(finalized)} / {formatNumber(total)} ({pct}%)
-              </span>
-            </div>
-            <div className="overview-progress-track">
-              <div className="overview-progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        </>
-      ) : (
-        <p className="overview-empty">Dados indisponíveis.</p>
-      )}
-
-      <div className="overview-scroll overview-desktop-only">
-        {delayed.length === 0 ? (
-          <p className="overview-empty">Nenhum pedido atrasado.</p>
-        ) : (
-          delayed.map((row) => (
-            <div key={row.id} className="overview-list-row">
-              <div className="overview-list-main">
-                <div className="overview-list-title">Pedido {row.pedido}</div>
-                <div className="overview-list-sub">{row.recebedor}</div>
-              </div>
-              <span className="overview-badge-danger">{formatNumber(row.diasAtraso)}d</span>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-    </MobileCollapsibleSection>
-  );
-
-  const renderEstoqueCard = () => (
-    <MobileCollapsibleSection title="Estoque" mobileAlwaysOpen>
-    <section className="overview-block" aria-label="Estoque">
-      <div className="overview-hero">
-        <span
-          className={`overview-hero-value ${zeroCount > 0 ? 'overview-hero-value--danger' : ''}`}
-        >
-          {formatNumber(zeroCount)}
-        </span>
-        <span className="overview-label">Estoque zerado</span>
-      </div>
-
-      {stock ? (
-        <div className="overview-stat-grid overview-stat-grid--2 dash-mobile-metrics-grid">
-          <div className="overview-stat-cell">
-            <div className="overview-label">Produtos ativos</div>
-            <div className="overview-stat-value">{formatNumber(stock.activeProducts)}</div>
-          </div>
-          <div className="overview-stat-cell">
-            <div className="overview-label">Valor em estoque</div>
-            <div className="overview-stat-value">{formatCurrency(stock.valorEstoque)}</div>
-          </div>
-        </div>
-      ) : (
-        <p className="overview-empty">Dados indisponíveis.</p>
-      )}
-
-      <div className="overview-scroll overview-desktop-only">
-        {critical.length === 0 ? (
-          <p className="overview-empty">Nenhum produto crítico.</p>
-        ) : (
-          critical.map((p) => (
-            <div key={p.id} className="overview-list-row">
-              <div className="overview-list-main">
-                <div className="overview-list-title">
-                  {p.sku} · {p.name}
-                </div>
-                <div className="overview-list-sub">
-                  Estoque {formatNumber(p.stockQty)} · mín. {formatNumber(p.minStock)}
-                </div>
-              </div>
-              {p.stockQty <= 0 ? (
-                <span className="overview-badge-danger">Zerado</span>
-              ) : (
-                <span className="text-[10px] font-semibold tabular-nums text-amber-400">
-                  −{formatNumber(p.deficit)}
-                </span>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-    </MobileCollapsibleSection>
-  );
-
-  const renderFinanceiroCard = () => (
-    <MobileCollapsibleSection
-      title="Financeiro"
-      mobileAlwaysOpen
-      mobileCardClassName="dash-mobile-module-card--finance"
-    >
-    <section className="overview-block overview-block--finance" aria-label="Financeiro">
-      <div className="overview-finance-layout">
-        <div className="overview-finance-metrics">
-          {fin ? (
-            <>
-              <div className="overview-hero md:hidden">
-                <span className="overview-hero-value">
-                  {formatCurrency(fin.valorPedidosPeriodo)}
-                </span>
-                <span className="overview-label">Pedidos período</span>
-              </div>
-              <div className="overview-finance-metrics-row">
-                <div className="overview-metric-cell">
-                  <div className="overview-label">Pedidos período</div>
-                  <div className="overview-metric-value">
-                    {formatCurrency(fin.valorPedidosPeriodo)}
-                  </div>
-                </div>
-                <div className="overview-metric-cell">
-                  <div className="overview-label">Faturado período</div>
-                  <div className="overview-metric-value">
-                    {formatCurrency(fin.valorFaturadoPeriodo)}
-                  </div>
-                </div>
-                <div className="overview-metric-cell">
-                  <div className="overview-label">Hist. pedidos</div>
-                  <div className="overview-metric-value">
-                    {formatCurrency(fin.valorPedidosHistorico)}
-                  </div>
-                </div>
-                <div className="overview-metric-cell">
-                  <div className="overview-label">Hist. faturado</div>
-                  <div className="overview-metric-value">
-                    {formatCurrency(fin.valorFaturadoHistorico)}
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="overview-empty">Dados indisponíveis.</p>
-          )}
-
-          {comparePrevious && comparison ? (
-            <div className="overview-compare-strip overview-desktop-only">
-              <span>
-                Atual: <strong>{formatCurrency(comparison.current)}</strong>
-              </span>
-              <span>
-                Anterior: <strong>{formatCurrency(comparison.previous)}</strong>
-              </span>
-              <span
-                className={
-                  variation > 0
-                    ? 'text-emerald-400'
-                    : variation < 0
-                      ? 'text-red-400'
-                      : ''
-                }
-              >
-                {formatPercent(Math.abs(variation))} vs anterior
-              </span>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="overview-finance-chart dash-mobile-chart overview-desktop-only">
-          <button
-            type="button"
-            className={`overview-compare-toggle ${comparePrevious ? 'overview-compare-toggle--on' : ''}`}
-            disabled={!periodHasRange || comparisonLoading}
-            title={
-              periodHasRange
-                ? undefined
-                : 'Selecione um período com datas De/Até para comparar'
-            }
-            onClick={() => setComparePrevious((v) => !v)}
-          >
-            Comparar período anterior
-          </button>
-          {chart !== null ? (
-            <OverviewFinanceChart points={chart} />
-          ) : (
-            <OverviewFinanceChartSkeleton />
-          )}
-        </div>
-      </div>
-    </section>
-    </MobileCollapsibleSection>
-  );
-
-  const renderCardById = (cardId: OverviewCardId) => {
-    if (cardId === 'expedicao') return renderExpedicaoCard();
-    if (cardId === 'estoque') return renderEstoqueCard();
-    return renderFinanceiroCard();
-  };
-
-  const wrapCard = (cardId: OverviewCardId, content: ReactNode, className?: string) => (
-    <OverviewDraggableCard
-      key={cardId}
-      cardId={cardId}
-      editMode={editMode}
-      onReorder={reorderCards}
-      className={className}
-    >
-      {content}
-    </OverviewDraggableCard>
-  );
-
   return (
     <div className="dash-overview-panel">
+      <div className="exec-overview">
       {errors.length > 0 ? (
-        <p className="px-3 pt-2 text-xs text-red-400" role="alert">
+        <p className="exec-overview-error" role="alert">
           Alguns blocos não carregaram: {errors.join(', ')}.
         </p>
       ) : null}
 
-      <div
-        className={`dash-overview-grid ${useOrderedLayout ? 'dash-overview-grid--ordered' : ''}`}
-      >
-        {useOrderedLayout ? (
-          cardOrder.map((cardId) =>
-            wrapCard(
-              cardId,
-              renderCardById(cardId),
-              cardId === 'financeiro' ? 'dash-overview-card-wrap--full' : undefined,
-            ),
-          )
-        ) : (
-          <>
-            <div className="dash-overview-row-top">
-              {wrapCard('expedicao', renderExpedicaoCard())}
-              {wrapCard('estoque', renderEstoqueCard())}
+      {(showExpedicao || showEstoque) && (
+        <div className="exec-overview-kpis">
+          {showExpedicao ? (
+            <>
+              <OverviewKpiCard
+                label="Total de Pedidos"
+                value={formatNumber(totalPedidos)}
+                delta={pedidosDelta}
+                sparkline={sparkPedidos}
+              />
+              <OverviewKpiCard
+                label="Finalizados"
+                value={formatNumber(finalized)}
+                hint={`${finalizedPct} do total`}
+                tone="success"
+                sparkline={sparkPedidos}
+              />
+              <OverviewKpiCard
+                label="Em Separação"
+                value={formatNumber(emSeparacao)}
+                hint={`${separacaoPct} do total`}
+                sparkline={sparkPedidos}
+              />
+              <OverviewKpiCard
+                label="Atrasados"
+                value={formatNumber(delayed)}
+                hint={`${delayedPct} do total`}
+                tone={delayed > 0 ? 'danger' : 'default'}
+                sparkline={sparkPedidos}
+              />
+            </>
+          ) : null}
+          {showEstoque ? (
+            <OverviewKpiCard
+              label="Valor em Estoque"
+              value={formatCurrency(stockValue)}
+              delta={stockDelta}
+              sparkline={sparkStock}
+            />
+          ) : null}
+        </div>
+      )}
+
+      <div className="exec-overview-middle">
+        {showFinanceiro || showExpedicao ? (
+          <div className="exec-card exec-card--fill exec-card--chart min-h-0 overflow-hidden p-2 md:p-3">
+            <DualMonthlyChart
+              points={chart}
+              title="Pedidos vs Faturado"
+              subtitle="Comparativo mensal"
+            />
+          </div>
+        ) : null}
+
+        {showExpedicao && fluxo ? (
+          <StatusDonutChart fluxo={fluxo} />
+        ) : showExpedicao ? (
+          <StatusDonutChartSkeleton />
+        ) : null}
+
+        {showEstoque ? (
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-3 md:p-4">
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+              <h3 className="exec-card-title">
+                Produtos com Estoque Zerado
+                <span className="exec-badge exec-badge--danger">{zeroProducts.length}</span>
+              </h3>
+              <button
+                type="button"
+                className="dash-tab-link"
+                onClick={() => onNavigateTab?.('estoque')}
+              >
+                Ver todos
+              </button>
             </div>
-            {wrapCard('financeiro', renderFinanceiroCard())}
-          </>
-        )}
+            <ul className="exec-scroll-list min-h-0 flex-1">
+              {zeroProducts.length === 0 ? (
+                <li className="exec-empty">Nenhum produto zerado.</li>
+              ) : (
+                zeroProducts.slice(0, 8).map((p) => (
+                  <li key={p.id} className="exec-list-row">
+                    <div className="min-w-0">
+                      <p className="exec-list-title">{p.name}</p>
+                      <p className="exec-list-sub">{p.sku}</p>
+                    </div>
+                    <span className="exec-badge exec-badge--danger">Zerado</span>
+                  </li>
+                ))
+              )}
+            </ul>
+          </article>
+        ) : null}
+      </div>
+
+      <div className="exec-overview-bottom">
+        {showFinanceiro && fin ? (
+          <article className="exec-card exec-card--fill p-3 md:p-4">
+            <h3 className="exec-card-title mb-3">Resumo Financeiro</h3>
+            <div className="exec-finance-grid">
+              <div className="exec-finance-cell">
+                <p className="exec-kpi-label">Pedidos no Período</p>
+                <p className="exec-finance-value">{formatCurrency(fin.valorPedidosPeriodo)}</p>
+              </div>
+              <div className="exec-finance-cell">
+                <p className="exec-kpi-label">Faturado no Período</p>
+                <p className="exec-finance-value">{formatCurrency(fin.valorFaturadoPeriodo)}</p>
+              </div>
+              <div className="exec-finance-cell">
+                <p className="exec-kpi-label">Ticket Médio</p>
+                <p className="exec-finance-value">
+                  {formatCurrency(
+                    totalPedidos > 0 ? fin.valorPedidosPeriodo / totalPedidos : 0,
+                  )}
+                </p>
+              </div>
+              <div className="exec-finance-cell">
+                <p className="exec-kpi-label">Taxa SLA</p>
+                <p className="exec-finance-value">
+                  {formatPercent(Number(f?.taxaSLA) || 0)}
+                </p>
+              </div>
+            </div>
+          </article>
+        ) : null}
+
+        {showExpedicao ? (
+          <article className="exec-card exec-card--fill flex min-h-0 flex-col p-3 md:p-4">
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+              <h3 className="exec-card-title">Pedidos Recentes</h3>
+              <Link href="/app/expedicao" className="dash-tab-link">
+                Ver todos
+              </Link>
+            </div>
+            <div className="exec-table-wrap min-h-0 flex-1 overflow-auto">
+              <table className="exec-table">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Status</th>
+                    <th>Valor</th>
+                    <th>Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="exec-empty">
+                        Nenhum pedido recente.
+                      </td>
+                    </tr>
+                  ) : (
+                    recentOrders.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-semibold text-[#2AACE2]">{row.code}</td>
+                        <td>{row.customer}</td>
+                        <td>
+                          <span
+                            className={`exec-status exec-status--${row.statusTone}`}
+                          >
+                            {row.status}
+                          </span>
+                        </td>
+                        <td>{formatCurrency(row.total)}</td>
+                        <td>{formatDateBr(row.date)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        ) : null}
+
+        <article className="exec-card exec-card--fill p-3 md:p-4">
+          <h3 className="exec-card-title mb-3">Ações Rápidas</h3>
+          <ul className="exec-actions-list">
+            <li>
+              <button type="button" className="exec-action-btn" onClick={onNewOrderClick}>
+                <Plus className="h-4 w-4" />
+                Novo Pedido
+              </button>
+            </li>
+            <li>
+              <Link href="/app/expedicao" className="exec-action-btn">
+                <ClipboardList className="h-4 w-4" />
+                Expedição
+              </Link>
+            </li>
+            <li>
+              <Link href="/app/estoque" className="exec-action-btn">
+                <Package className="h-4 w-4" />
+                Estoque
+              </Link>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="exec-action-btn"
+                onClick={() => onNavigateTab?.('financeiro')}
+              >
+                <BarChart3 className="h-4 w-4" />
+                Financeiro
+              </button>
+            </li>
+            <li>
+              <Link href="/app/compras" className="exec-action-btn">
+                <ShoppingCart className="h-4 w-4" />
+                Compras
+              </Link>
+            </li>
+            <li>
+              <Link href="/app/expedicao" className="exec-action-btn">
+                <FileSpreadsheet className="h-4 w-4" />
+                Importar Planilha
+              </Link>
+            </li>
+          </ul>
+        </article>
+      </div>
       </div>
     </div>
   );

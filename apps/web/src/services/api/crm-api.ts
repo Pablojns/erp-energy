@@ -1,8 +1,8 @@
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
-export type CrmCardOrigin = 'ANUNCIO' | 'INDICACAO' | 'FRIO';
+export type CrmCardOrigin = 'ANUNCIO' | 'INDICACAO' | 'FRIO' | 'ORCAMENTO_DIRETO';
 
-export const CRM_CARD_ORIGINS = ['ANUNCIO', 'INDICACAO', 'FRIO'] as const;
+export const CRM_CARD_ORIGINS = ['ANUNCIO', 'INDICACAO', 'FRIO', 'ORCAMENTO_DIRETO'] as const;
 
 export type CrmFunilDto = {
   id: string;
@@ -621,12 +621,14 @@ export const CRM_ORIGIN_LABEL: Record<CrmCardOrigin, string> = {
   ANUNCIO: 'Anúncio',
   INDICACAO: 'Indicação',
   FRIO: 'Frio',
+  ORCAMENTO_DIRETO: 'Orçamento direto',
 };
 
 export const CRM_ORIGIN_BADGE_CLASS: Record<CrmCardOrigin, string> = {
   ANUNCIO: 'border-[#2AACE2]/60 bg-[#2AACE2]/20 text-[#0f172a]',
   INDICACAO: 'border-emerald-200 bg-emerald-100 text-emerald-800',
   FRIO: 'border-violet-200 bg-violet-100 text-violet-800',
+  ORCAMENTO_DIRETO: 'border-sky-200 bg-sky-100 text-sky-800',
 };
 
 export function buildEmptyTouchpoints(): CrmTouchpointInput[] {

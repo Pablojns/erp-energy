@@ -10,7 +10,7 @@ import {
   Min,
 } from 'class-validator';
 
-export const CRM_CARD_ORIGINS = ['ANUNCIO', 'INDICACAO', 'FRIO'] as const;
+export const CRM_CARD_ORIGINS = ['ANUNCIO', 'INDICACAO', 'FRIO', 'ORCAMENTO_DIRETO'] as const;
 export type CrmCardOrigin = (typeof CRM_CARD_ORIGINS)[number];
 
 export class CreateCrmCardDto {

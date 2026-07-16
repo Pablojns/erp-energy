@@ -308,6 +308,8 @@ export class PedidosService {
               OrderStatus.RESERVADO,
               OrderStatus.EM_SEPARACAO,
               OrderStatus.SEPARADO,
+              OrderStatus.AGUARDANDO_NF,
+              OrderStatus.NF_ATRELADA,
             ],
           },
         },
@@ -882,6 +884,19 @@ export class PedidosService {
       where: { orderId: order.id },
       orderBy: { lineNumber: 'asc' },
     });
+  }
+
+  async removeFromSeparation(numeroPed: string, userId: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    return this.orders.removeFromSeparation(order.id, userId);
   }
 
   async updateStatuses(numeroPed: string, dto: PedidosUpdateStatusDto, userId: string) {
@@ -1581,6 +1596,26 @@ export class PedidosService {
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
 
+    if (
+      order.status === OrderStatus.FINALIZADO ||
+      order.status === OrderStatus.EXPEDIDO
+    ) {
+      throw new BadRequestException(
+        'Pedido finalizado. Não é possível gerar nova NF.',
+      );
+    }
+
+    const fullyInvoiced =
+      order.items.length > 0 &&
+      order.items.every(
+        (it) => it.quantity <= 0 || (it.invoicedQty ?? 0) >= it.quantity,
+      );
+    if (fullyInvoiced) {
+      throw new BadRequestException(
+        'Pedido já está totalmente faturado. Não é possível gerar nova NF.',
+      );
+    }
+
     const numeroPedRef = order.externalOrderNumber?.trim() || order.code;
     const estado =
       order.deliveryState?.trim().toUpperCase() ||
@@ -1650,6 +1685,7 @@ export class PedidosService {
       throw new InternalServerErrorException(`Erro ao emitir NF: ${erro}`);
     }
 
+    // Apenas atrela NF (status NF_ATRELADA). Saída de estoque só via POST /saida após etiqueta.
     const updated = await this.orders.attachInvoice(order.id, userId, {
       invoiceNumber: numeroNF,
     });
@@ -1660,6 +1696,288 @@ export class PedidosService {
       numeroNF,
       resultado,
       order: updated,
+    };
+  }
+
+  async listNfHistorico(numeroPed: string) {
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [
+          { externalOrderNumber: numeroPed.trim() },
+          { code: numeroPed.trim() },
+        ],
+      },
+      select: { id: true, invoiceNumber: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const rows = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      orderId: order.id,
+      currentInvoiceNumber: order.invoiceNumber,
+      historico: rows.map((row) => ({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        pickedQtyAtTime: row.pickedQtyAtTime,
+        createdAt: row.createdAt.toISOString(),
+        createdBy: row.createdBy,
+      })),
+    };
+  }
+
+  /**
+   * Recalcula invoicedQty por item a partir do histórico restante.
+   * Sem histórico → 0 em todos. Com histórico → redistribui a soma das
+   * quantidades (pickedQtyAtTime) das NFs restantes, respeitando quantity.
+   */
+  private async recalculateInvoicedQtyFromHistory(orderId: string): Promise<void> {
+    const history = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      select: { pickedQtyAtTime: true },
+    });
+
+    const items = await this.prisma.client.orderItem.findMany({
+      where: { orderId },
+      orderBy: { lineNumber: 'asc' },
+      select: { id: true, quantity: true, invoicedQty: true },
+    });
+
+    if (items.length === 0) return;
+
+    if (history.length === 0) {
+      // updateMany + update individual garantem persistência mesmo se algum
+      // item já estiver com valor residual de ciclo anterior.
+      await this.prisma.client.orderItem.updateMany({
+        where: { orderId },
+        data: { invoicedQty: 0 },
+      });
+      for (const it of items) {
+        if ((it.invoicedQty ?? 0) !== 0) {
+          await this.prisma.client.orderItem.update({
+            where: { id: it.id },
+            data: { invoicedQty: 0 },
+          });
+        }
+      }
+      return;
+    }
+
+    // Deltas: pickedQtyAtTime é cumulativo no momento da NF; a contribuição
+    // de cada entrada é o acréscimo vs. a anterior (mín. 0).
+    let prevCum = 0;
+    let remainingUnits = 0;
+    for (const row of history) {
+      const cum = Math.max(0, row.pickedQtyAtTime ?? 0);
+      remainingUnits += Math.max(0, cum - prevCum);
+      prevCum = Math.max(prevCum, cum);
+    }
+
+    if (remainingUnits <= 0) {
+      await this.prisma.client.orderItem.updateMany({
+        where: { orderId },
+        data: { invoicedQty: 0 },
+      });
+      for (const it of items) {
+        if ((it.invoicedQty ?? 0) !== 0) {
+          await this.prisma.client.orderItem.update({
+            where: { id: it.id },
+            data: { invoicedQty: 0 },
+          });
+        }
+      }
+      return;
+    }
+
+    const currentSum = items.reduce(
+      (sum, it) => sum + Math.max(0, it.invoicedQty ?? 0),
+      0,
+    );
+
+    const targets: Array<{ id: string; invoicedQty: number }> = [];
+
+    if (currentSum <= 0) {
+      let left = remainingUnits;
+      for (const it of items) {
+        const take = Math.min(Math.max(0, it.quantity), left);
+        targets.push({ id: it.id, invoicedQty: take });
+        left -= take;
+      }
+    } else {
+      let assigned = 0;
+      for (let i = 0; i < items.length; i += 1) {
+        const it = items[i]!;
+        let take: number;
+        if (i === items.length - 1) {
+          take = Math.max(0, remainingUnits - assigned);
+        } else {
+          take = Math.floor(
+            (Math.max(0, it.invoicedQty ?? 0) / currentSum) * remainingUnits,
+          );
+        }
+        take = Math.min(Math.max(0, it.quantity), Math.max(0, take));
+        targets.push({ id: it.id, invoicedQty: take });
+        assigned += take;
+      }
+      // Ajuste residual se floor deixou sobras e ainda há capacidade.
+      let leftover = remainingUnits - assigned;
+      if (leftover > 0) {
+        for (const t of targets) {
+          if (leftover <= 0) break;
+          const item = items.find((it) => it.id === t.id);
+          if (!item) continue;
+          const room = Math.max(0, item.quantity - t.invoicedQty);
+          const add = Math.min(room, leftover);
+          t.invoicedQty += add;
+          leftover -= add;
+        }
+      }
+    }
+
+    for (const t of targets) {
+      await this.prisma.client.orderItem.update({
+        where: { id: t.id },
+        data: { invoicedQty: t.invoicedQty },
+      });
+    }
+  }
+
+  async deleteNfHistoricoItem(numeroPed: string, historyId: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      select: { id: true, invoiceNumber: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    if (
+      order.status === OrderStatus.FINALIZADO ||
+      order.status === OrderStatus.EXPEDIDO
+    ) {
+      throw new BadRequestException(
+        'Pedido finalizado. Não é possível alterar o histórico de NFs.',
+      );
+    }
+
+    const row = await this.prisma.client.orderInvoiceHistory.findFirst({
+      where: { id: historyId, orderId: order.id },
+    });
+    if (!row) throw new NotFoundException('Registro de NF não encontrado.');
+
+    await this.prisma.client.orderInvoiceHistory.delete({
+      where: { id: row.id },
+    });
+
+    await this.recalculateInvoicedQtyFromHistory(order.id);
+
+    // Garante persistência: sem histórico, nenhum item pode ficar faturado.
+    const historyLeft = await this.prisma.client.orderInvoiceHistory.count({
+      where: { orderId: order.id },
+    });
+    if (historyLeft === 0) {
+      await this.prisma.client.orderItem.updateMany({
+        where: { orderId: order.id, invoicedQty: { gt: 0 } },
+        data: { invoicedQty: 0 },
+      });
+    }
+
+    const deletedInvoice = row.invoiceNumber.trim();
+    const current = order.invoiceNumber?.trim() || null;
+    let currentInvoiceNumber = order.invoiceNumber;
+    if (current && current === deletedInvoice) {
+      const updated = await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: {
+          invoiceNumber: null,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          invoicedAt: null,
+        },
+        select: { invoiceNumber: true },
+      });
+      currentInvoiceNumber = updated.invoiceNumber;
+    }
+
+    const rows = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      orderId: order.id,
+      currentInvoiceNumber,
+      historico: rows.map((r) => ({
+        id: r.id,
+        invoiceNumber: r.invoiceNumber,
+        pickedQtyAtTime: r.pickedQtyAtTime,
+        createdAt: r.createdAt.toISOString(),
+        createdBy: r.createdBy,
+      })),
+    };
+  }
+
+  async clearNfHistorico(numeroPed: string) {
+    const trimmed = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: trimmed }, { code: trimmed }],
+      },
+      select: { id: true, invoiceNumber: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    if (
+      order.status === OrderStatus.FINALIZADO ||
+      order.status === OrderStatus.EXPEDIDO
+    ) {
+      throw new BadRequestException(
+        'Pedido finalizado. Não é possível alterar o histórico de NFs.',
+      );
+    }
+
+    await this.prisma.client.orderInvoiceHistory.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    await this.recalculateInvoicedQtyFromHistory(order.id);
+
+    await this.prisma.client.orderItem.updateMany({
+      where: { orderId: order.id, invoicedQty: { gt: 0 } },
+      data: { invoicedQty: 0 },
+    });
+
+    const current = order.invoiceNumber?.trim() || null;
+    let currentInvoiceNumber = order.invoiceNumber;
+    // Limpa Nota de Venda ao zerar histórico (testes / recomeço do ciclo).
+    if (current) {
+      const updated = await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: {
+          invoiceNumber: null,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          invoicedAt: null,
+        },
+        select: { invoiceNumber: true },
+      });
+      currentInvoiceNumber = updated.invoiceNumber;
+    }
+
+    return {
+      orderId: order.id,
+      currentInvoiceNumber,
+      historico: [] as Array<{
+        id: string;
+        invoiceNumber: string;
+        pickedQtyAtTime: number;
+        createdAt: string;
+        createdBy: string | null;
+      }>,
     };
   }
 

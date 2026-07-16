@@ -317,6 +317,30 @@
   padding: 1.25rem;
 }
 
+.catalog-search-modal {
+  max-height: 80vh;
+  overflow: hidden;
+  padding: 0;
+}
+
+.catalog-search-results {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.catalog-search-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.catalog-search-table-head th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: white;
+  border-bottom: 1px solid var(--erp-border);
+}
+
 .compras-close-btn {
   position: absolute;
   top: 12px;

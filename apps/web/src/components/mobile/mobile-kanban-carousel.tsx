@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 type MobileKanbanCarouselProps<T extends { id: string; title: string }> = {
   columns: T[];
@@ -17,25 +17,61 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
+  const activeIndexRef = useRef(0);
 
-  const scrollToIndex = useCallback((index: number) => {
+  activeIndexRef.current = activeIndex;
+
+  const getSlideWidth = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const clamped = Math.max(0, Math.min(index, columns.length - 1));
-    setActiveIndex(clamped);
-    const slide = el.querySelector<HTMLElement>('.erp-mobile-kanban-slide');
-    const slideWidth = slide?.offsetWidth ?? el.clientWidth;
-    el.scrollTo({ left: clamped * slideWidth, behavior: 'smooth' });
-  }, [columns.length]);
+    if (!el) return 0;
+    if (peekColumns) {
+      return Math.round(el.clientWidth * 0.85);
+    }
+    return el.clientWidth;
+  }, [peekColumns]);
+
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const clamped = Math.max(0, Math.min(index, columns.length - 1));
+      setActiveIndex(clamped);
+      const slideWidth = getSlideWidth();
+      if (slideWidth <= 0) return;
+      el.scrollTo({ left: clamped * slideWidth, behavior: 'smooth' });
+    },
+    [columns.length, getSlideWidth],
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || el.clientWidth <= 0) return;
-    const slide = el.querySelector<HTMLElement>('.erp-mobile-kanban-slide');
-    const slideWidth = slide?.offsetWidth || el.clientWidth;
+    const slideWidth = getSlideWidth() || el.clientWidth;
     const index = Math.round(el.scrollLeft / slideWidth);
     setActiveIndex(Math.max(0, Math.min(index, columns.length - 1)));
-  }, [columns.length]);
+  }, [columns.length, getSlideWidth]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const syncWidth = () => {
+      const slideWidth = getSlideWidth();
+      if (slideWidth <= 0) return;
+      el.scrollTo({
+        left: activeIndexRef.current * slideWidth,
+        behavior: 'auto',
+      });
+    };
+    syncWidth();
+    const ro =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncWidth) : null;
+    ro?.observe(el);
+    window.addEventListener('orientationchange', syncWidth);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('orientationchange', syncWidth);
+    };
+  }, [getSlideWidth, columns.length]);
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0]?.clientX ?? 0;
@@ -50,7 +86,9 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
   if (columns.length === 0) return null;
 
   return (
-    <div className={`erp-mobile-kanban${peekColumns ? ' erp-mobile-kanban--peek' : ''} ${className}`}>
+    <div
+      className={`erp-mobile-kanban${peekColumns ? ' erp-mobile-kanban--peek' : ''} ${className}`}
+    >
       <div
         ref={scrollRef}
         className="erp-mobile-kanban-track"
@@ -73,7 +111,9 @@ export function MobileKanbanCarousel<T extends { id: string; title: string }>(
               role="tab"
               aria-selected={index === activeIndex}
               aria-label={column.title}
-              className={`erp-mobile-kanban-dot${index === activeIndex ? ' erp-mobile-kanban-dot--active' : ''}`}
+              className={`erp-mobile-kanban-dot${
+                index === activeIndex ? ' erp-mobile-kanban-dot--active' : ''
+              }`}
               onClick={() => scrollToIndex(index)}
             />
           ))}

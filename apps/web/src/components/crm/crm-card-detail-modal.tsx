@@ -6,10 +6,12 @@ import { CrmActivityTimeline } from '@/src/components/crm/crm-activity-timeline'
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import { CrmLossReasonModal } from '@/src/components/crm/crm-loss-reason-modal';
 import { CrmPropostasPanel } from '@/src/components/crm/crm-propostas-panel';
+import { CrmCardLinkedQuotes } from '@/src/components/crm/orcamentos/crm-card-linked-quotes';
 import {
   appendQuickNote,
   buildCrmActivityTimeline,
 } from '@/src/components/crm/crm-helpers';
+import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -22,6 +24,7 @@ import {
   formatCrmCurrency,
   getCrmCard,
   mergeTouchpoints,
+  moveCrmCard,
   updateCrmCard,
   upsertCrmTouchpoints,
   type CrmCardDto,
@@ -238,6 +241,24 @@ export function CrmCardDetailModal(props: {
     }
   };
 
+  const handleEtapaChange = async (nextFunilId: string) => {
+    if (!card || nextFunilId === funilId) return;
+    setFunilId(nextFunilId);
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await moveCrmCard(card.id, nextFunilId);
+      setCard(updated);
+      setFunilId(updated.funilId);
+      await onUpdated();
+    } catch (e) {
+      setFunilId(card.funilId);
+      setError(e instanceof Error ? e.message : 'Falha ao mudar etapa.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div
       role="presentation"
@@ -294,6 +315,17 @@ export function CrmCardDetailModal(props: {
                   </div>
                   <div className="mt-3 max-w-xs">
                     <CrmLeadScoreThermometer score={card.score ?? 0} prominent />
+                  </div>
+
+                  <div className="mt-3 md:hidden">
+                    <MobileEtapaSelect
+                      label="Status atual"
+                      currentValue={funilId}
+                      options={funis.map((f) => ({ id: f.id, label: f.name }))}
+                      disabled={saving}
+                      saving={saving}
+                      onConfirm={handleEtapaChange}
+                    />
                   </div>
                 </div>
                 <button
@@ -441,7 +473,7 @@ export function CrmCardDetailModal(props: {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2">
+                <label className="hidden text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2 md:block">
                   Funil
                   <select
                     value={funilId}
@@ -457,6 +489,8 @@ export function CrmCardDetailModal(props: {
                 </label>
                 </div>
               </section>
+
+              <CrmCardLinkedQuotes cardId={card.id} />
 
               <section className="mt-6 border-t border-[var(--border-color)] pt-5">
                 <div className="mb-3 flex items-center justify-between gap-2">

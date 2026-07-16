@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2, Pencil, Tag, Trash2 } from 'lucide-react';
+import { CalendarDays, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -22,6 +22,25 @@ type CarrierOption = {
   name: string;
   isActive: boolean;
 };
+
+type NfHistoricoItem = {
+  id: string;
+  invoiceNumber: string;
+  pickedQtyAtTime: number;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+function formatNfHistoricoDetail(row: NfHistoricoItem): string {
+  const when = new Date(row.createdAt).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `NF ${row.invoiceNumber} — ${when} — ${row.pickedQtyAtTime} un. separadas`;
+}
 
 function parseVolumesInput(raw: string): number | null {
   const trimmed = raw.trim();
@@ -156,6 +175,8 @@ export const OrderInfoPanel = forwardRef<
   const notaVenda = order.invoiceNumber?.trim() || null;
   const isFinalized =
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
+  // Só pedidos finalizados bloqueiam edição; NF residual/histórica não trava o campo.
+  const canEditInvoiceField = !isFinalized;
   const carrierLocked = Boolean(order.carrierId?.trim());
   const fieldsReadOnly = isFinalized;
 
@@ -187,6 +208,11 @@ export const OrderInfoPanel = forwardRef<
   const [savingTrackingCode, setSavingTrackingCode] = useState(false);
   const [trackingCodeError, setTrackingCodeError] = useState<string | null>(null);
   const lastSavedTrackingCodeRef = useRef(order.trackingCode ?? '');
+  const [nfHistorico, setNfHistorico] = useState<NfHistoricoItem[]>([]);
+  const [nfHistoricoLoading, setNfHistoricoLoading] = useState(false);
+  const [nfHistoricoModalOpen, setNfHistoricoModalOpen] = useState(false);
+  const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
+  const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
 
   const canEmitEtiqueta = order.status === 'FINALIZADO';
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
@@ -221,6 +247,101 @@ export const OrderInfoPanel = forwardRef<
     lastSavedTrackingCodeRef.current = initial;
     setTrackingCodeError(null);
   }, [order.id, order.trackingCode]);
+
+  useEffect(() => {
+    setNfHistoricoModalOpen(false);
+  }, [order.id]);
+
+  useEffect(() => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setNfHistorico([]);
+      return;
+    }
+    let cancelled = false;
+    setNfHistoricoLoading(true);
+    void erpFetchJson<{ historico: NfHistoricoItem[] }>(
+      pedidoApiUrl(numeroPed, 'nf-historico'),
+    )
+      .then((res) => {
+        if (!cancelled) setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
+      })
+      .catch(() => {
+        if (!cancelled) setNfHistorico([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNfHistoricoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [order.id, order.invoiceNumber, order.code, order.externalOrderNumber]);
+
+  const deleteNfHistoricoItem = async (row: NfHistoricoItem) => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) return;
+    if (
+      !window.confirm(
+        `Remover NF ${row.invoiceNumber} do histórico deste pedido?`,
+      )
+    ) {
+      return;
+    }
+    setDeletingNfHistoryId(row.id);
+    try {
+      const res = await erpFetchJson<{
+        currentInvoiceNumber: string | null;
+        historico: NfHistoricoItem[];
+      }>(pedidoApiUrl(numeroPed, 'nf-historico', row.id), {
+        method: 'DELETE',
+      });
+      setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
+      const nextInvoice = res.currentInvoiceNumber ?? '';
+      setNotaVendaInput(nextInvoice);
+      lastSavedNotaVendaRef.current = nextInvoice;
+      onNotaRemessaSaved?.(res.currentInvoiceNumber);
+      if (res.historico.length === 0) setNfHistoricoModalOpen(false);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Não foi possível remover a NF do histórico.',
+      );
+    } finally {
+      setDeletingNfHistoryId(null);
+    }
+  };
+
+  const clearNfHistorico = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) return;
+    if (
+      !window.confirm(
+        'Limpar todo o histórico de notas fiscais deste pedido? A Nota de Venda atual também será limpa se estiver no histórico.',
+      )
+    ) {
+      return;
+    }
+    setClearingNfHistorico(true);
+    try {
+      const res = await erpFetchJson<{
+        currentInvoiceNumber: string | null;
+        historico: NfHistoricoItem[];
+      }>(pedidoApiUrl(numeroPed, 'nf-historico'), {
+        method: 'DELETE',
+      });
+      setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
+      const nextInvoice = res.currentInvoiceNumber ?? '';
+      setNotaVendaInput(nextInvoice);
+      lastSavedNotaVendaRef.current = nextInvoice;
+      onNotaRemessaSaved?.(res.currentInvoiceNumber);
+      setNfHistoricoModalOpen(false);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Não foi possível limpar o histórico.',
+      );
+    } finally {
+      setClearingNfHistorico(false);
+    }
+  };
 
   useEffect(() => {
     if (isOrdersMode) return;
@@ -732,7 +853,7 @@ export const OrderInfoPanel = forwardRef<
             ) : null}
 
             <HeaderField label="Nota de Venda (NF):">
-              {fieldsReadOnly ? (
+              {!canEditInvoiceField ? (
                 <span>{notaVenda ?? '—'}</span>
               ) : (
                 <>
@@ -759,6 +880,117 @@ export const OrderInfoPanel = forwardRef<
                 </>
               )}
             </HeaderField>
+
+            <button
+              type="button"
+              className="exp-wb-nf-history mt-2 w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-3 text-left transition hover:bg-[var(--input-bg)]/70 disabled:cursor-default disabled:opacity-80"
+              style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
+              onClick={() => {
+                if (!nfHistoricoLoading && nfHistorico.length > 0) {
+                  setNfHistoricoModalOpen(true);
+                }
+              }}
+              disabled={nfHistoricoLoading || nfHistorico.length === 0}
+              aria-label="Abrir histórico de notas fiscais"
+            >
+              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                Histórico de Notas Fiscais
+              </p>
+              {nfHistoricoLoading ? (
+                <p className="mt-2 text-xs text-[var(--text-secondary)]">Carregando…</p>
+              ) : nfHistorico.length === 0 ? (
+                <p className="mt-2 text-xs text-[var(--text-secondary)]">Nenhuma NF registrada.</p>
+              ) : (
+                <>
+                  <ul className="mt-2 flex flex-col gap-1">
+                    {nfHistorico.map((row) => (
+                      <li
+                        key={row.id}
+                        className="font-mono text-sm font-semibold text-[var(--text-primary)]"
+                      >
+                        NF {row.invoiceNumber}
+                      </li>
+                    ))}
+                  </ul>
+                  <p
+                    className="mt-2"
+                    style={{ fontSize: 11, color: 'gray', cursor: 'pointer' }}
+                  >
+                    Clique para ver os detalhes
+                  </p>
+                </>
+              )}
+            </button>
+
+            {nfHistoricoModalOpen ? (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay)] p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="nf-historico-modal-title"
+                onClick={() => setNfHistoricoModalOpen(false)}
+              >
+                <div
+                  className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <h3
+                      id="nf-historico-modal-title"
+                      className="text-base font-semibold text-[var(--text-primary)]"
+                    >
+                      Histórico de Notas Fiscais
+                    </h3>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      onClick={() => setNfHistoricoModalOpen(false)}
+                      aria-label="Fechar"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <ul className="mt-3 max-h-[60vh] space-y-2 overflow-y-auto">
+                    {nfHistorico.map((row) => (
+                      <li
+                        key={row.id}
+                        className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-primary)]"
+                      >
+                        <span className="min-w-0 flex-1">{formatNfHistoricoDetail(row)}</span>
+                        {!isFinalized ? (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                            title={`Remover NF ${row.invoiceNumber}`}
+                            aria-label={`Remover NF ${row.invoiceNumber} do histórico`}
+                            disabled={deletingNfHistoryId === row.id || clearingNfHistorico}
+                            onClick={() => void deleteNfHistoricoItem(row)}
+                          >
+                            {deletingNfHistoryId === row.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {!isFinalized && nfHistorico.length > 0 ? (
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                        disabled={clearingNfHistorico || Boolean(deletingNfHistoryId)}
+                        onClick={() => void clearNfHistorico()}
+                      >
+                        {clearingNfHistorico ? 'Limpando…' : 'Limpar histórico'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {canEditTrackingCode ? (
               <HeaderField label="Código de Rastreio:">

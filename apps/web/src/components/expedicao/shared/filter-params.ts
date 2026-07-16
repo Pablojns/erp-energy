@@ -130,5 +130,12 @@ export function clientRefineOrders<
   if (separationSubFilter === 'urgente') {
     list = list.filter((o) => o.priority <= 2);
   }
+  if (separationSubFilter === 'aguardando_etiqueta') {
+    list = list.filter(
+      (o) =>
+        o.status === 'NF_ATRELADA' &&
+        Boolean((o as { invoiceNumber?: string | null }).invoiceNumber?.trim()),
+    );
+  }
   return list;
 }

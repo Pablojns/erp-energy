@@ -234,6 +234,14 @@ export function getQueueCardVisual(order: OrderDto): {
     };
   }
   if (order.status === 'AGUARDANDO_NF' || order.status === 'NF_ATRELADA') {
+    if (isAguardandoEtiquetaOrder(order)) {
+      return {
+        icon: Package,
+        tone: 'ship',
+        badgeTone: 'separating',
+        badgeLabel: 'AG. ETIQUETA',
+      };
+    }
     return {
       icon: FileText,
       tone: 'nf',
@@ -280,6 +288,29 @@ export function getOrderSendState(order: OrderDto): 'none' | 'partial' | 'comple
   return 'none';
 }
 
+/** Pedido com NF emitida aguardando impressão de etiqueta (sem saída de estoque). */
+export function isAguardandoEtiquetaOrder(order: OrderDto): boolean {
+  return (
+    order.status === 'NF_ATRELADA' &&
+    Boolean(order.invoiceNumber?.trim())
+  );
+}
+
+/** Separado / aguardando emissão de NF (ainda sem NF atrelada). */
+export function isAguardandoNfSeparationOrder(order: OrderDto): boolean {
+  if (isAguardandoEtiquetaOrder(order)) return false;
+  return order.status === 'SEPARADO' || order.status === 'AGUARDANDO_NF';
+}
+
+/** Pedido visível na aba Separação (em separação, aguardando NF ou aguardando etiqueta). */
+export function isSeparationWorkspaceOrder(order: OrderDto): boolean {
+  return (
+    order.status === 'EM_SEPARACAO' ||
+    isAguardandoNfSeparationOrder(order) ||
+    isAguardandoEtiquetaOrder(order)
+  );
+}
+
 /** Pedido com lote parcial ou itens ainda não enviados na separação. */
 export function orderMatchesParcialFilter(order: OrderDto): boolean {
   if (order.status === 'PARCIAL') return true;
@@ -311,9 +342,14 @@ export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
   if (order.status === 'PARCIAL') {
     return { label: 'PARCIAL', color: 'parcial' };
   }
+  if (isAguardandoEtiquetaOrder(order)) {
+    if (getOrderSendState(order) === 'partial') {
+      return { label: 'PARCIAL', color: 'parcial' };
+    }
+    return { label: 'AGUARDANDO ETIQUETA', color: 'em_separacao' };
+  }
   if (
     order.status === 'AGUARDANDO_NF' ||
-    order.status === 'NF_ATRELADA' ||
     order.status === 'SEPARADO'
   ) {
     if (getOrderSendState(order) === 'partial') {
@@ -328,7 +364,7 @@ export function resolveOrderWorkflowStatusBadge(order: OrderDto): {
     order.status === 'NOVO' ||
     order.status === 'ANALISADO' ||
     order.status === 'RESERVADO' ||
-    order.status === 'PENDENTE'
+    (order.status as string) === 'PENDENTE'
   ) {
     return { label: 'NOVO', color: 'novo' };
   }
@@ -353,7 +389,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   EM_SEPARACAO: 'Em Separação',
   SEPARADO: 'Separado',
   AGUARDANDO_NF: 'Aguardando NF',
-  NF_ATRELADA: 'NF atrelada',
+  NF_ATRELADA: 'Aguardando Etiqueta',
   EXPEDIDO: 'Expedido',
   FINALIZADO: 'Finalizado',
   CANCELADO: 'Cancelado',

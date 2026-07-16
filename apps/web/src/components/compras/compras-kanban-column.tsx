@@ -33,7 +33,9 @@ export function ComprasKanbanColumn(props: {
   return (
     <div
       className={`erp-module-panel flex h-full min-h-0 shrink-0 flex-col ${
-        props.dragEnabled === false ? 'w-full' : 'w-[280px]'
+        props.dragEnabled === false
+          ? 'w-full min-w-full max-w-full'
+          : 'w-[280px]'
       }`}
     >
       <header className="shrink-0 border-b border-[var(--erp-border)] px-3 py-3">

@@ -39,6 +39,8 @@ function isAllowedPath(path: string): boolean {
     /^compras(\/|$)/i.test(path) ||
     /^api\/crm(\/|$)/i.test(path) ||
     /^crm(\/|$)/i.test(path) ||
+    /^api\/quotes(\/|$)/i.test(path) ||
+    /^quotes(\/|$)/i.test(path) ||
     /^correios(\/|$)/i.test(path) ||
     /^api\/correios(\/|$)/i.test(path) ||
     /^search(\/|$)/i.test(path) ||
@@ -75,6 +77,9 @@ function resolveUpstreamPath(segments: string[]): string {
     return `api/${path}`;
   }
   if (/^crm(\/|$)/i.test(path)) {
+    return `api/${path}`;
+  }
+  if (/^quotes(\/|$)/i.test(path)) {
     return `api/${path}`;
   }
   if (/^correios(\/|$)/i.test(path)) {
@@ -153,6 +158,10 @@ async function proxy(request: NextRequest, segments: string[]) {
   const contentDisposition = upstream.headers.get('content-disposition');
   if (contentDisposition) {
     outHeaders.set('content-disposition', contentDisposition);
+  }
+  const proposalId = upstream.headers.get('x-proposal-id');
+  if (proposalId) {
+    outHeaders.set('x-proposal-id', proposalId);
   }
 
   const isBinary =

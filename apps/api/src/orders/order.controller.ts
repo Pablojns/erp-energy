@@ -177,6 +177,15 @@ export class OrderController {
     return this.orders.sendToPicking(id, user.id);
   }
 
+  @Post(':id/remove-from-separation')
+  @HttpCode(HttpStatus.OK)
+  removeFromSeparation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.orders.removeFromSeparation(id, user.id);
+  }
+
   @Post(':id/mark-picked')
   @HttpCode(HttpStatus.OK)
   markPicked(

@@ -22,6 +22,7 @@ export const NOTIFICATION_ROUTING: Record<string, UserDepartment[]> = {
   CRM_FOLLOWUP: ['COMERCIAL', 'GESTAO'],
   CRM_PROPOSAL_EXPIRING: ['COMERCIAL', 'GESTAO'],
   CRM_LEAD_ASSIGNED: ['COMERCIAL'],
+  QUOTE_PENDING_APPROVAL: ['GESTAO', 'ADMIN'],
   MENTION: [],
   SYSTEM: ['ADMIN', 'GESTAO'],
 };
@@ -58,8 +59,10 @@ export function primaryDepartmentsForType(type: string): UserDepartment[] {
 }
 
 export function immediateAdminDepartmentsForType(type: string): UserDepartment[] {
-  if (type !== 'SYSTEM') return [];
-  return ['ADMIN'];
+  if (type === 'SYSTEM' || type === 'QUOTE_PENDING_APPROVAL') {
+    return ['ADMIN'];
+  }
+  return [];
 }
 
 export type DigestItem = {

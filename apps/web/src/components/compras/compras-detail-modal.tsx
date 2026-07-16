@@ -3,11 +3,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Download, Loader2, Save, Trash2, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { fetchPurchaseDetail } from './compras-api';
+import { fetchPurchaseDetail, updatePurchaseStatus } from './compras-api';
 import { ComprasDetailField, ComprasModalShell } from './compras-modal-shell';
 import { ComprasStageActions } from './compras-stage-actions';
 import type { PurchaseRequest, PurchaseRequestImage } from './compras-types';
-import { TYPE_LABEL } from './compras-types';
+import { KANBAN_COLUMNS, TYPE_LABEL } from './compras-types';
 import {
   calcPurchaseTotalFromRow,
   displayName,
@@ -18,9 +18,11 @@ import {
   formatDateTime,
   formatMoney,
   formatMoneyNumber,
+  kanbanColumnForStatus,
   purchaseUnitPrice,
   purchaseImageSrc,
 } from './compras-utils';
+import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { useIsMobileKanban } from '@/src/hooks/use-is-mobile-kanban';
 
 const OBSERVATION_URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
@@ -77,6 +79,7 @@ export function ComprasDetailModal(props: {
   const [savingQuantity, setSavingQuantity] = useState(false);
   const [engravingPriceInput, setEngravingPriceInput] = useState('');
   const [savingEngravingPrice, setSavingEngravingPrice] = useState(false);
+  const [movingEtapa, setMovingEtapa] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,9 +226,30 @@ export function ComprasDetailModal(props: {
     }
   };
 
+  const currentEtapa = row ? kanbanColumnForStatus(row.status) : null;
+
+  const handleEtapaConfirm = async (nextEtapa: string) => {
+    if (!row || nextEtapa === currentEtapa) return;
+    setMovingEtapa(true);
+    setError(null);
+    try {
+      const updated = await updatePurchaseStatus(row.id, nextEtapa);
+      setRow(updated);
+      props.onStatusChanged?.(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao mudar etapa.');
+    } finally {
+      setMovingEtapa(false);
+    }
+  };
+
   return (
     <>
-      <ComprasModalShell title="Detalhe da Solicitação" onClose={props.onClose} size="lg">
+      <ComprasModalShell
+        title={isMobile ? 'Detalhes' : 'Detalhe da Solicitação'}
+        onClose={props.onClose}
+        size="lg"
+      >
         {loading ? (
           <div className="flex min-h-[12rem] items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
@@ -234,6 +258,23 @@ export function ComprasDetailModal(props: {
           <p className="text-sm text-rose-600">{error}</p>
         ) : row ? (
           <>
+            {isMobile ? (
+              <div className="mb-4">
+                <MobileEtapaSelect
+                  label="Etapa atual"
+                  currentValue={currentEtapa ?? ''}
+                  options={KANBAN_COLUMNS.map((column) => ({
+                    id: column.id,
+                    label: column.label,
+                  }))}
+                  disabled={!currentEtapa}
+                  saving={movingEtapa}
+                  emptyLabel="Sem etapa no Kanban"
+                  onConfirm={handleEtapaConfirm}
+                />
+              </div>
+            ) : null}
+
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <ComprasDetailField label="Tipo" value={TYPE_LABEL[row.type]} />
               <ComprasDetailField label="Prioridade" value={row.priority} />

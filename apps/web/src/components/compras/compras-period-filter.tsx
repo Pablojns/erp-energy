@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { DualDateCalendar } from '@/src/components/expedicao/workspace/dual-date-calendar';
 import {
   endOfUtcMonthFromYmd,
@@ -93,8 +93,10 @@ export function ComprasPeriodFilter(props: {
   dateFrom: string;
   dateTo: string;
   onChange: (from: string, to: string) => void;
+  /** Oculta o botão "Todos" (ex.: dashboard com filtro de módulo separado). */
+  hideAllPreset?: boolean;
 }) {
-  const { dateFrom, dateTo, onChange } = props;
+  const { dateFrom, dateTo, onChange, hideAllPreset = false } = props;
   const [open, setOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState(dateFrom);
   const [draftTo, setDraftTo] = useState(dateTo);
@@ -220,13 +222,33 @@ export function ComprasPeriodFilter(props: {
 
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <button
-        type="button"
-        className={`exp-period-filter-btn exp-period-filter-btn--preset${!hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
-        onClick={() => onChange('', '')}
-      >
-        Todos
-      </button>
+      {hideAllPreset ? null : (
+        <div className="inline-flex items-center gap-0.5">
+          <button
+            type="button"
+            className={`exp-period-filter-btn exp-period-filter-btn--preset${!hasPeriod ? ' exp-period-filter-btn--active' : ''}`}
+            onClick={() => onChange('', '')}
+            title="Ver todo o período (sem filtro de data)"
+            aria-pressed={!hasPeriod}
+          >
+            Todos
+          </button>
+          {!hasPeriod ? (
+            <button
+              type="button"
+              className="exp-period-filter-btn exp-period-filter-btn--preset px-1.5"
+              onClick={() => {
+                const current = getCurrentMonthRange();
+                onChange(current.from, current.to);
+              }}
+              title="Cancelar seleção de Todos (voltar ao mês atual)"
+              aria-label="Cancelar filtro Todos"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      )}
 
       <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50">
         <button

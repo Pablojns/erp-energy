@@ -8,6 +8,8 @@ import {
   getOrderQueueCardStatusBadge,
   orderDisplayNumber,
 } from '@/src/components/expedicao/shared/order-helpers';
+import { resolveSeparationWorkflowStep } from '@/src/components/expedicao/shared/separation-workflow';
+import { SeparationStepIndicator } from '@/src/components/expedicao/workspace/separation-step-indicator';
 import {
   orderWorkflowCardBadgeStyle,
   MANUAL_URGENT_BADGE_STYLE,
@@ -34,8 +36,10 @@ export function OrderQueueCard(props: {
   onSelect: () => void;
   checkedForPrint?: boolean;
   onTogglePrint?: () => void;
-  checkedForRemoval?: boolean;
-  onToggleRemoval?: () => void;
+  checkedForSeparation?: boolean;
+  onToggleSeparation?: () => void;
+  showSeparationProgress?: boolean;
+  onRemoveFromSeparation?: () => void;
   showAdminActions?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -46,8 +50,10 @@ export function OrderQueueCard(props: {
     onSelect,
     checkedForPrint = false,
     onTogglePrint,
-    checkedForRemoval = false,
-    onToggleRemoval,
+    checkedForSeparation = false,
+    onToggleSeparation,
+    showSeparationProgress = false,
+    onRemoveFromSeparation,
     showAdminActions = false,
     onEdit,
     onDelete,
@@ -59,10 +65,12 @@ export function OrderQueueCard(props: {
     order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt,
   );
   const statusBadge = getOrderQueueCardStatusBadge(order);
+  const separationStep = resolveSeparationWorkflowStep(order);
   const isPriorityUrgent = order.priority <= 2;
   const isManualUrgent = Boolean(order.isUrgentManual);
   const isMarked =
-    (onTogglePrint && checkedForPrint) || (onToggleRemoval && checkedForRemoval);
+    (onTogglePrint && checkedForPrint) ||
+    (onToggleSeparation && checkedForSeparation);
   const showNfPendente =
     order.status === 'FINALIZADO' &&
     Boolean(order.notaRemessa?.trim()) &&
@@ -121,7 +129,7 @@ export function OrderQueueCard(props: {
           />
         </label>
       ) : null}
-      {onToggleRemoval ? (
+      {onToggleSeparation ? (
         <label
           className="exp-queue-card-check"
           onClick={(e: MouseEvent) => e.stopPropagation()}
@@ -129,17 +137,17 @@ export function OrderQueueCard(props: {
           <input
             type="checkbox"
             className="pedido-card-checkbox"
-            checked={checkedForRemoval}
-            onChange={() => onToggleRemoval()}
-            aria-label={`Selecionar pedido ${numero} para remover da separação`}
+            checked={checkedForSeparation}
+            onChange={() => onToggleSeparation()}
+            aria-label={`Selecionar pedido ${numero}`}
           />
         </label>
       ) : null}
     </>
   );
 
-  const adminActions = showAdminActions ? (
-    <div className="exp-queue-card-admin-actions">
+  const adminActionsInner = (
+    <>
       {onEdit ? (
         <button
           type="button"
@@ -168,8 +176,40 @@ export function OrderQueueCard(props: {
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       ) : null}
-    </div>
-  ) : null;
+    </>
+  );
+
+  const cardTrailingActions =
+    onRemoveFromSeparation || showAdminActions ? (
+      <div className="exp-queue-card-admin-actions">
+        {onRemoveFromSeparation ? (
+          <button
+            type="button"
+            className="exp-queue-card-admin-icon-btn exp-queue-card-admin-icon-btn--danger"
+            aria-label={`Remover pedido ${numero} da separação`}
+            title="Remover da separação"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveFromSeparation();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {showAdminActions ? adminActionsInner : null}
+      </div>
+    ) : null;
+
+  const progressNode = showSeparationProgress ? (
+    <SeparationStepIndicator currentStep={separationStep} />
+  ) : (
+    <span
+      className="exp-queue-status-badge text-xs"
+      style={orderWorkflowCardBadgeStyle(statusBadge.color)}
+    >
+      {statusBadge.label}
+    </span>
+  );
 
   return (
     <div
@@ -210,14 +250,11 @@ export function OrderQueueCard(props: {
           ) : null}
           <p className="exp-queue-card-value text-xs font-bold">{formatCurrency(order.totalValue)}</p>
           <p className="exp-queue-card-date text-xs">{when}</p>
-          <span
-            className="exp-queue-status-badge text-xs"
-            style={orderWorkflowCardBadgeStyle(statusBadge.color)}
-          >
-            {statusBadge.label}
-          </span>
+          {progressNode}
         </div>
-        {adminActions}
+        {cardTrailingActions ?? (showAdminActions ? (
+          <div className="exp-queue-card-admin-actions">{adminActionsInner}</div>
+        ) : null)}
       </div>
 
       {/* Mobile &lt;768px — linha única 44px com swipe revelando recebedor/data/ações */}
@@ -232,16 +269,20 @@ export function OrderQueueCard(props: {
         >
           <div className="exp-queue-row-track" style={swipe.trackStyle}>
             <section className="exp-queue-row-section exp-queue-row-front">
-              {onTogglePrint || onToggleRemoval ? (
+              {onTogglePrint || onToggleSeparation ? (
                 <span onClick={(e) => e.stopPropagation()}>{selectionChecks}</span>
               ) : null}
               <span className="exp-queue-row-num">#{numero}</span>
-              <span
-                className="exp-queue-status-badge exp-queue-row-badge"
-                style={orderWorkflowCardBadgeStyle(statusBadge.color)}
-              >
-                {statusBadge.label}
-              </span>
+              {showSeparationProgress ? (
+                <SeparationStepIndicator currentStep={separationStep} compact />
+              ) : (
+                <span
+                  className="exp-queue-status-badge exp-queue-row-badge"
+                  style={orderWorkflowCardBadgeStyle(statusBadge.color)}
+                >
+                  {statusBadge.label}
+                </span>
+              )}
               <span className="exp-queue-row-value">{formatCurrency(order.totalValue)}</span>
             </section>
             <section className="exp-queue-row-section exp-queue-row-back">
@@ -249,7 +290,9 @@ export function OrderQueueCard(props: {
                 {displayOrDash(order.receiverName ?? order.customerName)}
               </span>
               <span className="exp-queue-row-date shrink-0">{deliveryWhen}</span>
-              {adminActions}
+              {cardTrailingActions ?? (showAdminActions ? (
+                <div className="exp-queue-card-admin-actions">{adminActionsInner}</div>
+              ) : null)}
             </section>
           </div>
         </div>

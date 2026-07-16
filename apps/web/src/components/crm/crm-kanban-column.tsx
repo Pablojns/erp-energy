@@ -11,7 +11,7 @@ function ColumnSkeleton() {
       {Array.from({ length: 3 }).map((_, idx) => (
         <div
           key={idx}
-          className="h-24 animate-pulse rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)]"
+          className="h-[90px] animate-pulse rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)] md:h-24"
         />
       ))}
     </div>
@@ -42,7 +42,7 @@ export function CrmKanbanColumn(props: {
   };
 
   return (
-    <div className="erp-module-panel flex h-full min-h-0 w-full shrink-0 flex-col md:w-[280px]">
+    <div className="erp-module-panel flex h-full min-h-0 w-full min-w-full max-w-full shrink-0 flex-col md:w-[280px] md:min-w-[280px] md:max-w-[280px]">
       <header
         className="shrink-0 border-b border-[var(--erp-border)] px-3 py-3"
         style={{ borderTopWidth: 3, borderTopColor: accent, borderTopStyle: 'solid' }}

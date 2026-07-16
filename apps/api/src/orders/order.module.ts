@@ -10,6 +10,7 @@ import { OrderImportService } from './order-import.service';
 import { OrderService } from './order.service';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { NfAutomaticoService } from './nf-automatico.service';
+import { NfLoteService } from './nf-lote.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosController } from './pedidos.controller';
 import { PedidosService } from './pedidos.service';
@@ -26,8 +27,9 @@ import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
     PedidosEtiquetaService,
     NfAutomaticoService,
     NfQueueService,
+    NfLoteService,
     AuditService,
   ],
-  exports: [PedidosService, NfAutomaticoService, NfQueueService],
+  exports: [PedidosService, NfAutomaticoService, NfQueueService, NfLoteService],
 })
 export class OrderModule {}

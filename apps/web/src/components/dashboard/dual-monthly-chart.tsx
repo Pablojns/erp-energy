@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   barHeight,
   buildBarChartLayout,
@@ -16,36 +16,62 @@ type DualMonthlyChartProps = {
   points: MonthlyOrdersPoint[];
   title?: string;
   subtitle?: string;
+  primaryLabel?: string;
+  secondaryLabel?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
 };
 
 export function DualMonthlyChart({
   points,
   title = 'Pedidos vs Faturado por mês',
   subtitle = 'Barras agrupadas com escala automática',
+  primaryLabel = 'Valor pedidos',
+  secondaryLabel = 'Valor faturado',
+  primaryColor = 'var(--dash-accent)',
+  secondaryColor = 'var(--dash-success)',
 }: DualMonthlyChartProps) {
   const clipId = useId().replace(/:/g, '');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 640, height: 220 });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setSize({
+        width: Math.max(Math.floor(width), 200),
+        height: Math.max(Math.floor(height), 120),
+      });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const layout = useMemo(() => {
-    const pedidos = points.map((p) => Number(p.value) || 0);
-    const faturado = points.map((p) => Number(p.faturado) || 0);
-    const yMax = chartDataMax([...pedidos, ...faturado]);
+    const primary = points.map((p) => Number(p.value) || 0);
+    const secondary = points.map((p) => Number(p.faturado) || 0);
+    const yMax = chartDataMax([...primary, ...secondary]);
     const chart = buildBarChartLayout({
-      count: points.length,
-      fixedSlotWidth: 56,
-      maxBarWidth: 12,
-      minBarWidth: 5,
-      height: 280,
-      margin: { top: 24, right: 20, bottom: 48, left: 64 },
+      count: Math.max(points.length, 1),
+      width: size.width,
+      height: size.height,
+      maxBarWidth: points.length > 14 ? 8 : points.length > 10 ? 10 : 14,
+      minBarWidth: 3,
+      margin: { top: 12, right: 12, bottom: 28, left: 52 },
     });
 
-    const groupGap = 4;
+    const groupGap = 3;
     const groupW = chart.barW * 2 + groupGap;
 
     const bars = points.map((p, i) => {
       const slot = chart.slots[i];
-      const pedVal = pedidos[i];
-      const fatVal = faturado[i];
+      const pedVal = primary[i];
+      const fatVal = secondary[i];
       const pedH = barHeight(pedVal, yMax, chart.innerH);
       const fatH = barHeight(fatVal, yMax, chart.innerH);
       const groupX = slot.centerX - groupW / 2;
@@ -72,13 +98,13 @@ export function DualMonthlyChart({
     }));
 
     return { ...chart, bars, yTicks, yMax };
-  }, [points]);
+  }, [points, size.height, size.width]);
 
   const active = activeIndex != null ? layout.bars[activeIndex] ?? null : null;
 
   if (points.length === 0) {
     return (
-      <div className="dash-card w-full p-4 md:p-6">
+      <div className="dash-card flex h-full min-h-0 w-full flex-col p-2 md:p-3">
         <h3 className="text-sm font-semibold text-[var(--dash-text)]">{title}</h3>
         <p className="mt-8 text-center text-sm text-[var(--dash-text-muted)]">
           Sem dados para o período selecionado.
@@ -88,39 +114,61 @@ export function DualMonthlyChart({
   }
 
   return (
-    <div className="dash-card w-full p-4 md:p-6">
-      <div className="mb-1 flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-semibold text-[var(--dash-text)]">{title}</h3>
-        <p className="text-xs text-[var(--dash-text-muted)]">{subtitle}</p>
+    <div className="dash-card flex h-full min-h-0 w-full flex-col p-2 md:p-3">
+      <div className="mb-0.5 flex shrink-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-[var(--dash-text)]">{title}</h3>
+          <p className="text-xs text-[var(--dash-text-muted)]">{subtitle}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-[var(--dash-text-muted)]">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{ background: primaryColor }}
+            />
+            {primaryLabel}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{ background: secondaryColor }}
+            />
+            {secondaryLabel}
+          </span>
+        </div>
       </div>
 
-      <ChartHoverPanel
-        label={active?.label ?? null}
-        lines={
-          active
-            ? [
-                {
-                  name: 'Valor pedidos',
-                  value: formatCurrency(active.pedVal),
-                  color: 'var(--dash-accent)',
-                },
-                {
-                  name: 'Valor faturado',
-                  value: formatCurrency(active.fatVal),
-                  color: 'var(--dash-success)',
-                },
-              ]
-            : []
-        }
-      />
+      <div className="shrink-0">
+        <ChartHoverPanel
+          label={active?.label ?? null}
+          lines={
+            active
+              ? [
+                  {
+                    name: primaryLabel,
+                    value: formatCurrency(active.pedVal),
+                    color: primaryColor,
+                  },
+                  {
+                    name: secondaryLabel,
+                    value: formatCurrency(active.fatVal),
+                    color: secondaryColor,
+                  },
+                ]
+              : []
+          }
+        />
+      </div>
 
-      <div className="dash-chart-wrap">
+      <div ref={containerRef} className="dash-chart-wrap dash-chart-wrap--fill min-h-0 flex-1">
         <svg
+          width="100%"
+          height="100%"
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          preserveAspectRatio="xMidYMid meet"
-          className="mx-auto block h-full w-full max-w-full"
+          preserveAspectRatio="none"
+          className="block h-full w-full"
           role="img"
-          aria-label="Gráfico de barras pedidos versus faturado"
+          aria-label={`${primaryLabel} versus ${secondaryLabel}`}
           onMouseLeave={() => setActiveIndex(null)}
         >
           <defs>
@@ -145,7 +193,7 @@ export function DualMonthlyChart({
                 strokeDasharray="4 4"
               />
               <text
-                x={layout.margin.left - 10}
+                x={layout.margin.left - 8}
                 y={tick.y + 4}
                 textAnchor="end"
                 fontSize="10"
@@ -192,7 +240,7 @@ export function DualMonthlyChart({
                     width={b.barW}
                     height={b.pedH}
                     rx={2}
-                    fill="var(--dash-accent)"
+                    fill={primaryColor}
                     pointerEvents="none"
                   />
                   <rect
@@ -201,8 +249,8 @@ export function DualMonthlyChart({
                     width={b.barW}
                     height={b.fatH}
                     rx={2}
-                    fill="var(--dash-success)"
-                    opacity={0.9}
+                    fill={secondaryColor}
+                    opacity={0.95}
                     pointerEvents="none"
                   />
                 </g>
@@ -226,26 +274,15 @@ export function DualMonthlyChart({
           ))}
         </svg>
       </div>
-
-      <div className="mt-2 flex flex-wrap gap-4 text-xs text-[var(--dash-text-muted)]">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--dash-accent)]" />
-          Valor pedidos
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--dash-success)]" />
-          Valor faturado
-        </span>
-      </div>
     </div>
   );
 }
 
 export function DualMonthlyChartSkeleton() {
   return (
-    <div className="dash-card w-full space-y-3 p-4 md:p-6">
+    <div className="dash-card flex h-full min-h-0 w-full flex-col space-y-3 p-2 md:p-3">
       <div className="dash-skeleton h-4 w-56" />
-      <div className="dash-skeleton h-[220px] w-full rounded-lg sm:h-[280px]" />
+      <div className="dash-skeleton min-h-[120px] w-full flex-1 rounded-lg" />
     </div>
   );
 }

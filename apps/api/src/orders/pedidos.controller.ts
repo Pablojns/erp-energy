@@ -40,7 +40,9 @@ import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
 import { GenerateRomaneioDto } from './dto/generate-romaneio.dto';
+import { GerarNfLoteDto } from './dto/gerar-nf-lote.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
+import { NfLoteService } from './nf-lote.service';
 import { NfQueueService } from './nf-queue.service';
 import { PedidosService } from './pedidos.service';
 import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
@@ -56,6 +58,7 @@ export class PedidosController {
     private readonly pedidosEtiqueta: PedidosEtiquetaService,
     private readonly nfAutomaticoService: NfAutomaticoService,
     private readonly nfQueueService: NfQueueService,
+    private readonly nfLoteService: NfLoteService,
     private readonly audit: AuditService,
   ) {}
 
@@ -110,6 +113,21 @@ export class PedidosController {
       'Content-Disposition': 'inline; filename="romaneio-coleta.pdf"',
     });
     return new StreamableFile(buffer);
+  }
+
+  /** Emite NF em lote (sequencial). Retorna jobId; acompanhar via GET nf-lote-status/:jobId. */
+  @Post('gerar-nf-lote')
+  @HttpCode(HttpStatus.ACCEPTED)
+  gerarNfLote(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: GerarNfLoteDto,
+  ) {
+    return this.nfLoteService.startJob(user.id, dto.numeroPeds);
+  }
+
+  @Get('nf-lote-status/:jobId')
+  nfLoteStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.nfLoteService.getJob(jobId);
   }
 
   @Patch(':numeroPed')
@@ -218,6 +236,14 @@ export class PedidosController {
     @Body() dto: PedidosUpdateStatusDto,
   ) {
     return this.pedidos.updateStatuses(numeroPed, dto, user.id);
+  }
+
+  @Post(':numeroPed/remover-separacao')
+  removeFromSeparation(
+    @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pedidos.removeFromSeparation(numeroPed, user.id);
   }
 
   @Patch(':numeroPed/priority')
@@ -456,6 +482,24 @@ export class PedidosController {
       req.ip,
     );
     return result;
+  }
+
+  @Get(':numeroPed/nf-historico')
+  listNfHistorico(@Param('numeroPed') numeroPed: string) {
+    return this.pedidos.listNfHistorico(numeroPed);
+  }
+
+  @Delete(':numeroPed/nf-historico/:historyId')
+  deleteNfHistoricoItem(
+    @Param('numeroPed') numeroPed: string,
+    @Param('historyId') historyId: string,
+  ) {
+    return this.pedidos.deleteNfHistoricoItem(numeroPed, historyId);
+  }
+
+  @Delete(':numeroPed/nf-historico')
+  clearNfHistorico(@Param('numeroPed') numeroPed: string) {
+    return this.pedidos.clearNfHistorico(numeroPed);
   }
 
   @Patch(':numeroPed/itens/:seq')

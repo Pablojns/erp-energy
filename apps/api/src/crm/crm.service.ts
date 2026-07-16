@@ -1224,6 +1224,52 @@ export class CrmService {
     return this.updateCard(id, { status: statusId });
   }
 
+  /**
+   * Cria card no funil Orçamentos a partir de orçamento criado sem lead vinculado.
+   * Usa status "Orçamento Solicitado" e origem ORCAMENTO_DIRETO.
+   */
+  async createCardFromDirectQuote(input: {
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    value?: number | null;
+    responsavelId?: string | null;
+  }): Promise<string> {
+    const funis = await this.prisma.client.crmFunil.findMany({
+      orderBy: { order: 'asc' },
+    });
+    const funil =
+      funis.find((f) => this.isOrcamentoFunilName(f.name)) ?? funis[0] ?? null;
+    if (!funil) {
+      throw new BadRequestException(
+        'Nenhum funil CRM configurado. Crie o funil "Orçamentos" antes de cadastrar orçamentos.',
+      );
+    }
+
+    const statusId =
+      (await getCrmStatusIdByName(this.prisma.client, 'Orçamento Solicitado')) ??
+      (await getDefaultCrmStatusId(this.prisma.client));
+
+    const created = await this.prisma.client.crmCard.create({
+      data: {
+        name: input.name.trim(),
+        phone: input.phone?.trim() || null,
+        email: input.email?.trim() || null,
+        value:
+          input.value != null && input.value > 0
+            ? new Prisma.Decimal(input.value)
+            : null,
+        origin: 'ORCAMENTO_DIRETO',
+        funilId: funil.id,
+        status: statusId,
+        responsavelId: input.responsavelId?.trim() || null,
+        notes: 'Criado automaticamente a partir de orçamento direto.',
+      },
+    });
+
+    return created.id;
+  }
+
   async listUsuarios() {
     return this.prisma.client.user.findMany({
       where: { isActive: true },

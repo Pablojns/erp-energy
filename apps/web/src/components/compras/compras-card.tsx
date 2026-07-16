@@ -82,6 +82,10 @@ export function ComprasCard(props: {
       {...(dragEnabled ? dragListeners : {})}
       onClick={handleClick}
       className={`erp-module-card cursor-pointer p-2.5 transition md:p-3 ${
+        dragEnabled
+          ? ''
+          : 'erp-compras-kanban-card-mobile w-full max-w-full'
+      } ${
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
@@ -92,7 +96,7 @@ export function ComprasCard(props: {
         <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
       </div>
 
-      <h3 className="line-clamp-1 text-sm font-semibold text-[var(--erp-fg)] md:line-clamp-2">
+      <h3 className="truncate text-sm font-semibold text-[var(--erp-fg)] md:line-clamp-2 md:whitespace-normal">
         {displayName(row)}
       </h3>
       {displaySupplierName(row) ? (

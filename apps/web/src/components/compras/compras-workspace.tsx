@@ -300,7 +300,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md hidden md:inline-flex"
           >
             <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação

@@ -1424,6 +1424,8 @@ export class OrderService {
           shippedAt: true,
           invoicedAt: true,
           invoiceStatus: true,
+          invoiceNumber: true,
+          items: { select: { pickedQty: true } },
         },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
@@ -1436,13 +1438,24 @@ export class OrderService {
         );
       }
 
+      await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
+        orderId,
+        userId,
+        invoiceNumber: before.invoiceNumber,
+        items: before.items,
+      });
+
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
-        data: OrderService.patchDataForStatus(OrderStatus.EM_SEPARACAO, {
-          shippedAt: before.shippedAt,
-          invoicedAt: before.invoicedAt,
-          invoiceStatus: before.invoiceStatus,
-        }),
+        data: {
+          ...OrderService.patchDataForStatus(OrderStatus.EM_SEPARACAO, {
+            shippedAt: before.shippedAt,
+            invoicedAt: before.invoicedAt,
+            invoiceStatus: before.invoiceStatus,
+          }),
+          // Novo ciclo: NF corrente some do campo (histórico permanece).
+          invoiceNumber: null,
+        },
         include: OrderService.orderInclude(),
       });
 
@@ -1674,20 +1687,68 @@ export class OrderService {
     return this.prisma.client.$transaction(async (tx) => {
       const before = await tx.order.findUnique({
         where: { id: orderId },
-        select: { id: true, code: true, status: true },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          invoiceNumber: true,
+          items: {
+            select: { quantity: true, pickedQty: true, invoicedQty: true },
+          },
+        },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
       if (
-        before.status !== OrderStatus.SEPARADO &&
-        before.status !== OrderStatus.AGUARDANDO_NF
+        before.status === OrderStatus.FINALIZADO ||
+        before.status === OrderStatus.EXPEDIDO ||
+        before.status === OrderStatus.CANCELADO
       ) {
         throw new BadRequestException(
-          'Atrelar NF apenas em SEPARADO ou AGUARDANDO_NF.',
+          'Pedido encerrado. Não é possível gerar/atrelar nova NF.',
+        );
+      }
+      if (
+        before.status !== OrderStatus.SEPARADO &&
+        before.status !== OrderStatus.AGUARDANDO_NF &&
+        before.status !== OrderStatus.NF_ATRELADA &&
+        before.status !== OrderStatus.PARCIAL
+      ) {
+        throw new BadRequestException(
+          'Atrelar NF apenas em SEPARADO, AGUARDANDO_NF, PARCIAL ou NF_ATRELADA.',
         );
       }
 
-      const items = await tx.orderItem.findMany({ where: { orderId } });
-      for (const it of items) {
+      const fullyInvoiced =
+        before.items.length > 0 &&
+        before.items.every(
+          (it) => it.quantity <= 0 || (it.invoicedQty ?? 0) >= it.quantity,
+        );
+      if (fullyInvoiced) {
+        throw new BadRequestException(
+          'Pedido já está totalmente faturado. Não é possível gerar/atrelar nova NF.',
+        );
+      }
+
+      const previousInvoice = before.invoiceNumber?.trim() || null;
+
+      const pickedQtyAtTime = before.items.reduce(
+        (sum, it) => sum + (it.pickedQty ?? 0),
+        0,
+      );
+
+      if (previousInvoice && previousInvoice !== inv) {
+        await tx.orderInvoiceHistory.create({
+          data: {
+            orderId,
+            invoiceNumber: previousInvoice,
+            pickedQtyAtTime,
+            createdBy: userId,
+          },
+        });
+      }
+
+      const itemsFull = await tx.orderItem.findMany({ where: { orderId } });
+      for (const it of itemsFull) {
         if (it.invoicedQty === 0 && it.pickedQty > 0) {
           await tx.orderItem.update({
             where: { id: it.id },
@@ -1707,12 +1768,250 @@ export class OrderService {
         include: OrderService.orderInclude(),
       });
 
+      // Registra a NF atual no histórico (primeira ou nova).
+      const alreadyLogged = await tx.orderInvoiceHistory.findFirst({
+        where: { orderId, invoiceNumber: inv },
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!alreadyLogged) {
+        await tx.orderInvoiceHistory.create({
+          data: {
+            orderId,
+            invoiceNumber: inv,
+            pickedQtyAtTime,
+            createdBy: userId,
+          },
+        });
+      }
+
       await this.audit.log({
         userId,
         action: 'ORDER_ATTACH_INVOICE',
         entity: 'Order',
         entityId: orderId,
         changes: { code: before.code, invoiceNumber: inv },
+      });
+
+      return this.serializeOrder(updated);
+    });
+  }
+
+  /**
+   * Remove o pedido da fila de separação e reseta o progresso da tentativa atual.
+   * - Sem saída anterior: volta a NOVO, zera pickedQty/invoicedQty e limpa NF desta tentativa
+   *   (preserva NF/histórico de importação WEG anterior).
+   * - Já teve saída / veio de PARCIAL: volta a PARCIAL, mantém histórico e pickedQty
+   *   confirmado (piso = invoicedQty).
+   */
+  async removeFromSeparation(orderId: string, userId: string) {
+    return this.prisma.client.$transaction(async (tx) => {
+      const before = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: true,
+          exits: { take: 1, select: { id: true, invoiceNumber: true } },
+          invoiceHistory: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              invoiceNumber: true,
+              createdAt: true,
+              createdBy: true,
+            },
+          },
+        },
+      });
+      if (!before) throw new NotFoundException('Pedido não encontrado.');
+
+      const removable: OrderStatus[] = [
+        OrderStatus.RESERVADO,
+        OrderStatus.EM_SEPARACAO,
+        OrderStatus.SEPARADO,
+        OrderStatus.AGUARDANDO_NF,
+        OrderStatus.NF_ATRELADA,
+        OrderStatus.PARCIAL,
+      ];
+      if (!removable.includes(before.status)) {
+        throw new BadRequestException(
+          `Pedido não está na separação (status: ${before.status}).`,
+        );
+      }
+
+      const exit = before.exits[0] ?? null;
+
+      let enteredSeparationAt: Date | null = null;
+      let cameFromParcial = false;
+      const audits = await tx.auditLog.findMany({
+        where: {
+          entity: 'Order',
+          entityId: orderId,
+          action: {
+            in: [
+              'ORDER_OPS_TRANSITION',
+              'ORDER_STATUS_MANUAL',
+              'ORDER_STATUS_CHANGED',
+            ],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: { changes: true, createdAt: true },
+      });
+      for (const row of audits) {
+        const changes = row.changes as { from?: string; to?: string } | null;
+        if (changes?.to === OrderStatus.EM_SEPARACAO) {
+          enteredSeparationAt = row.createdAt;
+          cameFromParcial = changes.from === OrderStatus.PARCIAL;
+          break;
+        }
+      }
+
+      const hadPriorPartial =
+        Boolean(before.shippedAt) || Boolean(exit) || cameFromParcial;
+
+      if (hadPriorPartial) {
+        for (const it of before.items) {
+          const confirmed = Math.max(0, it.invoicedQty ?? 0);
+          await tx.orderItem.update({
+            where: { id: it.id },
+            data: {
+              pickedQty: confirmed,
+              missingQty: Math.max(0, it.quantity - confirmed),
+            },
+          });
+        }
+
+        // Remove só NFs atreladas nesta tentativa; mantém histórico anterior.
+        if (enteredSeparationAt) {
+          await tx.orderInvoiceHistory.deleteMany({
+            where: {
+              orderId,
+              createdAt: { gte: enteredSeparationAt },
+            },
+          });
+        }
+
+        // NF corrente volta à da última saída confirmada.
+        const restoredInvoice = exit?.invoiceNumber?.trim() || null;
+
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.PARCIAL,
+            invoiceNumber: restoredInvoice,
+            invoiceStatus: restoredInvoice
+              ? InvoiceStatus.INVOICED
+              : InvoiceStatus.NOT_FOUND,
+            invoicedAt: restoredInvoice ? before.invoicedAt : null,
+            volumes: null,
+          },
+          include: OrderService.orderInclude(),
+        });
+
+        await this.audit.log({
+          userId,
+          action: 'ORDER_REMOVE_FROM_SEPARATION',
+          entity: 'Order',
+          entityId: orderId,
+          changes: {
+            code: before.code,
+            mode: 'parcial',
+            from: before.status,
+            to: OrderStatus.PARCIAL,
+          },
+        });
+
+        return this.serializeOrder(updated);
+      }
+
+      // Tentativa sem separação/faturamento confirmado: reset completo.
+      for (const it of before.items) {
+        await tx.orderItem.update({
+          where: { id: it.id },
+          data: {
+            pickedQty: 0,
+            invoicedQty: 0,
+            missingQty: 0,
+          },
+        });
+      }
+
+      // Remove só o histórico criado nesta tentativa de separação.
+      if (enteredSeparationAt) {
+        await tx.orderInvoiceHistory.deleteMany({
+          where: {
+            orderId,
+            createdAt: { gte: enteredSeparationAt },
+          },
+        });
+      } else {
+        await tx.orderInvoiceHistory.deleteMany({
+          where: {
+            orderId,
+            createdBy: { not: null },
+          },
+        });
+      }
+
+      const remainingHistory = await tx.orderInvoiceHistory.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        select: { invoiceNumber: true },
+      });
+
+      let nextInvoice = remainingHistory[0]?.invoiceNumber?.trim() || null;
+
+      // NF de importação WEG sem histórico restante: preserva o número no pedido.
+      if (
+        !nextInvoice &&
+        before.source === OrderSource.WEG_MERCADO_ELETRONICO &&
+        before.invoiceNumber?.trim()
+      ) {
+        const current = before.invoiceNumber.trim();
+        const wasOnlyFromThisAttempt =
+          enteredSeparationAt != null &&
+          before.invoiceHistory.some(
+            (h) =>
+              h.invoiceNumber.trim() === current &&
+              h.createdAt >= enteredSeparationAt,
+          ) &&
+          !before.invoiceHistory.some(
+            (h) =>
+              h.invoiceNumber.trim() === current &&
+              h.createdAt < enteredSeparationAt,
+          );
+        if (!wasOnlyFromThisAttempt) {
+          nextInvoice = current;
+        }
+      }
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.NOVO,
+          invoiceNumber: nextInvoice,
+          invoiceStatus: nextInvoice
+            ? InvoiceStatus.PENDING
+            : InvoiceStatus.NOT_FOUND,
+          invoicedAt: nextInvoice ? before.invoicedAt : null,
+          volumes: null,
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_REMOVE_FROM_SEPARATION',
+        entity: 'Order',
+        entityId: orderId,
+        changes: {
+          code: before.code,
+          mode: 'novo',
+          from: before.status,
+          to: OrderStatus.NOVO,
+          preservedInvoice: nextInvoice,
+        },
       });
 
       return this.serializeOrder(updated);
@@ -2163,6 +2462,7 @@ export class OrderService {
               id: true,
               reservedQuantity: true,
               productId: true,
+              pickedQty: true,
             },
           },
         },
@@ -2186,11 +2486,25 @@ export class OrderService {
         );
       }
 
-      const data = OrderService.patchDataForStatus(to, {
-        shippedAt: before.shippedAt,
-        invoicedAt: before.invoicedAt,
-        invoiceStatus: before.invoiceStatus,
-      });
+      if (to === OrderStatus.EM_SEPARACAO) {
+        await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
+          orderId: id,
+          userId,
+          invoiceNumber: before.invoiceNumber,
+          items: before.items,
+        });
+      }
+
+      const data: Prisma.OrderUncheckedUpdateInput = {
+        ...OrderService.patchDataForStatus(to, {
+          shippedAt: before.shippedAt,
+          invoicedAt: before.invoicedAt,
+          invoiceStatus: before.invoiceStatus,
+        }),
+      };
+      if (to === OrderStatus.EM_SEPARACAO) {
+        data.invoiceNumber = null;
+      }
 
       const updated = await tx.order.update({
         where: { id },
@@ -2655,6 +2969,42 @@ export class OrderService {
         },
       },
     };
+  }
+
+  /**
+   * Garante NF corrente no histórico antes de iniciar um novo ciclo de separação.
+   * O campo invoiceNumber do pedido é limpo na transição; o histórico permanece.
+   */
+  private static async archiveCurrentInvoiceForNewSeparationCycle(
+    tx: Tx,
+    opts: {
+      orderId: string;
+      userId: string;
+      invoiceNumber: string | null;
+      items: Array<{ pickedQty: number }>;
+    },
+  ) {
+    const inv = opts.invoiceNumber?.trim();
+    if (!inv) return;
+
+    const already = await tx.orderInvoiceHistory.findFirst({
+      where: { orderId: opts.orderId, invoiceNumber: inv },
+      select: { id: true },
+    });
+    if (already) return;
+
+    const pickedQtyAtTime = opts.items.reduce(
+      (sum, it) => sum + (it.pickedQty ?? 0),
+      0,
+    );
+    await tx.orderInvoiceHistory.create({
+      data: {
+        orderId: opts.orderId,
+        invoiceNumber: inv,
+        pickedQtyAtTime,
+        createdBy: opts.userId,
+      },
+    });
   }
 
   private static patchDataForStatus(

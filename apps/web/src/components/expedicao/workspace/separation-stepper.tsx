@@ -1,21 +1,20 @@
 'use client';
 
-const STEPS = [
-  { id: 1, label: 'Em separação', shortLabel: 'Em sep.' },
-  { id: 2, label: 'Separando', shortLabel: 'Sep.' },
-  { id: 3, label: 'NF-e', shortLabel: 'NF' },
-  { id: 4, label: 'Saída', shortLabel: 'Saída' },
-] as const;
+import {
+  SEPARATION_WORKFLOW_STEPS,
+  type SeparationWorkflowStep,
+} from '@/src/components/expedicao/shared/separation-workflow';
 
-export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
+export function SeparationStepper(props: { currentStep: SeparationWorkflowStep }) {
   const { currentStep } = props;
+  const totalSteps = SEPARATION_WORKFLOW_STEPS.length;
 
   return (
     <div className="exp-wb-stepper-block rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)]">
       <div className="exp-wb-stepper-inner flex flex-nowrap items-center gap-1 overflow-x-auto md:flex-wrap md:gap-2">
-        {STEPS.map((step, idx) => {
+        {SEPARATION_WORKFLOW_STEPS.map((step, idx) => {
           const active = step.id === currentStep;
-          const isWorkflowComplete = currentStep === STEPS.length;
+          const isWorkflowComplete = currentStep === totalSteps;
           const done = step.id < currentStep || (active && isWorkflowComplete);
           const cls = done
             ? 'border-transparent bg-[var(--success)] text-[var(--color-text-inverse)]'
@@ -31,7 +30,7 @@ export function SeparationStepper(props: { currentStep: 1 | 2 | 3 | 4 }) {
                 <span className="exp-wb-stepper-label-full">{step.label}</span>
                 <span className="exp-wb-stepper-label-short">{step.shortLabel}</span>
               </span>
-              {idx < STEPS.length - 1 ? (
+              {idx < SEPARATION_WORKFLOW_STEPS.length - 1 ? (
                 <span className="h-px w-3 shrink-0 bg-[var(--border-color)] md:w-5" aria-hidden />
               ) : null}
             </div>

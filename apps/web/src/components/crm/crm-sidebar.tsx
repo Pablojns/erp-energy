@@ -3,13 +3,19 @@
 import {
   BarChart3,
   ClipboardList,
+  FileText,
   LayoutGrid,
   Settings,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 
-export type CrmView = 'dashboard' | 'kanban' | 'clientes' | 'relatorios';
+export type CrmView =
+  | 'dashboard'
+  | 'kanban'
+  | 'clientes'
+  | 'orcamentos'
+  | 'relatorios';
 
 type NavItem = {
   id: CrmView;
@@ -22,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { id: 'kanban', label: 'Kanban', icon: LayoutGrid },
   { id: 'clientes', label: 'Clientes', icon: Users },
+  { id: 'orcamentos', label: 'Orçamentos', icon: FileText },
   { id: 'relatorios', label: 'Relatórios', icon: ClipboardList },
 ];
 

@@ -1637,6 +1637,9 @@
     flex-direction: column;
     min-height: 0;
     flex: 1;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .erp-mobile-kanban-track {
@@ -1647,24 +1650,70 @@
     scrollbar-width: none;
     flex: 1;
     min-height: 0;
+    width: 100%;
+    max-width: 100%;
   }
 
   .erp-mobile-kanban-track::-webkit-scrollbar {
     display: none;
   }
 
+  /* Largura travada no viewport — evita coluna virar “filete” ao arrastar o dedo */
   .erp-mobile-kanban-slide {
+    box-sizing: border-box;
     flex: 0 0 100%;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
     scroll-snap-align: start;
+    scroll-snap-stop: always;
     min-height: 0;
     padding: 0 0 0.5rem;
+  }
+
+  .erp-mobile-kanban-slide > * {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
   }
 
   .erp-mobile-kanban--peek .erp-mobile-kanban-slide {
     flex: 0 0 85vw;
     width: 85vw;
+    min-width: 85vw;
     max-width: 85vw;
     padding-right: 0.5rem;
+  }
+
+  .erp-mobile-kanban--peek .erp-mobile-kanban-slide > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .erp-crm-kanban-card-mobile {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .erp-crm-kanban-etapa-select {
+    min-height: 28px;
+    max-height: 28px;
+  }
+
+  .erp-compras-kanban-card-mobile {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .erp-compras-kanban-card-mobile h3 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .erp-mobile-kanban-dots {

@@ -10,6 +10,7 @@ import { OrderInfoPanel } from '@/src/components/expedicao/workspace/order-info-
 import { ConcluirModal } from '@/src/components/expedicao/workspace/concluir-modal';
 import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-modal';
 import { SeparationStepper } from '@/src/components/expedicao/workspace/separation-stepper';
+import { resolveSeparationWorkflowStep } from '@/src/components/expedicao/shared/separation-workflow';
 import { SeparationItemsTable } from '@/src/components/expedicao/workspace/separation-items-table';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
@@ -343,19 +344,15 @@ export function SeparationWorkbench(props: {
     mode === 'separation' &&
     (order.status === 'SEPARADO' ||
       order.status === 'AGUARDANDO_NF' ||
-      orderStatus === 'NF_PENDENTE') &&
-    !order.invoiceNumber?.trim();
+      orderStatus === 'NF_PENDENTE');
   const canAttachNf = canGerarNfFlask;
   const hasInvoice = Boolean(order.invoiceNumber?.trim());
-  const awaitingNfWithoutInvoice =
-    order.status === 'AGUARDANDO_NF' && !hasInvoice;
   const canPrintEtiquetaAndExit =
     mode === 'separation' &&
-    !awaitingNfWithoutInvoice &&
     hasInvoice &&
-    (order.status === 'NF_ATRELADA' ||
-      readyForEtiqueta ||
-      (order.status !== 'FINALIZADO' && order.status !== 'EXPEDIDO'));
+    (order.status === 'NF_ATRELADA' || readyForEtiqueta) &&
+    order.status !== 'FINALIZADO' &&
+    order.status !== 'EXPEDIDO';
   const shouldShowNfAction = mode === 'separation' && canGenerateExit;
   const canRemessaExit =
     mode === 'separation' &&
@@ -370,18 +367,7 @@ export function SeparationWorkbench(props: {
       orderStatus === 'PENDENTE' ||
       orderStatus === 'PARCIAL' ||
       orderStatus === 'RESERVADO');
-  const currentStep: 1 | 2 | 3 | 4 = (() => {
-    if (order.status === 'FINALIZADO' || order.status === 'EXPEDIDO') return 4;
-    if (
-      order.status === 'NF_ATRELADA' ||
-      order.status === 'SEPARADO' ||
-      order.status === 'AGUARDANDO_NF'
-    ) {
-      return 3;
-    }
-    if (order.status === 'EM_SEPARACAO') return 2;
-    return 1;
-  })();
+  const currentStep = resolveSeparationWorkflowStep(order);
 
   const mobileActions: MobileActionItem[] = [];
   mobileActions.push({
@@ -524,7 +510,7 @@ export function SeparationWorkbench(props: {
         </div>
       ) : null}
 
-      {mode === 'orders' ? <SeparationStepper currentStep={currentStep} /> : null}
+      <SeparationStepper currentStep={currentStep} />
 
       <SeparationItemsTable
         order={order}
