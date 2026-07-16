@@ -2559,25 +2559,39 @@ export class PedidosService {
     return digits.length > 0 ? digits : null;
   }
 
+  private normalizeSkuKey(sku: string | null | undefined): string {
+    return (sku ?? '').trim().toUpperCase();
+  }
+
   private aggregateSkuQuantities(
     items: Array<{ sku: string; quantity: number }>,
   ): Map<string, number> {
     const map = new Map<string, number>();
     for (const item of items) {
-      const sku = item.sku.trim();
+      const sku = this.normalizeSkuKey(item.sku);
       if (!sku) continue;
-      map.set(sku, (map.get(sku) ?? 0) + item.quantity);
+      const qty = Number(item.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+      map.set(sku, (map.get(sku) ?? 0) + qty);
     }
     return map;
   }
 
+  /**
+   * Match exato: mesmos SKUs (conjunto idêntico) e mesma quantidade em cada SKU.
+   * Qualquer SKU a mais/a menos ou qty diferente → false.
+   */
   private skuQuantityMapsMatch(
     manual: Map<string, number>,
     imported: Map<string, number>,
   ): boolean {
-    if (manual.size === 0 || manual.size !== imported.size) return false;
+    if (manual.size === 0 || imported.size === 0) return false;
+    if (manual.size !== imported.size) return false;
     for (const [sku, qty] of manual) {
       if (imported.get(sku) !== qty) return false;
+    }
+    for (const [sku, qty] of imported) {
+      if (manual.get(sku) !== qty) return false;
     }
     return true;
   }
@@ -2623,6 +2637,7 @@ export class PedidosService {
       }
 
       const manualSkuQty = this.aggregateSkuQuantities(candidate.items);
+      // Exige CNPJ + conjunto EXATO de SKUs + quantidade EXATA por SKU.
       if (!this.skuQuantityMapsMatch(manualSkuQty, importedSkuQty)) {
         continue;
       }
