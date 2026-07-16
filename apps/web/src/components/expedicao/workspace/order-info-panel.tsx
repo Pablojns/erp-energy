@@ -177,7 +177,6 @@ export const OrderInfoPanel = forwardRef<
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
   // Só pedidos finalizados bloqueiam edição; NF residual/histórica não trava o campo.
   const canEditInvoiceField = !isFinalized;
-  const carrierLocked = Boolean(order.carrierId?.trim());
   const fieldsReadOnly = isFinalized;
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
@@ -783,7 +782,7 @@ export const OrderInfoPanel = forwardRef<
         <div className="exp-wb-order-header-block exp-wb-order-header-block--transport !p-2">
           <div className="exp-wb-transport-grid">
             <HeaderField label="Transportadora:">
-              {onCarrierChange && !carrierLocked && !fieldsReadOnly ? (
+              {onCarrierChange && !fieldsReadOnly ? (
                 <div className="flex items-center gap-1.5">
                   <div className="min-w-0 flex-1">
                     <PremiumSelect
