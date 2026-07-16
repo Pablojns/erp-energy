@@ -1655,7 +1655,8 @@ export class PedidosService {
 
     let resultado: unknown;
     try {
-      const { data } = await axios.post('http://localhost:5000/emitir-nf', payload, {
+      const FLASK_URL = process.env.FLASK_NF_URL || 'http://localhost:5000';
+      const { data } = await axios.post(`${FLASK_URL}/emitir-nf`, payload, {
         headers: { 'Content-Type': 'application/json' },
       });
       resultado = data;
