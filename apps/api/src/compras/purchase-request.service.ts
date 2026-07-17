@@ -463,6 +463,7 @@ export class PurchaseRequestService {
       suggestedQty?: number;
       quantity?: number;
       engravingPrice?: number | null;
+      customerName?: string | null;
     },
   ) {
     const existing = await this.prisma.client.purchaseRequest.findUnique({
@@ -509,6 +510,11 @@ export class PurchaseRequestService {
         dto.engravingPrice == null
           ? null
           : new Prisma.Decimal(Number(dto.engravingPrice).toFixed(2));
+    }
+
+    if (dto.customerName !== undefined) {
+      data.customerName =
+        dto.customerName == null ? null : dto.customerName.trim() || null;
     }
 
     if (Object.keys(data).length === 0) {
@@ -627,6 +633,7 @@ export class PurchaseRequestService {
           ? new Prisma.Decimal(dto.engravingPrice)
           : null,
       saleOrderRef: dto.saleOrderRef?.trim() || null,
+      customerName: dto.customerName?.trim() || null,
     };
   }
 
@@ -719,6 +726,7 @@ export class PurchaseRequestService {
           : row.sku,
       itemName: row.itemName,
       quantity: row.quantity,
+      customerName: row.customerName,
       clientDeadline: row.clientDeadline?.toISOString() ?? null,
       link: row.link,
       logoPlaceholder: row.logoPlaceholder,

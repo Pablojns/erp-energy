@@ -20,6 +20,10 @@ export type QuoteProposalSnapshotItem = {
   quantity: number;
   unitPrice: string;
   total: string;
+  width?: string | null;
+  length?: string | null;
+  height?: string | null;
+  weight?: string | null;
 };
 
 export type QuoteProposalSnapshot = {
@@ -37,6 +41,8 @@ export type QuoteProposalSnapshot = {
   freightToConsult: boolean;
   freightType: string | null;
   subtotal: string;
+  difalValue?: string;
+  otherExtraCosts?: string;
   total: string;
   observations: string | null;
   customerNotes: string | null;
@@ -44,7 +50,56 @@ export type QuoteProposalSnapshot = {
   validUntil: string;
   items: QuoteProposalSnapshotItem[];
   generatedAt: string;
+  responsibleName?: string | null;
+  responsibleEmail?: string | null;
+  responsiblePhone?: string | null;
 };
+
+const MARGIN = 48;
+const ACCENT = '#2AACE2';
+const INK = '#111827';
+const MUTED = '#6b7280';
+
+const COMPANY_LEGAL_NAME = 'ENERGY BRANDS COMERCIO E SERVICOS LTDA';
+const COMPANY_CNPJ = '48.783.884/0001-24';
+
+const FIXED_OBSERVATIONS = [
+  {
+    title: 'Validade do orçamento',
+    paragraphs: [
+      'O orçamento é válido por 4 dias úteis ou enquanto durarem os estoques. Os valores são proporcionais à quantidade e tipo de personalização solicitada. Qualquer alteração pode gerar mudanças no orçamento.',
+    ],
+  },
+  {
+    title: 'Formas de Pagamento',
+    bullets: [
+      'À vista: boleto bancário ou PIX',
+      'Parcelado sem juros: em até 2x no cartão de crédito',
+      'Parcelado com juros: de 3x a 12x no cartão de crédito',
+    ],
+  },
+  {
+    title: 'Frete',
+    paragraphs: [
+      'O custo do frete é por conta do cliente e será calculado com base no local de entrega, prazo, peso e volume do pedido. O valor exato será informado após a definição dos itens e quantidades.',
+    ],
+  },
+  {
+    title: 'Prazo de Produção',
+    bullets: [
+      'Para materiais não têxteis, o prazo é de 8 a 16 dias úteis, variando conforme quantidade e complexidade, contados a partir da aprovação do layout e confirmação do pagamento. Se precisar de um prazo menor, avaliamos a viabilidade.',
+      'Para materiais têxteis, como bonés, chapéu, camisas e camisetas, o prazo atual é de 30 a 45 dias úteis, podendo variar conforme a época do ano.',
+    ],
+  },
+  {
+    title: 'Requisitos para a Logo',
+    bullets: [
+      'É necessário enviar a logo em formato vetorizado de alta qualidade para impressão, caso contrário não conseguimos garantir a qualidade da personalização. Formatos aceitos: AI, CDR, SVG, PDF, PSD, entre outros.',
+      'Caso não possua logo em formato vetor, oferecemos o serviço de vetorização por R$59,00 por logo.',
+      'Caso não tenha a arte definida, oferecemos o serviço de design e criação por R$120,00 por arte, com até 2 ajustes sutis.',
+    ],
+  },
+];
 
 @Injectable()
 export class QuoteProposalService {
@@ -97,7 +152,45 @@ export class QuoteProposalService {
     };
   }
 
-  private buildSnapshot(
+  private dimValue(raw: string | null | undefined): string | null {
+    if (raw == null || raw === '') return null;
+    const n = Number(String(raw).replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const rounded = Math.round(n * 1000) / 1000;
+    return String(rounded);
+  }
+
+  /** Linhas de detalhes técnicos — omite campos sem valor. */
+  private techDetailLines(item: QuoteProposalSnapshotItem): string[] {
+    const lines: string[] = [];
+    const width = this.dimValue(item.width);
+    const length = this.dimValue(item.length);
+    const height = this.dimValue(item.height);
+    const weight = this.dimValue(item.weight);
+    if (width) lines.push(`Largura: ${width} cm`);
+    if (length) lines.push(`Comprimento: ${length} cm`);
+    if (height) lines.push(`Espessura: ${height} cm`);
+    if (weight) lines.push(`Peso aproximado(g): ${weight}`);
+    return lines;
+  }
+
+  private async fetchImageBuffer(url: string | null): Promise<Buffer | null> {
+    if (!url?.trim()) return null;
+    try {
+      const res = await axios.get<ArrayBuffer>(url, {
+        responseType: 'arraybuffer',
+        timeout: 6000,
+        validateStatus: (s) => s >= 200 && s < 300,
+        maxRedirects: 3,
+      });
+      const buf = Buffer.from(res.data);
+      return buf.length > 0 ? buf : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildSnapshot(
     quote: {
       code: string;
       requestDate: Date;
@@ -113,9 +206,12 @@ export class QuoteProposalService {
       freightToConsult: boolean;
       freightType: string | null;
       subtotal: Prisma.Decimal;
+      difalValue?: Prisma.Decimal | null;
+      otherExtraCosts?: Prisma.Decimal | null;
       total: Prisma.Decimal;
       observations: string | null;
       customerNotes: string | null;
+      responsibleUserId: string | null;
       items: Array<{
         sku: string;
         description: string;
@@ -127,10 +223,40 @@ export class QuoteProposalService {
       }>;
     },
     validityDays: number,
-  ): QuoteProposalSnapshot {
+  ): Promise<QuoteProposalSnapshot> {
     const generatedAt = new Date();
     const validUntil = new Date(generatedAt);
     validUntil.setDate(validUntil.getDate() + validityDays);
+
+    let responsibleName: string | null = null;
+    let responsibleEmail: string | null = null;
+    if (quote.responsibleUserId) {
+      const user = await this.prisma.client.user.findUnique({
+        where: { id: quote.responsibleUserId },
+        select: { name: true, email: true },
+      });
+      responsibleName = user?.name ?? null;
+      responsibleEmail = user?.email ?? null;
+    }
+
+    const skus = [...new Set(quote.items.map((i) => i.sku).filter(Boolean))];
+    const catalogRows =
+      skus.length > 0
+        ? await this.prisma.client.quoteCatalogProduct.findMany({
+            where: { supplierCode: { in: skus } },
+            select: {
+              supplierCode: true,
+              imageUrl: true,
+              width: true,
+              depth: true,
+              height: true,
+              weight: true,
+            },
+          })
+        : [];
+    const catalogBySku = new Map(
+      catalogRows.map((r) => [r.supplierCode, r] as const),
+    );
 
     return {
       quoteCode: quote.code,
@@ -147,228 +273,376 @@ export class QuoteProposalService {
       freightToConsult: quote.freightToConsult,
       freightType: quote.freightType,
       subtotal: quote.subtotal.toString(),
+      difalValue: quote.difalValue?.toString() ?? '0',
+      otherExtraCosts: quote.otherExtraCosts?.toString() ?? '0',
       total: quote.total.toString(),
       observations: quote.observations,
       customerNotes: quote.customerNotes,
       validityDays,
       validUntil: validUntil.toISOString(),
       generatedAt: generatedAt.toISOString(),
-      items: quote.items.map((item) => ({
-        sku: item.sku,
-        description: item.description,
-        imageUrl: item.imageUrl,
-        engraving: item.engraving,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice.toString(),
-        total: item.total.toString(),
-      })),
+      responsibleName,
+      responsibleEmail,
+      responsiblePhone: process.env.QUOTE_COMPANY_PHONE?.trim() || null,
+      items: quote.items.map((item) => {
+        const cat = catalogBySku.get(item.sku);
+        return {
+          sku: item.sku,
+          description: item.description,
+          imageUrl: item.imageUrl?.trim() || cat?.imageUrl || null,
+          engraving: item.engraving,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice.toString(),
+          total: item.total.toString(),
+          width: cat?.width?.toString() ?? null,
+          length: cat?.depth?.toString() ?? null,
+          height: cat?.height?.toString() ?? null,
+          weight: cat?.weight?.toString() ?? null,
+        };
+      }),
     };
   }
 
-  private async fetchImageBuffer(url: string | null): Promise<Buffer | null> {
-    if (!url?.trim()) return null;
-    try {
-      const res = await axios.get<ArrayBuffer>(url, {
-        responseType: 'arraybuffer',
-        timeout: 5000,
-        validateStatus: (s) => s >= 200 && s < 300,
-      });
-      return Buffer.from(res.data);
-    } catch {
-      return null;
-    }
-  }
-
   async generatePdfFromSnapshot(snapshot: QuoteProposalSnapshot): Promise<Buffer> {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
     const imageBuffers = await Promise.all(
       snapshot.items.map((item) => this.fetchImageBuffer(item.imageUrl)),
     );
+
+    const doc = new PDFDocument({
+      margin: MARGIN,
+      size: 'A4',
+      autoFirstPage: true,
+      bufferPages: true,
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+    const logoPath = this.resolveLogoPath();
+    const pageWidth =
+      doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const left = doc.page.margins.left;
+    const bottomLimit = () =>
+      doc.page.height - doc.page.margins.bottom;
+
+    const THUMB = 60;
+    const THUMB_GAP = 10;
+    const COL_GAP = 12;
+    const productColX = left + THUMB + THUMB_GAP;
+    const detailsWidth = Math.floor(pageWidth * 0.22);
+    const priceWidth = Math.floor(pageWidth * 0.22);
+    const productWidth =
+      pageWidth - THUMB - THUMB_GAP - detailsWidth - priceWidth - COL_GAP * 2;
+    const detailsColX = productColX + productWidth + COL_GAP;
+    const priceColX = detailsColX + detailsWidth + COL_GAP;
+
+    let y = doc.page.margins.top;
+
+    const drawPageHeader = (continuation: boolean) => {
+      y = doc.page.margins.top;
+      const headerTop = y;
+      const companyBlockWidth = Math.min(280, pageWidth * 0.55);
+
+      if (logoPath) {
+        try {
+          doc.image(logoPath, left, headerTop, { width: 110 });
+        } catch {
+          doc.fontSize(16).font('Helvetica-Bold').fillColor(INK);
+          doc.text('Energy Brands', left, headerTop);
+        }
+      } else {
+        doc.fontSize(16).font('Helvetica-Bold').fillColor(INK);
+        doc.text('Energy Brands', left, headerTop);
+      }
+
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK);
+      doc.text(COMPANY_LEGAL_NAME, left + pageWidth - companyBlockWidth, headerTop, {
+        width: companyBlockWidth,
+        align: 'right',
+      });
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED);
+      doc.text(COMPANY_CNPJ, left + pageWidth - companyBlockWidth, headerTop + 12, {
+        width: companyBlockWidth,
+        align: 'right',
+      });
+
+      y = headerTop + 48;
+
+      doc.fontSize(14).font('Helvetica-Bold').fillColor(ACCENT);
+      doc.text(
+        continuation
+          ? 'Proposta Comercial - continuação'
+          : 'PROPOSTA COMERCIAL',
+        left,
+        y,
+      );
+      y += 20;
+      doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#d1d5db').stroke();
+      y += 14;
+    };
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed <= bottomLimit()) return;
+      doc.addPage();
+      drawPageHeader(true);
+    };
+
+    const writeWrapped = (
+      text: string,
+      opts: {
+        fontSize?: number;
+        font?: string;
+        color?: string;
+        indent?: number;
+        gapAfter?: number;
+      } = {},
+    ) => {
+      const fontSize = opts.fontSize ?? 9;
+      const font = opts.font ?? 'Helvetica';
+      const color = opts.color ?? INK;
+      const indent = opts.indent ?? 0;
+      const gapAfter = opts.gapAfter ?? 4;
+      const width = pageWidth - indent;
+      doc.font(font).fontSize(fontSize).fillColor(color);
+      const h = doc.heightOfString(text, { width, align: 'left' });
+      ensureSpace(h + gapAfter + 2);
+      doc.text(text, left + indent, y, { width, align: 'left' });
+      y += h + gapAfter;
+    };
+
+    const metaLine = (label: string, value: string) => {
+      ensureSpace(14);
+      const line = `${label}  ${value || '—'}`;
+      doc.font('Helvetica').fontSize(9).fillColor(INK);
+      doc.text(line, left, y, { width: pageWidth });
+      y += 13;
+    };
+
+    const measureColText = (
+      lines: Array<{ text: string; font: string; size: number }>,
+      width: number,
+    ) => {
+      let h = 0;
+      for (const line of lines) {
+        doc.font(line.font).fontSize(line.size);
+        h += doc.heightOfString(line.text, { width }) + 2;
+      }
+      return h;
+    };
+
+    const drawLabeledValue = (
+      x: number,
+      startY: number,
+      width: number,
+      label: string,
+      value: string,
+    ) => {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(INK);
+      const labelH = doc.heightOfString(label, { width });
+      doc.text(label, x, startY, { width, lineBreak: false });
+      const valueY = startY + labelH + 2;
+      doc.font('Helvetica').fontSize(9).fillColor(INK);
+      const valueH = doc.heightOfString(value, { width });
+      doc.text(value, x, valueY, { width });
+      return valueY + valueH - startY;
+    };
 
     return new Promise<Buffer>((resolve, reject) => {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      const left = doc.page.margins.left;
-      const pageWidth =
-        doc.page.width - doc.page.margins.left - doc.page.margins.right;
-      let y = doc.page.margins.top;
+      drawPageHeader(false);
 
-      const logoPath = this.resolveLogoPath();
-      if (logoPath) {
-        try {
-          doc.image(logoPath, left, y, { width: 120 });
-          y += 48;
-        } catch {
-          doc.fontSize(20).font('Helvetica-Bold').fillColor('#111827');
-          doc.text('Energy Brands', left, y);
-          y += 26;
-        }
-      } else {
-        doc.fontSize(20).font('Helvetica-Bold').fillColor('#111827');
-        doc.text('Energy Brands', left, y);
-        y += 26;
-      }
+      metaLine('ORÇAMENTO', snapshot.quoteCode);
+      metaLine('DATA DO ENVIO', formatPtDate(new Date(snapshot.generatedAt)));
+      metaLine('RESPONSÁVEL', snapshot.responsibleName ?? '—');
+      metaLine('E-MAIL', snapshot.responsibleEmail ?? '—');
+      metaLine('TELEFONE', snapshot.responsiblePhone ?? '—');
+      y += 8;
 
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#2AACE2');
-      doc.text('Proposta Comercial — Brindes Corporativos', left, y);
+      ensureSpace(40);
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(INK);
+      doc.text('CLIENTE', left, y);
       y += 16;
-      doc.fontSize(9).font('Helvetica').fillColor('#6b7280');
-      doc.text(
-        `Orçamento ${snapshot.quoteCode} · Emitida em ${formatPtDate(new Date(snapshot.generatedAt))}`,
-        left,
-        y,
-      );
-      y += 18;
-      doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#d1d5db').stroke();
-      y += 14;
-
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#111827');
-      doc.text('Dados do cliente', left, y);
-      y += 16;
-      doc.fontSize(9).font('Helvetica').fillColor('#1f2937');
-      const clientLines = [
-        `Nome: ${snapshot.customerName}`,
-        `Documento: ${snapshot.customerDocument ?? '—'}`,
-        `E-mail: ${snapshot.customerEmail ?? '—'}`,
-        `Telefone: ${snapshot.customerPhone ?? '—'}`,
-        `Empresa faturamento: ${snapshot.billingCompany ?? '—'}`,
-      ];
-      for (const line of clientLines) {
-        doc.text(line, left, y);
-        y += 12;
-      }
+      metaLine('NOME', snapshot.customerName);
+      metaLine('E-MAIL', snapshot.customerEmail ?? '—');
       y += 10;
 
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#111827');
-      doc.text('Produtos', left, y);
+      ensureSpace(28);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED);
+      doc.text('PRODUTO', productColX, y, { width: productWidth });
+      doc.text('DETALHES', detailsColX, y, { width: detailsWidth });
+      doc.text('PREÇO E QUANT.', priceColX, y, { width: priceWidth });
       y += 14;
-
-      const colWidths = [
-        pageWidth * 0.08,
-        pageWidth * 0.12,
-        pageWidth * 0.28,
-        pageWidth * 0.16,
-        pageWidth * 0.08,
-        pageWidth * 0.13,
-        pageWidth * 0.15,
-      ];
-      const headers = [
-        'Img',
-        'SKU',
-        'Descrição',
-        'Gravação',
-        'Qtd',
-        'Unit.',
-        'Total',
-      ];
-      const colX = colWidths.reduce<number[]>((acc, _w, i) => {
-        acc.push(i === 0 ? left : acc[i - 1]! + colWidths[i - 1]!);
-        return acc;
-      }, []);
-
-      const ensureSpace = (needed: number) => {
-        const bottom = doc.page.height - doc.page.margins.bottom;
-        if (y + needed > bottom) {
-          doc.addPage();
-          y = doc.page.margins.top;
-        }
-      };
-
-      ensureSpace(30);
-      doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151');
-      headers.forEach((header, index) => {
-        doc.text(header, colX[index], y, {
-          width: colWidths[index] - 2,
-          lineBreak: false,
-        });
-      });
-      y += 12;
       doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#e5e7eb').stroke();
-      y += 6;
+      y += 12;
 
-      doc.font('Helvetica').fillColor('#111827');
       snapshot.items.forEach((item, index) => {
+        const techLines = this.techDetailLines(item);
+        const productLines: Array<{ text: string; font: string; size: number }> = [
+          { text: item.description, font: 'Helvetica-Bold', size: 10 },
+          { text: item.sku, font: 'Helvetica', size: 9 },
+          ...techLines.map((t) => ({
+            text: t,
+            font: 'Helvetica' as const,
+            size: 8,
+          })),
+        ];
+        const productH = measureColText(productLines, productWidth);
+        const engraving = item.engraving?.trim() || '';
+        const detailsH = engraving
+          ? measureColText(
+              [
+                { text: 'Gravação', font: 'Helvetica-Bold', size: 9 },
+                { text: engraving, font: 'Helvetica', size: 9 },
+              ],
+              detailsWidth,
+            )
+          : 0;
+        const priceH = measureColText(
+          [
+            { text: `Quant.: ${item.quantity} unid.`, font: 'Helvetica', size: 9 },
+            {
+              text: `Preço unit.: ${formatBrl(item.unitPrice)}`,
+              font: 'Helvetica',
+              size: 9,
+            },
+            {
+              text: `Preço total: ${formatBrl(item.total)}`,
+              font: 'Helvetica-Bold',
+              size: 9,
+            },
+          ],
+          priceWidth,
+        );
+
+        const rowH = Math.max(THUMB, productH, detailsH, priceH) + 14;
+        ensureSpace(rowH + 8);
+
+        const rowTop = y;
         const imgBuf = imageBuffers[index];
-        const descHeight = doc.heightOfString(item.description, {
-          width: colWidths[2]! - 2,
-        });
-        const engHeight = doc.heightOfString(item.engraving || '—', {
-          width: colWidths[3]! - 2,
-        });
-        const rowHeight = Math.max(28, descHeight, engHeight, 12) + 6;
-        ensureSpace(rowHeight + 8);
 
         if (imgBuf) {
           try {
-            doc.image(imgBuf, colX[0], y, { width: 22, height: 22 });
+            doc.image(imgBuf, left, rowTop, {
+              fit: [THUMB, THUMB],
+            });
           } catch {
-            doc.fontSize(7).text('—', colX[0], y + 6, { width: colWidths[0]! - 2 });
+            doc
+              .rect(left, rowTop, THUMB, THUMB)
+              .strokeColor('#e5e7eb')
+              .stroke();
           }
         } else {
-          doc.fontSize(7).text('—', colX[0], y + 6, { width: colWidths[0]! - 2 });
+          doc
+            .rect(left, rowTop, THUMB, THUMB)
+            .fillColor('#f3f4f6')
+            .fill()
+            .strokeColor('#e5e7eb')
+            .stroke();
         }
 
-        doc.fontSize(8);
-        doc.text(item.sku, colX[1], y, { width: colWidths[1]! - 2 });
-        doc.text(item.description, colX[2], y, { width: colWidths[2]! - 2 });
-        doc.text(item.engraving || '—', colX[3], y, { width: colWidths[3]! - 2 });
-        doc.text(String(item.quantity), colX[4], y, { width: colWidths[4]! - 2 });
-        doc.text(formatBrl(item.unitPrice), colX[5], y, { width: colWidths[5]! - 2 });
-        doc.text(formatBrl(item.total), colX[6], y, { width: colWidths[6]! - 2 });
-        y += rowHeight;
+        let py = rowTop;
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(INK);
+        const nameH = doc.heightOfString(item.description, {
+          width: productWidth,
+        });
+        doc.text(item.description, productColX, py, { width: productWidth });
+        py += nameH + 2;
+
+        doc.font('Helvetica').fontSize(9).fillColor(INK);
+        doc.text(item.sku, productColX, py, { width: productWidth });
+        py += 12;
+
+        if (techLines.length > 0) {
+          doc.font('Helvetica').fontSize(8).fillColor('#374151');
+          for (const line of techLines) {
+            const lh = doc.heightOfString(line, { width: productWidth });
+            doc.text(line, productColX, py, { width: productWidth });
+            py += lh + 1;
+          }
+        }
+
+        if (engraving) {
+          drawLabeledValue(
+            detailsColX,
+            rowTop,
+            detailsWidth,
+            'Gravação',
+            engraving,
+          );
+        }
+
+        let pry = rowTop;
+        const priceLines: Array<{ label: string; value: string; bold?: boolean }> =
+          [
+            { label: 'Quant.:', value: `${item.quantity} unid.` },
+            { label: 'Preço unit.:', value: formatBrl(item.unitPrice) },
+            {
+              label: 'Preço total:',
+              value: formatBrl(item.total),
+              bold: true,
+            },
+          ];
+        for (const pl of priceLines) {
+          doc.font('Helvetica-Bold').fontSize(9).fillColor(INK);
+          const labelW = doc.widthOfString(pl.label + ' ');
+          doc.text(pl.label, priceColX, pry, { lineBreak: false });
+          doc
+            .font(pl.bold ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(9)
+            .fillColor(INK);
+          doc.text(` ${pl.value}`, priceColX + labelW, pry, {
+            width: priceWidth - labelW,
+          });
+          pry += 13;
+        }
+
+        y = rowTop + rowH;
+        doc
+          .moveTo(left, y)
+          .lineTo(left + pageWidth, y)
+          .strokeColor('#e5e7eb')
+          .stroke();
+        y += 10;
       });
 
-      y += 8;
-      ensureSpace(90);
-      doc.fontSize(9).font('Helvetica').fillColor('#1f2937');
+      ensureSpace(28);
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(INK);
       doc.text(`Subtotal: ${formatBrl(snapshot.subtotal)}`, left, y, {
-        width: pageWidth,
-        align: 'right',
-      });
-      y += 13;
-      const freightLabel = snapshot.freightToConsult
-        ? 'A consultar'
-        : formatBrl(snapshot.freightValue);
-      doc.text(`Frete: ${freightLabel}`, left, y, {
-        width: pageWidth,
-        align: 'right',
-      });
-      y += 15;
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
-      doc.text(`Total geral: ${formatBrl(snapshot.total)}`, left, y, {
         width: pageWidth,
         align: 'right',
       });
       y += 22;
 
-      doc.fontSize(10).font('Helvetica-Bold').fillColor('#111827');
-      doc.text('Condições', left, y);
-      y += 14;
-      doc.fontSize(9).font('Helvetica').fillColor('#1f2937');
-      doc.text(`Condição de pagamento: ${snapshot.paymentTerms ?? '—'}`, left, y);
-      y += 12;
-      doc.text(`Forma de pagamento: ${snapshot.paymentMethod ?? '—'}`, left, y);
-      y += 12;
-      doc.text(`Prazo de entrega: ${snapshot.deliveryDeadline ?? '—'}`, left, y);
-      y += 12;
-      if (snapshot.freightType) {
-        doc.text(`Tipo de frete: ${snapshot.freightType}`, left, y);
-        y += 12;
-      }
-      y += 8;
+      ensureSpace(30);
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(INK);
+      doc.text('Observações', left, y);
+      y += 16;
 
-      const footerY = doc.page.height - doc.page.margins.bottom - 20;
-      doc.fontSize(9).font('Helvetica-Oblique').fillColor('#6b7280');
-      doc.text(
-        `Proposta válida até ${formatPtDate(new Date(snapshot.validUntil))}`,
-        left,
-        footerY,
-        { width: pageWidth, align: 'center' },
-      );
+      for (const section of FIXED_OBSERVATIONS) {
+        ensureSpace(28);
+        writeWrapped(section.title, {
+          fontSize: 10,
+          font: 'Helvetica-Bold',
+          gapAfter: 6,
+        });
+        if (section.paragraphs) {
+          for (const p of section.paragraphs) {
+            writeWrapped(p, { fontSize: 8, color: '#374151', gapAfter: 5 });
+          }
+        }
+        if (section.bullets) {
+          for (const b of section.bullets) {
+            writeWrapped(`• ${b}`, {
+              fontSize: 8,
+              color: '#374151',
+              indent: 6,
+              gapAfter: 5,
+            });
+          }
+        }
+        y += 6;
+      }
 
       doc.end();
     });
@@ -412,7 +686,7 @@ export class QuoteProposalService {
       options.validityDays && options.validityDays > 0
         ? options.validityDays
         : 15;
-    const snapshot = this.buildSnapshot(quote, validityDays);
+    const snapshot = await this.buildSnapshot(quote, validityDays);
 
     const created = await this.prisma.client.quoteProposal.create({
       data: {

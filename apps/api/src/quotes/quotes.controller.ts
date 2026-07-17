@@ -48,8 +48,11 @@ export class QuotesController {
 
   @Get()
   @RequirePermission('crm', 'ver_modulo')
-  list(@Query() query: ListQuotesQueryDto) {
-    return this.quotes.findMany(query);
+  list(
+    @Query() query: ListQuotesQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.quotes.findMany(query, user);
   }
 
   @Get('dashboard')
@@ -67,8 +70,8 @@ export class QuotesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('crm', 'ver_modulo')
-  create(@Body() dto: CreateQuoteDto) {
-    return this.quotes.create(dto);
+  create(@Body() dto: CreateQuoteDto, @CurrentUser() user: AuthUser) {
+    return this.quotes.create(dto, user);
   }
 
   @Get('catalog')
@@ -157,8 +160,12 @@ export class QuotesController {
   @Post(':id/items')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('crm', 'ver_modulo')
-  addItem(@Param('id') id: string, @Body() dto: CreateQuoteItemDto) {
-    return this.quotes.addItem(id, dto);
+  addItem(
+    @Param('id') id: string,
+    @Body() dto: CreateQuoteItemDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.quotes.addItem(id, dto, user);
   }
 
   @Patch(':id/items/:itemId')
@@ -167,26 +174,35 @@ export class QuotesController {
     @Param('id') id: string,
     @Param('itemId') itemId: string,
     @Body() dto: UpdateQuoteItemDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.quotes.updateItem(id, itemId, dto);
+    return this.quotes.updateItem(id, itemId, dto, user);
   }
 
   @Delete(':id/items/:itemId')
   @RequirePermission('crm', 'ver_modulo')
-  removeItem(@Param('id') id: string, @Param('itemId') itemId: string) {
-    return this.quotes.removeItem(id, itemId);
+  removeItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.quotes.removeItem(id, itemId, user);
   }
 
   @Get(':id')
   @RequirePermission('crm', 'ver_modulo')
-  findOne(@Param('id') id: string) {
-    return this.quotes.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.quotes.findOne(id, user);
   }
 
   @Patch(':id')
   @RequirePermission('crm', 'ver_modulo')
-  update(@Param('id') id: string, @Body() dto: UpdateQuoteDto) {
-    return this.quotes.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.quotes.update(id, dto, user);
   }
 
   @Patch(':id/status')

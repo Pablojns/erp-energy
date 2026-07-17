@@ -19,6 +19,9 @@ export type QuoteItemDto = {
   description: string;
   imageUrl: string | null;
   engraving: string | null;
+  engravingTechniqueId: string | null;
+  engravingPrice: string | null;
+  productPrice: string | null;
   supplier: string | null;
   requiresArtwork: boolean;
   artworkFileName: string | null;
@@ -69,6 +72,12 @@ export type QuoteDto = {
   total: string;
   paymentTerms: string | null;
   paymentMethod: string | null;
+  commissionPercent?: string;
+  marginReservePercent?: string;
+  /** Só retornado para a Julia */
+  salesMarginPercent?: string;
+  difalValue?: string;
+  otherExtraCosts?: string;
   linkedCrmCardId: string | null;
   linkedOrderId: string | null;
   createdAt: string;
@@ -112,6 +121,11 @@ export type QuotePayload = {
   freightType?: string | null;
   paymentTerms?: string | null;
   paymentMethod?: string | null;
+  commissionPercent?: number;
+  marginReservePercent?: number;
+  salesMarginPercent?: number;
+  difalValue?: number | null;
+  otherExtraCosts?: number | null;
   linkedCrmCardId?: string | null;
   linkedOrderId?: string | null;
 };
@@ -242,6 +256,12 @@ export type ListCatalogParams = {
   page?: number;
   pageSize?: number;
   includeTotal?: boolean;
+  sortBy?: 'price' | 'name' | 'stock' | 'lastUpdate';
+  sortOrder?: 'asc' | 'desc';
+  minPrice?: number;
+  maxPrice?: number;
+  supplier?: string;
+  inStockOnly?: boolean;
 };
 
 export async function listQuoteCatalog(params: ListCatalogParams = {}) {
@@ -251,6 +271,12 @@ export async function listQuoteCatalog(params: ListCatalogParams = {}) {
   if (params.page) qs.set('page', String(params.page));
   if (params.pageSize) qs.set('pageSize', String(params.pageSize));
   if (params.includeTotal === false) qs.set('includeTotal', 'false');
+  if (params.sortBy) qs.set('sortBy', params.sortBy);
+  if (params.sortOrder) qs.set('sortOrder', params.sortOrder);
+  if (params.minPrice !== undefined) qs.set('minPrice', String(params.minPrice));
+  if (params.maxPrice !== undefined) qs.set('maxPrice', String(params.maxPrice));
+  if (params.supplier?.trim()) qs.set('supplier', params.supplier.trim());
+  if (params.inStockOnly) qs.set('inStockOnly', 'true');
   const query = qs.toString();
   return erpFetchJson<QuoteCatalogListResponse>(
     `${BASE}/catalog${query ? `?${query}` : ''}`,
@@ -275,6 +301,9 @@ export type CreateQuoteItemPayload = {
   description?: string;
   imageUrl?: string | null;
   engraving?: string | null;
+  engravingTechniqueId?: string | null;
+  engravingPrice?: number | null;
+  productPrice?: number | null;
   supplier?: string | null;
   requiresArtwork?: boolean;
   artworkFileName?: string | null;
@@ -287,6 +316,9 @@ export type CreateQuoteItemPayload = {
 export type UpdateQuoteItemPayload = {
   description?: string;
   engraving?: string | null;
+  engravingTechniqueId?: string | null;
+  engravingPrice?: number | null;
+  productPrice?: number | null;
   supplier?: string | null;
   requiresArtwork?: boolean;
   artworkFileName?: string | null;

@@ -37,6 +37,23 @@ export class CreateQuoteItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(64)
+  engravingTechniqueId?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  engravingPrice?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  productPrice?: number | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(32)
   supplier?: string | null;
 

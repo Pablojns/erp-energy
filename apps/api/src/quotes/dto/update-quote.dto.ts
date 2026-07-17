@@ -135,4 +135,38 @@ export class UpdateQuoteDto {
   @IsString()
   @MaxLength(64)
   linkedOrderId?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  commissionPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  marginReservePercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salesMarginPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  difalValue?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  difalIsPercent?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  otherExtraCosts?: number | null;
 }

@@ -58,6 +58,11 @@ export class CreatePurchaseRequestDto {
   @MaxLength(300)
   itemName?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  customerName?: string;
+
   @ValidateIf(
     (o: CreatePurchaseRequestDto) =>
       o.type === PurchaseRequestType.VENDA_EXTERNA ||

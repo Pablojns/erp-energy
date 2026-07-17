@@ -79,6 +79,8 @@ export function ComprasDetailModal(props: {
   const [savingQuantity, setSavingQuantity] = useState(false);
   const [engravingPriceInput, setEngravingPriceInput] = useState('');
   const [savingEngravingPrice, setSavingEngravingPrice] = useState(false);
+  const [customerNameInput, setCustomerNameInput] = useState('');
+  const [savingCustomerName, setSavingCustomerName] = useState(false);
   const [movingEtapa, setMovingEtapa] = useState(false);
 
   useEffect(() => {
@@ -94,6 +96,7 @@ export function ComprasDetailModal(props: {
           );
           setQuantityInput(String(displayQty(detail)));
           setEngravingPriceInput(detail.engravingPrice ?? '');
+          setCustomerNameInput(detail.customerName ?? '');
         }
       })
       .catch((err) => {
@@ -226,6 +229,25 @@ export function ComprasDetailModal(props: {
     }
   };
 
+  const handleSaveCustomerName = async () => {
+    if (!row) return;
+    setSavingCustomerName(true);
+    setError(null);
+    try {
+      const trimmed = customerNameInput.trim();
+      const updated = await erpFetchJson<PurchaseRequest>(`api/compras/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ customerName: trimmed || null }),
+      });
+      setRow(updated);
+      setCustomerNameInput(updated.customerName ?? '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar nome do cliente.');
+    } finally {
+      setSavingCustomerName(false);
+    }
+  };
+
   const currentEtapa = row ? kanbanColumnForStatus(row.status) : null;
 
   const handleEtapaConfirm = async (nextEtapa: string) => {
@@ -276,6 +298,38 @@ export function ComprasDetailModal(props: {
             ) : null}
 
             <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <div className="sm:col-span-2 rounded-xl border border-[#2AACE2]/40 bg-[#2AACE2]/10 px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#0f4c63]">
+                  Nome do Cliente
+                </p>
+                {canEditOpenRequest ? (
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      value={customerNameInput}
+                      onChange={(e) => setCustomerNameInput(e.target.value)}
+                      className={fieldClass()}
+                      placeholder="Nome do cliente"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveCustomerName()}
+                      disabled={savingCustomerName}
+                      className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
+                    >
+                      {savingCustomerName ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      Salvar
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-1.5 text-base font-semibold text-gray-900">
+                    {row.customerName?.trim() || '—'}
+                  </p>
+                )}
+              </div>
               <ComprasDetailField label="Tipo" value={TYPE_LABEL[row.type]} />
               <ComprasDetailField label="Prioridade" value={row.priority} />
               <div>

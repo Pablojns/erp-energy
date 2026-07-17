@@ -813,6 +813,7 @@ model PurchaseRequest {
   sku             String?
   itemName        String?
   quantity        Int?
+  customerName    String?
   clientDeadline  DateTime?
   link            String?
   logoPlaceholder String? // campo reservado para logo futura
@@ -1036,6 +1037,18 @@ model Quote {
   paymentTerms      String?
   paymentMethod     String?
 
+  /// Comissão % (padrão 2) — visível a todos; entra no preço unitário
+  commissionPercent     Decimal  @default(2) @db.Decimal(8, 4)
+  /// Margem de reserva % (padrão 6) — visível a todos; entra no preço unitário
+  marginReservePercent  Decimal  @default(6) @db.Decimal(8, 4)
+  /// Margem de venda % (padrão 78,070175438596) — confidencial, só Julia; entra no preço final
+  salesMarginPercent    Decimal  @default(78.070175438596) @db.Decimal(16, 12)
+  /// Difal / ST — valor absoluto (R$) ou percentual conforme difalIsPercent
+  difalValue            Decimal? @db.Decimal(12, 4)
+  difalIsPercent        Boolean  @default(false)
+  /// Outros custos extras (R$)
+  otherExtraCosts       Decimal? @default(0) @db.Decimal(12, 2)
+
   linkedCrmCardId   String?
   linkedOrderId     String?
 
@@ -1059,6 +1072,12 @@ model QuoteItem {
   description      String
   imageUrl         String?
   engraving        String?
+  engravingTechniqueId String?
+  engravingTechnique   EngravingTechnique? @relation(fields: [engravingTechniqueId], references: [id], onDelete: SetNull)
+  /// Preço unitário da gravação (faixa ou manual)
+  engravingPrice   Decimal? @db.Decimal(12, 4)
+  /// Preço do produto (catálogo / editável), sem gravação
+  productPrice     Decimal? @db.Decimal(12, 2)
   /// XBZ | SPOT | null (manual)
   supplier         String?
   requiresArtwork  Boolean @default(false)
@@ -1067,11 +1086,14 @@ model QuoteItem {
   /// Base64 do arquivo de arte (imagem/PDF) quando requiresArtwork.
   artworkData      String?
   quantity         Int
-  unitPrice        Decimal @db.Decimal(12, 2)
-  total            Decimal @db.Decimal(12, 2)
+  /// Preço unitário final com precisão (arredonda a 2 casas só na exibição)
+  unitPrice        Decimal @db.Decimal(18, 8)
+  /// Total da linha = unitPrice preciso × quantidade (sem arredondar unitário antes)
+  total            Decimal @db.Decimal(18, 8)
   order            Int     @default(0)
 
   @@index([quoteId])
+  @@index([engravingTechniqueId])
 }
 
 model QuoteProposal {
@@ -1090,6 +1112,16 @@ model QuoteProposal {
 
   @@index([quoteId])
   @@index([createdAt])
+}
+
+/// Faixas de margem de venda por quantidade (editáveis pela Julia)
+model SalesMarginTier {
+  id            String  @id @default(cuid())
+  qtyFrom       Int
+  qtyTo         Int
+  marginPercent Decimal @db.Decimal(16, 12)
+
+  @@index([qtyFrom, qtyTo])
 }
 
 model QuoteCatalogProduct {
@@ -1171,6 +1203,7 @@ model EngravingTechnique {
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   tiers           EngravingPriceTier[]
+  quoteItems      QuoteItem[]
 
   @@unique([name])
   @@index([active])

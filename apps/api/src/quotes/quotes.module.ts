@@ -14,8 +14,7 @@ import { EngravingService } from './engraving/engraving.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, PermissionsModule, CrmModule],
-  // Importante: registrar primeiro o engraving (rota fixa /engraving)
-  // para não deixar Express resolver /api/quotes/engraving como /api/quotes/:id.
+  // Rotas fixas antes de QuotesController (:id)
   controllers: [EngravingController, QuotesController],
   providers: [
     QuotesService,

@@ -139,6 +139,7 @@ export function ComprasNewRequestModal(props: {
   const [itemPrice, setItemPrice] = useState('');
   const [engravingPrice, setEngravingPrice] = useState('');
   const [saleOrderRef, setSaleOrderRef] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const [observation, setObservation] = useState('');
   const [imageDrafts, setImageDrafts] = useState<ImageDraft[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -308,6 +309,7 @@ export function ComprasNewRequestModal(props: {
     if (isMarketplace && saleOrderRef.trim()) {
       formData.set('saleOrderRef', saleOrderRef.trim());
     }
+    if (customerName.trim()) formData.set('customerName', customerName.trim());
     if (observation.trim()) formData.set('observation', observation.trim());
     imageDrafts.forEach((draft) => formData.append('images', draft.file));
   };
@@ -733,6 +735,16 @@ export function ComprasNewRequestModal(props: {
         </div>
 
         {!isWeg ? imagesField : null}
+
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-gray-600">Nome do Cliente</span>
+          <input
+            value={customerName}
+            onChange={(e) => setCustomerName(e.target.value)}
+            className={fieldClass()}
+            placeholder="Opcional"
+          />
+        </label>
 
         <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
           <div>

@@ -24,7 +24,19 @@ import type { QuoteDashboardPeriod } from './dto/quote-dashboard-query.dto';
 import type { UpdateQuoteDto } from './dto/update-quote.dto';
 import type { UpdateQuoteItemDto } from './dto/update-quote-item.dto';
 import type { QuoteStatus } from './dto/create-quote.dto';
-
+import {
+  calcEngravingUnitPrice,
+  roundMoney,
+} from './engraving-price.util';
+import {
+  calcQuoteItemUnitPriceDecimal,
+  DEFAULT_SALES_MARGIN_PERCENT,
+  quotePricingFactor,
+  roundMoneyDecimal,
+  toDecimal,
+  toNumDecimal,
+} from './quote-pricing.util';
+import { canViewQuoteMargin } from './quote-margin-access';
 const NEXT_QUOTE_CODE_LOCK = 88442201;
 const NEXT_ORDER_CODE_LOCK = 77441100;
 
@@ -70,6 +82,12 @@ export class QuotesService {
     total: Prisma.Decimal;
     paymentTerms: string | null;
     paymentMethod: string | null;
+    commissionPercent?: Prisma.Decimal | null;
+    marginReservePercent?: Prisma.Decimal | null;
+    salesMarginPercent?: Prisma.Decimal | null;
+    difalValue?: Prisma.Decimal | null;
+    difalIsPercent?: boolean;
+    otherExtraCosts?: Prisma.Decimal | null;
     linkedCrmCardId: string | null;
     linkedOrderId: string | null;
     createdAt: Date;
@@ -81,6 +99,9 @@ export class QuotesService {
       description: string;
       imageUrl: string | null;
       engraving: string | null;
+      engravingTechniqueId?: string | null;
+      engravingPrice?: Prisma.Decimal | null;
+      productPrice?: Prisma.Decimal | null;
       supplier: string | null;
       requiresArtwork: boolean;
       artworkFileName: string | null;
@@ -102,7 +123,8 @@ export class QuotesService {
       total: Prisma.Decimal;
       createdAt: Date;
     }>;
-  }) {
+  }, viewer?: { id?: string; email?: string; name?: string } | null) {
+    const showSalesMargin = canViewQuoteMargin(viewer);
     return {
       id: row.id,
       code: row.code,
@@ -130,6 +152,22 @@ export class QuotesService {
       total: row.total.toString(),
       paymentTerms: row.paymentTerms,
       paymentMethod: row.paymentMethod,
+      commissionPercent: (
+        row.commissionPercent ?? new Prisma.Decimal(2)
+      ).toString(),
+      marginReservePercent: (
+        row.marginReservePercent ?? new Prisma.Decimal(6)
+      ).toString(),
+      ...(showSalesMargin
+        ? {
+            salesMarginPercent: (
+              row.salesMarginPercent ??
+              new Prisma.Decimal(DEFAULT_SALES_MARGIN_PERCENT)
+            ).toString(),
+          }
+        : {}),
+      difalValue: row.difalValue?.toString() ?? '0',
+      otherExtraCosts: row.otherExtraCosts?.toString() ?? '0',
       linkedCrmCardId: row.linkedCrmCardId,
       linkedOrderId: row.linkedOrderId,
       createdAt: row.createdAt.toISOString(),
@@ -141,14 +179,18 @@ export class QuotesService {
         description: it.description,
         imageUrl: it.imageUrl,
         engraving: it.engraving,
+        engravingTechniqueId: it.engravingTechniqueId ?? null,
+        engravingPrice: it.engravingPrice?.toString() ?? null,
+        productPrice: it.productPrice?.toString() ?? null,
         supplier: it.supplier ?? null,
         requiresArtwork: Boolean(it.requiresArtwork),
         artworkFileName: it.artworkFileName ?? null,
         artworkMimeType: it.artworkMimeType ?? null,
         artworkData: it.artworkData ?? null,
         quantity: it.quantity,
-        unitPrice: it.unitPrice.toString(),
-        total: it.total.toString(),
+        // Exibição: 2 casas; valor persistido no DB mantém precisão completa
+        unitPrice: roundMoneyDecimal(it.unitPrice, 2).toFixed(2),
+        total: roundMoneyDecimal(it.total, 2).toFixed(2),
         order: it.order,
       })),
       proposals: (row.proposals ?? []).map((p) => ({
@@ -239,11 +281,33 @@ export class QuotesService {
     if (dto.linkedOrderId !== undefined) {
       data.linkedOrderId = dto.linkedOrderId?.trim() || null;
     }
+    if (dto.commissionPercent !== undefined) {
+      data.commissionPercent = new Prisma.Decimal(dto.commissionPercent);
+    }
+    if (dto.marginReservePercent !== undefined) {
+      data.marginReservePercent = new Prisma.Decimal(dto.marginReservePercent);
+    }
+    if (dto.salesMarginPercent !== undefined) {
+      data.salesMarginPercent = new Prisma.Decimal(dto.salesMarginPercent);
+    }
+    if (dto.difalValue !== undefined) {
+      data.difalValue = this.decimal(dto.difalValue);
+    }
+    if (dto.difalIsPercent !== undefined) {
+      data.difalIsPercent = dto.difalIsPercent;
+    }
+    if (dto.otherExtraCosts !== undefined) {
+      data.otherExtraCosts =
+        this.decimal(dto.otherExtraCosts) ?? new Prisma.Decimal(0);
+    }
 
     return data;
   }
 
-  async findMany(query: ListQuotesQueryDto) {
+  async findMany(
+    query: ListQuotesQueryDto,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize =
       query.pageSize && query.pageSize > 0 && query.pageSize <= 100
@@ -293,7 +357,7 @@ export class QuotesService {
     ]);
 
     return {
-      data: rows.map((row) => this.serialize(row)),
+      data: rows.map((row) => this.serialize(row, viewer)),
       meta: {
         page,
         pageSize,
@@ -303,7 +367,10 @@ export class QuotesService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(
+    id: string,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const row = await this.prisma.client.quote.findUnique({
       where: { id },
       include: {
@@ -312,10 +379,17 @@ export class QuotesService {
       },
     });
     if (!row) throw new NotFoundException('Orçamento não encontrado.');
-    return this.serialize(row);
+    return this.serialize(row, viewer);
   }
 
-  async create(dto: CreateQuoteDto) {
+  async create(
+    dto: CreateQuoteDto,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
+    if (!canViewQuoteMargin(viewer)) {
+      delete (dto as { salesMarginPercent?: number }).salesMarginPercent;
+    }
+
     let linkedCrmCardId = dto.linkedCrmCardId?.trim() || null;
 
     if (linkedCrmCardId) {
@@ -351,6 +425,10 @@ export class QuotesService {
           origin: dto.origin ?? 'SISTEMA',
           requestDate: dto.requestDate ? new Date(dto.requestDate) : new Date(),
           linkedCrmCardId,
+          // Garante margem de venda padrão da Julia mesmo se o DTO omitir o campo
+          salesMarginPercent:
+            (data as { salesMarginPercent?: Prisma.Decimal }).salesMarginPercent ??
+            new Prisma.Decimal(DEFAULT_SALES_MARGIN_PERCENT),
         },
         include: {
           items: { orderBy: { order: 'asc' } },
@@ -358,25 +436,59 @@ export class QuotesService {
         },
       });
     });
-    return this.serialize(created);
+    return this.serialize(created, viewer);
   }
 
-  async update(id: string, dto: UpdateQuoteDto) {
+  async update(
+    id: string,
+    dto: UpdateQuoteDto,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const existing = await this.prisma.client.quote.findUnique({
       where: { id },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        commissionPercent: true,
+        marginReservePercent: true,
+        salesMarginPercent: true,
+      },
     });
     if (!existing) throw new NotFoundException('Orçamento não encontrado.');
 
+    if (dto.salesMarginPercent !== undefined && !canViewQuoteMargin(viewer)) {
+      throw new BadRequestException(
+        'Sem permissão para alterar a margem de venda.',
+      );
+    }
+
+    const pricingTouched =
+      dto.commissionPercent !== undefined ||
+      dto.marginReservePercent !== undefined ||
+      dto.salesMarginPercent !== undefined;
+
     const freightTouched =
       dto.freightValue !== undefined || dto.freightToConsult !== undefined;
+
+    const extrasTouched =
+      dto.difalValue !== undefined || dto.otherExtraCosts !== undefined;
 
     const updated = await this.prisma.client.$transaction(async (tx) => {
       await tx.quote.update({
         where: { id },
         data: this.buildData(dto) as Prisma.QuoteUncheckedUpdateInput,
       });
-      if (freightTouched) {
+      if (pricingTouched || extrasTouched) {
+        await this.recalcItemUnitPrices(tx, id, {
+          commissionPercent: toNumDecimal(existing.commissionPercent, 2),
+          marginReservePercent: toNumDecimal(existing.marginReservePercent, 6),
+          salesMarginPercent: toNumDecimal(
+            existing.salesMarginPercent,
+            DEFAULT_SALES_MARGIN_PERCENT,
+          ),
+        });
+      }
+      if (freightTouched || pricingTouched || extrasTouched) {
         await this.recalcTotals(tx, id);
       }
       return tx.quote.findUniqueOrThrow({
@@ -392,7 +504,7 @@ export class QuotesService {
       await this.handleStatusSideEffects(updated, existing.status);
     }
 
-    return this.serialize(updated);
+    return this.serialize(updated, viewer);
   }
 
   async updateStatus(id: string, status: QuoteStatus) {
@@ -441,16 +553,22 @@ export class QuotesService {
     });
     if (!quote) throw new NotFoundException('Orçamento não encontrado.');
 
-    const agg = await tx.quoteItem.aggregate({
+    // Soma totais de linha com precisão completa; arredonda só o resultado
+    const items = await tx.quoteItem.findMany({
       where: { quoteId },
-      _sum: { total: true },
+      select: { total: true },
     });
-    const subtotal = agg._sum.total ?? new Prisma.Decimal(0);
+    let subtotalPrecise = new Prisma.Decimal(0);
+    for (const item of items) {
+      subtotalPrecise = subtotalPrecise.add(item.total);
+    }
     const freight =
       quote.freightToConsult || !quote.freightValue
         ? new Prisma.Decimal(0)
         : quote.freightValue;
-    const total = subtotal.add(freight);
+    const totalPrecise = subtotalPrecise.add(freight);
+    const subtotal = roundMoneyDecimal(subtotalPrecise, 2);
+    const total = roundMoneyDecimal(totalPrecise, 2);
 
     await tx.quote.update({
       where: { id: quoteId },
@@ -458,7 +576,146 @@ export class QuotesService {
     });
   }
 
-  private async loadQuoteSerialized(id: string) {
+  /** Preço unitário com precisão completa (não arredonda). */
+  private resolveItemUnitPrice(input: {
+    productPrice: Prisma.Decimal;
+    engravingPrice: Prisma.Decimal | null;
+    commissionPercent: Prisma.Decimal | number | string;
+    marginReservePercent: Prisma.Decimal | number | string;
+    salesMarginPercent: Prisma.Decimal | number | string;
+    quantity: number;
+    difalValue: Prisma.Decimal | number | string;
+    otherExtraCosts: Prisma.Decimal | number | string;
+    explicitUnitPrice?: Prisma.Decimal | null;
+  }): Prisma.Decimal {
+    if (
+      input.explicitUnitPrice !== undefined &&
+      input.explicitUnitPrice !== null
+    ) {
+      return input.explicitUnitPrice;
+    }
+    return calcQuoteItemUnitPriceDecimal({
+      productPrice: input.productPrice,
+      engravingPrice: input.engravingPrice,
+      commissionPercent: input.commissionPercent,
+      marginReservePercent: input.marginReservePercent,
+      salesMarginPercent: input.salesMarginPercent,
+      quantity: input.quantity,
+      difalValue: input.difalValue,
+      otherExtraCosts: input.otherExtraCosts,
+    });
+  }
+
+  private resolveItemLineTotal(input: {
+    productPrice: Prisma.Decimal;
+    engravingPrice: Prisma.Decimal | null;
+    commissionPercent: Prisma.Decimal | number | string;
+    marginReservePercent: Prisma.Decimal | number | string;
+    salesMarginPercent: Prisma.Decimal | number | string;
+    quantity: number;
+    difalValue: Prisma.Decimal | number | string;
+    otherExtraCosts: Prisma.Decimal | number | string;
+    explicitUnitPrice?: Prisma.Decimal | null;
+  }): { unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal } {
+    const unitPrecise = this.resolveItemUnitPrice(input);
+    // Brinde.me: arredonda unitário (2 casas) e só então multiplica pela qtd.
+    const unitPrice = roundMoneyDecimal(unitPrecise, 2);
+    const qty =
+      input.quantity > 0 ? new Prisma.Decimal(input.quantity) : new Prisma.Decimal(1);
+    const lineTotal = unitPrice.mul(qty);
+    return { unitPrice, lineTotal };
+  }
+
+  private async recalcItemUnitPrices(
+    tx: Prisma.TransactionClient,
+    quoteId: string,
+    previousRates?: {
+      commissionPercent: number;
+      marginReservePercent: number;
+      salesMarginPercent: number;
+    },
+  ): Promise<void> {
+    const quote = await tx.quote.findUniqueOrThrow({
+      where: { id: quoteId },
+      select: {
+        commissionPercent: true,
+        marginReservePercent: true,
+        salesMarginPercent: true,
+        difalValue: true,
+        otherExtraCosts: true,
+        items: true,
+      },
+    });
+    const commission = toDecimal(quote.commissionPercent, 2);
+    const reserve = toDecimal(quote.marginReservePercent, 6);
+    const sales = toDecimal(
+      quote.salesMarginPercent,
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    const difal = toDecimal(quote.difalValue);
+    const otherExtras = toDecimal(quote.otherExtraCosts);
+    const prevCommission = toDecimal(
+      previousRates?.commissionPercent ?? commission,
+      2,
+    );
+    const prevReserve = toDecimal(
+      previousRates?.marginReservePercent ?? reserve,
+      6,
+    );
+
+    for (const item of quote.items) {
+      const eng = toDecimal(item.engravingPrice);
+      const qty = item.quantity > 0 ? item.quantity : 1;
+      const prevSales = toDecimal(
+        previousRates?.salesMarginPercent ?? sales,
+        DEFAULT_SALES_MARGIN_PERCENT,
+      );
+      const prevFactor = quotePricingFactor(
+        prevCommission,
+        prevReserve,
+        prevSales,
+      );
+      const extrasPerUnit = difal.add(otherExtras).div(qty);
+      let productPrice = item.productPrice;
+
+      if (productPrice == null) {
+        const rawUnit = toDecimal(item.unitPrice);
+        const base = prevFactor.greaterThan(0)
+          ? rawUnit.div(prevFactor)
+          : rawUnit;
+        const inferred = base.sub(eng).sub(extrasPerUnit);
+        productPrice = roundMoneyDecimal(
+          inferred.lessThan(0) ? new Prisma.Decimal(0) : inferred,
+          2,
+        );
+      }
+
+      const { unitPrice, lineTotal } = this.resolveItemLineTotal({
+        productPrice,
+        engravingPrice: item.engravingPrice,
+        commissionPercent: commission,
+        marginReservePercent: reserve,
+        salesMarginPercent: sales,
+        quantity: qty,
+        difalValue: difal,
+        otherExtraCosts: otherExtras,
+      });
+
+      await tx.quoteItem.update({
+        where: { id: item.id },
+        data: {
+          ...(item.productPrice == null ? { productPrice } : {}),
+          unitPrice,
+          total: lineTotal,
+        },
+      });
+    }
+  }
+
+  private async loadQuoteSerialized(
+    id: string,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const row = await this.prisma.client.quote.findUnique({
       where: { id },
       include: {
@@ -467,23 +724,42 @@ export class QuotesService {
       },
     });
     if (!row) throw new NotFoundException('Orçamento não encontrado.');
-    return this.serialize(row);
+    return this.serialize(row, viewer);
   }
 
-  async addItem(quoteId: string, dto: CreateQuoteItemDto) {
+  async addItem(
+    quoteId: string,
+    dto: CreateQuoteItemDto,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const quote = await this.prisma.client.quote.findUnique({
       where: { id: quoteId },
-      select: { id: true },
+      select: {
+        id: true,
+        commissionPercent: true,
+        marginReservePercent: true,
+        salesMarginPercent: true,
+        difalValue: true,
+        otherExtraCosts: true,
+      },
     });
     if (!quote) throw new NotFoundException('Orçamento não encontrado.');
 
+    const commission = toDecimal(quote.commissionPercent, 2);
+    const reserve = toDecimal(quote.marginReservePercent, 6);
+    const sales = toDecimal(
+      quote.salesMarginPercent,
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    const difal = toDecimal(quote.difalValue);
+    const otherExtras = toDecimal(quote.otherExtraCosts);
     let sku = dto.sku?.trim() || '';
     let description = dto.description?.trim() || '';
     let imageUrl = dto.imageUrl?.trim() || null;
     let supplier = dto.supplier?.trim() || null;
-    let unitPrice =
-      dto.unitPrice !== undefined && dto.unitPrice !== null
-        ? new Prisma.Decimal(dto.unitPrice)
+    let productPrice =
+      dto.productPrice !== undefined && dto.productPrice !== null
+        ? new Prisma.Decimal(dto.productPrice)
         : null;
 
     if (dto.catalogProductId) {
@@ -497,22 +773,64 @@ export class QuotesService {
       description = description || catalog.name;
       imageUrl = imageUrl ?? catalog.imageUrl;
       supplier = supplier || catalog.supplier || null;
-      if (unitPrice === null) unitPrice = catalog.salePrice;
+      if (productPrice === null) productPrice = catalog.salePrice;
     }
 
     if (!sku) {
       throw new BadRequestException('Informe o SKU ou um produto do catálogo.');
     }
     if (!description) description = sku;
-    if (unitPrice === null) unitPrice = new Prisma.Decimal(0);
-
-    const engraving = dto.engraving?.trim() || null;
-    const requiresArtwork =
-      dto.requiresArtwork ??
-      (supplier === 'SPOT' && Boolean(engraving));
+    if (productPrice === null) {
+      productPrice =
+        dto.unitPrice !== undefined && dto.unitPrice !== null
+          ? new Prisma.Decimal(dto.unitPrice)
+          : new Prisma.Decimal(0);
+    }
 
     const quantity = dto.quantity;
-    const lineTotal = unitPrice.mul(quantity);
+    let engravingTechniqueId = dto.engravingTechniqueId?.trim() || null;
+    let engraving = dto.engraving?.trim() || null;
+    let engravingPrice: Prisma.Decimal | null =
+      dto.engravingPrice !== undefined && dto.engravingPrice !== null
+        ? new Prisma.Decimal(dto.engravingPrice)
+        : null;
+
+    if (engravingTechniqueId) {
+      const technique = await this.prisma.client.engravingTechnique.findUnique({
+        where: { id: engravingTechniqueId },
+        include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
+      });
+      if (!technique) {
+        throw new BadRequestException('Técnica de gravação não encontrada.');
+      }
+      engraving = engraving || technique.name;
+      if (engravingPrice === null) {
+        const calc = calcEngravingUnitPrice(technique.tiers, quantity);
+        engravingPrice =
+          calc === null ? null : new Prisma.Decimal(roundMoney(calc, 4));
+      }
+    } else if (dto.engravingTechniqueId === null) {
+      engravingTechniqueId = null;
+    }
+
+    const { unitPrice, lineTotal } = this.resolveItemLineTotal({
+      productPrice,
+      engravingPrice,
+      commissionPercent: commission,
+      marginReservePercent: reserve,
+      salesMarginPercent: sales,
+      quantity,
+      difalValue: difal,
+      otherExtraCosts: otherExtras,
+      explicitUnitPrice:
+        dto.unitPrice !== undefined && dto.unitPrice !== null
+          ? new Prisma.Decimal(dto.unitPrice)
+          : null,
+    });
+
+    const requiresArtwork =
+      dto.requiresArtwork ??
+      (supplier === 'SPOT' && Boolean(engraving || engravingTechniqueId));
 
     await this.prisma.client.$transaction(async (tx) => {
       const maxOrder = await tx.quoteItem.aggregate({
@@ -526,6 +844,9 @@ export class QuotesService {
           description,
           imageUrl,
           engraving,
+          engravingTechniqueId,
+          engravingPrice,
+          productPrice,
           supplier,
           requiresArtwork,
           artworkFileName: dto.artworkFileName?.trim() || null,
@@ -540,30 +861,132 @@ export class QuotesService {
       await this.recalcTotals(tx, quoteId);
     });
 
-    return this.loadQuoteSerialized(quoteId);
+    return this.loadQuoteSerialized(quoteId, viewer);
   }
 
   async updateItem(
     quoteId: string,
     itemId: string,
     dto: UpdateQuoteItemDto,
+    viewer?: { id?: string; email?: string; name?: string } | null,
   ) {
     const item = await this.prisma.client.quoteItem.findFirst({
       where: { id: itemId, quoteId },
     });
     if (!item) throw new NotFoundException('Item do orçamento não encontrado.');
 
-    const quantity = dto.quantity ?? item.quantity;
-    const unitPrice =
-      dto.unitPrice !== undefined && dto.unitPrice !== null
-        ? new Prisma.Decimal(dto.unitPrice)
-        : item.unitPrice;
-    const lineTotal = unitPrice.mul(quantity);
+    const quote = await this.prisma.client.quote.findUniqueOrThrow({
+      where: { id: quoteId },
+      select: {
+        commissionPercent: true,
+        marginReservePercent: true,
+        salesMarginPercent: true,
+        difalValue: true,
+        otherExtraCosts: true,
+      },
+    });
+    const commission = toDecimal(quote.commissionPercent, 2);
+    const reserve = toDecimal(quote.marginReservePercent, 6);
+    const sales = toDecimal(
+      quote.salesMarginPercent,
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    const difal = toDecimal(quote.difalValue);
+    const otherExtras = toDecimal(quote.otherExtraCosts);
 
-    const nextEngraving =
+    const quantity = dto.quantity ?? item.quantity;
+    let productPrice =
+      dto.productPrice !== undefined
+        ? dto.productPrice === null
+          ? null
+          : new Prisma.Decimal(dto.productPrice)
+        : item.productPrice;
+    if (productPrice === null) {
+      productPrice = item.unitPrice;
+    }
+
+    let engravingTechniqueId =
+      dto.engravingTechniqueId !== undefined
+        ? dto.engravingTechniqueId?.trim() || null
+        : item.engravingTechniqueId;
+    let engraving =
       dto.engraving !== undefined
         ? dto.engraving?.trim() || null
         : item.engraving;
+    let engravingPrice =
+      dto.engravingPrice !== undefined
+        ? dto.engravingPrice === null
+          ? null
+          : new Prisma.Decimal(dto.engravingPrice)
+        : item.engravingPrice;
+
+    const techniqueChanging =
+      dto.engravingTechniqueId !== undefined ||
+      (dto.quantity !== undefined && Boolean(engravingTechniqueId));
+    const shouldRecalcEngraving =
+      techniqueChanging &&
+      dto.engravingPrice === undefined &&
+      engravingTechniqueId;
+
+    if (shouldRecalcEngraving && engravingTechniqueId) {
+      const technique = await this.prisma.client.engravingTechnique.findUnique({
+        where: { id: engravingTechniqueId },
+        include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
+      });
+      if (!technique) {
+        throw new BadRequestException('Técnica de gravação não encontrada.');
+      }
+      if (dto.engravingTechniqueId !== undefined) {
+        engraving = technique.name;
+      }
+      const calc = calcEngravingUnitPrice(technique.tiers, quantity);
+      engravingPrice =
+        calc === null ? null : new Prisma.Decimal(roundMoney(calc, 4));
+    }
+
+    if (dto.engravingTechniqueId === null) {
+      engravingTechniqueId = null;
+      if (dto.engraving === undefined) engraving = null;
+      if (dto.engravingPrice === undefined) engravingPrice = null;
+    }
+
+    const shouldRecalcUnit =
+      dto.unitPrice === undefined &&
+      (dto.productPrice !== undefined ||
+        dto.engravingPrice !== undefined ||
+        shouldRecalcEngraving ||
+        dto.engravingTechniqueId !== undefined ||
+        dto.quantity !== undefined);
+
+    const priced =
+      dto.unitPrice !== undefined && dto.unitPrice !== null
+        ? (() => {
+            const unitPrice = roundMoneyDecimal(dto.unitPrice, 2);
+            return {
+              unitPrice,
+              lineTotal: unitPrice.mul(quantity),
+            };
+          })()
+        : shouldRecalcUnit
+          ? this.resolveItemLineTotal({
+              productPrice,
+              engravingPrice,
+              commissionPercent: commission,
+              marginReservePercent: reserve,
+              salesMarginPercent: sales,
+              quantity,
+              difalValue: difal,
+              otherExtraCosts: otherExtras,
+            })
+          : (() => {
+              const unitPrice = roundMoneyDecimal(item.unitPrice, 2);
+              return {
+                unitPrice,
+                lineTotal: unitPrice.mul(quantity),
+              };
+            })();
+    const { unitPrice, lineTotal } = priced;
+
     const nextSupplier =
       dto.supplier !== undefined
         ? dto.supplier?.trim() || null
@@ -571,7 +994,8 @@ export class QuotesService {
     const nextRequiresArtwork =
       dto.requiresArtwork !== undefined
         ? dto.requiresArtwork
-        : nextSupplier === 'SPOT' && Boolean(nextEngraving);
+        : nextSupplier === 'SPOT' &&
+          Boolean(engraving || engravingTechniqueId);
 
     await this.prisma.client.$transaction(async (tx) => {
       await tx.quoteItem.update({
@@ -580,9 +1004,10 @@ export class QuotesService {
           ...(dto.description !== undefined
             ? { description: dto.description.trim() || item.description }
             : {}),
-          ...(dto.engraving !== undefined
-            ? { engraving: nextEngraving }
-            : {}),
+          engraving,
+          engravingTechniqueId,
+          engravingPrice,
+          productPrice,
           ...(dto.supplier !== undefined ? { supplier: nextSupplier } : {}),
           requiresArtwork: nextRequiresArtwork,
           ...(dto.artworkFileName !== undefined
@@ -594,7 +1019,9 @@ export class QuotesService {
           ...(dto.artworkData !== undefined
             ? { artworkData: dto.artworkData?.trim() || null }
             : {}),
-          ...(!nextRequiresArtwork && dto.engraving !== undefined
+          ...(!nextRequiresArtwork &&
+          (dto.engraving !== undefined ||
+            dto.engravingTechniqueId !== undefined)
             ? {
                 artworkFileName: null,
                 artworkMimeType: null,
@@ -609,10 +1036,14 @@ export class QuotesService {
       await this.recalcTotals(tx, quoteId);
     });
 
-    return this.loadQuoteSerialized(quoteId);
+    return this.loadQuoteSerialized(quoteId, viewer);
   }
 
-  async removeItem(quoteId: string, itemId: string) {
+  async removeItem(
+    quoteId: string,
+    itemId: string,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
     const item = await this.prisma.client.quoteItem.findFirst({
       where: { id: itemId, quoteId },
       select: { id: true },
@@ -624,7 +1055,7 @@ export class QuotesService {
       await this.recalcTotals(tx, quoteId);
     });
 
-    return this.loadQuoteSerialized(quoteId);
+    return this.loadQuoteSerialized(quoteId, viewer);
   }
 
   private async handleStatusSideEffects(
@@ -918,6 +1349,7 @@ export class QuotesService {
         quote.freightToConsult || !quote.freightValue
           ? new Prisma.Decimal(0)
           : quote.freightValue;
+      // Difal/extras já embutidos nos unitPrice dos itens
       const totalFixed = subtotalDec.add(freight).toDecimalPlaces(2);
 
       const order = await tx.order.create({

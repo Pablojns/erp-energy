@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   // outro PC/celular). Sem isso, o Next bloqueia com 403 os assets internos
   // (/_next/static/*, HMR) quando o Origin não é "localhost", e a página
   // carrega só o HTML estático (sem hidratar / sem interatividade).
-  allowedDevOrigins: ["192.168.0.11"],
+  allowedDevOrigins: ["192.168.0.7", "192.168.0.11"],
 };
 
 export default nextConfig;

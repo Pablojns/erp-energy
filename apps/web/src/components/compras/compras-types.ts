@@ -59,6 +59,7 @@ export type PurchaseRequest = {
   sku: string | null;
   itemName: string | null;
   quantity: number | null;
+  customerName: string | null;
   clientDeadline: string | null;
   link: string | null;
   logoPlaceholder: string | null;

@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, Min, ValidateIf } from 'class-validator';
+import {
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 export class UpdatePurchaseRequestQuantityDto {
   @IsOptional()
@@ -20,4 +28,10 @@ export class UpdatePurchaseRequestQuantityDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   engravingPrice?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(200)
+  customerName?: string | null;
 }

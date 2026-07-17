@@ -99,6 +99,11 @@ export function ComprasCard(props: {
       <h3 className="truncate text-sm font-semibold text-[var(--erp-fg)] md:line-clamp-2 md:whitespace-normal">
         {displayName(row)}
       </h3>
+      {row.customerName?.trim() ? (
+        <p className="mt-0.5 truncate text-xs font-medium text-[var(--erp-fg-secondary)] md:mt-1">
+          Cliente: {row.customerName.trim()}
+        </p>
+      ) : null}
       {displaySupplierName(row) ? (
         <p className="mt-0.5 hidden truncate text-xs text-[var(--erp-fg-muted)] md:mt-1 md:block">
           {displaySupplierName(row)}

@@ -278,6 +278,12 @@ export class XbzIntegrationService {
     page?: number;
     pageSize?: number;
     includeTotal?: boolean;
+    sortBy?: 'price' | 'name' | 'stock' | 'lastUpdate';
+    sortOrder?: 'asc' | 'desc';
+    minPrice?: number;
+    maxPrice?: number;
+    supplier?: string;
+    inStockOnly?: boolean;
   }) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize =
@@ -285,6 +291,7 @@ export class XbzIntegrationService {
         ? query.pageSize
         : 20;
     const includeTotal = query.includeTotal !== false;
+    const sortOrder = query.sortOrder === 'desc' ? 'desc' : 'asc';
 
     const where: Prisma.QuoteCatalogProductWhereInput = {};
     if (query.active !== undefined) where.active = query.active;
@@ -300,10 +307,47 @@ export class XbzIntegrationService {
       ];
     }
 
+    const supplier = query.supplier?.trim();
+    if (supplier) {
+      where.supplier = { equals: supplier, mode: 'insensitive' };
+    }
+
+    if (query.inStockOnly) {
+      where.availableQty = { gt: 0 };
+    }
+
+    const priceFilter: Prisma.DecimalFilter = {};
+    if (query.minPrice !== undefined && Number.isFinite(query.minPrice)) {
+      priceFilter.gte = new Prisma.Decimal(query.minPrice);
+    }
+    if (query.maxPrice !== undefined && Number.isFinite(query.maxPrice)) {
+      priceFilter.lte = new Prisma.Decimal(query.maxPrice);
+    }
+    if (Object.keys(priceFilter).length > 0) {
+      where.salePrice = priceFilter;
+    }
+
+    let orderBy: Prisma.QuoteCatalogProductOrderByWithRelationInput[];
+    switch (query.sortBy) {
+      case 'price':
+        orderBy = [{ salePrice: sortOrder }, { name: 'asc' }];
+        break;
+      case 'stock':
+        orderBy = [{ availableQty: sortOrder }, { name: 'asc' }];
+        break;
+      case 'lastUpdate':
+        orderBy = [{ lastSyncAt: sortOrder }, { name: 'asc' }];
+        break;
+      case 'name':
+      default:
+        orderBy = [{ name: sortOrder }];
+        break;
+    }
+
     const controlPromise = this.getSyncControl();
     const rowsPromise = this.prisma.client.quoteCatalogProduct.findMany({
       where,
-      orderBy: [{ name: 'asc' }],
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
