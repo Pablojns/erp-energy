@@ -320,10 +320,10 @@ export class PedidosService {
         baseWhere,
         PedidosService.separationMinDateWhere(),
         {
+          // Só pedidos deliberadamente enviados ao fluxo de Separação
+          // (não incluir PARCIAL/RESERVADO — ainda estão na aba Pedidos).
           status: {
             in: [
-              OrderStatus.PARCIAL,
-              OrderStatus.RESERVADO,
               OrderStatus.EM_SEPARACAO,
               OrderStatus.SEPARADO,
               OrderStatus.AGUARDANDO_NF,

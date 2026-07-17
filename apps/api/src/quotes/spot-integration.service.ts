@@ -12,10 +12,21 @@ import type { CatalogSyncResult } from './xbz-integration.service';
 const SYNC_CONTROL_ID = 'spot';
 const SUPPLIER = 'SPOT';
 const DEFAULT_BASE_URL = 'https://ws.spotgifts.com.br/api/v1SSL';
-/** Margem de segurança antes do vencimento real do token (ms). */
+/** Margem de segurança antes do vencimento armazenado (ms). */
 const TOKEN_SKEW_MS = 60_000;
-/** Validade padrão quando a API não informa expiração (55 min). */
-const DEFAULT_TOKEN_TTL_MS = 55 * 60_000;
+/**
+ * Validade máxima local do token SPOT (sessões curtas / ErrorCode 22).
+ * Mesmo que a API não informe expiry, não reutilizamos além disso.
+ */
+const MAX_TOKEN_TTL_MS = 5 * 60_000;
+/** Validade padrão quando a API não informa expiração. */
+const DEFAULT_TOKEN_TTL_MS = MAX_TOKEN_TTL_MS;
+/** ErrorCode SPOT para sessão inválida/expirada. */
+const SPOT_INVALID_SESSION_CODE = '22';
+/** Tentativas para 502/503/rede (inclui a primeira). */
+const SPOT_NETWORK_RETRY_ATTEMPTS = 3;
+/** Delay entre retries de rede/servidor (ms). */
+const SPOT_NETWORK_RETRY_DELAY_MS = 2_000;
 
 export type SpotOrderLineInput = {
   sku: string;
@@ -166,28 +177,109 @@ export class SpotIntegrationService {
     return null;
   }
 
-  private logSpotFailure(context: string, err: unknown): void {
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** 502/503/504, timeout ou falha de rede — retryável. */
+  private isTransientSpotError(err: unknown): boolean {
     const axiosErr = err as AxiosError | undefined;
     const status = axiosErr?.response?.status;
+    if (status === 502 || status === 503 || status === 504) return true;
+
+    const code = axiosErr?.code ?? (err as { code?: string } | undefined)?.code;
+    if (
+      code === 'ECONNRESET' ||
+      code === 'ECONNREFUSED' ||
+      code === 'ENOTFOUND' ||
+      code === 'ETIMEDOUT' ||
+      code === 'EAI_AGAIN' ||
+      code === 'ERR_NETWORK' ||
+      code === 'ECONNABORTED'
+    ) {
+      return true;
+    }
+
+    const detail =
+      err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
+    if (/status code 502|status code 503|status code 504|timeout|network/i.test(detail)) {
+      return true;
+    }
+
+    // Sem response HTTP = falha de transporte
+    if (axiosErr && !axiosErr.response && axiosErr.request) return true;
+
+    return false;
+  }
+
+  /** Erro real de autenticação/credenciais (não rede/502). */
+  private isCredentialSpotError(err: unknown): boolean {
+    if (this.isTransientSpotError(err)) return false;
+    const axiosErr = err as AxiosError | undefined;
+    const status = axiosErr?.response?.status;
+    if (status === 401 || status === 403) return true;
+
     const body = axiosErr?.response?.data;
     const detail =
       err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
-    const invalidCreds =
-      status === 401 ||
-      status === 403 ||
-      /invalid|expir|unauthor|access.?key|credencial/i.test(detail) ||
-      (typeof body === 'string' && /invalid|expir|unauthor/i.test(body)) ||
-      (body &&
-        typeof body === 'object' &&
-        /invalid|expir|unauthor/i.test(JSON.stringify(body)));
-
-    if (invalidCreds) {
-      this.logger.error(
-        `SPOT: credenciais inválidas ou expiradas (${context}): ${detail}`,
-      );
-    } else {
-      this.logger.error(`SPOT: falha em ${context}: ${detail}`);
+    if (
+      /invalid.*(key|credential|access)|access.?key|unauthor|credencial/i.test(
+        detail,
+      )
+    ) {
+      return true;
     }
+    if (typeof body === 'string' && /invalid|unauthor|credencial/i.test(body)) {
+      return true;
+    }
+    if (
+      body &&
+      typeof body === 'object' &&
+      /invalid|unauthor|credencial/i.test(JSON.stringify(body))
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private logSpotFailure(context: string, err: unknown): void {
+    const detail =
+      err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
+
+    if (this.isTransientSpotError(err)) {
+      this.logger.error(
+        `SPOT: servidor temporariamente indisponível (${context}): ${detail}`,
+      );
+      return;
+    }
+
+    if (this.isCredentialSpotError(err)) {
+      this.logger.error(`SPOT: Credenciais SPOT inválidas (${context}): ${detail}`);
+      return;
+    }
+
+    this.logger.error(`SPOT: falha em ${context}: ${detail}`);
+  }
+
+  private extractSpotErrorCode(data: unknown): string | null {
+    if (!data || typeof data !== 'object') return null;
+    const raw =
+      (data as Record<string, unknown>).ErrorCode ??
+      (data as Record<string, unknown>).errorCode;
+    if (
+      raw === null ||
+      raw === undefined ||
+      raw === '' ||
+      raw === 0 ||
+      raw === '0'
+    ) {
+      return null;
+    }
+    return String(raw).trim();
+  }
+
+  private isInvalidSessionResponse(data: unknown): boolean {
+    return this.extractSpotErrorCode(data) === SPOT_INVALID_SESSION_CODE;
   }
 
   private async request<T = unknown>(
@@ -198,9 +290,12 @@ export class SpotIntegrationService {
       data?: unknown;
       token?: string;
       timeoutMs?: number;
+      /** Evita loop infinito no retry de ErrorCode 22. */
+      _retriedInvalidSession?: boolean;
     },
   ): Promise<T> {
-    const url = `${this.getBaseUrl()}/${path.replace(/^\//, '')}`;
+    const cleanPath = path.replace(/^\//, '');
+    const url = `${this.getBaseUrl()}/${cleanPath}`;
     const params: Record<string, string | number | boolean> = {};
     if (options?.token) params.token = options.token;
     if (options?.params) {
@@ -210,15 +305,109 @@ export class SpotIntegrationService {
       }
     }
 
-    const response = await axios.request<T>({
-      method,
-      url,
-      params,
-      data: options?.data,
-      timeout: options?.timeoutMs ?? 120_000,
-      validateStatus: (status) => status >= 200 && status < 300,
-    });
-    return response.data;
+    const isProductsDiag = cleanPath.toLowerCase() === 'products';
+    let lastTransientError: unknown;
+
+    for (
+      let attempt = 1;
+      attempt <= SPOT_NETWORK_RETRY_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const response = await axios.request({
+          method,
+          url,
+          params,
+          data: options?.data,
+          timeout: options?.timeoutMs ?? 120_000,
+          validateStatus: (status) => status >= 200 && status < 300,
+          ...(isProductsDiag
+            ? {
+                // Captura body bruto (antes do parse) para diagnóstico
+                responseType: 'text' as const,
+                transformResponse: [(data: unknown) => data],
+              }
+            : {}),
+        });
+
+        let data: unknown = response.data;
+
+        if (isProductsDiag) {
+          const rawBody =
+            typeof response.data === 'string'
+              ? response.data
+              : JSON.stringify(response.data ?? '');
+          const finalUrl = axios.getUri({ url, params });
+          const requestHeaders = response.config.headers ?? {};
+          this.logger.warn(
+            [
+              'SPOT /products raw diagnostic',
+              `status=${response.status}`,
+              `url=${finalUrl}`,
+              `requestHeaders=${JSON.stringify(requestHeaders)}`,
+              `responseHeaders=${JSON.stringify(response.headers ?? {})}`,
+              `bodyLength=${rawBody.length}`,
+              `bodyPreview=${rawBody.slice(0, 500)}`,
+            ].join(' | '),
+          );
+
+          if (!rawBody.trim()) {
+            data = response.data;
+          } else {
+            try {
+              data = JSON.parse(rawBody);
+            } catch {
+              this.logger.warn(
+                `SPOT /products: body não é JSON válido. content-type=${String(response.headers?.['content-type'] ?? '')}`,
+              );
+              data = rawBody;
+            }
+          }
+        }
+
+        const canRetryInvalidSession =
+          Boolean(options?.token) &&
+          !options?._retriedInvalidSession &&
+          cleanPath.toLowerCase() !== 'authenticateclient' &&
+          this.isInvalidSessionResponse(data);
+
+        if (canRetryInvalidSession) {
+          this.logger.warn(
+            `SPOT: ErrorCode ${SPOT_INVALID_SESSION_CODE} (Invalid session) em ${cleanPath} — re-autenticando e repetindo uma vez`,
+          );
+          const auth = await this.authenticate();
+          return this.request<T>(method, path, {
+            ...options,
+            token: auth.token,
+            _retriedInvalidSession: true,
+          });
+        }
+
+        return data as T;
+      } catch (err) {
+        lastTransientError = err;
+        const canRetryNetwork =
+          this.isTransientSpotError(err) &&
+          attempt < SPOT_NETWORK_RETRY_ATTEMPTS;
+
+        if (canRetryNetwork) {
+          this.logger.warn(
+            `SPOT: Servidor SPOT temporariamente indisponível, tentando novamente... (${cleanPath} ${attempt}/${SPOT_NETWORK_RETRY_ATTEMPTS})`,
+          );
+          await this.sleep(SPOT_NETWORK_RETRY_DELAY_MS);
+          continue;
+        }
+
+        throw err;
+      }
+    }
+
+    throw lastTransientError;
+  }
+
+  private capTokenExpiry(expiresAt: Date): Date {
+    const max = new Date(Date.now() + MAX_TOKEN_TTL_MS);
+    return expiresAt.getTime() > max.getTime() ? max : expiresAt;
   }
 
   private parseExpiry(data: Record<string, unknown>): Date {
@@ -280,14 +469,7 @@ export class SpotIntegrationService {
         },
       );
 
-      const errorCodeRaw = data.ErrorCode ?? data.errorCode;
-      const errorCode =
-        errorCodeRaw === null ||
-        errorCodeRaw === undefined ||
-        errorCodeRaw === '' ||
-        errorCodeRaw === 0
-          ? null
-          : String(errorCodeRaw).trim();
+      const errorCode = this.extractSpotErrorCode(data);
       const errorMessage = this.pickString(data, [
         'ErrorMessage',
         'errorMessage',
@@ -305,7 +487,7 @@ export class SpotIntegrationService {
         throw new Error('AuthenticateClient não retornou Token.');
       }
 
-      const expiresAt = this.parseExpiry(data);
+      const expiresAt = this.capTokenExpiry(this.parseExpiry(data));
 
       await this.prisma.client.$transaction(async (tx) => {
         await tx.spotSession.deleteMany({});
@@ -315,16 +497,20 @@ export class SpotIntegrationService {
       });
 
       this.logger.log(
-        `SPOT: sessão autenticada até ${expiresAt.toISOString()}`,
+        `SPOT: token gerado — válido até ${expiresAt.toISOString()} (TTL máx. local ${MAX_TOKEN_TTL_MS / 60_000} min)`,
       );
       return { token, expiresAt };
     } catch (err) {
       this.logSpotFailure('authenticate', err);
-      throw err instanceof BadRequestException
-        ? err
-        : new BadRequestException(
-            'SPOT: credenciais inválidas ou expiradas. Verifique SPOT_ACCESS_KEY.',
-          );
+      if (err instanceof BadRequestException) throw err;
+      if (this.isTransientSpotError(err)) {
+        throw new BadRequestException(
+          'Servidor SPOT temporariamente indisponível. Tente novamente em instantes.',
+        );
+      }
+      throw new BadRequestException(
+        'Credenciais SPOT inválidas. Verifique SPOT_ACCESS_KEY.',
+      );
     }
   }
 
@@ -344,7 +530,18 @@ export class SpotIntegrationService {
       session.token.trim().length > 0;
 
     if (stillValid) {
+      this.logger.log(
+        `SPOT: reutilizando token válido até ${session.expiresAt.toISOString()}`,
+      );
       return session.token;
+    }
+
+    if (session) {
+      this.logger.warn(
+        `SPOT: token expirado ou próximo do vencimento (expiresAt=${session.expiresAt.toISOString()}) — gerando novo`,
+      );
+    } else {
+      this.logger.log('SPOT: nenhuma sessão salva — gerando novo token');
     }
 
     const auth = await this.authenticate();
@@ -426,6 +623,10 @@ export class SpotIntegrationService {
 
   private extractSku(row: Record<string, unknown>): string | null {
     return this.pickString(row, [
+      'ProdReference',
+      'prodReference',
+      'ProductReference',
+      'productReference',
       'Sku',
       'SKU',
       'sku',
@@ -454,6 +655,45 @@ export class SpotIntegrationService {
     ]);
   }
 
+  /**
+   * Preço unitário SPOT: YourPrice / ScalePrices (productsTree) ou Price/CatalogPrice.
+   */
+  private extractUnitPrice(row: Record<string, unknown>): number {
+    const direct = this.toNumber(
+      row.YourPrice ??
+        row.yourPrice ??
+        row.Price ??
+        row.price ??
+        row.SalePrice ??
+        row.salePrice ??
+        row.CatalogPrice ??
+        row.catalogPrice ??
+        row.UnitPrice ??
+        row.unitPrice ??
+        row.NetPrice ??
+        row.netPrice ??
+        row.Pvp ??
+        row.pvp,
+      NaN,
+    );
+    if (Number.isFinite(direct) && direct > 0) return direct;
+
+    const scales = row.ScalePrices ?? row.scalePrices;
+    if (Array.isArray(scales)) {
+      for (const tier of scales) {
+        if (!tier || typeof tier !== 'object') continue;
+        const t = tier as Record<string, unknown>;
+        const tierPrice = this.toNumber(
+          t.Price ?? t.price ?? t.YourPrice ?? t.yourPrice,
+          NaN,
+        );
+        if (Number.isFinite(tierPrice) && tierPrice > 0) return tierPrice;
+      }
+    }
+
+    return NaN;
+  }
+
   private buildPriceMap(
     prices: Record<string, unknown>[],
   ): Map<string, number> {
@@ -461,17 +701,7 @@ export class SpotIntegrationService {
     for (const row of prices) {
       const sku = this.extractSku(row);
       if (!sku) continue;
-      const price = this.toNumber(
-        row.Price ??
-          row.price ??
-          row.SalePrice ??
-          row.salePrice ??
-          row.CatalogPrice ??
-          row.catalogPrice ??
-          row.UnitPrice ??
-          row.unitPrice,
-        NaN,
-      );
+      const price = this.extractUnitPrice(row);
       if (Number.isFinite(price)) map.set(sku, price);
     }
     return map;
@@ -671,19 +901,14 @@ export class SpotIntegrationService {
           'mainColor',
         ]) || null;
 
-      const priceFromRow = this.toNumber(
-        row.Price ??
-          row.price ??
-          row.SalePrice ??
-          row.salePrice ??
-          row.CatalogPrice ??
-          row.catalogPrice,
-        NaN,
-      );
+      const priceFromRow = this.extractUnitPrice(row);
+      const fromMap = priceMap.get(supplierCode);
       const salePrice = new Prisma.Decimal(
         Number.isFinite(priceFromRow)
           ? priceFromRow
-          : (priceMap.get(supplierCode) ?? 0),
+          : fromMap != null && Number.isFinite(fromMap)
+            ? fromMap
+            : 0,
       );
 
       const stockFromRow = this.toInt(
@@ -739,50 +964,36 @@ export class SpotIntegrationService {
       update: {},
     });
 
-    try {
-      const token = await this.getValidToken();
+    void options?.force;
 
-      const [
-        productsTree,
-        products,
-        colors,
-        catalogPrices,
-        optionalsComplete,
-        stocks,
-      ] = await Promise.all([
-        this.request('GET', 'productsTree', {
-          token,
-          params: { lang: 'PT' },
-        })
-          .then((d) => this.unwrapList(d))
-          .catch((err) => {
-            this.logSpotFailure('productsTree', err);
-            return [] as Record<string, unknown>[];
-          }),
-        this.request('GET', 'products', {
-          token,
-          params: { lang: 'PT' },
-        })
-          .then((d) => this.unwrapList(d))
-          .catch((err) => {
-            this.logSpotFailure('products', err);
-            return [] as Record<string, unknown>[];
-          }),
-        this.request('GET', 'colors', {
-          token,
-          params: { lang: 'PT' },
-        })
-          .then((d) => this.unwrapList(d))
-          .catch((err) => {
-            this.logSpotFailure('colors', err);
-            return [] as Record<string, unknown>[];
-          }),
-        this.request('GET', 'catalogPrices', { token })
-          .then((d) => this.unwrapList(d))
-          .catch((err) => {
-            this.logSpotFailure('catalogPrices', err);
-            return [] as Record<string, unknown>[];
-          }),
+    let rawList: Record<string, unknown>[] = [];
+    let catalogPrices: Record<string, unknown>[] = [];
+    let optionalsComplete: Record<string, unknown>[] = [];
+    let stocks: Record<string, unknown>[] = [];
+    let priceMap = new Map<string, number>();
+    let syncToken: string | null = null;
+
+    try {
+      // Uma autenticação + uma carga de produtos (padrão simples como XBZ).
+      // Retry 502/503/504 fica em request() — sem re-auth entre lotes.
+      const { token, expiresAt } = await this.authenticate();
+      syncToken = token;
+      this.logger.log(
+        `SPOT syncCatalog: token até ${expiresAt.toISOString()}`,
+      );
+
+      const productsData = await this.request('GET', 'products', {
+        token,
+        params: { lang: 'PT' },
+        timeoutMs: 180_000,
+      });
+      rawList = this.unwrapList(productsData);
+
+      const [pricesRaw, optionalsData, stocksData] = await Promise.all([
+        this.request('GET', 'catalogPrices', { token }).catch((err) => {
+          this.logSpotFailure('catalogPrices', err);
+          return null;
+        }),
         this.request('GET', 'optionalsComplete', {
           token,
           params: { lang: 'PT' },
@@ -803,23 +1014,51 @@ export class SpotIntegrationService {
           }),
       ]);
 
-      void colors;
-      void options?.force;
+      // Log temporário — estrutura real de /catalogPrices
+      if (pricesRaw != null) {
+        const rawPreview = JSON.stringify(pricesRaw).slice(0, 1000);
+        this.logger.warn(
+          `SPOT /catalogPrices raw diagnostic | bodyPreview=${rawPreview}`,
+        );
+        catalogPrices = this.unwrapList(pricesRaw);
+      }
+      optionalsComplete = optionalsData;
+      stocks = stocksData;
 
-      const priceMap = this.buildPriceMap(catalogPrices);
-      const stockMap = this.buildStockMap(stocks);
-      const productSource =
-        productsTree.length > 0 ? productsTree : products;
-      const normalized = this.normalizeProducts(
-        productSource,
-        priceMap,
-        stockMap,
+      priceMap = this.buildPriceMap(catalogPrices);
+      this.logger.log(
+        `SPOT sync: catalogPrices mapeados=${priceMap.size} (lista=${catalogPrices.length})`,
       );
 
-      if (normalized.length === 0) {
-        const message =
-          'SPOT: nenhum produto retornado pela API (credenciais inválidas/expiradas ou resposta vazia).';
-        this.logger.error(message);
+      // /catalogPrices frequentemente vem vazio; preços estão em productsTree.YourPrice
+      if (priceMap.size === 0 && syncToken) {
+        this.logger.warn(
+          'SPOT sync: catalogPrices sem preços — buscando YourPrice em productsTree',
+        );
+        const treeData = await this.request('GET', 'productsTree', {
+          token: syncToken,
+          params: { lang: 'PT' },
+          timeoutMs: 180_000,
+        });
+        const treeList = this.unwrapList(treeData);
+        priceMap = this.buildPriceMap(treeList);
+        this.logger.log(
+          `SPOT sync: prices via productsTree mapeados=${priceMap.size} (YourPrice/ScalePrices)`,
+        );
+        // productsTree traz YourPrice na linha — preferir como fonte de produtos
+        if (treeList.length > 0) {
+          rawList = treeList;
+        }
+      }
+    } catch (err) {
+      this.logSpotFailure('syncCatalog', err);
+      const message =
+        err instanceof BadRequestException
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Falha ao consultar API SPOT.';
+      try {
         await this.prisma.client.quoteCatalogSyncControl.upsert({
           where: { id: SYNC_CONTROL_ID },
           create: {
@@ -833,18 +1072,61 @@ export class SpotIntegrationService {
             lastError: message.slice(0, 2000),
           },
         });
-        return {
-          ok: false,
-          skipped: false,
-          message,
-          upserted: 0,
-          lastSyncAt: control.lastSyncAt?.toISOString() ?? null,
-        };
+      } catch (persistErr) {
+        this.logger.error(
+          `Não foi possível gravar status de sync SPOT: ${
+            persistErr instanceof Error
+              ? persistErr.message
+              : String(persistErr)
+          }`,
+        );
       }
+      return {
+        ok: false,
+        skipped: false,
+        message: `Falha na sincronização SPOT. Catálogo anterior mantido. ${message}`,
+        upserted: 0,
+        lastSyncAt: control.lastSyncAt?.toISOString() ?? null,
+      };
+    }
 
-      const syncedAt = new Date();
-      let upserted = 0;
+    const stockMap = this.buildStockMap(stocks);
+    const normalized = this.normalizeProducts(rawList, priceMap, stockMap);
+    const withPrice = normalized.filter((p) => Number(p.salePrice) > 0).length;
+    this.logger.log(
+      `SPOT sync: normalizados=${normalized.length}, com preço>0=${withPrice}`,
+    );
 
+    if (normalized.length === 0) {
+      const message =
+        'SPOT: nenhum produto retornado pela API (credenciais inválidas/expiradas ou resposta vazia).';
+      this.logger.error(message);
+      await this.prisma.client.quoteCatalogSyncControl.upsert({
+        where: { id: SYNC_CONTROL_ID },
+        create: {
+          id: SYNC_CONTROL_ID,
+          lastStatus: 'error',
+          lastError: message.slice(0, 2000),
+          lastCount: 0,
+        },
+        update: {
+          lastStatus: 'error',
+          lastError: message.slice(0, 2000),
+        },
+      });
+      return {
+        ok: false,
+        skipped: false,
+        message,
+        upserted: 0,
+        lastSyncAt: control.lastSyncAt?.toISOString() ?? null,
+      };
+    }
+
+    const syncedAt = new Date();
+    let upserted = 0;
+
+    try {
       for (const product of normalized) {
         await this.prisma.client.quoteCatalogProduct.upsert({
           where: {
@@ -946,41 +1228,28 @@ export class SpotIntegrationService {
         lastSyncAt: syncedAt.toISOString(),
       };
     } catch (err) {
-      this.logSpotFailure('syncCatalog', err);
       const message =
-        err instanceof BadRequestException
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Falha ao sincronizar catálogo SPOT.';
-      try {
-        await this.prisma.client.quoteCatalogSyncControl.upsert({
-          where: { id: SYNC_CONTROL_ID },
-          create: {
-            id: SYNC_CONTROL_ID,
-            lastStatus: 'error',
-            lastError: message.slice(0, 2000),
-            lastCount: 0,
-          },
-          update: {
-            lastStatus: 'error',
-            lastError: message.slice(0, 2000),
-          },
-        });
-      } catch (persistErr) {
-        this.logger.error(
-          `Não foi possível gravar status de sync SPOT: ${
-            persistErr instanceof Error
-              ? persistErr.message
-              : String(persistErr)
-          }`,
-        );
-      }
+        err instanceof Error ? err.message : 'Erro ao gravar catálogo SPOT.';
+      this.logger.error(`Persistência do catálogo SPOT falhou: ${message}`);
+      await this.prisma.client.quoteCatalogSyncControl.upsert({
+        where: { id: SYNC_CONTROL_ID },
+        create: {
+          id: SYNC_CONTROL_ID,
+          lastStatus: 'error',
+          lastError: message.slice(0, 2000),
+          lastCount: upserted,
+        },
+        update: {
+          lastStatus: 'error',
+          lastError: message.slice(0, 2000),
+          lastCount: upserted,
+        },
+      });
       return {
         ok: false,
         skipped: false,
-        message: `Falha na sincronização SPOT. Catálogo anterior mantido. ${message}`,
-        upserted: 0,
+        message: `Erro ao salvar catálogo SPOT. ${message}`,
+        upserted,
         lastSyncAt: control.lastSyncAt?.toISOString() ?? null,
       };
     }

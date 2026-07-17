@@ -289,9 +289,13 @@ export async function syncQuoteCatalog() {
   });
 }
 
+/** Sync SPOT pode levar vários minutos (download + upsert em lotes). */
+const SPOT_SYNC_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function syncSpotQuoteCatalog() {
   return erpFetchJson<CatalogSyncResult>(`${BASE}/catalog/sync-spot`, {
     method: 'POST',
+    signal: AbortSignal.timeout(SPOT_SYNC_TIMEOUT_MS),
   });
 }
 

@@ -68,11 +68,15 @@ async function fetchRomaneioExits(): Promise<OrderExitDto[]> {
     page += 1;
   } while (page <= totalPages);
 
-  return allExits.filter(
-    (exit) =>
-      exit.order.status === 'FINALIZADO' &&
-      isSaoMiguelCarrier(exit.carrierName ?? exit.order.carrierName),
-  );
+  return allExits.filter((exit) => {
+    const status = exit.order.status;
+    // FINALIZADO ou PARCIAL com saída já registrada (OrderExit)
+    const eligibleStatus = status === 'FINALIZADO' || status === 'PARCIAL';
+    return (
+      eligibleStatus &&
+      isSaoMiguelCarrier(exit.carrierName ?? exit.order.carrierName)
+    );
+  });
 }
 
 async function postRomaneioPdf(orderIds: string[]): Promise<Blob> {
@@ -197,7 +201,7 @@ export function RomaneioPage() {
               compact
               icon={Truck}
               title="Nenhum pedido para romaneio"
-              description="Pedidos finalizados com saída para São Miguel aparecerão aqui para geração do romaneio."
+              description="Pedidos finalizados ou parciais com saída para São Miguel aparecerão aqui para geração do romaneio."
             />
           </div>
         ) : (

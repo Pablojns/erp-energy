@@ -2583,12 +2583,13 @@ export class OrderService {
             ],
           },
           {
+            // Alinhado à aba Separação: só após "Enviar para Separação"
             status: {
               in: [
-                OrderStatus.PARCIAL,
-                OrderStatus.RESERVADO,
                 OrderStatus.EM_SEPARACAO,
                 OrderStatus.SEPARADO,
+                OrderStatus.AGUARDANDO_NF,
+                OrderStatus.NF_ATRELADA,
               ],
             },
           },

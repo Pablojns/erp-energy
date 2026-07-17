@@ -109,6 +109,19 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     }
   }, [pedidosError]);
 
+  // Ao mudar filtro/busca/ordenação, volta à página 1 (evita append da página N
+  // com critérios novos e scroll infinito sem fim).
+  useEffect(() => {
+    setPage(1);
+  }, [
+    statusFilter,
+    searchDebounced,
+    appliedFiltersForApi,
+    sortBy,
+    sortOrder,
+    mode,
+  ]);
+
   useEffect(() => {
     const t = setTimeout(
       () => setSearchDebounced(appliedFilters.search.trim()),

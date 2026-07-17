@@ -4,6 +4,11 @@ import { NextResponse } from 'next/server';
 import { API_BASE_URL, AUTH_COOKIE_NAME } from '@/src/services/api/config';
 import { DEV_MOCK_USER, isAuthDisabled } from '@/src/services/auth/bypass';
 
+/** Permite sync SPOT/XBZ longos no App Router (Vercel / Next). */
+export const maxDuration = 600;
+
+const LONG_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
+
 function isAuthPath(path: string): boolean {
   return (
     /^auth\/me$/i.test(path) ||
@@ -126,10 +131,17 @@ async function proxy(request: NextRequest, segments: string[]) {
     headers.set('content-type', incomingCt);
   }
 
+  const isLongRunningCatalogSync =
+    /quotes\/catalog\/sync(-spot)?$/i.test(path) ||
+    /api\/quotes\/catalog\/sync(-spot)?$/i.test(path);
+
   const init: RequestInit = {
     method,
     headers,
     cache: 'no-store',
+    ...(isLongRunningCatalogSync
+      ? { signal: AbortSignal.timeout(LONG_PROXY_TIMEOUT_MS) }
+      : {}),
   };
 
   if (method !== 'GET' && method !== 'HEAD') {

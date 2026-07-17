@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildFilterParams,
   clientRefineOrders,
@@ -54,6 +54,28 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchGenerationRef = useRef(0);
+  const listQueryKey = useMemo(
+    () =>
+      JSON.stringify({
+        search,
+        statusFilter,
+        appliedFilters,
+        pageSize,
+        mode,
+        sortBy,
+        sortOrder,
+      }),
+    [
+      search,
+      statusFilter,
+      appliedFilters,
+      pageSize,
+      mode,
+      sortBy,
+      sortOrder,
+    ],
+  );
+  const listQueryKeyRef = useRef(listQueryKey);
 
   const runFetch = useCallback(
     async (fetchOpts?: {
@@ -66,9 +88,14 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
 
       const generation = ++fetchGenerationRef.current;
       const effectivePage = fetchOpts?.page ?? page;
+      const queryChanged = listQueryKeyRef.current !== listQueryKey;
+      listQueryKeyRef.current = listQueryKey;
+      // Nunca acumular páginas se o filtro mudou (evita loop infinito de scroll
+      // quando o cliente descarta quase todos os itens da página).
       const appendPage =
         infinite &&
         effectivePage > 1 &&
+        !queryChanged &&
         fetchOpts?.replace !== true &&
         fetchOpts?.page === undefined;
 
@@ -150,15 +177,9 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
     },
     [
       enabled,
-      search,
-      statusFilter,
-      appliedFilters,
+      listQueryKey,
       page,
-      pageSize,
-      mode,
       infinite,
-      sortBy,
-      sortOrder,
     ],
   );
 
