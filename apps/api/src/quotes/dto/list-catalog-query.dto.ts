@@ -84,6 +84,7 @@ export class ListCatalogQueryDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(['XBZ', 'SPOT'])
   supplier?: string;
 
   @IsOptional()

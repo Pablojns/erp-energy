@@ -77,6 +77,7 @@ export function CrmOrcamentoCatalog(props: {
   const [maxPriceInput, setMaxPriceInput] = useState('');
   const [minPrice, setMinPrice] = useState<number | undefined>();
   const [maxPrice, setMaxPrice] = useState<number | undefined>();
+  const [supplierInput, setSupplierInput] = useState('');
   const [supplier, setSupplier] = useState('');
   const [inStockOnly, setInStockOnly] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -104,6 +105,20 @@ export function CrmOrcamentoCatalog(props: {
     setSearch(searchInput.trim());
     setMinPrice(parseOptionalPrice(minPriceInput));
     setMaxPrice(parseOptionalPrice(maxPriceInput));
+    setSupplier(supplierInput);
+    resetList();
+  };
+
+  const clearFilters = () => {
+    setSearchInput('');
+    setSearch('');
+    setMinPriceInput('');
+    setMaxPriceInput('');
+    setMinPrice(undefined);
+    setMaxPrice(undefined);
+    setSupplierInput('');
+    setSupplier('');
+    setInStockOnly(false);
     resetList();
   };
 
@@ -247,19 +262,82 @@ export function CrmOrcamentoCatalog(props: {
       }
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-[var(--erp-border)] p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[min(100%,14rem)] flex-1 sm:max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-fg-muted)]" />
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block min-w-[min(100%,14rem)] flex-1 text-xs font-medium text-[var(--erp-fg-muted)] sm:max-w-md">
+            Buscar
+            <div className="relative mt-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-fg-muted)]" />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') applyFilters();
+                }}
+                placeholder="Buscar por nome ou SKU..."
+                className="erp-module-input pl-9"
+              />
+            </div>
+          </label>
+          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
+            Fornecedor
+            <select
+              value={supplierInput}
+              onChange={(e) => setSupplierInput(e.target.value)}
+              className="erp-module-input mt-1 w-36"
+            >
+              <option value="">Todos</option>
+              <option value="XBZ">XBZ</option>
+              <option value="SPOT">SPOT</option>
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
+            Preço de
             <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              type="number"
+              min={0}
+              step="0.01"
+              value={minPriceInput}
+              onChange={(e) => setMinPriceInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') applyFilters();
               }}
-              placeholder="Buscar por nome ou SKU..."
-              className="erp-module-input pl-9"
+              placeholder="8,90"
+              className="erp-module-input mt-1 w-28"
             />
-          </div>
+          </label>
+          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
+            Preço até
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={maxPriceInput}
+              onChange={(e) => setMaxPriceInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyFilters();
+              }}
+              placeholder="10,00"
+              className="erp-module-input mt-1 w-28"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={applyFilters}
+            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
+          >
+            <Filter className="erp-icon-sm" aria-hidden />
+            Aplicar filtros
+          </button>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="erp-focus-ring erp-btn erp-btn-ghost erp-btn--md"
+          >
+            Limpar filtros
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-muted)]">
             Ordenar por
             <select
@@ -277,14 +355,18 @@ export function CrmOrcamentoCatalog(props: {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            onClick={applyFilters}
-            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
-          >
-            <Filter className="erp-icon-sm" aria-hidden />
-            Filtrar
-          </button>
+          <label className="flex items-center gap-2 text-sm text-[var(--erp-fg)]">
+            <input
+              type="checkbox"
+              checked={inStockOnly}
+              onChange={(e) => {
+                setInStockOnly(e.target.checked);
+                resetList();
+              }}
+              className="h-4 w-4 rounded border-[var(--erp-border)]"
+            />
+            Apenas em estoque
+          </label>
           {!props.selectable ? (
             <>
               <button
@@ -318,66 +400,6 @@ export function CrmOrcamentoCatalog(props: {
           <span className="text-xs text-[var(--erp-fg-muted)]">
             Última sync: {formatDateTime(lastSyncAt)}
           </span>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
-            Preço mín.
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={minPriceInput}
-              onChange={(e) => setMinPriceInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') applyFilters();
-              }}
-              placeholder="0"
-              className="erp-module-input mt-1 w-28"
-            />
-          </label>
-          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
-            Preço máx.
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={maxPriceInput}
-              onChange={(e) => setMaxPriceInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') applyFilters();
-              }}
-              placeholder="—"
-              className="erp-module-input mt-1 w-28"
-            />
-          </label>
-          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
-            Fornecedor
-            <select
-              value={supplier}
-              onChange={(e) => {
-                setSupplier(e.target.value);
-                resetList();
-              }}
-              className="erp-module-input mt-1 w-36"
-            >
-              <option value="">Todos</option>
-              <option value="XBZ">XBZ</option>
-              <option value="SPOT">SPOT</option>
-            </select>
-          </label>
-          <label className="flex items-center gap-2 pb-2 text-sm text-[var(--erp-fg)]">
-            <input
-              type="checkbox"
-              checked={inStockOnly}
-              onChange={(e) => {
-                setInStockOnly(e.target.checked);
-                resetList();
-              }}
-              className="h-4 w-4 rounded border-[var(--erp-border)]"
-            />
-            Apenas em estoque
-          </label>
         </div>
       </div>
 

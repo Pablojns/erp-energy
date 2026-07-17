@@ -707,27 +707,73 @@ export class SpotIntegrationService {
     return map;
   }
 
+  /**
+   * /Stocks.Sku vem como "11103-103" (ref-cor); o catálogo usa ProdReference "11103".
+   */
+  private toCatalogStockKey(sku: string): string {
+    const t = sku.trim();
+    const leadingDigits = t.match(/^(\d+)/);
+    if (leadingDigits) return leadingDigits[1];
+    const dash = t.indexOf('-');
+    if (dash > 0) return t.slice(0, dash).trim();
+    return t;
+  }
+
   private buildStockMap(
     stocks: Record<string, unknown>[],
   ): Map<string, number> {
     const map = new Map<string, number>();
     for (const row of stocks) {
-      const sku = this.extractSku(row);
-      if (!sku) continue;
+      // Preferir Sku/WebSku da linha de estoque (ProdReference não existe em /Stocks)
+      const variantSku =
+        this.pickString(row, [
+          'Sku',
+          'sku',
+          'WebSku',
+          'webSku',
+          'SKU',
+          'ProdReference',
+          'prodReference',
+          'Reference',
+          'reference',
+        ]) ?? this.extractSku(row);
+      if (!variantSku) continue;
+      const catalogKey = this.toCatalogStockKey(variantSku);
       const qty = this.toInt(
-        row.Stock ??
-          row.stock ??
-          row.Quantity ??
+        row.Quantity ??
           row.quantity ??
+          row.Stock ??
+          row.stock ??
+          row.Available ??
+          row.available ??
+          row.StockAvailable ??
+          row.stockAvailable ??
           row.AvailableQty ??
           row.availableQty ??
           row.Qty ??
           row.qty,
-        0,
+        NaN,
       );
-      map.set(sku, qty);
+      if (!Number.isFinite(qty)) continue;
+      // Somar variantes de cor no mesmo ProdReference
+      map.set(catalogKey, (map.get(catalogKey) ?? 0) + qty);
     }
     return map;
+  }
+
+  private parseAreaMm(area: string | null): {
+    maxWidth: Prisma.Decimal | null;
+    maxHeight: Prisma.Decimal | null;
+  } {
+    if (!area) return { maxWidth: null, maxHeight: null };
+    const m = area.match(
+      /(\d+(?:[.,]\d+)?)\s*[xX×]\s*(\d+(?:[.,]\d+)?)/,
+    );
+    if (!m) return { maxWidth: null, maxHeight: null };
+    return {
+      maxWidth: this.toOptionalDecimal(m[1]),
+      maxHeight: this.toOptionalDecimal(m[2]),
+    };
   }
 
   private collectEngravingOptions(
@@ -746,45 +792,63 @@ export class SpotIntegrationService {
       maxWidth: Prisma.Decimal | null;
       maxHeight: Prisma.Decimal | null;
     }> = [];
+    const seen = new Set<string>();
 
-    const pushOption = (productSku: string, opt: Record<string, unknown>) => {
-      const techniqueName =
-        this.pickString(opt, [
-          'TechniqueName',
-          'techniqueName',
-          'Technique',
-          'technique',
-          'Name',
-          'name',
-          'ServiceName',
-          'serviceName',
-          'Customization',
-          'customization',
-        ]) || null;
-      if (!techniqueName) return;
+    const pushOption = (
+      productSku: string,
+      techniqueName: string,
+      price: Prisma.Decimal | null,
+      maxWidth: Prisma.Decimal | null,
+      maxHeight: Prisma.Decimal | null,
+    ) => {
+      const name = techniqueName.trim();
+      if (!name) return;
+      const key = `${productSku}::${name.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
       out.push({
         productSku,
-        techniqueName,
-        price: this.toOptionalDecimal(
-          opt.Price ?? opt.price ?? opt.Cost ?? opt.cost,
-        ),
-        maxWidth: this.toOptionalDecimal(
-          opt.MaxWidth ??
-            opt.maxWidth ??
-            opt.LogoWidth ??
-            opt.logoWidth ??
-            opt.Width ??
-            opt.width,
-        ),
-        maxHeight: this.toOptionalDecimal(
-          opt.MaxHeight ??
-            opt.maxHeight ??
-            opt.LogoHeight ??
-            opt.logoHeight ??
-            opt.Height ??
-            opt.height,
-        ),
+        techniqueName: name,
+        price,
+        maxWidth,
+        maxHeight,
       });
+    };
+
+    const parseHandlingCostValue = (value: unknown): Prisma.Decimal | null => {
+      if (value == null || value === '') return null;
+      // SPOT pode enviar "0.0" ou "0.0, 0.0" (um custo por técnica na mesma célula)
+      if (typeof value === 'string' && /[,;]/.test(value)) {
+        const first = value.split(/[,;]/)[0]?.trim();
+        return this.toOptionalDecimal(first);
+      }
+      return this.toOptionalDecimal(value);
+    };
+
+    const priceFromHandling = (
+      raw: Record<string, unknown>,
+      index?: number,
+    ): Prisma.Decimal | null => {
+      if (index != null) {
+        const indexed =
+          raw[`HandlingCosts${index}`] ??
+          raw[`HandlingCost${index}`] ??
+          raw[`handlingCosts${index}`];
+        const fromIndexed = parseHandlingCostValue(indexed);
+        if (fromIndexed != null) return fromIndexed;
+      }
+      return parseHandlingCostValue(
+        raw.HandlingCosts ??
+          raw.handlingCosts ??
+          raw.DefaultCustomizationHandlingCosts ??
+          raw.defaultCustomizationHandlingCosts ??
+          raw.Price ??
+          raw.price ??
+          raw.UnitPrice ??
+          raw.unitPrice ??
+          raw.Cost ??
+          raw.cost,
+      );
     };
 
     for (const row of optionals) {
@@ -809,15 +873,139 @@ export class SpotIntegrationService {
         if (!Array.isArray(nested)) continue;
         foundNested = true;
         for (const item of nested) {
-          if (item && typeof item === 'object') {
-            pushOption(productSku, item as Record<string, unknown>);
-          }
+          if (!item || typeof item !== 'object') continue;
+          const opt = item as Record<string, unknown>;
+          const techniqueName =
+            this.pickString(opt, [
+              'TechniqueName',
+              'techniqueName',
+              'Technique',
+              'technique',
+              'Name',
+              'name',
+              'ServiceName',
+              'serviceName',
+              'Customization',
+              'customization',
+            ]) || null;
+          if (!techniqueName) continue;
+          pushOption(
+            productSku,
+            techniqueName,
+            priceFromHandling(opt),
+            this.toOptionalDecimal(
+              opt.MaxWidth ??
+                opt.maxWidth ??
+                opt.LogoWidth ??
+                opt.logoWidth ??
+                opt.Width ??
+                opt.width,
+            ),
+            this.toOptionalDecimal(
+              opt.MaxHeight ??
+                opt.maxHeight ??
+                opt.LogoHeight ??
+                opt.logoHeight ??
+                opt.Height ??
+                opt.height,
+            ),
+          );
         }
       }
+      if (foundNested) continue;
 
-      if (!foundNested) {
-        pushOption(productSku, row);
+      // Formato real /optionalsComplete: CustomizationTypes1..N + HandlingCosts1..N
+      let numbered = 0;
+      for (let i = 1; i <= 20; i++) {
+        const type = this.pickString(row, [
+          `CustomizationTypes${i}`,
+          `CustomizationType${i}`,
+          `customizationTypes${i}`,
+        ]);
+        if (!type) continue;
+        numbered += 1;
+        const area =
+          this.pickString(row, [
+            `Area${i}`,
+            `area${i}`,
+            'ProductComponentDefaultLocationAreaMM',
+            'productComponentDefaultLocationAreaMM',
+          ]) ?? null;
+        const dims = this.parseAreaMm(area);
+        pushOption(
+          productSku,
+          type,
+          priceFromHandling(row, i),
+          dims.maxWidth,
+          dims.maxHeight,
+        );
       }
+      if (numbered > 0) continue;
+
+      // CustomizationTypes = "Laser, Tampografia, ..."
+      const typesCsv = this.pickString(row, [
+        'CustomizationTypes',
+        'customizationTypes',
+      ]);
+      if (typesCsv) {
+        const defaultPrice = priceFromHandling(row);
+        const area =
+          this.pickString(row, [
+            'ProductComponentDefaultLocationAreaMM',
+            'productComponentDefaultLocationAreaMM',
+            'Area1',
+            'area1',
+          ]) ?? null;
+        const dims = this.parseAreaMm(area);
+        for (const part of typesCsv.split(/[,;|]/)) {
+          pushOption(
+            productSku,
+            part,
+            defaultPrice,
+            dims.maxWidth,
+            dims.maxHeight,
+          );
+        }
+        continue;
+      }
+
+      // Legado: Name/Technique + Price (nunca usar Name do produto como técnica)
+      const techniqueName = this.pickString(row, [
+        'TechniqueName',
+        'techniqueName',
+        'Technique',
+        'technique',
+        'ServiceName',
+        'serviceName',
+        'OptionalName',
+        'optionalName',
+        'Customization',
+        'customization',
+      ]);
+      if (!techniqueName) continue;
+      const dims = this.parseAreaMm(
+        this.pickString(row, [
+          'ProductComponentDefaultLocationAreaMM',
+          'productComponentDefaultLocationAreaMM',
+          'Area1',
+          'area1',
+          'Dimensions',
+          'dimensions',
+        ]),
+      );
+      pushOption(
+        productSku,
+        techniqueName,
+        priceFromHandling(row),
+        dims.maxWidth ??
+          this.toOptionalDecimal(
+            row.MaxWidth ?? row.maxWidth ?? row.Width ?? row.width,
+          ),
+        dims.maxHeight ??
+          this.toOptionalDecimal(
+            row.MaxHeight ?? row.maxHeight ?? row.Height ?? row.height,
+          ),
+      );
     }
 
     return out;
@@ -920,9 +1108,15 @@ export class SpotIntegrationService {
           row.quantity,
         NaN,
       );
-      const availableQty = Number.isFinite(stockFromRow)
-        ? stockFromRow
-        : (stockMap.get(supplierCode) ?? 0);
+      // Preferir mapa de /Stocks (agregado por ProdReference); linha do produto
+      // frequentemente traz Quantity/Stock zerados ou de outra unidade.
+      const fromStockMap = stockMap.get(supplierCode);
+      const availableQty =
+        fromStockMap != null
+          ? fromStockMap
+          : Number.isFinite(stockFromRow)
+            ? stockFromRow
+            : 0;
 
       bySku.set(supplierCode, {
         supplierCode,
@@ -1024,6 +1218,19 @@ export class SpotIntegrationService {
       }
       optionalsComplete = optionalsData;
       stocks = stocksData;
+
+      // Log temporário — primeiros 3 registros brutos de /Stocks
+      this.logger.warn(
+        `SPOT /Stocks raw diagnostic (first 3) | ${JSON.stringify(
+          stocks.slice(0, 3),
+        )}`,
+      );
+      // Log temporário — primeiros 3 registros brutos de /optionalsComplete (todos os campos)
+      this.logger.warn(
+        `SPOT /optionalsComplete raw diagnostic (first 3) | ${JSON.stringify(
+          optionalsComplete.slice(0, 3),
+        )}`,
+      );
 
       priceMap = this.buildPriceMap(catalogPrices);
       this.logger.log(
@@ -1175,24 +1382,16 @@ export class SpotIntegrationService {
       }
 
       const engravingOptions = this.collectEngravingOptions(optionalsComplete);
+      // Remove opções antigas (ex.: techniqueName = nome do produto, price null)
+      await this.prisma.client.quoteCatalogEngravingOption.deleteMany({
+        where: { supplier: SUPPLIER },
+      });
       for (const option of engravingOptions) {
-        await this.prisma.client.quoteCatalogEngravingOption.upsert({
-          where: {
-            productSku_supplier_techniqueName: {
-              productSku: option.productSku,
-              supplier: SUPPLIER,
-              techniqueName: option.techniqueName,
-            },
-          },
-          create: {
+        await this.prisma.client.quoteCatalogEngravingOption.create({
+          data: {
             productSku: option.productSku,
             supplier: SUPPLIER,
             techniqueName: option.techniqueName,
-            price: option.price,
-            maxWidth: option.maxWidth,
-            maxHeight: option.maxHeight,
-          },
-          update: {
             price: option.price,
             maxWidth: option.maxWidth,
             maxHeight: option.maxHeight,
