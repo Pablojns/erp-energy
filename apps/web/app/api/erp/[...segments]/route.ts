@@ -5,7 +5,7 @@ import { API_BASE_URL, AUTH_COOKIE_NAME } from '@/src/services/api/config';
 import { DEV_MOCK_USER, isAuthDisabled } from '@/src/services/auth/bypass';
 
 /** Permite sync SPOT/XBZ longos no App Router (Vercel / Next). */
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 const LONG_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
 
