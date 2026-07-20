@@ -5,11 +5,7 @@ import { Search, Upload, Users } from 'lucide-react';
 import { CrmImportModal } from '@/src/components/crm/crm-import-modal';
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import { EmptyState } from '@/src/components/ui/empty-state';
-import {
-  cardMatchesEntryPeriod,
-  CRM_ENTRY_PERIOD_OPTIONS,
-  type CrmDashboardPeriod,
-} from '@/src/components/crm/crm-helpers';
+import { cardMatchesEntryDateRange } from '@/src/components/crm/crm-helpers';
 import {
   CRM_CARD_ORIGINS,
   CRM_ORIGIN_BADGE_CLASS,
@@ -39,7 +35,8 @@ export function CrmClientesList(props: {
   const [originFilter, setOriginFilter] = useState<CrmCardOrigin | 'TODOS'>('TODOS');
   const [statusFilter, setStatusFilter] = useState<string>('TODOS');
   const [responsavelFilter, setResponsavelFilter] = useState<string>('TODOS');
-  const [periodFilter, setPeriodFilter] = useState<CrmDashboardPeriod>('all');
+  const [entryDateFrom, setEntryDateFrom] = useState('');
+  const [entryDateTo, setEntryDateTo] = useState('');
   const [importOpen, setImportOpen] = useState(false);
 
   const funilNameById = useMemo(() => {
@@ -59,7 +56,7 @@ export function CrmClientesList(props: {
       ) {
         return false;
       }
-      if (!cardMatchesEntryPeriod(card, periodFilter)) return false;
+      if (!cardMatchesEntryDateRange(card, entryDateFrom, entryDateTo)) return false;
       if (!q) return true;
       const haystack = [card.name, card.phone, card.email]
         .filter(Boolean)
@@ -67,7 +64,15 @@ export function CrmClientesList(props: {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [originFilter, periodFilter, props.cards, responsavelFilter, search, statusFilter]);
+  }, [
+    entryDateFrom,
+    entryDateTo,
+    originFilter,
+    props.cards,
+    responsavelFilter,
+    search,
+    statusFilter,
+  ]);
 
   return (
     <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -105,17 +110,24 @@ export function CrmClientesList(props: {
             </option>
           ))}
         </select>
-        <select
-          value={periodFilter}
-          onChange={(e) => setPeriodFilter(e.target.value as CrmDashboardPeriod)}
-          className="erp-module-input w-auto min-w-[8rem]"
-        >
-          {CRM_ENTRY_PERIOD_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              Entrada: {option.label}
-            </option>
-          ))}
-        </select>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-muted)]">
+          De
+          <input
+            type="date"
+            value={entryDateFrom}
+            onChange={(e) => setEntryDateFrom(e.target.value)}
+            className="erp-module-input w-auto"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-muted)]">
+          Até
+          <input
+            type="date"
+            value={entryDateTo}
+            onChange={(e) => setEntryDateTo(e.target.value)}
+            className="erp-module-input w-auto"
+          />
+        </label>
         <select
           value={responsavelFilter}
           onChange={(e) => setResponsavelFilter(e.target.value)}

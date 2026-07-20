@@ -164,12 +164,21 @@ async function proxy(request: NextRequest, segments: string[]) {
   const upstream = await fetch(target, init);
   const outHeaders = new Headers();
   const ct = upstream.headers.get('content-type');
-  if (ct) {
-    outHeaders.set('content-type', ct);
+  const ctBase = ct?.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (ctBase) {
+    outHeaders.set('content-type', ctBase);
   }
   const contentDisposition = upstream.headers.get('content-disposition');
   if (contentDisposition) {
     outHeaders.set('content-disposition', contentDisposition);
+  }
+  const contentLength = upstream.headers.get('content-length');
+  if (contentLength) {
+    outHeaders.set('content-length', contentLength);
+  }
+  const cacheControl = upstream.headers.get('cache-control');
+  if (cacheControl) {
+    outHeaders.set('cache-control', cacheControl);
   }
   const proposalId = upstream.headers.get('x-proposal-id');
   if (proposalId) {
@@ -177,12 +186,14 @@ async function proxy(request: NextRequest, segments: string[]) {
   }
 
   const isBinary =
-    (ct?.includes('application/pdf') ?? false) ||
-    (ct?.includes('application/octet-stream') ?? false) ||
-    (ct?.startsWith('image/') ?? false);
+    ctBase.includes('application/pdf') ||
+    ctBase.includes('application/octet-stream') ||
+    ctBase.startsWith('image/') ||
+    /\/compras\/[^/]+\/imagem\//i.test(path);
 
   if (isBinary) {
     const body = await upstream.arrayBuffer();
+    outHeaders.set('content-length', String(body.byteLength));
     return new NextResponse(body, {
       status: upstream.status,
       headers: outHeaders,

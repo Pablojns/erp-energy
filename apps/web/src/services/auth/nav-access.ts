@@ -1,5 +1,9 @@
 import type { AuthUser } from '@/src/services/api/auth';
-import { MAIN_NAV_ITEMS, type MainNavItem } from '@/src/components/shell/nav-config';
+import {
+  HIDDEN_MAIN_NAV_HREFS,
+  MAIN_NAV_ITEMS,
+  type MainNavItem,
+} from '@/src/components/shell/nav-config';
 
 export type UserPermissionGrant = {
   module: string;
@@ -162,6 +166,12 @@ export function canAccessPath(
   isAdmin: boolean,
 ): boolean {
   if (!pathname.startsWith('/app')) return true;
+
+  for (const hidden of HIDDEN_MAIN_NAV_HREFS) {
+    if (pathname === hidden || pathname.startsWith(`${hidden}/`)) {
+      return false;
+    }
+  }
 
   const expeditionItem = resolveExpeditionSubItem(pathname);
   if (expeditionItem) {

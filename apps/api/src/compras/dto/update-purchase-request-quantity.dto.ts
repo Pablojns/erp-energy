@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -31,7 +32,24 @@ export class UpdatePurchaseRequestQuantityDto {
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  itemPrice?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @MaxLength(200)
   customerName?: string | null;
+
+  @IsOptional()
+  @IsIn(['NORMAL', 'URGENTE'])
+  priority?: 'NORMAL' | 'URGENTE';
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(2000)
+  link?: string | null;
 }

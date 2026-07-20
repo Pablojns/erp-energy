@@ -125,6 +125,15 @@ export class QuotesService {
     }>;
   }, viewer?: { id?: string; email?: string; name?: string } | null) {
     const showSalesMargin = canViewQuoteMargin(viewer);
+    const commission = toDecimal(row.commissionPercent, 2);
+    const reserve = toDecimal(row.marginReservePercent, 6);
+    const sales = toDecimal(
+      row.salesMarginPercent,
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    const difal = toDecimal(row.difalValue);
+    const otherExtras = toDecimal(row.otherExtraCosts);
+
     return {
       id: row.id,
       code: row.code,
@@ -152,47 +161,61 @@ export class QuotesService {
       total: row.total.toString(),
       paymentTerms: row.paymentTerms,
       paymentMethod: row.paymentMethod,
-      commissionPercent: (
-        row.commissionPercent ?? new Prisma.Decimal(2)
-      ).toString(),
-      marginReservePercent: (
-        row.marginReservePercent ?? new Prisma.Decimal(6)
-      ).toString(),
+      commissionPercent: commission.toString(),
+      marginReservePercent: reserve.toString(),
       ...(showSalesMargin
         ? {
-            salesMarginPercent: (
-              row.salesMarginPercent ??
-              new Prisma.Decimal(DEFAULT_SALES_MARGIN_PERCENT)
-            ).toString(),
+            salesMarginPercent: sales.toString(),
           }
         : {}),
-      difalValue: row.difalValue?.toString() ?? '0',
-      otherExtraCosts: row.otherExtraCosts?.toString() ?? '0',
+      difalValue: difal.toString(),
+      otherExtraCosts: otherExtras.toString(),
       linkedCrmCardId: row.linkedCrmCardId,
       linkedOrderId: row.linkedOrderId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
-      items: (row.items ?? []).map((it) => ({
-        id: it.id,
-        quoteId: it.quoteId,
-        sku: it.sku,
-        description: it.description,
-        imageUrl: it.imageUrl,
-        engraving: it.engraving,
-        engravingTechniqueId: it.engravingTechniqueId ?? null,
-        engravingPrice: it.engravingPrice?.toString() ?? null,
-        productPrice: it.productPrice?.toString() ?? null,
-        supplier: it.supplier ?? null,
-        requiresArtwork: Boolean(it.requiresArtwork),
-        artworkFileName: it.artworkFileName ?? null,
-        artworkMimeType: it.artworkMimeType ?? null,
-        artworkData: it.artworkData ?? null,
-        quantity: it.quantity,
-        // Exibição: 2 casas; valor persistido no DB mantém precisão completa
-        unitPrice: roundMoneyDecimal(it.unitPrice, 2).toFixed(2),
-        total: roundMoneyDecimal(it.total, 2).toFixed(2),
-        order: it.order,
-      })),
+      items: (row.items ?? []).map((it) => {
+        const qty = it.quantity > 0 ? it.quantity : 1;
+        let unitPrice = roundMoneyDecimal(it.unitPrice, 2);
+        let lineTotal = roundMoneyDecimal(it.total, 2);
+        // Sempre devolver preço de venda (margem por dentro) quando houver custo de produto
+        if (it.productPrice != null) {
+          unitPrice = roundMoneyDecimal(
+            calcQuoteItemUnitPriceDecimal({
+              productPrice: it.productPrice,
+              engravingPrice: it.engravingPrice,
+              commissionPercent: commission,
+              marginReservePercent: reserve,
+              salesMarginPercent: sales,
+              quantity: qty,
+              difalValue: difal,
+              otherExtraCosts: otherExtras,
+            }),
+            2,
+          );
+          lineTotal = unitPrice.mul(qty);
+        }
+        return {
+          id: it.id,
+          quoteId: it.quoteId,
+          sku: it.sku,
+          description: it.description,
+          imageUrl: it.imageUrl,
+          engraving: it.engraving,
+          engravingTechniqueId: it.engravingTechniqueId ?? null,
+          engravingPrice: it.engravingPrice?.toString() ?? null,
+          productPrice: it.productPrice?.toString() ?? null,
+          supplier: it.supplier ?? null,
+          requiresArtwork: Boolean(it.requiresArtwork),
+          artworkFileName: it.artworkFileName ?? null,
+          artworkMimeType: it.artworkMimeType ?? null,
+          artworkData: it.artworkData ?? null,
+          quantity: it.quantity,
+          unitPrice: unitPrice.toFixed(2),
+          total: roundMoneyDecimal(lineTotal, 2).toFixed(2),
+          order: it.order,
+        };
+      }),
       proposals: (row.proposals ?? []).map((p) => ({
         id: p.id,
         quoteId: p.quoteId,
@@ -217,7 +240,7 @@ export class QuotesService {
       WHERE "code" ~ '^ORC-[0-9]+$'
     `;
     const n = Number(rows[0]?.next ?? 1);
-    return `ORC-${String(n).padStart(4, '0')}`;
+    return `ORC-${String(n).padStart(2, '0')}`;
   }
 
   private buildData(dto: CreateQuoteDto | UpdateQuoteDto): Prisma.QuoteUncheckedCreateInput | Prisma.QuoteUncheckedUpdateInput {
@@ -322,12 +345,19 @@ export class QuotesService {
 
     const search = query.search?.trim();
     if (search) {
-      where.OR = [
-        { code: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } },
-        { customerOrderRef: { contains: search, mode: 'insensitive' } },
-        { billingCompany: { contains: search, mode: 'insensitive' } },
+      const normalized = this.normalizeQuoteSearch(search);
+      const or: Prisma.QuoteWhereInput[] = [
+        { code: { contains: normalized.raw, mode: 'insensitive' } },
+        { customerName: { contains: normalized.raw, mode: 'insensitive' } },
+        { customerOrderRef: { contains: normalized.raw, mode: 'insensitive' } },
+        { billingCompany: { contains: normalized.raw, mode: 'insensitive' } },
       ];
+      if (normalized.codeHint) {
+        or.push({
+          code: { contains: normalized.codeHint, mode: 'insensitive' },
+        });
+      }
+      where.OR = or;
     }
 
     if (query.dateFrom || query.dateTo) {
@@ -501,13 +531,21 @@ export class QuotesService {
     });
 
     if (dto.status && dto.status !== existing.status) {
-      await this.handleStatusSideEffects(updated, existing.status);
+      await this.handleStatusSideEffects(
+        updated,
+        existing.status,
+        viewer?.id,
+      );
     }
 
     return this.serialize(updated, viewer);
   }
 
-  async updateStatus(id: string, status: QuoteStatus) {
+  async updateStatus(
+    id: string,
+    status: QuoteStatus,
+    actorUserId?: string | null,
+  ) {
     const existing = await this.prisma.client.quote.findUnique({
       where: { id },
       select: { id: true, status: true },
@@ -524,10 +562,95 @@ export class QuotesService {
     });
 
     if (status !== existing.status) {
-      await this.handleStatusSideEffects(updated, existing.status);
+      await this.handleStatusSideEffects(updated, existing.status, actorUserId);
     }
 
     return this.serialize(updated);
+  }
+
+  /**
+   * Cópia completa do orçamento (itens/gravações/condições) com novo código,
+   * status AGUARDANDO e sem propostas.
+   */
+  async duplicate(
+    id: string,
+    viewer?: { id?: string; email?: string; name?: string } | null,
+  ) {
+    const source = await this.prisma.client.quote.findUnique({
+      where: { id },
+      include: {
+        items: { orderBy: { order: 'asc' } },
+      },
+    });
+    if (!source) throw new NotFoundException('Orçamento não encontrado.');
+
+    const created = await this.prisma.client.$transaction(async (tx) => {
+      const code = await this.nextCode(tx);
+      const quote = await tx.quote.create({
+        data: {
+          code,
+          requestDate: new Date(),
+          customerOrderRef: source.customerOrderRef,
+          billingCompany: source.billingCompany,
+          status: 'AGUARDANDO',
+          customerType: source.customerType,
+          customerId: source.customerId,
+          customerName: source.customerName,
+          customerEmail: source.customerEmail,
+          customerPhone: source.customerPhone,
+          customerDocument: source.customerDocument,
+          responsibleUserId: source.responsibleUserId,
+          origin: source.origin,
+          observations: source.observations,
+          customerNotes: source.customerNotes,
+          carrierId: source.carrierId,
+          deliveryAddress: source.deliveryAddress,
+          freightValue: source.freightValue,
+          freightToConsult: source.freightToConsult,
+          deliveryDeadline: source.deliveryDeadline,
+          freightType: source.freightType,
+          subtotal: source.subtotal,
+          total: source.total,
+          paymentTerms: source.paymentTerms,
+          paymentMethod: source.paymentMethod,
+          commissionPercent: source.commissionPercent,
+          marginReservePercent: source.marginReservePercent,
+          salesMarginPercent: source.salesMarginPercent,
+          difalValue: source.difalValue,
+          difalIsPercent: source.difalIsPercent,
+          otherExtraCosts: source.otherExtraCosts,
+          linkedCrmCardId: source.linkedCrmCardId,
+          linkedOrderId: null,
+          items: {
+            create: source.items.map((item) => ({
+              sku: item.sku,
+              description: item.description,
+              imageUrl: item.imageUrl,
+              engraving: item.engraving,
+              engravingTechniqueId: item.engravingTechniqueId,
+              engravingPrice: item.engravingPrice,
+              productPrice: item.productPrice,
+              supplier: item.supplier,
+              requiresArtwork: item.requiresArtwork,
+              artworkFileName: item.artworkFileName,
+              artworkMimeType: item.artworkMimeType,
+              artworkData: item.artworkData,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+              order: item.order,
+            })),
+          },
+        },
+        include: {
+          items: { orderBy: { order: 'asc' } },
+          proposals: true,
+        },
+      });
+      return quote;
+    });
+
+    return this.serialize(created, viewer);
   }
 
   async remove(id: string) {
@@ -1058,6 +1181,135 @@ export class QuotesService {
     return this.loadQuoteSerialized(quoteId, viewer);
   }
 
+  private normalizeQuoteSearch(search: string): {
+    raw: string;
+    codeHint: string | null;
+  } {
+    const raw = search.trim();
+    const withoutLabel = raw
+      .replace(/^(or[cç]amento|orc)\s*/i, '')
+      .trim();
+    const digits = withoutLabel.replace(/^ORC-?/i, '').replace(/\D/g, '');
+    if (digits.length > 0 && digits.length <= 8) {
+      return {
+        raw: withoutLabel || raw,
+        codeHint: `ORC-${digits.padStart(2, '0')}`,
+      };
+    }
+    if (/^ORC-/i.test(withoutLabel)) {
+      return { raw: withoutLabel, codeHint: withoutLabel.toUpperCase() };
+    }
+    return { raw, codeHint: null };
+  }
+
+  private async resolvePurchaseRequesterId(
+    preferredUserId?: string | null,
+  ): Promise<string | null> {
+    if (preferredUserId?.trim()) {
+      const preferred = await this.prisma.client.user.findUnique({
+        where: { id: preferredUserId.trim() },
+        select: { id: true },
+      });
+      if (preferred) return preferred.id;
+    }
+    const fallback = await this.prisma.client.user.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    return fallback?.id ?? null;
+  }
+
+  private async createPurchaseRequestFromApprovedQuote(
+    quote: {
+      id: string;
+      code: string;
+      customerName: string;
+      responsibleUserId?: string | null;
+      deliveryAddress?: string | null;
+      items?: Array<{
+        id?: string;
+        sku: string;
+        description: string;
+        quantity: number;
+        engraving: string | null;
+        supplier: string | null;
+        productPrice?: Prisma.Decimal | number | string | null;
+        engravingPrice?: Prisma.Decimal | number | string | null;
+      }>;
+    },
+    actorUserId?: string | null,
+  ) {
+    const existing = await this.prisma.client.purchaseRequest.findFirst({
+      where: { quoteId: quote.id },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const items = quote.items ?? [];
+    const requestedById = await this.resolvePurchaseRequesterId(
+      actorUserId || quote.responsibleUserId || null,
+    );
+    if (!requestedById) {
+      this.logger.error(
+        `Orçamento ${quote.code} aprovado sem usuário para criar PurchaseRequest.`,
+      );
+      return;
+    }
+
+    const customerName = quote.customerName.trim() || null;
+    const deliveryAddress = quote.deliveryAddress?.trim() || null;
+    const common = {
+      type: 'VENDA_EXTERNA' as const,
+      status: 'SOLICITADO',
+      priority: 'NORMAL',
+      customerName,
+      saleOrderRef: quote.code,
+      quoteId: quote.id,
+      deliveryAddress,
+      requestedById,
+    };
+
+    if (items.length === 0) {
+      await this.prisma.client.purchaseRequest.create({
+        data: {
+          ...common,
+          itemName: `Orçamento ${quote.code}`,
+          quantity: 1,
+        },
+      });
+      return;
+    }
+
+    // Um card por item do orçamento, com SKU, preços, fornecedor e vínculo ao QuoteItem
+    await this.prisma.client.purchaseRequest.createMany({
+      data: items.map((item) => {
+        const qty = Math.max(1, item.quantity || 1);
+        const productUnit = toDecimal(item.productPrice, 0);
+        const engravingUnit = toDecimal(item.engravingPrice, 0);
+        const lineCost = productUnit.add(engravingUnit).mul(qty);
+        const supplier =
+          item.supplier?.trim() === 'SPOT' || item.supplier?.trim() === 'XBZ'
+            ? item.supplier.trim()
+            : item.supplier?.trim() || null;
+        return {
+          ...common,
+          quoteItemId: item.id?.trim() || null,
+          sku: item.sku?.trim() || null,
+          itemName: (item.description?.trim() || item.sku || 'Item').slice(
+            0,
+            300,
+          ),
+          quantity: qty,
+          itemPrice: productUnit,
+          engravingPrice: engravingUnit.greaterThan(0) ? engravingUnit : null,
+          supplierName: supplier,
+          purchaseValue: lineCost,
+        };
+      }),
+    });
+  }
+
   private async handleStatusSideEffects(
     quote: {
       id: string;
@@ -1066,8 +1318,21 @@ export class QuotesService {
       linkedCrmCardId: string | null;
       total: Prisma.Decimal;
       customerName: string;
+      deliveryAddress?: string | null;
+      responsibleUserId?: string | null;
+      items?: Array<{
+        id?: string;
+        sku: string;
+        description: string;
+        quantity: number;
+        engraving: string | null;
+        supplier: string | null;
+        productPrice?: Prisma.Decimal | number | string | null;
+        engravingPrice?: Prisma.Decimal | number | string | null;
+      }>;
     },
     previousStatus: string,
+    actorUserId?: string | null,
   ) {
     if (quote.status === previousStatus) return;
 
@@ -1093,15 +1358,27 @@ export class QuotesService {
       }
     }
 
-    if (quote.status === 'APROVADO' && quote.linkedCrmCardId) {
+    if (quote.status === 'APROVADO') {
       try {
-        await this.crm.markCardStatusByName(quote.linkedCrmCardId, 'Fechado');
+        await this.createPurchaseRequestFromApprovedQuote(quote, actorUserId);
       } catch (err) {
         this.logger.error(
-          `Falha ao fechar lead CRM do orçamento ${quote.code}: ${
+          `Falha ao criar requisição de compra do orçamento ${quote.code}: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
+      }
+
+      if (quote.linkedCrmCardId) {
+        try {
+          await this.crm.markCardStatusByName(quote.linkedCrmCardId, 'Fechado');
+        } catch (err) {
+          this.logger.error(
+            `Falha ao fechar lead CRM do orçamento ${quote.code}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
     }
   }
@@ -1305,7 +1582,7 @@ export class QuotesService {
     return `PED-${String(n).padStart(6, '0')}`;
   }
 
-  async convertToOrder(quoteId: string, _userId: string) {
+  async convertToOrder(quoteId: string, actorUserId: string) {
     const quote = await this.prisma.client.quote.findUnique({
       where: { id: quoteId },
       include: { items: { orderBy: { order: 'asc' } } },
@@ -1392,7 +1669,11 @@ export class QuotesService {
     });
 
     if (result.quote.status !== result.previousStatus) {
-      await this.handleStatusSideEffects(result.quote, result.previousStatus);
+      await this.handleStatusSideEffects(
+        result.quote,
+        result.previousStatus,
+        actorUserId,
+      );
     }
 
     return {

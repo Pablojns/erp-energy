@@ -11,6 +11,13 @@ import PDFDocument from 'pdfkit';
 import { formatBrl, formatPtDate } from '../crm/crm-proposta.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from './mail.service';
+import {
+  calcQuoteItemLineTotalDecimal,
+  calcQuoteItemUnitPriceDecimal,
+  DEFAULT_SALES_MARGIN_PERCENT,
+  roundMoneyDecimal,
+  toDecimal,
+} from './quote-pricing.util';
 
 export type QuoteProposalSnapshotItem = {
   sku: string;
@@ -208,6 +215,9 @@ export class QuoteProposalService {
       subtotal: Prisma.Decimal;
       difalValue?: Prisma.Decimal | null;
       otherExtraCosts?: Prisma.Decimal | null;
+      commissionPercent?: Prisma.Decimal | null;
+      marginReservePercent?: Prisma.Decimal | null;
+      salesMarginPercent?: Prisma.Decimal | null;
       total: Prisma.Decimal;
       observations: string | null;
       customerNotes: string | null;
@@ -218,6 +228,8 @@ export class QuoteProposalService {
         imageUrl: string | null;
         engraving: string | null;
         quantity: number;
+        productPrice?: Prisma.Decimal | null;
+        engravingPrice?: Prisma.Decimal | null;
         unitPrice: Prisma.Decimal;
         total: Prisma.Decimal;
       }>;
@@ -258,6 +270,74 @@ export class QuoteProposalService {
       catalogRows.map((r) => [r.supplierCode, r] as const),
     );
 
+    const commission = toDecimal(quote.commissionPercent, 2);
+    const reserve = toDecimal(quote.marginReservePercent, 6);
+    const sales = toDecimal(
+      quote.salesMarginPercent,
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    const difal = toDecimal(quote.difalValue);
+    const otherExtras = toDecimal(quote.otherExtraCosts);
+
+    let subtotalPrecise = new Prisma.Decimal(0);
+    const pricedItems = quote.items.map((item) => {
+      const cat = catalogBySku.get(item.sku);
+      const qty = item.quantity > 0 ? item.quantity : 1;
+      const engravingPrice = item.engravingPrice ?? null;
+
+      let finalUnit = roundMoneyDecimal(item.unitPrice, 2);
+      let finalTotal = roundMoneyDecimal(item.total, 2);
+
+      // Com productPrice: sempre recalcula venda (margem por dentro)
+      if (item.productPrice != null) {
+        finalUnit = roundMoneyDecimal(
+          calcQuoteItemUnitPriceDecimal({
+            productPrice: item.productPrice,
+            engravingPrice,
+            commissionPercent: commission,
+            marginReservePercent: reserve,
+            salesMarginPercent: sales,
+            quantity: qty,
+            difalValue: difal,
+            otherExtraCosts: otherExtras,
+          }),
+          2,
+        );
+        finalTotal = calcQuoteItemLineTotalDecimal({
+          productPrice: item.productPrice,
+          engravingPrice,
+          commissionPercent: commission,
+          marginReservePercent: reserve,
+          salesMarginPercent: sales,
+          quantity: qty,
+          difalValue: difal,
+          otherExtraCosts: otherExtras,
+        });
+      }
+
+      subtotalPrecise = subtotalPrecise.add(finalTotal);
+
+      return {
+        sku: item.sku,
+        description: item.description,
+        imageUrl: item.imageUrl?.trim() || cat?.imageUrl || null,
+        engraving: item.engraving,
+        quantity: item.quantity,
+        unitPrice: finalUnit.toFixed(2),
+        total: finalTotal.toFixed(2),
+        width: cat?.width?.toString() ?? null,
+        length: cat?.depth?.toString() ?? null,
+        height: cat?.height?.toString() ?? null,
+        weight: cat?.weight?.toString() ?? null,
+      };
+    });
+
+    const freight = quote.freightToConsult
+      ? new Prisma.Decimal(0)
+      : toDecimal(quote.freightValue);
+    const subtotal = roundMoneyDecimal(subtotalPrecise, 2);
+    const total = roundMoneyDecimal(subtotal.add(freight), 2);
+
     return {
       quoteCode: quote.code,
       requestDate: quote.requestDate.toISOString(),
@@ -272,10 +352,10 @@ export class QuoteProposalService {
       freightValue: quote.freightValue?.toString() ?? '0',
       freightToConsult: quote.freightToConsult,
       freightType: quote.freightType,
-      subtotal: quote.subtotal.toString(),
+      subtotal: subtotal.toString(),
       difalValue: quote.difalValue?.toString() ?? '0',
       otherExtraCosts: quote.otherExtraCosts?.toString() ?? '0',
-      total: quote.total.toString(),
+      total: total.toString(),
       observations: quote.observations,
       customerNotes: quote.customerNotes,
       validityDays,
@@ -284,22 +364,7 @@ export class QuoteProposalService {
       responsibleName,
       responsibleEmail,
       responsiblePhone: process.env.QUOTE_COMPANY_PHONE?.trim() || null,
-      items: quote.items.map((item) => {
-        const cat = catalogBySku.get(item.sku);
-        return {
-          sku: item.sku,
-          description: item.description,
-          imageUrl: item.imageUrl?.trim() || cat?.imageUrl || null,
-          engraving: item.engraving,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice.toString(),
-          total: item.total.toString(),
-          width: cat?.width?.toString() ?? null,
-          length: cat?.depth?.toString() ?? null,
-          height: cat?.height?.toString() ?? null,
-          weight: cat?.weight?.toString() ?? null,
-        };
-      }),
+      items: pricedItems,
     };
   }
 

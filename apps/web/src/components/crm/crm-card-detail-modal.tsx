@@ -10,6 +10,8 @@ import { CrmCardLinkedQuotes } from '@/src/components/crm/orcamentos/crm-card-li
 import {
   appendQuickNote,
   buildCrmActivityTimeline,
+  crmDateInputToIso,
+  toCrmDateInputValue,
 } from '@/src/components/crm/crm-helpers';
 import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { GlowButton } from '@/src/components/shell/glow-button';
@@ -58,6 +60,7 @@ export function CrmCardDetailModal(props: {
   const [whatsappLog, setWhatsappLog] = useState('');
   const [funilId, setFunilId] = useState('');
   const [responsavelId, setResponsavelId] = useState('');
+  const [entryDate, setEntryDate] = useState('');
   const [touchpoints, setTouchpoints] = useState<CrmTouchpointInput[]>([]);
   const [quickNote, setQuickNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -92,6 +95,7 @@ export function CrmCardDetailModal(props: {
         setWhatsappLog(data.whatsappLog ?? '');
         setFunilId(data.funilId);
         setResponsavelId(data.responsavelId ?? '');
+        setEntryDate(toCrmDateInputValue(data.entryDate ?? data.createdAt));
         setTouchpoints(mergeTouchpoints(data.touchpoints));
         setQuickNote('');
       } catch (e) {
@@ -177,6 +181,7 @@ export function CrmCardDetailModal(props: {
         status: extra?.status ?? statusId,
         observations: observations.trim() || null,
         whatsappLog: whatsappLog.trim() || null,
+        entryDate: crmDateInputToIso(entryDate || toCrmDateInputValue(card.entryDate ?? card.createdAt)),
         funilId,
         responsavelId: responsavelId || null,
         touchPoints: doneCount,
@@ -472,6 +477,15 @@ export function CrmCardDetailModal(props: {
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
+                  Data de entrada
+                  <input
+                    type="date"
+                    value={entryDate}
+                    onChange={(e) => setEntryDate(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
+                  />
                 </label>
                 <label className="hidden text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2 md:block">
                   Funil

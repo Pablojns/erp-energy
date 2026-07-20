@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
@@ -36,7 +37,12 @@ export class PurchaseRequestController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FilesInterceptor('images', 10))
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
   criar(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreatePurchaseRequestDto,
@@ -62,16 +68,24 @@ export class PurchaseRequestController {
     @Param('imageId', ParseUUIDPipe) imageId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { stream, contentType, contentLength, filename } =
+    const { buffer, contentType, contentLength, filename } =
       await this.purchaseRequests.buscarImagem(id, imageId);
 
+    // Content-Type sem charset — charset=utf-8 corrompe binários no browser.
+    const safeType = contentType.split(';')[0]?.trim() || 'application/octet-stream';
     res.set({
-      'Content-Type': contentType,
+      'Content-Type': safeType,
+      'Content-Length': String(contentLength),
       'Content-Disposition': `inline; filename="${filename}"`,
-      ...(contentLength != null ? { 'Content-Length': String(contentLength) } : {}),
+      'Cache-Control': 'private, max-age=300',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     });
 
-    return new StreamableFile(stream);
+    return new StreamableFile(buffer, {
+      type: safeType,
+      disposition: `inline; filename="${filename}"`,
+      length: contentLength,
+    });
   }
 
   @Get(':id')
@@ -102,6 +116,29 @@ export class PurchaseRequestController {
     @Body() dto: UpdatePurchaseRequestQuantityDto,
   ) {
     return this.purchaseRequests.atualizarQuantidade(id, dto);
+  }
+
+  @Post(':id/imagens')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  adicionarImagens(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFiles() files?: Express.Multer.File[],
+  ) {
+    return this.purchaseRequests.adicionarImagens(id, files);
+  }
+
+  @Delete(':id/imagens/:imageId')
+  removerImagem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+  ) {
+    return this.purchaseRequests.removerImagem(id, imageId);
   }
 
   @Patch(':id/quantidade')

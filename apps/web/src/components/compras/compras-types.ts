@@ -8,12 +8,12 @@ export type KanbanColumnId =
   | 'LAYOUT_APROVADO'
   | 'EM_PRODUCAO'
   | 'EXPEDIDO'
-  | 'RECEBIDO';
+  | 'RECEBIDO'
+  | 'RECUSADO';
 
 export type PurchaseStatus =
   | KanbanColumnId
-  | 'COMPRADO'
-  | 'RECUSADO';
+  | 'COMPRADO';
 
 export type UserLite = { id: string; name: string; email: string };
 
@@ -68,6 +68,13 @@ export type PurchaseRequest = {
   itemPrice: string | null;
   engravingPrice: string | null;
   saleOrderRef: string | null;
+  quoteId?: string | null;
+  quoteItemId?: string | null;
+  /** Foto do produto no orçamento/catálogo */
+  productImageUrl?: string | null;
+  /** Nome da técnica de gravação (ex: Transfer) */
+  engravingName?: string | null;
+  deliveryAddress?: string | null;
   expectedArrival: string | null;
   observation: string | null;
   requestedBy: UserLite;
@@ -98,6 +105,7 @@ export const KANBAN_COLUMNS: Array<{ id: KanbanColumnId; label: string }> = [
   { id: 'EM_PRODUCAO', label: 'Em Produção' },
   { id: 'EXPEDIDO', label: 'Expedido' },
   { id: 'RECEBIDO', label: 'Recebido' },
+  { id: 'RECUSADO', label: 'Recusados' },
 ];
 
 export const TYPE_LABEL: Record<PurchaseType, string> = {
@@ -106,16 +114,9 @@ export const TYPE_LABEL: Record<PurchaseType, string> = {
   MARKETPLACE: 'Marketplace',
 };
 
-const STATUS_LABEL_EXTRA: Record<'COMPRADO' | 'RECUSADO', string> = {
-  COMPRADO: 'Comprado',
-  RECUSADO: 'Recusado',
-};
-
 export function purchaseStatusLabel(status: PurchaseStatus): string {
+  if (status === 'COMPRADO') return 'Pedido Enviado/Aprovado';
   const fromKanban = KANBAN_COLUMNS.find((column) => column.id === status);
   if (fromKanban) return fromKanban.label;
-  if (status === 'COMPRADO' || status === 'RECUSADO') {
-    return STATUS_LABEL_EXTRA[status];
-  }
   return status;
 }

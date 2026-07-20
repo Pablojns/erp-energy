@@ -14,6 +14,7 @@ import {
 export function CrmKanbanBoard(props: {
   funis: CrmFunilDto[];
   cards: CrmCardDto[];
+  highlightedCardIds?: Set<string>;
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
   onCardMoved: (updated: CrmCardDto) => void;
@@ -88,6 +89,7 @@ export function CrmKanbanBoard(props: {
       key={funil.id}
       funil={funil}
       cards={grouped[funil.id] ?? []}
+      highlightedCardIds={props.highlightedCardIds}
       loading={props.loading}
       onOpenCard={props.onOpenCard}
       draggedCardId={draggedCardId}

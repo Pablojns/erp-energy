@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Filter, Loader2, Plus, Search, Trash2 } from 'lucide-react';
+import { Copy, Filter, Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { CrmOrcamentoCatalog } from '@/src/components/crm/orcamentos/crm-orcamento-catalog';
 import { CrmOrcamentoEngraving } from '@/src/components/crm/orcamentos/crm-orcamento-engraving';
 import { CrmOrcamentoDashboard } from '@/src/components/crm/orcamentos/crm-orcamento-dashboard';
@@ -10,6 +10,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import type { CrmUserDto } from '@/src/services/api/crm-api';
 import {
   deleteQuote,
+  duplicateQuote,
   formatQuoteCurrency,
   getQuote,
   listQuotes,
@@ -133,6 +134,20 @@ export function CrmOrcamentos(props: {
     }
   };
 
+  const handleDuplicate = async (id: string) => {
+    setError(null);
+    try {
+      const copy = await duplicateQuote(id);
+      setEditing(copy);
+      setMode('form');
+      setRefreshToken((v) => v + 1);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Falha ao duplicar orçamento.',
+      );
+    }
+  };
+
   if (mode === 'form') {
     return (
       <CrmOrcamentoForm
@@ -145,6 +160,10 @@ export function CrmOrcamentos(props: {
           setRefreshToken((v) => v + 1);
         }}
         onSaved={(quote) => {
+          setEditing(quote);
+          setRefreshToken((v) => v + 1);
+        }}
+        onDuplicated={(quote) => {
           setEditing(quote);
           setRefreshToken((v) => v + 1);
         }}
@@ -370,15 +389,26 @@ export function CrmOrcamentos(props: {
                     className="px-3 py-2.5"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(row.id)}
-                      className="erp-focus-ring rounded-md p-1.5 text-[var(--erp-fg-muted)] hover:bg-white hover:text-rose-600"
-                      title="Excluir"
-                      aria-label={`Excluir ${row.code}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => void handleDuplicate(row.id)}
+                        className="erp-focus-ring rounded-md p-1.5 text-[var(--erp-fg-muted)] hover:bg-white hover:text-[#2AACE2]"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${row.code}`}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(row.id)}
+                        className="erp-focus-ring rounded-md p-1.5 text-[var(--erp-fg-muted)] hover:bg-white hover:text-rose-600"
+                        title="Excluir"
+                        aria-label={`Excluir ${row.code}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -3,6 +3,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsString,
@@ -50,6 +51,10 @@ export class CreateCrmCardDto {
   @IsOptional()
   @IsString()
   whatsappLog?: string | null;
+
+  @IsOptional()
+  @IsISO8601()
+  entryDate?: string;
 
   @IsString()
   funilId!: string;

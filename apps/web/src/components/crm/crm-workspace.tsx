@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Columns3, List, MoreVertical, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Columns3, List, MoreVertical, Plus, Search } from 'lucide-react';
 import { CrmCardDetailModal } from '@/src/components/crm/crm-card-detail-modal';
 import { CrmClientesList } from '@/src/components/crm/crm-clientes-list';
 import { CrmCreateCardModal } from '@/src/components/crm/crm-create-card-modal';
@@ -16,6 +16,7 @@ import { CrmSettingsModal } from '@/src/components/crm/crm-settings-modal';
 import { CrmMobileNav, CrmSidebar, type CrmView } from '@/src/components/crm/crm-sidebar';
 import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import type { CrmDashboardPeriod } from '@/src/components/crm/crm-helpers';
+import { cardMatchesEntryDateRange } from '@/src/components/crm/crm-helpers';
 import {
   getCrmDashboard,
   listCrmCards,
@@ -31,6 +32,24 @@ import {
   type CrmStatusDto,
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
+import { listQuotes } from '@/src/services/api/quotes-api';
+
+function normalizeKanbanQuoteSearch(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withoutLabel = trimmed
+    .replace(/^(or[cç]amento|orc)\s*/i, '')
+    .trim();
+  if (/^ORC-/i.test(withoutLabel)) return withoutLabel;
+  const digits = withoutLabel.replace(/\D/g, '');
+  if (digits.length > 0 && digits.length <= 8 && /^[\d\s-]+$/i.test(withoutLabel)) {
+    return `ORC-${digits.padStart(2, '0')}`;
+  }
+  if (/or[cç]amento/i.test(trimmed) && digits.length > 0) {
+    return `ORC-${digits.padStart(2, '0')}`;
+  }
+  return null;
+}
 
 const VIEW_TITLE: Record<Exclude<CrmView, 'relatorios'>, string> = {
   dashboard: 'Dashboard',
@@ -61,6 +80,12 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const [detailCardId, setDetailCardId] = useState<string | null>(null);
   const [kanbanLayout, setKanbanLayout] = useState<'kanban' | 'list'>('kanban');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [kanbanSearch, setKanbanSearch] = useState('');
+  const [kanbanEntryDateFrom, setKanbanEntryDateFrom] = useState('');
+  const [kanbanEntryDateTo, setKanbanEntryDateTo] = useState('');
+  const [quoteMatchCardIds, setQuoteMatchCardIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -141,6 +166,65 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const handleDataChanged = async () => {
     refresh();
   };
+
+  useEffect(() => {
+    if (activeView !== 'kanban') return;
+    const q = kanbanSearch.trim();
+    const codeHint = normalizeKanbanQuoteSearch(q);
+    if (!q || !codeHint) {
+      setQuoteMatchCardIds(new Set());
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void listQuotes({ search: codeHint, pageSize: 20 })
+        .then((res) => {
+          if (controller.signal.aborted) return;
+          const exact = res.data.filter(
+            (quote) => quote.code.toUpperCase() === codeHint.toUpperCase(),
+          );
+          const pool = exact.length > 0 ? exact : res.data;
+          const ids = new Set(
+            pool
+              .map((quote) => quote.linkedCrmCardId)
+              .filter((id): id is string => Boolean(id)),
+          );
+          setQuoteMatchCardIds(ids);
+          if (exact.length === 1 && exact[0]?.linkedCrmCardId) {
+            setDetailCardId(exact[0].linkedCrmCardId);
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setQuoteMatchCardIds(new Set());
+        });
+    }, 300);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [activeView, kanbanSearch]);
+
+  const filteredKanbanCards = useMemo(() => {
+    const q = kanbanSearch.trim().toLowerCase();
+    return cards.filter((card) => {
+      if (!cardMatchesEntryDateRange(card, kanbanEntryDateFrom, kanbanEntryDateTo)) {
+        return false;
+      }
+      if (!q) return true;
+      if (quoteMatchCardIds.has(card.id)) return true;
+      const haystack = [card.name, card.phone, card.email]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [
+    cards,
+    kanbanEntryDateFrom,
+    kanbanEntryDateTo,
+    kanbanSearch,
+    quoteMatchCardIds,
+  ]);
 
   const showKanbanActions = activeView === 'kanban';
   const showNewLeadAction = activeView === 'kanban' || activeView === 'clientes';
@@ -243,10 +327,40 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
 
           {activeView === 'kanban' ? (
             <section className="erp-module-panel relative flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
+                <div className="relative min-w-[min(100%,14rem)] flex-1 max-w-md">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--erp-fg-muted)]" />
+                  <input
+                    value={kanbanSearch}
+                    onChange={(e) => setKanbanSearch(e.target.value)}
+                    placeholder="Buscar lead ou orçamento (ex: ORC-30, orçamento 30)..."
+                    className="erp-module-input pl-9"
+                  />
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-muted)]">
+                  De
+                  <input
+                    type="date"
+                    value={kanbanEntryDateFrom}
+                    onChange={(e) => setKanbanEntryDateFrom(e.target.value)}
+                    className="erp-module-input w-auto"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-[var(--erp-fg-muted)]">
+                  Até
+                  <input
+                    type="date"
+                    value={kanbanEntryDateTo}
+                    onChange={(e) => setKanbanEntryDateTo(e.target.value)}
+                    className="erp-module-input w-auto"
+                  />
+                </label>
+              </div>
               {kanbanLayout === 'kanban' ? (
                 <CrmKanbanBoard
                   funis={funis}
-                  cards={cards}
+                  cards={filteredKanbanCards}
+                  highlightedCardIds={quoteMatchCardIds}
                   loading={loadingData}
                   onOpenCard={(card) => setDetailCardId(card.id)}
                   onCardMoved={handleCardMoved}
@@ -254,7 +368,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
                 />
               ) : (
                 <CrmKanbanListView
-                  cards={cards}
+                  cards={filteredKanbanCards}
                   funis={funis}
                   statuses={statuses}
                   users={users}

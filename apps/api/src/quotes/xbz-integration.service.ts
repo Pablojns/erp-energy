@@ -327,20 +327,21 @@ export class XbzIntegrationService {
       where.salePrice = priceFilter;
     }
 
+    // id como desempate evita paginação instável (skip/take pulando linhas)
     let orderBy: Prisma.QuoteCatalogProductOrderByWithRelationInput[];
     switch (query.sortBy) {
       case 'price':
-        orderBy = [{ salePrice: sortOrder }, { name: 'asc' }];
+        orderBy = [{ salePrice: sortOrder }, { name: 'asc' }, { id: 'asc' }];
         break;
       case 'stock':
-        orderBy = [{ availableQty: sortOrder }, { name: 'asc' }];
+        orderBy = [{ availableQty: sortOrder }, { name: 'asc' }, { id: 'asc' }];
         break;
       case 'lastUpdate':
-        orderBy = [{ lastSyncAt: sortOrder }, { name: 'asc' }];
+        orderBy = [{ lastSyncAt: sortOrder }, { name: 'asc' }, { id: 'asc' }];
         break;
       case 'name':
       default:
-        orderBy = [{ name: sortOrder }];
+        orderBy = [{ name: sortOrder }, { id: 'asc' }];
         break;
     }
 

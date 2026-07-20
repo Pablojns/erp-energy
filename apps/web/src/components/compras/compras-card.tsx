@@ -5,21 +5,48 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { PurchaseRequest } from './compras-types';
 import { TYPE_LABEL } from './compras-types';
-import { ComprasBadge } from './compras-modal-shell';
 import {
-  calcPurchaseTotalFromRow,
+  calcPaidTotalFromRow,
   displayName,
   displayQty,
   displaySupplierName,
   formatDate,
+  formatDateTime,
   formatMoney,
   formatMoneyNumber,
-  priorityBadgeClass,
   purchaseUnitPrice,
-  typeBadgeClass,
 } from './compras-utils';
 
 const DRAG_ACTIVATION_DISTANCE = 8;
+const QUOTE_CODE_COLOR = '#2AACE2';
+
+function typeLabelClass(type: PurchaseRequest['type']) {
+  if (type === 'VENDA_EXTERNA') return 'text-yellow-500';
+  if (type === 'WEG_CONTRATO') return 'text-blue-900';
+  return 'text-[var(--erp-accent)]';
+}
+
+function priorityLabelClass(priority: PurchaseRequest['priority']) {
+  return priority === 'URGENTE' ? 'text-red-600' : 'text-gray-500';
+}
+
+function priorityLabel(priority: PurchaseRequest['priority']) {
+  return priority === 'URGENTE' ? 'Urgente' : 'Normal';
+}
+
+function formatQuoteCodeDisplay(code: string | null | undefined) {
+  if (!code?.trim()) return null;
+  return code.trim().replace(/^ORC-/i, 'ORÇ-');
+}
+
+function supplierSkuLine(row: PurchaseRequest): string | null {
+  const supplier = displaySupplierName(row);
+  const sku = row.sku?.trim() || row.product?.sku?.trim() || null;
+  if (supplier && sku) return `${supplier} - ${sku}`;
+  if (supplier) return supplier;
+  if (sku) return sku;
+  return null;
+}
 
 export function ComprasCard(props: {
   row: PurchaseRequest;
@@ -91,10 +118,23 @@ export function ComprasCard(props: {
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
       }`}
     >
-      <div className="mb-1 flex flex-wrap gap-1 md:mb-2 md:gap-1.5">
-        <ComprasBadge tone={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
-        <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
+      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 md:mb-2">
+        <span className={`text-xs font-semibold ${typeLabelClass(row.type)}`}>
+          {TYPE_LABEL[row.type]}
+        </span>
+        <span className={`text-xs font-semibold ${priorityLabelClass(row.priority)}`}>
+          {priorityLabel(row.priority)}
+        </span>
       </div>
+
+      {formatQuoteCodeDisplay(row.saleOrderRef) ? (
+        <p
+          className="mb-0.5 truncate text-sm font-bold tracking-tight md:mb-1"
+          style={{ color: QUOTE_CODE_COLOR }}
+        >
+          {formatQuoteCodeDisplay(row.saleOrderRef)}
+        </p>
+      ) : null}
 
       <h3 className="truncate text-sm font-semibold text-[var(--erp-fg)] md:line-clamp-2 md:whitespace-normal">
         {displayName(row)}
@@ -104,9 +144,9 @@ export function ComprasCard(props: {
           Cliente: {row.customerName.trim()}
         </p>
       ) : null}
-      {displaySupplierName(row) ? (
-        <p className="mt-0.5 hidden truncate text-xs text-[var(--erp-fg-muted)] md:mt-1 md:block">
-          {displaySupplierName(row)}
+      {supplierSkuLine(row) ? (
+        <p className="mt-0.5 truncate text-xs text-[var(--erp-fg-muted)] md:mt-1">
+          {supplierSkuLine(row)}
         </p>
       ) : null}
       <p className="mt-1 truncate text-xs text-[var(--erp-fg-secondary)] md:mt-2">
@@ -122,20 +162,25 @@ export function ComprasCard(props: {
           {' · '}
           Total{' '}
           <span className="font-semibold text-[var(--erp-fg)]">
-            {formatMoneyNumber(calcPurchaseTotalFromRow(row))}
+            {formatMoneyNumber(calcPaidTotalFromRow(row))}
           </span>
         </span>
         <span className="font-semibold text-[var(--erp-fg)] md:hidden">
           {' · '}
-          {formatMoneyNumber(calcPurchaseTotalFromRow(row))}
+          {formatMoneyNumber(calcPaidTotalFromRow(row))}
         </span>
       </p>
       <p className="mt-2 hidden text-xs text-[var(--erp-fg-muted)] md:block">
-        {row.requestedBy.name} · {formatDate(row.createdAt)}
+        {row.requestedBy.name} · {formatDateTime(row.createdAt).replace(',', '')}
       </p>
       {row.expectedArrival ? (
         <p className="mt-0.5 hidden text-xs text-[var(--erp-fg-muted)] md:block">
           Previsão: {formatDate(row.expectedArrival)}
+        </p>
+      ) : null}
+      {row.status === 'RECUSADO' && row.refusalReason?.trim() ? (
+        <p className="mt-1 line-clamp-2 text-xs text-rose-600 md:mt-1.5">
+          Motivo: {row.refusalReason.trim()}
         </p>
       ) : null}
     </article>
@@ -146,13 +191,22 @@ export function ComprasCardPreview(props: { row: PurchaseRequest }) {
   const { row } = props;
   return (
     <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3 shadow-2xl">
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        <ComprasBadge tone={typeBadgeClass(row.type)}>{TYPE_LABEL[row.type]}</ComprasBadge>
-        <ComprasBadge tone={priorityBadgeClass(row.priority)}>{row.priority}</ComprasBadge>
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className={`text-xs font-semibold ${typeLabelClass(row.type)}`}>
+          {TYPE_LABEL[row.type]}
+        </span>
+        <span className={`text-xs font-semibold ${priorityLabelClass(row.priority)}`}>
+          {priorityLabel(row.priority)}
+        </span>
       </div>
+      {formatQuoteCodeDisplay(row.saleOrderRef) ? (
+        <p className="mb-1 truncate text-sm font-bold" style={{ color: QUOTE_CODE_COLOR }}>
+          {formatQuoteCodeDisplay(row.saleOrderRef)}
+        </p>
+      ) : null}
       <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
-      {displaySupplierName(row) ? (
-        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{displaySupplierName(row)}</p>
+      {supplierSkuLine(row) ? (
+        <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{supplierSkuLine(row)}</p>
       ) : null}
     </article>
   );

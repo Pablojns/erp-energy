@@ -147,7 +147,75 @@ export function cardMatchesEntryPeriod(
   if (period === 'all') return true;
   const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  return new Date(card.createdAt).getTime() >= cutoff;
+  return new Date(card.entryDate ?? card.createdAt).getTime() >= cutoff;
+}
+
+export function cardMatchesEntryDateRange(
+  card: CrmCardDto,
+  startDate: string,
+  endDate: string,
+): boolean {
+  const start = startDate.trim();
+  const end = endDate.trim();
+  if (!start && !end) return true;
+
+  const entry = new Date(card.entryDate ?? card.createdAt);
+  const entryDay = new Date(
+    entry.getFullYear(),
+    entry.getMonth(),
+    entry.getDate(),
+  ).getTime();
+
+  if (start) {
+    const [y, m, d] = start.split('-').map(Number);
+    if (
+      Number.isFinite(y) &&
+      Number.isFinite(m) &&
+      Number.isFinite(d) &&
+      entryDay < new Date(y!, m! - 1, d!).getTime()
+    ) {
+      return false;
+    }
+  }
+  if (end) {
+    const [y, m, d] = end.split('-').map(Number);
+    if (
+      Number.isFinite(y) &&
+      Number.isFinite(m) &&
+      Number.isFinite(d) &&
+      entryDay > new Date(y!, m! - 1, d!).getTime()
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function toCrmDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function todayCrmDateInputValue(): string {
+  const date = new Date();
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function crmDateInputToIso(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return new Date().toISOString();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T12:00:00.000Z`;
+  }
+  return new Date(trimmed).toISOString();
 }
 
 export function formatCrmDateTime(value: string) {

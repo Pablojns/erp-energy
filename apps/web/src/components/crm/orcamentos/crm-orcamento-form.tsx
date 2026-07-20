@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Copy, Loader2 } from 'lucide-react';
 import { CrmOrcamentoProductsSection } from '@/src/components/crm/orcamentos/crm-orcamento-products';
 import { CrmOrcamentoProposalsTab } from '@/src/components/crm/orcamentos/crm-orcamento-proposals-tab';
 import { CrmOrcamentoRichText } from '@/src/components/crm/orcamentos/crm-orcamento-rich-text';
@@ -13,6 +13,7 @@ import {
   convertQuoteToOrder,
   createQuote,
   createQuoteProposal,
+  duplicateQuote,
   formatQuoteCurrency,
   QUOTE_STATUS_BADGE_CLASS,
   QUOTE_STATUS_LABEL,
@@ -72,7 +73,11 @@ function calcItemUnitWithRatesPrecise(
 /** Infere a margem de venda a partir do preço já gravado (quando a API não a devolve). */
 function inferSalesMarginPercent(quote: QuoteDto): number {
   if (quote.salesMarginPercent != null && quote.salesMarginPercent !== '') {
-    return parsePercent(String(quote.salesMarginPercent), DEFAULT_SALES_MARGIN_PERCENT);
+    const n = parsePercent(
+      String(quote.salesMarginPercent),
+      DEFAULT_SALES_MARGIN_PERCENT,
+    );
+    if (n > 0) return n;
   }
   const commission = parsePercent(String(quote.commissionPercent ?? '2'), 2);
   const reserve = parsePercent(String(quote.marginReservePercent ?? '6'), 6);
@@ -88,9 +93,10 @@ function inferSalesMarginPercent(quote: QuoteDto): number {
     const custoBase =
       Math.max(0, product) + Math.max(0, engraving) + extrasPerUnit;
     if (custoBase <= 0 || unit <= 0) continue;
+    if (unit <= custoBase + 0.009) continue;
     const totalPercent = (1 - custoBase / unit) * 100;
     const salesPct = totalPercent - commission - reserve;
-    if (Number.isFinite(salesPct) && salesPct >= 0) {
+    if (Number.isFinite(salesPct) && salesPct > 0.5) {
       return Math.round(salesPct * 10000) / 10000;
     }
   }
@@ -271,6 +277,7 @@ export function CrmOrcamentoForm(props: {
   users: CrmUserDto[];
   onBack: () => void;
   onSaved: (quote: QuoteDto) => void;
+  onDuplicated?: (quote: QuoteDto) => void;
 }) {
   const router = useRouter();
   const { user } = useNavPermissions();
@@ -608,6 +615,26 @@ export function CrmOrcamentoForm(props: {
     }
   };
 
+  const handleDuplicate = async () => {
+    if (!currentQuote) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const copy = await duplicateQuote(currentQuote.id);
+      setCurrentQuote(copy);
+      setForm(fromQuote(copy));
+      setFormTab('detalhes');
+      props.onDuplicated?.(copy);
+      props.onSaved(copy);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Falha ao duplicar orçamento.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleUpdateAndCreateProposal = async () => {
     const saved = await handleSave();
     if (!saved) return;
@@ -783,6 +810,18 @@ export function CrmOrcamentoForm(props: {
           Voltar à lista
         </button>
         <div className="flex flex-wrap items-center gap-2">
+          {currentQuote ? (
+            <button
+              type="button"
+              onClick={() => void handleDuplicate()}
+              disabled={saving || converting}
+              className="erp-focus-ring erp-btn erp-btn-ghost erp-btn--md disabled:opacity-50"
+              title="Criar cópia com novo código"
+            >
+              <Copy className="erp-icon-sm" aria-hidden />
+              Duplicar
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void handleSave()}
@@ -1065,7 +1104,13 @@ export function CrmOrcamentoForm(props: {
           <CrmOrcamentoProductsSection
             quote={{
               ...currentQuote,
-              // Garante que o rateio use o Difal/outros do formulário (não um snapshot desatualizado)
+              // Garante rateio com comissão/reserva/margem/extras do formulário
+              commissionPercent: form.commissionPercent,
+              marginReservePercent: form.marginReservePercent,
+              salesMarginPercent: showSalesMargin
+                ? form.salesMarginPercent
+                : (currentQuote.salesMarginPercent ??
+                  form.salesMarginPercent),
               difalValue: form.difalValue,
               otherExtraCosts: form.otherExtraCosts,
             }}
@@ -1170,13 +1215,12 @@ export function CrmOrcamentoForm(props: {
         <div className="rounded-xl border border-[var(--erp-border)] bg-white p-4 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold text-[var(--erp-fg)]">
             Comissão e reserva
+            {pricingBusy ? (
+              <span className="ml-2 text-xs font-normal text-[var(--erp-fg-muted)]">
+                Recalculando…
+              </span>
+            ) : null}
           </h3>
-          <p className="mb-3 text-[11px] text-[var(--erp-fg-muted)]">
-            Entram no preço unitário final de cada item junto com a margem de
-            venda (por dentro): (produto + gravação + extras/qtd) ÷ (1 −
-            (comissão% + reserva% + margem venda%) / 100).
-            {pricingBusy ? ' Recalculando…' : ''}
-          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
               Comissão (%)

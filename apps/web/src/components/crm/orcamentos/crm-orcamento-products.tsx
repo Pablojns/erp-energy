@@ -9,8 +9,10 @@ import {
   deleteQuoteItem,
   formatQuoteCurrency,
   listEngravingTechniques,
+  listQuoteCatalogEngravingOptions,
   updateQuoteItem,
   type EngravingTechniqueDto,
+  type QuoteCatalogEngravingOptionDto,
   type QuoteCatalogProductDto,
   type QuoteDto,
   type QuoteItemDto,
@@ -32,6 +34,34 @@ function calcEngravingFromTiers(
   const isInterval = /intervalo/i.test(tier.costType || '');
   const base = isInterval ? cost / qty : cost;
   return Math.max(0, base + applicationCost + fixedFee / qty);
+}
+
+/** Preço unitário SPOT a partir das faixas MinQt/Price do catálogo. */
+function calcSpotEngravingFromTiers(
+  option: QuoteCatalogEngravingOptionDto | undefined,
+  quantity: number,
+): number | null {
+  if (!option) return null;
+  const qty = Math.max(1, Math.floor(quantity) || 1);
+  const tiers = option.tiers ?? [];
+  if (tiers.length > 0) {
+    const tier = tiers.find((t) => qty >= t.qtyFrom && qty <= t.qtyTo);
+    if (!tier) return null;
+    const price = Number(String(tier.price).replace(',', '.'));
+    return Number.isFinite(price) ? Math.max(0, price) : null;
+  }
+  if (option.price == null) return null;
+  const fallback = Number(String(option.price).replace(',', '.'));
+  return Number.isFinite(fallback) ? Math.max(0, fallback) : null;
+}
+
+function spotEngravingMinQty(
+  option: QuoteCatalogEngravingOptionDto | undefined,
+): number | null {
+  if (!option) return null;
+  if (option.minQty != null && option.minQty > 0) return option.minQty;
+  const first = option.tiers?.[0]?.qtyFrom;
+  return first != null && first > 0 ? first : null;
 }
 
 function round2(n: number) {
@@ -82,7 +112,9 @@ function inferSalesMarginPercent(
 ): number {
   if (quote.salesMarginPercent != null && quote.salesMarginPercent !== '') {
     const n = Number(String(quote.salesMarginPercent).replace(',', '.'));
-    if (Number.isFinite(n) && n >= 0) return n;
+    // 0% explícito só é aceito se veio do formulário/API; ainda assim
+    // se o unitário estiver igual ao custo bruto, cai no default abaixo.
+    if (Number.isFinite(n) && n > 0) return n;
   }
   const difal = Number(String(quote.difalValue ?? '0').replace(',', '.')) || 0;
   const other =
@@ -97,13 +129,32 @@ function inferSalesMarginPercent(
     const custoBase =
       Math.max(0, product) + Math.max(0, engraving) + extrasPerUnit;
     if (custoBase <= 0 || unit <= 0) continue;
+    // Unitário ≈ custo bruto → preço ainda sem margem embutida
+    if (unit <= custoBase + 0.009) continue;
     const totalPercent = (1 - custoBase / unit) * 100;
     const salesPct = totalPercent - commissionPercent - marginReservePercent;
-    if (Number.isFinite(salesPct) && salesPct >= 0) {
+    if (Number.isFinite(salesPct) && salesPct > 0.5) {
       return Math.round(salesPct * 10000) / 10000;
     }
   }
   return DEFAULT_SALES_MARGIN_PERCENT;
+}
+
+function itemCustoBase(
+  productPrice: number,
+  engravingPrice: number,
+  quantity: number,
+  difalValue: number,
+  otherExtraCosts: number,
+) {
+  const qty =
+    Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+  return (
+    Math.max(0, productPrice) +
+    Math.max(0, engravingPrice) +
+    Math.max(0, difalValue) / qty +
+    Math.max(0, otherExtraCosts) / qty
+  );
 }
 
 function readFileAsBase64(file: File): Promise<{
@@ -138,8 +189,14 @@ export function CrmOrcamentoProductsSection(props: {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [techniques, setTechniques] = useState<EngravingTechniqueDto[]>([]);
+  /** Opções SPOT por SKU (QuoteCatalogEngravingOption). */
+  const [spotOptionsBySku, setSpotOptionsBySku] = useState<
+    Record<string, QuoteCatalogEngravingOptionDto[]>
+  >({});
   /** Rascunho do campo qtd enquanto digita (evita forçar 1 ao limpar). */
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+  const [bulkQtyInput, setBulkQtyInput] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const items = props.quote.items ?? [];
   const commissionPercent =
@@ -199,6 +256,45 @@ export function CrmOrcamentoProductsSection(props: {
       .catch(() => setTechniques([]));
   }, []);
 
+  useEffect(() => {
+    const skus = [
+      ...new Set(
+        items
+          .filter((i) => i.supplier === 'SPOT' && i.sku?.trim())
+          .map((i) => i.sku.trim()),
+      ),
+    ];
+    if (skus.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      skus.map(async (sku) => {
+        try {
+          const opts = await listQuoteCatalogEngravingOptions(sku);
+          return [sku, opts] as const;
+        } catch {
+          return [sku, [] as QuoteCatalogEngravingOptionDto[]] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setSpotOptionsBySku((prev) => {
+        const next = { ...prev };
+        for (const [sku, opts] of entries) next[sku] = opts;
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Só reage a mudanças de SKUs SPOT no orçamento
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- spotOptionsBySku é cache; evita loop
+  }, [
+    items
+      .filter((i) => i.supplier === 'SPOT')
+      .map((i) => i.sku)
+      .join('|'),
+  ]);
+
   const liveSubtotal = useMemo(
     () =>
       items.reduce((acc, item) => {
@@ -227,6 +323,22 @@ export function CrmOrcamentoProductsSection(props: {
     liveSubtotal + (Number.isFinite(freight) ? freight : 0),
   );
   const liveSubtotalDisplay = round2(liveSubtotal);
+
+  const custoTotalDisplay = useMemo(() => {
+    const itemsCost = items.reduce((acc, item) => {
+      const product = Number(item.productPrice);
+      const hasProduct =
+        item.productPrice != null && Number.isFinite(product);
+      if (!hasProduct) return acc;
+      const eng = Number(item.engravingPrice ?? 0) || 0;
+      const qty = item.quantity > 0 ? item.quantity : 1;
+      return (
+        acc +
+        itemCustoBase(product, eng, qty, difalValue, otherExtraCosts) * qty
+      );
+    }, 0);
+    return round2(itemsCost);
+  }, [items, difalValue, otherExtraCosts]);
 
   const patchLocalItem = (itemId: string, patch: Partial<QuoteItemDto>) => {
     const nextItems = items.map((item) => {
@@ -306,6 +418,62 @@ export function CrmOrcamentoProductsSection(props: {
     }
   };
 
+  const applyBulkQuantity = async () => {
+    const quantity = Math.max(1, Math.floor(Number(bulkQtyInput)) || 0);
+    if (!quantity) {
+      props.onError('Informe uma quantidade válida (mínimo 1).');
+      return;
+    }
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    props.onError(null);
+    try {
+      let latest = props.quote;
+      for (const itemId of ids) {
+        const item = latest.items.find((i) => i.id === itemId);
+        if (!item) continue;
+        const technique = techniques.find(
+          (t) => t.id === item.engravingTechniqueId,
+        );
+        const spotOption =
+          item.supplier === 'SPOT' && item.engraving
+            ? (spotOptionsBySku[item.sku] ?? []).find(
+                (o) => o.techniqueName === item.engraving,
+              )
+            : undefined;
+        const engCalc =
+          item.supplier === 'SPOT' && spotOption
+            ? calcSpotEngravingFromTiers(spotOption, quantity)
+            : technique
+              ? calcEngravingFromTiers(technique, quantity)
+              : item.engravingPrice != null
+                ? Number(item.engravingPrice)
+                : null;
+        const eng =
+          engCalc === null || engCalc === undefined ? 0 : round2(engCalc);
+        const shouldUpdateEng =
+          Boolean(technique) ||
+          (item.supplier === 'SPOT' && Boolean(spotOption));
+        latest = await updateQuoteItem(latest.id, itemId, {
+          quantity,
+          ...(shouldUpdateEng ? { engravingPrice: eng } : {}),
+        });
+      }
+      props.onQuoteChange(latest);
+      setSelected(new Set());
+      setBulkQtyInput('');
+    } catch (err) {
+      props.onError(
+        err instanceof Error
+          ? err.message
+          : 'Falha ao aplicar quantidade em massa.',
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const handleSelectProduct = async (product: QuoteCatalogProductDto) => {
     setAdding(true);
     props.onError(null);
@@ -378,8 +546,35 @@ export function CrmOrcamentoProductsSection(props: {
       return;
     }
 
-    const technique = techniques.find((t) => t.id === techniqueId);
     const productPrice = Number(item.productPrice ?? item.unitPrice) || 0;
+
+    // SPOT: preço por faixa de quantidade (QuoteCatalogEngravingPriceTier)
+    if (item.supplier === 'SPOT') {
+      const spotOpts = spotOptionsBySku[item.sku] ?? [];
+      const option = spotOpts.find((o) => o.id === techniqueId);
+      const engCalc = calcSpotEngravingFromTiers(option, item.quantity);
+      const engravingPrice =
+        engCalc === null ? 0 : round2(engCalc);
+      const unitPrice = finalUnit(productPrice, engravingPrice, item.quantity);
+      patchLocalItem(item.id, {
+        engravingTechniqueId: null,
+        engraving: option?.techniqueName ?? null,
+        engravingPrice: String(engravingPrice),
+        productPrice: String(productPrice),
+        unitPrice: String(unitPrice),
+        requiresArtwork: true,
+      });
+      await persistItem(item.id, {
+        engravingTechniqueId: null,
+        engraving: option?.techniqueName ?? null,
+        engravingPrice,
+        productPrice,
+        requiresArtwork: true,
+      });
+      return;
+    }
+
+    const technique = techniques.find((t) => t.id === techniqueId);
     const engravingCalc = calcEngravingFromTiers(technique, item.quantity);
     const engravingPrice =
       engravingCalc === null ? 0 : round2(engravingCalc);
@@ -388,7 +583,6 @@ export function CrmOrcamentoProductsSection(props: {
       engravingPrice,
       item.quantity,
     );
-    const requiresArtwork = item.supplier === 'SPOT';
 
     patchLocalItem(item.id, {
       engravingTechniqueId: techniqueId,
@@ -396,14 +590,14 @@ export function CrmOrcamentoProductsSection(props: {
       engravingPrice: String(engravingPrice),
       productPrice: String(productPrice),
       unitPrice: String(unitPrice),
-      requiresArtwork,
+      requiresArtwork: false,
     });
     await persistItem(item.id, {
       engravingTechniqueId: techniqueId,
       engraving: technique?.name ?? null,
       engravingPrice,
       productPrice,
-      requiresArtwork,
+      requiresArtwork: false,
     });
   };
 
@@ -458,6 +652,40 @@ export function CrmOrcamentoProductsSection(props: {
         </button>
       </div>
 
+      {selected.size > 0 ? (
+        <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2">
+          <span className="text-xs font-medium text-[var(--erp-fg-muted)]">
+            {selected.size} selecionado{selected.size === 1 ? '' : 's'}
+          </span>
+          <label className="block text-xs font-medium text-[var(--erp-fg-muted)]">
+            Nova quantidade
+            <input
+              type="number"
+              min={1}
+              value={bulkQtyInput}
+              onChange={(e) => setBulkQtyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void applyBulkQuantity();
+              }}
+              placeholder="Ex: 100"
+              className="erp-module-input mt-1 w-28"
+              disabled={bulkBusy}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void applyBulkQuantity()}
+            disabled={bulkBusy || !bulkQtyInput.trim()}
+            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md disabled:opacity-50"
+          >
+            {bulkBusy ? (
+              <Loader2 className="erp-icon-sm animate-spin" />
+            ) : null}
+            Aplicar a todos selecionados
+          </button>
+        </div>
+      ) : null}
+
       {items.length === 0 ? (
         <p className="rounded-lg border border-dashed border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-6 text-center text-sm text-[var(--erp-fg-muted)]">
           Nenhum produto neste orçamento.
@@ -508,6 +736,7 @@ export function CrmOrcamentoProductsSection(props: {
                 const hasProductPrice =
                   item.productPrice != null &&
                   Number.isFinite(Number(item.productPrice));
+                // Sempre preferir preço de venda (margem por dentro); nunca custo bruto
                 const unitPrecise = hasProductPrice
                   ? finalUnitPrecise(
                       Number(item.productPrice),
@@ -517,6 +746,24 @@ export function CrmOrcamentoProductsSection(props: {
                   : Number(item.unitPrice) || 0;
                 const unitDisplay = round2(unitPrecise);
                 const lineTotalDisplay = round2(unitDisplay * item.quantity);
+                const spotOption =
+                  item.supplier === 'SPOT' && item.engraving
+                    ? (spotOptionsBySku[item.sku] ?? []).find(
+                        (o) => o.techniqueName === item.engraving,
+                      )
+                    : undefined;
+                const currentQty =
+                  qtyDrafts[item.id] !== undefined
+                    ? Math.max(
+                        1,
+                        Math.floor(Number(qtyDrafts[item.id])) || 1,
+                      )
+                    : item.quantity;
+                const spotMinQty = spotEngravingMinQty(spotOption);
+                const spotBelowMin =
+                  spotOption != null &&
+                  spotMinQty != null &&
+                  currentQty < spotMinQty;
                 return (
                   <tr
                     key={item.id}
@@ -556,7 +803,13 @@ export function CrmOrcamentoProductsSection(props: {
                     <td className="px-2 py-2 align-middle">
                       <div className="flex min-w-[11rem] items-center gap-1.5">
                         <select
-                          value={item.engravingTechniqueId ?? ''}
+                          value={
+                            item.supplier === 'SPOT'
+                              ? (spotOptionsBySku[item.sku]?.find(
+                                  (o) => o.techniqueName === item.engraving,
+                                )?.id ?? '')
+                              : (item.engravingTechniqueId ?? '')
+                          }
                           disabled={busyId === item.id}
                           onChange={(e) => {
                             void handleTechniqueChange(item, e.target.value);
@@ -564,11 +817,33 @@ export function CrmOrcamentoProductsSection(props: {
                           className="erp-module-input"
                         >
                           <option value="">Sem gravação</option>
-                          {techniques.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
+                          {item.supplier === 'SPOT'
+                            ? (spotOptionsBySku[item.sku] ?? []).map((o) => {
+                                const tierPrice = calcSpotEngravingFromTiers(
+                                  o,
+                                  currentQty,
+                                );
+                                const labelPrice =
+                                  tierPrice != null
+                                    ? tierPrice
+                                    : o.price != null
+                                      ? Number(o.price)
+                                      : null;
+                                return (
+                                  <option key={o.id} value={o.id}>
+                                    {o.techniqueName}
+                                    {labelPrice != null &&
+                                    Number.isFinite(labelPrice)
+                                      ? ` — ${formatQuoteCurrency(labelPrice)}`
+                                      : ''}
+                                  </option>
+                                );
+                              })
+                            : techniques.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
                         </select>
                         {showArtwork ? (
                           <label
@@ -611,7 +886,7 @@ export function CrmOrcamentoProductsSection(props: {
                             [item.id]: e.target.value,
                           }));
                         }}
-                        onBlur={(e) => {
+                          onBlur={(e) => {
                           const quantity = Math.max(
                             1,
                             Math.floor(Number(e.target.value)) || 1,
@@ -624,33 +899,61 @@ export function CrmOrcamentoProductsSection(props: {
                           const technique = techniques.find(
                             (t) => t.id === item.engravingTechniqueId,
                           );
+                          const spotOption =
+                            item.supplier === 'SPOT' && item.engraving
+                              ? (spotOptionsBySku[item.sku] ?? []).find(
+                                  (o) => o.techniqueName === item.engraving,
+                                )
+                              : undefined;
                           const pp =
                             Number(item.productPrice ?? item.unitPrice) || 0;
-                          const engCalc = technique
-                            ? calcEngravingFromTiers(technique, quantity)
-                            : item.engravingPrice != null
-                              ? Number(item.engravingPrice)
-                              : null;
+                          const engCalc =
+                            item.supplier === 'SPOT' && spotOption
+                              ? calcSpotEngravingFromTiers(
+                                  spotOption,
+                                  quantity,
+                                )
+                              : technique
+                                ? calcEngravingFromTiers(technique, quantity)
+                                : item.engravingPrice != null
+                                  ? Number(item.engravingPrice)
+                                  : null;
                           const eng =
                             engCalc === null || engCalc === undefined
                               ? 0
                               : round2(engCalc);
-                          if (quantity !== item.quantity) {
+                          const shouldUpdateEng =
+                            Boolean(technique) ||
+                            (item.supplier === 'SPOT' && Boolean(spotOption));
+                          if (
+                            quantity !== item.quantity ||
+                            (shouldUpdateEng &&
+                              eng !==
+                                (Number(item.engravingPrice ?? 0) || 0))
+                          ) {
                             patchLocalItem(item.id, {
                               quantity,
-                              ...(technique
+                              ...(shouldUpdateEng
                                 ? { engravingPrice: String(eng) }
                                 : {}),
                               unitPrice: String(finalUnit(pp, eng, quantity)),
                             });
                             void persistItem(item.id, {
                               quantity,
-                              ...(technique ? { engravingPrice: eng } : {}),
+                              ...(shouldUpdateEng
+                                ? { engravingPrice: eng }
+                                : {}),
                             });
                           }
                         }}
                         className="erp-module-input w-20"
                       />
+                      {spotBelowMin && spotMinQty != null ? (
+                        <p className="mt-1 max-w-[9rem] text-[10px] font-medium leading-tight text-amber-700">
+                          Quantidade mínima para esta gravação: {spotMinQty}{' '}
+                          unidades
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-2 py-2 align-middle">
                       <div className="flex flex-col gap-0.5">
@@ -693,7 +996,11 @@ export function CrmOrcamentoProductsSection(props: {
                           step="0.01"
                           value={engravingPrice}
                           disabled={
-                            busyId === item.id || !item.engravingTechniqueId
+                            busyId === item.id ||
+                            !(
+                              item.engravingTechniqueId ||
+                              (item.supplier === 'SPOT' && item.engraving)
+                            )
                           }
                           placeholder="—"
                           onChange={(e) => {
@@ -721,7 +1028,8 @@ export function CrmOrcamentoProductsSection(props: {
                           className="erp-module-input w-28 disabled:opacity-50"
                         />
                         <span className="pl-0.5 text-[11px] text-[var(--erp-fg-muted)]">
-                          {item.engravingTechniqueId
+                          {item.engravingTechniqueId ||
+                          (item.supplier === 'SPOT' && item.engraving)
                             ? formatQuoteCurrency(
                                 qtyTotal(engravingUnit, item.quantity),
                               )
@@ -799,8 +1107,12 @@ export function CrmOrcamentoProductsSection(props: {
             </strong>
           </div>
           <div className="my-2 border-t border-[var(--erp-border)]" />
+          <div className="flex justify-between gap-4 text-[var(--erp-fg)]">
+            <span className="font-medium">Custo Total:</span>
+            <strong>{formatQuoteCurrency(custoTotalDisplay)}</strong>
+          </div>
           <div className="flex justify-between gap-4 text-base font-semibold text-[var(--erp-fg)]">
-            <span>Total Final (valor de venda):</span>
+            <span>Venda Total:</span>
             <span>{formatQuoteCurrency(liveTotal)}</span>
           </div>
         </div>

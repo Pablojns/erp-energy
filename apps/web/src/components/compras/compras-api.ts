@@ -73,7 +73,7 @@ export async function fetchPurchaseRequests(params: URLSearchParams): Promise<Pu
   const res = await erpFetchJson<PurchaseListResponse>(
     `api/compras?${params.toString()}`,
   );
-  return res.data.filter((row) => row.status !== 'RECUSADO');
+  return res.data;
 }
 
 export async function fetchPurchaseDetail(id: string): Promise<PurchaseRequest> {

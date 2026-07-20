@@ -45,7 +45,7 @@ export function ComprasResolveModal(props: {
 
   return (
     <ComprasModalShell
-      title={action === 'comprado' ? 'Marcar Comprado' : 'Recusar Solicitação'}
+      title={action === 'comprado' ? 'Aprovar Requisição' : 'Recusar Solicitação'}
       onClose={onClose}
       size="sm"
     >

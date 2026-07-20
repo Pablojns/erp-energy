@@ -12,6 +12,8 @@ import type { CatalogSyncResult } from './xbz-integration.service';
 const SYNC_CONTROL_ID = 'spot';
 const SUPPLIER = 'SPOT';
 const DEFAULT_BASE_URL = 'https://ws.spotgifts.com.br/api/v1SSL';
+/** Base pública das fotos de produto (MainImage vem só com o nome do arquivo). */
+const SPOT_IMAGE_BASE_URL = 'https://www.spotgifts.com.br/fotos/produtos/';
 /** Margem de segurança antes do vencimento armazenado (ms). */
 const TOKEN_SKEW_MS = 60_000;
 /**
@@ -132,6 +134,10 @@ export class SpotIntegrationService {
       obj.optionals,
       obj.OptionalsComplete,
       obj.optionalsComplete,
+      obj.OptionalsPrice,
+      obj.optionalsPrice,
+      obj.CustomizationTables,
+      obj.customizationTables,
       obj.CustomizationOptions,
       obj.customizationOptions,
       obj.Data,
@@ -656,6 +662,36 @@ export class SpotIntegrationService {
   }
 
   /**
+   * SPOT retorna MainImage como nome de arquivo (ex: 11103_103.jpg).
+   * Monta URL completa em /fotos/produtos/; se já for http(s), mantém.
+   */
+  private resolveImageUrl(row: Record<string, unknown>): string | null {
+    let raw = this.pickString(row, [
+      'MainImage',
+      'mainImage',
+      'OptionalImage1',
+      'optionalImage1',
+      'ImageUrl',
+      'imageUrl',
+      'ImageLink',
+      'imageLink',
+      'Image',
+      'image',
+      'Photo',
+      'photo',
+    ]);
+    if (!raw) {
+      const list = String(row.AllImageList ?? row.allImageList ?? '').trim();
+      raw = list.split(',')[0]?.trim() || null;
+    }
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const file = raw.replace(/^\/+/, '');
+    if (!file) return null;
+    return `${SPOT_IMAGE_BASE_URL}${file}`;
+  }
+
+  /**
    * Preço unitário SPOT: YourPrice / ScalePrices (productsTree) ou Price/CatalogPrice.
    */
   private extractUnitPrice(row: Record<string, unknown>): number {
@@ -776,12 +812,173 @@ export class SpotIntegrationService {
     };
   }
 
+  private splitCsv(value: string | null | undefined): string[] {
+    if (!value?.trim()) return [];
+    return value
+      .split(/[,;|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Converte MinQt1..N / Price1..N de /customizationTables em faixas qtyFrom/qtyTo.
+   * HandlingCosts em /optionalsComplete vem 0; o valor real está nestas tabelas.
+   */
+  private extractCustomizationTiers(
+    row: Record<string, unknown>,
+  ): Array<{ qtyFrom: number; qtyTo: number; price: number }> {
+    const points: Array<{ minQt: number; price: number }> = [];
+    for (let i = 1; i <= 15; i++) {
+      const minQt = this.toNumber(row[`MinQt${i}`] ?? row[`minQt${i}`], NaN);
+      const price = this.toNumber(row[`Price${i}`] ?? row[`price${i}`], NaN);
+      if (!Number.isFinite(minQt) || minQt < 1) continue;
+      if (!Number.isFinite(price) || price < 0) continue;
+      points.push({ minQt: Math.trunc(minQt), price });
+    }
+    points.sort((a, b) => a.minQt - b.minQt);
+    const tiers: Array<{ qtyFrom: number; qtyTo: number; price: number }> = [];
+    for (let i = 0; i < points.length; i++) {
+      const qtyFrom = points[i].minQt;
+      const qtyTo =
+        i + 1 < points.length
+          ? Math.max(qtyFrom, points[i + 1].minQt - 1)
+          : 999_999_999;
+      tiers.push({ qtyFrom, qtyTo, price: points[i].price });
+    }
+    return tiers;
+  }
+
+  private pickTierUnitPrice(
+    tiers: Array<{ qtyFrom: number; qtyTo: number; price: number }>,
+    preferredQty = 100,
+  ): number | null {
+    if (tiers.length === 0) return null;
+    const match = tiers.find(
+      (t) => preferredQty >= t.qtyFrom && preferredQty <= t.qtyTo,
+    );
+    return match?.price ?? tiers[tiers.length - 1]?.price ?? null;
+  }
+
+  private buildCustomizationPriceMaps(tables: Record<string, unknown>[]): {
+    byOption: Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >;
+    byTable: Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >;
+    byTypeName: Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >;
+  } {
+    const byOption = new Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >();
+    const byTable = new Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >();
+    const byTypeName = new Map<
+      string,
+      Array<{ qtyFrom: number; qtyTo: number; price: number }>
+    >();
+
+    for (const row of tables) {
+      const tiers = this.extractCustomizationTiers(row);
+      if (tiers.length === 0) continue;
+      const optionCode = this.pickString(row, [
+        'TableCodeOption',
+        'tableCodeOption',
+      ]);
+      const tableCode = this.pickString(row, [
+        'TableCode',
+        'tableCode',
+        'TableFullcode',
+        'tableFullcode',
+        'TableFullCode',
+      ]);
+      const typeName = this.pickString(row, [
+        'CustomizationTypeName',
+        'customizationTypeName',
+      ]);
+      if (optionCode) byOption.set(optionCode.toUpperCase(), tiers);
+      if (tableCode && !byTable.has(tableCode.toUpperCase())) {
+        byTable.set(tableCode.toUpperCase(), tiers);
+      }
+      if (typeName) {
+        const key = typeName.toLowerCase();
+        if (!byTypeName.has(key)) byTypeName.set(key, tiers);
+      }
+    }
+    return { byOption, byTable, byTypeName };
+  }
+
+  private resolveCustomizationTiers(
+    maps: {
+      byOption: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+      byTable: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+      byTypeName: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+    },
+    optionCode: string | null,
+    tableCode: string | null,
+    typeName: string | null,
+  ): Array<{ qtyFrom: number; qtyTo: number; price: number }> {
+    if (optionCode) {
+      const optKey = optionCode.toUpperCase();
+      const direct = maps.byOption.get(optKey);
+      if (direct?.length) return direct;
+      // LSR1-01-01 → LSR1-01
+      const parts = optionCode.split('-');
+      if (parts.length >= 2) {
+        const tableKey = parts.slice(0, -1).join('-').toUpperCase();
+        const fromTable = maps.byTable.get(tableKey);
+        if (fromTable?.length) return fromTable;
+      }
+    }
+    if (tableCode) {
+      const fromTable = maps.byTable.get(tableCode.toUpperCase());
+      if (fromTable?.length) return fromTable;
+    }
+    if (typeName) {
+      return maps.byTypeName.get(typeName.toLowerCase()) ?? [];
+    }
+    return [];
+  }
+
   private collectEngravingOptions(
     optionals: Record<string, unknown>[],
+    priceMaps: {
+      byOption: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+      byTable: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+      byTypeName: Map<
+        string,
+        Array<{ qtyFrom: number; qtyTo: number; price: number }>
+      >;
+    },
   ): Array<{
     productSku: string;
     techniqueName: string;
     price: Prisma.Decimal | null;
+    minQty: number | null;
+    tiers: Array<{ qtyFrom: number; qtyTo: number; price: number }>;
     maxWidth: Prisma.Decimal | null;
     maxHeight: Prisma.Decimal | null;
   }> {
@@ -789,27 +986,62 @@ export class SpotIntegrationService {
       productSku: string;
       techniqueName: string;
       price: Prisma.Decimal | null;
+      minQty: number | null;
+      tiers: Array<{ qtyFrom: number; qtyTo: number; price: number }>;
       maxWidth: Prisma.Decimal | null;
       maxHeight: Prisma.Decimal | null;
     }> = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
 
     const pushOption = (
       productSku: string,
       techniqueName: string,
-      price: Prisma.Decimal | null,
+      tiers: Array<{ qtyFrom: number; qtyTo: number; price: number }>,
+      fallbackPrice: Prisma.Decimal | null,
       maxWidth: Prisma.Decimal | null,
       maxHeight: Prisma.Decimal | null,
     ) => {
       const name = techniqueName.trim();
       if (!name) return;
+      // Ignora combinações "Laser, Tampografia" como um único nome
+      if (name.includes(',')) return;
+      const refPriceNum = this.pickTierUnitPrice(tiers, 100);
+      const price =
+        refPriceNum != null
+          ? new Prisma.Decimal(refPriceNum)
+          : fallbackPrice;
+      const minQty = tiers.length > 0 ? tiers[0].qtyFrom : null;
       const key = `${productSku}::${name.toLowerCase()}`;
-      if (seen.has(key)) return;
-      seen.add(key);
+      const priceNum = price != null ? Number(price) : NaN;
+      const prevIdx = seen.get(key);
+      if (prevIdx != null) {
+        const prev = out[prevIdx];
+        const prevNum = prev.price != null ? Number(prev.price) : NaN;
+        if (
+          (tiers.length > prev.tiers.length && tiers.length > 0) ||
+          (Number.isFinite(priceNum) &&
+            priceNum > 0 &&
+            (!Number.isFinite(prevNum) || prevNum <= 0))
+        ) {
+          out[prevIdx] = {
+            productSku,
+            techniqueName: name,
+            price,
+            minQty,
+            tiers: tiers.length > 0 ? tiers : prev.tiers,
+            maxWidth: maxWidth ?? prev.maxWidth,
+            maxHeight: maxHeight ?? prev.maxHeight,
+          };
+        }
+        return;
+      }
+      seen.set(key, out.length);
       out.push({
         productSku,
         techniqueName: name,
         price,
+        minQty,
+        tiers,
         maxWidth,
         maxHeight,
       });
@@ -817,7 +1049,6 @@ export class SpotIntegrationService {
 
     const parseHandlingCostValue = (value: unknown): Prisma.Decimal | null => {
       if (value == null || value === '') return null;
-      // SPOT pode enviar "0.0" ou "0.0, 0.0" (um custo por técnica na mesma célula)
       if (typeof value === 'string' && /[,;]/.test(value)) {
         const first = value.split(/[,;]/)[0]?.trim();
         return this.toOptionalDecimal(first);
@@ -835,9 +1066,9 @@ export class SpotIntegrationService {
           raw[`HandlingCost${index}`] ??
           raw[`handlingCosts${index}`];
         const fromIndexed = parseHandlingCostValue(indexed);
-        if (fromIndexed != null) return fromIndexed;
+        if (fromIndexed != null && Number(fromIndexed) > 0) return fromIndexed;
       }
-      return parseHandlingCostValue(
+      const fallback = parseHandlingCostValue(
         raw.HandlingCosts ??
           raw.handlingCosts ??
           raw.DefaultCustomizationHandlingCosts ??
@@ -849,7 +1080,21 @@ export class SpotIntegrationService {
           raw.Cost ??
           raw.cost,
       );
+      if (fallback != null && Number(fallback) > 0) return fallback;
+      return null;
     };
+
+    const tiersFromTables = (
+      typeName: string,
+      optionCode: string | null,
+      tableCode: string | null,
+    ) =>
+      this.resolveCustomizationTiers(
+        priceMaps,
+        optionCode,
+        tableCode,
+        typeName,
+      );
 
     for (const row of optionals) {
       const productSku =
@@ -889,9 +1134,22 @@ export class SpotIntegrationService {
               'customization',
             ]) || null;
           if (!techniqueName) continue;
+          const optionCode = this.pickString(opt, [
+            'TableCodeOption',
+            'tableCodeOption',
+            'CustomizationTableOptions',
+            'customizationTableOptions',
+          ]);
+          const tableCode = this.pickString(opt, [
+            'TableCode',
+            'tableCode',
+            'TableFullCode',
+            'tableFullCode',
+          ]);
           pushOption(
             productSku,
             techniqueName,
+            tiersFromTables(techniqueName, optionCode, tableCode),
             priceFromHandling(opt),
             this.toOptionalDecimal(
               opt.MaxWidth ??
@@ -914,16 +1172,32 @@ export class SpotIntegrationService {
       }
       if (foundNested) continue;
 
-      // Formato real /optionalsComplete: CustomizationTypes1..N + HandlingCosts1..N
+      // Formato real /optionalsComplete: CustomizationTypesN + TableCodesOptionsN
       let numbered = 0;
       for (let i = 1; i <= 20; i++) {
-        const type = this.pickString(row, [
+        const typeRaw = this.pickString(row, [
           `CustomizationTypes${i}`,
           `CustomizationType${i}`,
           `customizationTypes${i}`,
         ]);
-        if (!type) continue;
+        if (!typeRaw) continue;
         numbered += 1;
+        const types = this.splitCsv(typeRaw);
+        const optionCodes = this.splitCsv(
+          this.pickString(row, [
+            `TableCodesOptions${i}`,
+            `TableCodeOptions${i}`,
+            `tableCodesOptions${i}`,
+          ]),
+        );
+        const tableCodes = this.splitCsv(
+          this.pickString(row, [
+            `TableFullCode${i}`,
+            `TableFullcode${i}`,
+            `TableCodes${i}`,
+            `tableCodes${i}`,
+          ]),
+        );
         const area =
           this.pickString(row, [
             `Area${i}`,
@@ -932,15 +1206,53 @@ export class SpotIntegrationService {
             'productComponentDefaultLocationAreaMM',
           ]) ?? null;
         const dims = this.parseAreaMm(area);
-        pushOption(
-          productSku,
-          type,
-          priceFromHandling(row, i),
-          dims.maxWidth,
-          dims.maxHeight,
-        );
+        const handling = priceFromHandling(row, i);
+
+        types.forEach((type, idx) => {
+          pushOption(
+            productSku,
+            type,
+            tiersFromTables(
+              type,
+              optionCodes[idx] ?? optionCodes[0] ?? null,
+              tableCodes[idx] ?? tableCodes[0] ?? null,
+            ),
+            handling,
+            dims.maxWidth,
+            dims.maxHeight,
+          );
+        });
       }
-      if (numbered > 0) continue;
+      if (numbered > 0) {
+        // Reforça preço da técnica padrão do produto, se houver
+        const defaultType = this.pickString(row, [
+          'CustomizationDefaultType',
+          'customizationDefaultType',
+        ]);
+        const defaultTable = this.pickString(row, [
+          'CustomizationDefaultTable',
+          'customizationDefaultTable',
+          'CustomizationDefaultShortTable',
+          'customizationDefaultShortTable',
+        ]);
+        if (defaultType) {
+          const defaultDims = this.parseAreaMm(
+            this.pickString(row, [
+              'ProductComponentDefaultLocationAreaMM',
+              'productComponentDefaultLocationAreaMM',
+            ]),
+          );
+          pushOption(
+            productSku,
+            defaultType,
+            tiersFromTables(defaultType, defaultTable, defaultTable),
+            null,
+            defaultDims.maxWidth,
+            defaultDims.maxHeight,
+          );
+        }
+        continue;
+      }
 
       // CustomizationTypes = "Laser, Tampografia, ..."
       const typesCsv = this.pickString(row, [
@@ -948,7 +1260,18 @@ export class SpotIntegrationService {
         'customizationTypes',
       ]);
       if (typesCsv) {
-        const defaultPrice = priceFromHandling(row);
+        const tableOptions = this.splitCsv(
+          this.pickString(row, [
+            'CustomizationTableOptions',
+            'customizationTableOptions',
+          ]),
+        );
+        const tables = this.splitCsv(
+          this.pickString(row, [
+            'CustomizationTables',
+            'customizationTables',
+          ]),
+        );
         const area =
           this.pickString(row, [
             'ProductComponentDefaultLocationAreaMM',
@@ -957,15 +1280,20 @@ export class SpotIntegrationService {
             'area1',
           ]) ?? null;
         const dims = this.parseAreaMm(area);
-        for (const part of typesCsv.split(/[,;|]/)) {
+        this.splitCsv(typesCsv).forEach((part, idx) => {
           pushOption(
             productSku,
             part,
-            defaultPrice,
+            tiersFromTables(
+              part,
+              tableOptions[idx] ?? tableOptions[0] ?? null,
+              tables[idx] ?? tables[0] ?? null,
+            ),
+            priceFromHandling(row),
             dims.maxWidth,
             dims.maxHeight,
           );
-        }
+        });
         continue;
       }
 
@@ -996,6 +1324,17 @@ export class SpotIntegrationService {
       pushOption(
         productSku,
         techniqueName,
+        tiersFromTables(
+          techniqueName,
+          this.pickString(row, [
+            'CustomizationDefaultTable',
+            'customizationDefaultTable',
+          ]),
+          this.pickString(row, [
+            'CustomizationTables',
+            'customizationTables',
+          ]),
+        ),
         priceFromHandling(row),
         dims.maxWidth ??
           this.toOptionalDecimal(
@@ -1065,17 +1404,7 @@ export class SpotIntegrationService {
           'Detail',
           'detail',
         ]) || null;
-      const imageUrl =
-        this.pickString(row, [
-          'ImageUrl',
-          'imageUrl',
-          'Image',
-          'image',
-          'ImageLink',
-          'imageLink',
-          'Photo',
-          'photo',
-        ]) || null;
+      const imageUrl = this.resolveImageUrl(row);
       const siteLink =
         this.pickString(row, ['SiteLink', 'siteLink', 'Url', 'url', 'Link']) ||
         null;
@@ -1163,6 +1492,7 @@ export class SpotIntegrationService {
     let rawList: Record<string, unknown>[] = [];
     let catalogPrices: Record<string, unknown>[] = [];
     let optionalsComplete: Record<string, unknown>[] = [];
+    let customizationTables: Record<string, unknown>[] = [];
     let stocks: Record<string, unknown>[] = [];
     let priceMap = new Map<string, number>();
     let syncToken: string | null = null;
@@ -1219,16 +1549,58 @@ export class SpotIntegrationService {
       optionalsComplete = optionalsData;
       stocks = stocksData;
 
+      // Log temporário — produto de teste completo de /optionalsComplete
+      const testOptional =
+        optionalsComplete.find(
+          (r) =>
+            this.extractSku(r) === '11110' ||
+            String(r.ProdReference ?? '') === '11110',
+        ) ?? optionalsComplete[0];
+      this.logger.warn(
+        `SPOT /optionalsComplete full raw test product | ${JSON.stringify(
+          testOptional ?? null,
+        )}`,
+      );
+
       // Log temporário — primeiros 3 registros brutos de /Stocks
       this.logger.warn(
         `SPOT /Stocks raw diagnostic (first 3) | ${JSON.stringify(
           stocks.slice(0, 3),
         )}`,
       );
-      // Log temporário — primeiros 3 registros brutos de /optionalsComplete (todos os campos)
+
+      // /optionalsPrice NÃO traz preço de gravação (só YourPrice do produto).
+      // Preços de personalização vêm de /customizationTables (TableCodeOption).
+      await new Promise((r) => setTimeout(r, 2000));
+      const optionalsPriceRaw = await this.request('GET', 'optionalsPrice', {
+        token,
+        params: { lang: 'PT' },
+      }).catch((err) => {
+        this.logSpotFailure('optionalsPrice', err);
+        return null;
+      });
+      if (optionalsPriceRaw != null) {
+        const opList = this.unwrapList(optionalsPriceRaw);
+        this.logger.warn(
+          `SPOT /optionalsPrice diagnostic | count=${opList.length} sample=${JSON.stringify(
+            opList[0] ?? null,
+          )}`,
+        );
+      }
+
+      await new Promise((r) => setTimeout(r, 2000));
+      customizationTables = await this.request('GET', 'customizationTables', {
+        token,
+        params: { lang: 'PT' },
+      })
+        .then((d) => this.unwrapList(d))
+        .catch((err) => {
+          this.logSpotFailure('customizationTables', err);
+          return [] as Record<string, unknown>[];
+        });
       this.logger.warn(
-        `SPOT /optionalsComplete raw diagnostic (first 3) | ${JSON.stringify(
-          optionalsComplete.slice(0, 3),
+        `SPOT /customizationTables diagnostic | count=${customizationTables.length} sample=${JSON.stringify(
+          customizationTables[0] ?? null,
         )}`,
       );
 
@@ -1381,8 +1753,25 @@ export class SpotIntegrationService {
         upserted += 1;
       }
 
-      const engravingOptions = this.collectEngravingOptions(optionalsComplete);
-      // Remove opções antigas (ex.: techniqueName = nome do produto, price null)
+      const customizationPriceMaps =
+        this.buildCustomizationPriceMaps(customizationTables);
+      this.logger.log(
+        `SPOT sync: customizationTables mapeadas option=${customizationPriceMaps.byOption.size} table=${customizationPriceMaps.byTable.size} type=${customizationPriceMaps.byTypeName.size}`,
+      );
+      const engravingOptions = this.collectEngravingOptions(
+        optionalsComplete,
+        customizationPriceMaps,
+      );
+      const engWithPrice = engravingOptions.filter(
+        (o) => o.price != null && Number(o.price) > 0,
+      ).length;
+      const engWithTiers = engravingOptions.filter(
+        (o) => o.tiers.length > 0,
+      ).length;
+      this.logger.log(
+        `SPOT sync: opções gravação=${engravingOptions.length} com preço>0=${engWithPrice} com faixas=${engWithTiers}`,
+      );
+      // Remove opções antigas (cascade remove tiers)
       await this.prisma.client.quoteCatalogEngravingOption.deleteMany({
         where: { supplier: SUPPLIER },
       });
@@ -1393,8 +1782,16 @@ export class SpotIntegrationService {
             supplier: SUPPLIER,
             techniqueName: option.techniqueName,
             price: option.price,
+            minQty: option.minQty,
             maxWidth: option.maxWidth,
             maxHeight: option.maxHeight,
+            tiers: {
+              create: option.tiers.map((t) => ({
+                qtyFrom: t.qtyFrom,
+                qtyTo: t.qtyTo,
+                price: new Prisma.Decimal(t.price),
+              })),
+            },
           },
         });
       }
@@ -1561,9 +1958,14 @@ export class SpotIntegrationService {
   }
 
   async listEngravingOptions(productSku: string) {
+    const sku = productSku.trim();
+    if (!sku) return [];
     const rows = await this.prisma.client.quoteCatalogEngravingOption.findMany({
-      where: { productSku, supplier: SUPPLIER },
+      where: { productSku: sku, supplier: SUPPLIER },
       orderBy: { techniqueName: 'asc' },
+      include: {
+        tiers: { orderBy: { qtyFrom: 'asc' } },
+      },
     });
     return rows.map((row) => ({
       id: row.id,
@@ -1571,8 +1973,15 @@ export class SpotIntegrationService {
       supplier: row.supplier,
       techniqueName: row.techniqueName,
       price: row.price?.toString() ?? null,
+      minQty: row.minQty ?? row.tiers[0]?.qtyFrom ?? null,
       maxWidth: row.maxWidth?.toString() ?? null,
       maxHeight: row.maxHeight?.toString() ?? null,
+      tiers: row.tiers.map((t) => ({
+        id: t.id,
+        qtyFrom: t.qtyFrom,
+        qtyTo: t.qtyTo,
+        price: t.price.toString(),
+      })),
     }));
   }
 }

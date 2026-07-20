@@ -64,13 +64,15 @@ export function ComprasKanbanBoard(props: {
     if (!overId) return;
 
     const targetColumn = resolveTargetColumn(overId, props.rows);
-    if (!targetColumn) return;
+    if (!targetColumn || targetColumn === 'RECUSADO') return;
 
     const row = props.rows.find((item) => item.id === purchaseId);
     if (!row) return;
 
     const currentColumn = kanbanColumnForStatus(row.status);
-    if (!currentColumn || currentColumn === targetColumn) return;
+    if (!currentColumn || currentColumn === 'RECUSADO' || currentColumn === targetColumn) {
+      return;
+    }
 
     setMovingId(purchaseId);
     try {

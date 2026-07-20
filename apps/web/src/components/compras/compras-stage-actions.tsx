@@ -6,14 +6,11 @@ import { updatePurchaseStatus } from './compras-api';
 import type { KanbanColumnId, PurchaseRequest } from './compras-types';
 import { kanbanColumnForStatus } from './compras-utils';
 
-/** Uma ação principal por coluna atual → próximo status do fluxo. */
+/** Uma ação principal por coluna atual → próximo status do fluxo.
+ *  Em SOLICITADO a aprovação fica no botão "Aprovar Requisição" (resolve modal). */
 const STAGE_ACTIONS: Partial<
   Record<KanbanColumnId, { label: string; next: KanbanColumnId }>
 > = {
-  SOLICITADO: {
-    label: '✅ Aprovar Requisição',
-    next: 'PEDIDO_ENVIADO_APROVADO',
-  },
   PEDIDO_ENVIADO_APROVADO: {
     label: '🛒 Marcar como Comprado',
     next: 'PEDIDO_PAGO',

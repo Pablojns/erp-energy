@@ -111,8 +111,8 @@ export function calcPurchaseTotal(
   itemPrice: string | null | undefined,
 ): number | null {
   const quantity = qty ?? 0;
-  const price = itemPrice ? Number(itemPrice) : 0;
-  if (quantity <= 0 || !Number.isFinite(price) || price <= 0) return null;
+  const price = itemPrice ? Number(String(itemPrice).replace(',', '.')) : NaN;
+  if (quantity <= 0 || !Number.isFinite(price) || price < 0) return null;
   return quantity * price;
 }
 
@@ -156,8 +156,8 @@ export function formatMoneyNumber(value: number | null) {
 }
 
 export function kanbanColumnForStatus(status: PurchaseStatus): KanbanColumnId | null {
-  if (status === 'RECUSADO') return null;
   if (status === 'COMPRADO') return 'PEDIDO_ENVIADO_APROVADO';
+  if (status === 'RECUSADO') return 'RECUSADO';
   if (KANBAN_COLUMNS.some((column) => column.id === status)) {
     return status as KanbanColumnId;
   }
@@ -168,6 +168,11 @@ export function fieldClass(invalid?: boolean) {
   return `erp-module-input ${invalid ? 'border-[color-mix(in_srgb,var(--erp-danger)_70%,transparent)] bg-[var(--erp-danger-soft)]' : ''}`;
 }
 
-export function purchaseImageSrc(requestId: string, imageId: string) {
+export function purchaseImageSrc(
+  requestId: string,
+  imageId: string,
+  signedUrl?: string | null,
+) {
+  if (signedUrl?.trim()) return signedUrl.trim();
   return `/api/erp/compras/${requestId}/imagem/${imageId}`;
 }

@@ -54,6 +54,20 @@ export class R2StorageService {
     contentType: string;
     contentLength?: number;
   }> {
+    const buffered = await this.getObjectBuffer(key);
+    const { Readable } = await import('stream');
+    return {
+      body: Readable.from(buffered.buffer),
+      contentType: buffered.contentType,
+      contentLength: buffered.buffer.length,
+    };
+  }
+
+  /** Lê o objeto inteiro em Buffer — evita streams SdkStream incompatíveis com Nest StreamableFile. */
+  async getObjectBuffer(key: string): Promise<{
+    buffer: Buffer;
+    contentType: string;
+  }> {
     const response = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
@@ -65,10 +79,10 @@ export class R2StorageService {
       throw new Error('Arquivo vazio no storage.');
     }
 
+    const bytes = await response.Body.transformToByteArray();
     return {
-      body: response.Body as Readable,
+      buffer: Buffer.from(bytes),
       contentType: response.ContentType ?? 'application/octet-stream',
-      contentLength: response.ContentLength,
     };
   }
 

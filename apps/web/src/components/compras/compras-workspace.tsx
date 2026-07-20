@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Filter, Plus, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { fetchPurchaseRequests } from './compras-api';
 import { ComprasDashboard } from './compras-dashboard';
 import { ComprasDetailModal } from './compras-detail-modal';
@@ -60,7 +61,6 @@ function writeStoredFilters(filters: StoredComprasFilters): void {
 export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const [activeView, setActiveView] = useState<'dashboard' | 'compras'>('dashboard');
   const [search, setSearch] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | PurchasePriority>('all');
   const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -98,20 +98,9 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     writeStoredFilters({ typeFilter, priorityFilter });
   }, [filtersHydrated, typeFilter, priorityFilter]);
 
-  const applyTypeFilter = useCallback((value: 'all' | PurchaseType) => {
-    setTypeFilter(value);
-    setFiltersOpen(false);
-  }, []);
-
-  const applyPriorityFilter = useCallback((value: 'all' | PurchasePriority) => {
-    setPriorityFilter(value);
-    setFiltersOpen(false);
-  }, []);
-
   const clearFilters = useCallback(() => {
     setTypeFilter('all');
     setPriorityFilter('all');
-    setFiltersOpen(false);
   }, []);
 
   useEffect(() => {
@@ -166,9 +155,6 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
 
   const handleStatusChanged = (updated: PurchaseRequest) => {
     setRows((current) => {
-      if (updated.status === 'RECUSADO') {
-        return current.filter((row) => row.id !== updated.id);
-      }
       const index = current.findIndex((row) => row.id === updated.id);
       if (index === -1) return [...current, updated];
       const next = [...current];
@@ -177,85 +163,10 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     });
   };
 
-  const filterSummary = useMemo(() => {
-    const parts: string[] = [];
-    if (typeFilter !== 'all') parts.push(typeFilter);
-    if (priorityFilter !== 'all') parts.push(priorityFilter);
-    return parts.join(' · ');
-  }, [priorityFilter, typeFilter]);
-
-  const toolbarFilters = (
-    <>
-      <div className="relative flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((value) => !value)}
-          className={`erp-focus-ring erp-btn erp-btn-secondary erp-btn--md relative${
-            hasActiveFilters ? ' border-[var(--accent)]' : ''
-          }`}
-          aria-expanded={filtersOpen}
-          title={hasActiveFilters ? `Filtros: ${filterSummary}` : 'Filtros'}
-        >
-          <Filter className="erp-icon-sm" />
-          Filtros
-          <ChevronDown className="erp-icon-sm" />
-          {hasActiveFilters ? (
-            <span
-              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[var(--accent)] ring-2 ring-white"
-              aria-hidden
-            />
-          ) : null}
-        </button>
-
-        {hasActiveFilters ? (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md"
-          >
-            <X className="erp-icon-sm" />
-            Limpar filtros
-          </button>
-        ) : null}
-
-        {filtersOpen ? (
-          <div className="erp-module-card absolute right-0 top-12 z-20 w-[min(92vw,20rem)] p-3 shadow-lg">
-            <FilterSelect
-              label="Tipo"
-              value={typeFilter}
-              onChange={(value) => applyTypeFilter(value as typeof typeFilter)}
-            >
-              <option value="all">Todos</option>
-              <option value="WEG_CONTRATO">WEG</option>
-              <option value="VENDA_EXTERNA">Venda Externa</option>
-              <option value="MARKETPLACE">Marketplace</option>
-            </FilterSelect>
-            <FilterSelect
-              label="Prioridade"
-              value={priorityFilter}
-              onChange={(value) => applyPriorityFilter(value as typeof priorityFilter)}
-            >
-              <option value="all">Todas</option>
-              <option value="URGENTE">Urgente</option>
-              <option value="NORMAL">Normal</option>
-            </FilterSelect>
-          </div>
-        ) : null}
-      </div>
-
-      <ComprasPeriodFilter
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        onChange={handlePeriodChange}
-      />
-    </>
-  );
-
   return (
     <div className="erp-module-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col px-4 py-4 sm:px-6">
-      <header className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="erp-module-title">Compras</h1>
+      <header className="mb-4 flex shrink-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
             <button
               type="button"
@@ -280,11 +191,9 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
               Compras
             </button>
           </div>
-        </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
           {activeView === 'compras' ? (
-            <div className="relative min-w-[min(100%,16rem)] flex-1 sm:max-w-[20rem] sm:flex-initial">
+            <div className="relative min-w-[min(100%,16rem)] flex-1 sm:max-w-[20rem]">
               <Search className="pointer-events-none absolute left-3 top-1/2 erp-icon-sm -translate-y-1/2 text-[var(--erp-fg-muted)]" />
               <input
                 value={search}
@@ -294,13 +203,54 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
               />
             </div>
           ) : null}
+        </div>
 
-          {toolbarFilters}
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <FilterDropdown
+            label="Tipo"
+            value={typeFilter}
+            options={[
+              { value: 'all', label: 'Todos' },
+              { value: 'WEG_CONTRATO', label: 'WEG' },
+              { value: 'VENDA_EXTERNA', label: 'Venda Externa' },
+              { value: 'MARKETPLACE', label: 'Marketplace' },
+            ]}
+            onChange={(value) => setTypeFilter(value as typeof typeFilter)}
+          />
+
+          <FilterDropdown
+            label="Prioridade"
+            value={priorityFilter}
+            options={[
+              { value: 'all', label: 'Todas' },
+              { value: 'URGENTE', label: 'Urgente' },
+              { value: 'NORMAL', label: 'Normal' },
+            ]}
+            onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
+          />
+
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md shrink-0"
+            >
+              <X className="erp-icon-sm" />
+              Limpar filtros
+            </button>
+          ) : null}
+
+          <ComprasPeriodFilter
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onChange={handlePeriodChange}
+            hideAllPreset
+          />
 
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md hidden md:inline-flex"
+            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md ml-auto hidden shrink-0 md:inline-flex"
           >
             <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação
@@ -379,22 +329,145 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   );
 }
 
-function FilterSelect(props: {
+function FilterDropdown(props: {
   label: string;
   value: string;
+  options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
-  children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const selected =
+    props.options.find((option) => option.value === props.value)?.label ??
+    props.value;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const updatePos = () => {
+      if (!btnRef.current) return;
+      const rect = btnRef.current.getBoundingClientRect();
+      const menuWidth = menuRef.current?.offsetWidth ?? 176;
+      const margin = 8;
+      let left = rect.left;
+      if (left + menuWidth > window.innerWidth - margin) {
+        left = Math.max(margin, rect.right - menuWidth);
+      }
+      setMenuPos({ top: rect.bottom + 6, left });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (btnRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    // Evita fechar no mesmo ciclo do clique que abriu.
+    const timer = window.setTimeout(() => {
+      document.addEventListener('mousedown', onPointerDown);
+      document.addEventListener('keydown', onKeyDown);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const menu =
+    open && mounted && menuPos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label={props.label}
+            className="erp-module-card fixed z-[80] min-w-[11rem] py-1 shadow-lg"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            {props.options.map((option) => {
+              const active = option.value === props.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    props.onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center px-3 py-2 text-left text-sm transition ${
+                    active
+                      ? 'bg-[#2AACE2]/12 font-semibold text-[#1E96CC]'
+                      : 'text-[var(--erp-fg)] hover:bg-gray-50'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <label className="mb-3 block last:mb-0">
-      <span className="erp-label-caps mb-1 block">{props.label}</span>
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="erp-module-input"
+    <div className="shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => {
+          setOpen((value) => {
+            const next = !value;
+            if (next && btnRef.current) {
+              const rect = btnRef.current.getBoundingClientRect();
+              setMenuPos({ top: rect.bottom + 6, left: rect.left });
+            }
+            return next;
+          });
+        }}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className={`erp-focus-ring erp-btn erp-btn-secondary erp-btn--md inline-flex items-center gap-1.5 ${
+          props.value !== 'all'
+            ? 'border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)]'
+            : ''
+        }`}
       >
-        {props.children}
-      </select>
-    </label>
+        <span>
+          {props.label}: {selected}
+        </span>
+        <ChevronDown
+          className={`erp-icon-sm transition ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+      {menu}
+    </div>
   );
 }

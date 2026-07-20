@@ -187,6 +187,12 @@ export async function createQuote(payload: QuotePayload) {
   });
 }
 
+export async function duplicateQuote(id: string) {
+  return erpFetchJson<QuoteDto>(`${BASE}/${id}/duplicate`, {
+    method: 'POST',
+  });
+}
+
 export async function updateQuote(id: string, payload: Partial<QuotePayload>) {
   return erpFetchJson<QuoteDto>(`${BASE}/${id}`, {
     method: 'PATCH',
@@ -280,6 +286,33 @@ export async function listQuoteCatalog(params: ListCatalogParams = {}) {
   const query = qs.toString();
   return erpFetchJson<QuoteCatalogListResponse>(
     `${BASE}/catalog${query ? `?${query}` : ''}`,
+  );
+}
+
+export type QuoteCatalogEngravingPriceTierDto = {
+  id: string;
+  qtyFrom: number;
+  qtyTo: number;
+  price: string;
+};
+
+export type QuoteCatalogEngravingOptionDto = {
+  id: string;
+  productSku: string;
+  supplier: string;
+  techniqueName: string;
+  price: string | null;
+  minQty?: number | null;
+  maxWidth: string | null;
+  maxHeight: string | null;
+  tiers?: QuoteCatalogEngravingPriceTierDto[];
+};
+
+export async function listQuoteCatalogEngravingOptions(productSku: string) {
+  const qs = new URLSearchParams();
+  qs.set('productSku', productSku.trim());
+  return erpFetchJson<QuoteCatalogEngravingOptionDto[]>(
+    `${BASE}/catalog/engraving-options?${qs.toString()}`,
   );
 }
 

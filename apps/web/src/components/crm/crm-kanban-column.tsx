@@ -21,6 +21,7 @@ function ColumnSkeleton() {
 export function CrmKanbanColumn(props: {
   funil: CrmFunilDto;
   cards: CrmCardDto[];
+  highlightedCardIds?: Set<string>;
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
   draggedCardId: string | null;
@@ -89,6 +90,7 @@ export function CrmKanbanColumn(props: {
             <CrmKanbanCard
               key={card.id}
               card={card}
+              highlighted={props.highlightedCardIds?.has(card.id)}
               onOpen={() => props.onOpenCard(card)}
               isDragging={props.draggedCardId === card.id}
               isMoving={props.movingId === card.id}

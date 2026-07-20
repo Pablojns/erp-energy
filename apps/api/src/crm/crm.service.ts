@@ -88,6 +88,7 @@ type CrmCardRow = {
   contactsToday: number | null;
   convertedToMeeting: number | null;
   funilId: string;
+  entryDate: Date;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -210,6 +211,7 @@ export class CrmService {
       convertedToMeeting: row.convertedToMeeting,
       funilId: row.funilId,
       funil: row.funil ? this.serializeFunil(row.funil) : undefined,
+      entryDate: row.entryDate.toISOString(),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       closedAt: row.closedAt?.toISOString() ?? null,
@@ -588,6 +590,7 @@ export class CrmService {
         touchPoints: dto.touchPoints ?? 0,
         notes: dto.notes?.trim() || null,
         whatsappLog: dto.whatsappLog?.trim() || null,
+        entryDate: dto.entryDate ? new Date(dto.entryDate) : new Date(),
         funilId: dto.funilId,
         status: defaultStatusId,
       },
@@ -626,6 +629,9 @@ export class CrmService {
     }
     if (dto.observations !== undefined) {
       data.observations = dto.observations?.trim() || null;
+    }
+    if (dto.entryDate !== undefined) {
+      data.entryDate = new Date(dto.entryDate);
     }
     if (dto.prospectionDate !== undefined) {
       data.prospectionDate = dto.prospectionDate

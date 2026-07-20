@@ -26,6 +26,7 @@ function isFechado(card: CrmCardDto) {
 
 export function CrmKanbanCard(props: {
   card: CrmCardDto;
+  highlighted?: boolean;
   onOpen: () => void;
   isDragging?: boolean;
   isMoving?: boolean;
@@ -36,6 +37,7 @@ export function CrmKanbanCard(props: {
 }) {
   const {
     card,
+    highlighted,
     onOpen,
     isDragging,
     isMoving,
@@ -94,7 +96,11 @@ export function CrmKanbanCard(props: {
         dragging
           ? 'opacity-40'
           : 'hover:border-[color-mix(in_srgb,var(--erp-accent)_35%,transparent)]'
-      } ${fechado || perdido ? 'opacity-90' : ''}`}
+      } ${fechado || perdido ? 'opacity-90' : ''} ${
+        highlighted
+          ? 'ring-2 ring-[#2AACE2] ring-offset-1 border-[#2AACE2]'
+          : ''
+      }`}
     >
       {followUpOverdue ? (
         <span

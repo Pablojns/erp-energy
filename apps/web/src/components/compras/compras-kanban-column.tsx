@@ -70,7 +70,9 @@ export function ComprasKanbanColumn(props: {
               row={row}
               onOpen={() => props.onOpenCard(row)}
               isDragging={props.activeDragId === row.id}
-              dragEnabled={props.dragEnabled !== false}
+              dragEnabled={
+                props.dragEnabled !== false && row.status !== 'RECUSADO'
+              }
             />
           ))
         )}

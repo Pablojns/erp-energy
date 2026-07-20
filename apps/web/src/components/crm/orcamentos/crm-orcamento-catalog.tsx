@@ -62,11 +62,10 @@ export function CrmOrcamentoCatalog(props: {
   selectable?: boolean;
   onSelect?: (product: QuoteCatalogProductDto) => void;
 }) {
-  const infinite = Boolean(props.selectable);
+  // Scroll infinito na aba Catálogo e no modal (mesmo padrão XBZ).
+  const pageSize = 50;
   const [rows, setRows] = useState<QuoteCatalogProductDto[]>([]);
   const [page, setPage] = useState(1);
-  const pageSize = infinite ? 50 : 20;
-  const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
@@ -88,17 +87,17 @@ export function CrmOrcamentoCatalog(props: {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
-  const scrollDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMoreRef = useRef(true);
+  const requestIdRef = useRef(0);
 
   const resetList = () => {
     setPage(1);
-    if (infinite) {
-      setRows([]);
-      setHasMore(true);
-      hasMoreRef.current = true;
-    }
+    setRows([]);
+    setHasMore(true);
+    hasMoreRef.current = true;
+    setTotal(0);
   };
 
   const applyFilters = () => {
@@ -123,8 +122,9 @@ export function CrmOrcamentoCatalog(props: {
   };
 
   const load = useCallback(
-    async (signal?: AbortSignal) => {
-      const isAppend = infinite && page > 1;
+    async () => {
+      const isAppend = page > 1;
+      const reqId = ++requestIdRef.current;
       if (isAppend) {
         loadingMoreRef.current = true;
         setLoadingMore(true);
@@ -138,7 +138,7 @@ export function CrmOrcamentoCatalog(props: {
           search: search || undefined,
           page,
           pageSize,
-          includeTotal: infinite ? false : true,
+          includeTotal: true,
           sortBy,
           sortOrder,
           minPrice,
@@ -146,25 +146,37 @@ export function CrmOrcamentoCatalog(props: {
           supplier: supplier || undefined,
           inStockOnly: inStockOnly || undefined,
         });
-        if (signal?.aborted) return;
-        setRows((prev) => (isAppend ? [...prev, ...res.data] : res.data));
+        if (reqId !== requestIdRef.current) return;
+        setRows((prev) => {
+          if (!isAppend) return res.data;
+          // Evita perder página 1 se append chegar com lista vazia (race)
+          if (prev.length === 0 && page > 1) return res.data;
+          const seen = new Set(prev.map((r) => r.id));
+          const merged = [...prev];
+          for (const row of res.data) {
+            if (!seen.has(row.id)) {
+              seen.add(row.id);
+              merged.push(row);
+            }
+          }
+          return merged;
+        });
         const nextHasMore =
-          typeof res.meta.hasMore === 'boolean'
-            ? res.meta.hasMore
-            : res.data.length === pageSize;
+          res.data.length === 0
+            ? false
+            : typeof res.meta.hasMore === 'boolean'
+              ? res.meta.hasMore
+              : page * pageSize < (res.meta.total ?? 0);
         setHasMore(nextHasMore);
         hasMoreRef.current = nextHasMore;
-        if (!infinite) {
-          setTotal(res.meta.total);
-          setTotalPages(res.meta.totalPages);
-        }
+        setTotal(res.meta.total ?? 0);
         setLastSyncAt(res.meta.lastSyncAt);
       } catch (err) {
-        if (signal?.aborted) return;
+        if (reqId !== requestIdRef.current) return;
         setError(err instanceof Error ? err.message : 'Falha ao carregar catálogo.');
         if (!isAppend) setRows([]);
       } finally {
-        if (!signal?.aborted) {
+        if (reqId === requestIdRef.current) {
           setLoading(false);
           setLoadingMore(false);
           loadingMoreRef.current = false;
@@ -172,7 +184,6 @@ export function CrmOrcamentoCatalog(props: {
       }
     },
     [
-      infinite,
       page,
       pageSize,
       search,
@@ -185,16 +196,28 @@ export function CrmOrcamentoCatalog(props: {
   );
 
   useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
+    void load();
   }, [load, refreshToken]);
 
+  // Carrega próxima página ao aproximar do fim (scroll ou lista curta sem overflow)
   useEffect(() => {
-    return () => {
-      if (scrollDebounceRef.current) clearTimeout(scrollDebounceRef.current);
-    };
-  }, []);
+    const root = listRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((e) => e.isIntersecting);
+        if (!hit) return;
+        if (loading || loadingMoreRef.current) return;
+        if (!hasMoreRef.current) return;
+        loadingMoreRef.current = true;
+        setPage((p) => p + 1);
+      },
+      { root, rootMargin: '240px', threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loading, rows.length, hasMore]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -238,21 +261,6 @@ export function CrmOrcamentoCatalog(props: {
     }
   };
 
-  const handleListScroll = () => {
-    if (!infinite) return;
-    if (scrollDebounceRef.current) clearTimeout(scrollDebounceRef.current);
-    scrollDebounceRef.current = setTimeout(() => {
-      const el = listRef.current;
-      if (!el || loading || loadingMoreRef.current) return;
-      if (!hasMoreRef.current) return;
-      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (remaining <= 500) {
-        loadingMoreRef.current = true;
-        setPage((p) => p + 1);
-      }
-    }, 120);
-  };
-
   return (
     <section
       className={
@@ -273,7 +281,7 @@ export function CrmOrcamentoCatalog(props: {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') applyFilters();
                 }}
-                placeholder="Buscar por nome ou SKU..."
+                placeholder="Buscar produto por nome ou SKU..."
                 className="erp-module-input pl-9"
               />
             </div>
@@ -282,8 +290,14 @@ export function CrmOrcamentoCatalog(props: {
             Fornecedor
             <select
               value={supplierInput}
-              onChange={(e) => setSupplierInput(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSupplierInput(next);
+                setSupplier(next);
+                resetList();
+              }}
               className="erp-module-input mt-1 w-36"
+              title="Filtra por fornecedor (XBZ ou SPOT), combinado com a busca por nome/SKU"
             >
               <option value="">Todos</option>
               <option value="XBZ">XBZ</option>
@@ -320,6 +334,43 @@ export function CrmOrcamentoCatalog(props: {
               className="erp-module-input mt-1 w-28"
             />
           </label>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-[var(--erp-fg-muted)]">
+              Ordenar preço
+            </span>
+            <div className="inline-flex rounded-lg border border-[var(--erp-border)] p-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setSortPreset('price_asc');
+                  resetList();
+                }}
+                className={`erp-focus-ring rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${
+                  sortPreset === 'price_asc'
+                    ? 'bg-[#2AACE2] text-white'
+                    : 'text-[var(--erp-fg-muted)] hover:text-[var(--erp-fg)]'
+                }`}
+                aria-pressed={sortPreset === 'price_asc'}
+              >
+                Menor Preço
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSortPreset('price_desc');
+                  resetList();
+                }}
+                className={`erp-focus-ring rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${
+                  sortPreset === 'price_desc'
+                    ? 'bg-[#2AACE2] text-white'
+                    : 'text-[var(--erp-fg-muted)] hover:text-[var(--erp-fg)]'
+                }`}
+                aria-pressed={sortPreset === 'price_desc'}
+              >
+                Maior Preço
+              </button>
+            </div>
+          </div>
           <button
             type="button"
             onClick={applyFilters}
@@ -412,7 +463,6 @@ export function CrmOrcamentoCatalog(props: {
 
       <div
         ref={listRef}
-        onScroll={handleListScroll}
         className={
           props.selectable
             ? 'catalog-search-results'
@@ -507,7 +557,8 @@ export function CrmOrcamentoCatalog(props: {
                 ))}
               </tbody>
             </table>
-            {infinite && loadingMore ? (
+            <div ref={sentinelRef} className="h-4 w-full" aria-hidden />
+            {loadingMore ? (
               <div className="flex items-center justify-center gap-2 py-3 text-sm text-[var(--erp-fg-muted)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Carregando mais...
@@ -517,38 +568,14 @@ export function CrmOrcamentoCatalog(props: {
         )}
       </div>
 
-      {infinite ? (
-        <div className="flex shrink-0 items-center border-t border-[var(--erp-border)] px-3 py-2.5 text-xs text-[var(--erp-fg-muted)]">
-          <span>
-            {rows.length} produto{rows.length === 1 ? '' : 's'} carregados
-            {hasMore ? ' · role para carregar mais' : ''}
-          </span>
-        </div>
-      ) : (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--erp-border)] px-3 py-2.5 text-xs text-[var(--erp-fg-muted)]">
-          <span>
-            {total} produto{total === 1 ? '' : 's'} · página {page} de {totalPages}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="erp-focus-ring erp-btn erp-btn-ghost erp-btn--sm disabled:opacity-40"
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-              className="erp-focus-ring erp-btn erp-btn-ghost erp-btn--sm disabled:opacity-40"
-            >
-              Próxima
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="flex shrink-0 items-center border-t border-[var(--erp-border)] px-3 py-2.5 text-xs text-[var(--erp-fg-muted)]">
+        <span>
+          {rows.length}
+          {total > 0 ? ` de ${total}` : ''} produto
+          {rows.length === 1 ? '' : 's'} carregados
+          {hasMore ? ' · role para carregar mais' : ''}
+        </span>
+      </div>
     </section>
   );
 }

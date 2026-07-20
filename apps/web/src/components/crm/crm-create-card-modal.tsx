@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import {
+  crmDateInputToIso,
+  todayCrmDateInputValue,
+} from '@/src/components/crm/crm-helpers';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -29,6 +33,7 @@ export function CrmCreateCardModal(props: {
   const [value, setValue] = useState('');
   const [origin, setOrigin] = useState<CrmCardOrigin>('FRIO');
   const [funilId, setFunilId] = useState('');
+  const [entryDate, setEntryDate] = useState(todayCrmDateInputValue);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<CrmCardDto | null>(null);
@@ -41,6 +46,7 @@ export function CrmCreateCardModal(props: {
     setValue('');
     setOrigin('FRIO');
     setFunilId(defaultFunilId ?? funis[0]?.id ?? '');
+    setEntryDate(todayCrmDateInputValue());
     setError(null);
     setDuplicate(null);
   }, [defaultFunilId, funis, open]);
@@ -57,6 +63,7 @@ export function CrmCreateCardModal(props: {
       value: parsedValue != null && Number.isFinite(parsedValue) ? parsedValue : null,
       origin,
       funilId,
+      entryDate: crmDateInputToIso(entryDate || todayCrmDateInputValue()),
       force,
     });
     await onCreated();
@@ -188,20 +195,31 @@ export function CrmCreateCardModal(props: {
                 </select>
               </label>
             </div>
-            <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
-              Funil
-              <select
-                value={funilId}
-                onChange={(e) => setFunilId(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none"
-              >
-                {funis.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Data de entrada
+                <input
+                  type="date"
+                  value={entryDate}
+                  onChange={(e) => setEntryDate(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none"
+                />
+              </label>
+              <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Funil
+                <select
+                  value={funilId}
+                  onChange={(e) => setFunilId(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none"
+                >
+                  {funis.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             {duplicate ? (
               <div className="rounded-xl border border-amber-200 bg-amber-100 px-3 py-3 text-sm text-amber-800">
                 <p>

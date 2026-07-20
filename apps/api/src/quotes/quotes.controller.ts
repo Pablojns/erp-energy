@@ -80,6 +80,12 @@ export class QuotesController {
     return this.xbz.listCatalog(query);
   }
 
+  @Get('catalog/engraving-options')
+  @RequirePermission('crm', 'ver_modulo')
+  listCatalogEngravingOptions(@Query('productSku') productSku?: string) {
+    return this.spot.listEngravingOptions(String(productSku ?? '').trim());
+  }
+
   @Post('catalog/sync')
   @RequirePermission('crm', 'ver_modulo')
   syncCatalog() {
@@ -90,6 +96,13 @@ export class QuotesController {
   @RequirePermission('crm', 'ver_modulo')
   syncSpotCatalog() {
     return this.spot.syncCatalog();
+  }
+
+  @Post(':id/duplicate')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('crm', 'ver_modulo')
+  duplicate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.quotes.duplicate(id, user);
   }
 
   @Get(':id/proposals')
@@ -207,8 +220,12 @@ export class QuotesController {
 
   @Patch(':id/status')
   @RequirePermission('crm', 'ver_modulo')
-  updateStatus(@Param('id') id: string, @Body() dto: UpdateQuoteStatusDto) {
-    return this.quotes.updateStatus(id, dto.status);
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.quotes.updateStatus(id, dto.status, user.id);
   }
 
   @Delete(':id')

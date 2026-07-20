@@ -59,6 +59,10 @@ export class UpdateCrmCardDto {
 
   @IsOptional()
   @IsISO8601()
+  entryDate?: string;
+
+  @IsOptional()
+  @IsISO8601()
   prospectionDate?: string | null;
 
   @IsOptional()
