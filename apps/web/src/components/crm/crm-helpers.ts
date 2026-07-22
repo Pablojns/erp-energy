@@ -156,7 +156,7 @@ export function cardMatchesEntryPeriod(
   if (period === 'all') return true;
   const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  return new Date(card.entryDate ?? card.createdAt).getTime() >= cutoff;
+  return new Date(card.createdAt).getTime() >= cutoff;
 }
 
 export function cardMatchesEntryDateRange(
@@ -168,7 +168,7 @@ export function cardMatchesEntryDateRange(
   const end = endDate.trim();
   if (!start && !end) return true;
 
-  const entry = new Date(card.entryDate ?? card.createdAt);
+  const entry = new Date(card.createdAt);
   const entryDay = new Date(
     entry.getFullYear(),
     entry.getMonth(),

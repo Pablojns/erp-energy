@@ -12,6 +12,7 @@ import {
   buildCrmActivityTimeline,
   crmDateInputToIso,
   toCrmDateInputValue,
+  todayCrmDateInputValue,
 } from '@/src/components/crm/crm-helpers';
 import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { GlowButton } from '@/src/components/shell/glow-button';
@@ -60,7 +61,7 @@ export function CrmCardDetailModal(props: {
   const [whatsappLog, setWhatsappLog] = useState('');
   const [funilId, setFunilId] = useState('');
   const [responsavelId, setResponsavelId] = useState('');
-  const [entryDate, setEntryDate] = useState('');
+  const [createdAt, setCreatedAt] = useState('');
   const [touchpoints, setTouchpoints] = useState<CrmTouchpointInput[]>([]);
   const [quickNote, setQuickNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -95,7 +96,7 @@ export function CrmCardDetailModal(props: {
         setWhatsappLog(data.whatsappLog ?? '');
         setFunilId(data.funilId);
         setResponsavelId(data.responsavelId ?? '');
-        setEntryDate(toCrmDateInputValue(data.entryDate ?? data.createdAt));
+        setCreatedAt(toCrmDateInputValue(data.createdAt));
         setTouchpoints(mergeTouchpoints(data.touchpoints));
         setQuickNote('');
       } catch (e) {
@@ -121,6 +122,9 @@ export function CrmCardDetailModal(props: {
   );
 
   const selectedStatus = statuses.find((s) => s.id === statusId);
+  const statusOptions = statuses.filter(
+    (s) => s.name !== 'Perdido' || s.id === statusId,
+  );
 
   const activityItems = useMemo(() => {
     if (!card) return [];
@@ -172,10 +176,8 @@ export function CrmCardDetailModal(props: {
     setError(null);
     try {
       const parsedValue = value.trim() ? Number(value.replace(',', '.')) : null;
-      const originalEntryDay = toCrmDateInputValue(
-        card.entryDate ?? card.createdAt,
-      );
-      const nextEntryDay = entryDate.trim() || originalEntryDay;
+      const nextCreatedDay =
+        createdAt.trim() || toCrmDateInputValue(card.createdAt) || todayCrmDateInputValue();
       const payload: Parameters<typeof updateCrmCard>[1] = {
         name: name.trim(),
         phone: phone.trim() || null,
@@ -188,18 +190,15 @@ export function CrmCardDetailModal(props: {
         funilId,
         responsavelId: responsavelId || null,
         touchPoints: doneCount,
+        createdAt: crmDateInputToIso(nextCreatedDay),
         motivoPerdaId: extra?.motivoPerdaId,
         motivoPerdaTexto: extra?.motivoPerdaTexto,
       };
-      // Nunca reenvia entryDate a cada save — só quando o usuário alterou o dia.
-      if (nextEntryDay !== originalEntryDay) {
-        payload.entryDate = crmDateInputToIso(nextEntryDay);
-      }
       await updateCrmCard(card.id, payload);
       await upsertCrmTouchpoints(card.id, touchpoints);
       const refreshed = await getCrmCard(card.id);
       setCard(refreshed);
-      setEntryDate(toCrmDateInputValue(refreshed.entryDate ?? refreshed.createdAt));
+      setCreatedAt(toCrmDateInputValue(refreshed.createdAt));
       setTouchpoints(mergeTouchpoints(refreshed.touchpoints));
       await onUpdated();
       if (extra?.closeAfter) onClose();
@@ -465,7 +464,7 @@ export function CrmCardDetailModal(props: {
                     onChange={(e) => setStatusId(e.target.value)}
                     className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
-                    {statuses.map((s) => (
+                    {statusOptions.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
@@ -490,22 +489,9 @@ export function CrmCardDetailModal(props: {
                 <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Criado em
                   <input
-                    type="text"
-                    value={
-                      card
-                        ? new Date(card.createdAt).toLocaleDateString('pt-BR')
-                        : '—'
-                    }
-                    disabled
-                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] outline-none opacity-80"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
-                  Data de entrada
-                  <input
                     type="date"
-                    value={entryDate}
-                    onChange={(e) => setEntryDate(e.target.value)}
+                    value={createdAt}
+                    onChange={(e) => setCreatedAt(e.target.value)}
                     className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
@@ -700,7 +686,7 @@ export function CrmCardDetailModal(props: {
                   disabled={saving || selectedStatus?.name === 'Perdido'}
                   onClick={() => void markStatus('Perdido')}
                 >
-                  Marcar Perdido
+                  Marcar como Perdido
                 </GlowButton>
                 <button
                   type="button"
@@ -725,7 +711,10 @@ export function CrmCardDetailModal(props: {
       </div>
       <CrmLossReasonModal
         open={lossModalOpen}
-        onClose={() => setLossModalOpen(false)}
+        onClose={() => {
+          setLossModalOpen(false);
+          if (card) setStatusId(card.status);
+        }}
         onConfirm={confirmLoss}
         saving={saving}
       />

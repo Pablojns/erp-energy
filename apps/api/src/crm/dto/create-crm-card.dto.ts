@@ -54,7 +54,7 @@ export class CreateCrmCardDto {
 
   @IsOptional()
   @IsISO8601()
-  entryDate?: string;
+  createdAt?: string;
 
   @IsString()
   funilId!: string;

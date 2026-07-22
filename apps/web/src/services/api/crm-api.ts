@@ -74,7 +74,6 @@ export type CrmCardDto = {
   whatsappLog: string | null;
   observations: string | null;
   prospectionDate: string | null;
-  entryDate: string;
   contactsToday: number | null;
   convertedToMeeting: number | null;
   funilId: string;
@@ -343,7 +342,7 @@ export async function createCrmCard(body: {
   touchPoints?: number;
   notes?: string | null;
   whatsappLog?: string | null;
-  entryDate?: string;
+  createdAt?: string;
   funilId: string;
   force?: boolean;
 }) {
@@ -365,7 +364,7 @@ export async function updateCrmCard(
     notes: string | null;
     whatsappLog: string | null;
     observations: string | null;
-    entryDate: string;
+    createdAt: string;
     prospectionDate: string | null;
     contactsToday: number | null;
     convertedToMeeting: number | null;

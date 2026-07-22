@@ -16,13 +16,13 @@ export function CrmLossReasonModal(props: {
   const [motivos, setMotivos] = useState<CrmMotivoPerdaDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState('');
-  const [otherText, setOtherText] = useState('');
+  const [observacao, setObservacao] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setSelectedId('');
-    setOtherText('');
+    setObservacao('');
     setError(null);
     setLoading(true);
     void listCrmMotivosPerda()
@@ -42,15 +42,12 @@ export function CrmLossReasonModal(props: {
       setError('Selecione um motivo de perda.');
       return;
     }
-    if (selected?.requiresText && !otherText.trim()) {
-      setError('Descreva o motivo de perda.');
+    if (selected?.requiresText && !observacao.trim()) {
+      setError('Descreva o motivo de perda na observação.');
       return;
     }
     setError(null);
-    void onConfirm(
-      selectedId,
-      selected?.requiresText ? otherText.trim() : null,
-    );
+    void onConfirm(selectedId, observacao.trim() || null);
   };
 
   return (
@@ -63,7 +60,7 @@ export function CrmLossReasonModal(props: {
         <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-              Motivo de perda
+              Marcar como Perdido
             </h2>
             <button
               type="button"
@@ -76,7 +73,7 @@ export function CrmLossReasonModal(props: {
             </button>
           </div>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
-            Selecione o motivo antes de marcar o lead como perdido.
+            Informe o motivo da perda para confirmar.
           </p>
 
           {loading ? (
@@ -84,41 +81,43 @@ export function CrmLossReasonModal(props: {
               <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
             </div>
           ) : (
-            <div className="mt-4 space-y-2">
-              {motivos.map((motivo) => (
-                <label
-                  key={motivo.id}
-                  className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 transition ${
-                    selectedId === motivo.id
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10'
-                      : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="motivo-perda"
-                    checked={selectedId === motivo.id}
-                    onChange={() => {
-                      setSelectedId(motivo.id);
-                      setError(null);
-                    }}
-                    className="h-4 w-4 accent-[var(--accent)]"
-                  />
-                  <span className="text-sm text-[var(--text-primary)]">{motivo.name}</span>
-                </label>
-              ))}
-              {selected?.requiresText ? (
-                <textarea
-                  value={otherText}
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Motivo da perda <span className="text-rose-500">*</span>
+                <select
+                  value={selectedId}
                   onChange={(e) => {
-                    setOtherText(e.target.value);
+                    setSelectedId(e.target.value);
                     setError(null);
                   }}
-                  placeholder="Descreva o motivo..."
+                  className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none"
+                >
+                  <option value="">Selecione…</option>
+                  {motivos.map((motivo) => (
+                    <option key={motivo.id} value={motivo.id}>
+                      {motivo.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Observação
+                {selected?.requiresText ? (
+                  <span className="text-rose-500"> *</span>
+                ) : (
+                  <span className="normal-case text-[var(--text-muted)]"> (opcional)</span>
+                )}
+                <textarea
+                  value={observacao}
+                  onChange={(e) => {
+                    setObservacao(e.target.value);
+                    setError(null);
+                  }}
+                  placeholder='Ex.: "Fechou com concorrente pelo mesmo preço"'
                   rows={3}
-                  className="mt-2 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                  className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
                 />
-              ) : null}
+              </label>
             </div>
           )}
 

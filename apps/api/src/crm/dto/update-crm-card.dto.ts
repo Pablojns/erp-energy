@@ -59,7 +59,7 @@ export class UpdateCrmCardDto {
 
   @IsOptional()
   @IsISO8601()
-  entryDate?: string;
+  createdAt?: string;
 
   @IsOptional()
   @IsISO8601()

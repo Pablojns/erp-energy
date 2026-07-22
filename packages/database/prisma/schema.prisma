@@ -922,7 +922,6 @@ model CrmCard {
   motivoPerda        CrmMotivoPerda? @relation(fields: [motivoPerdaId], references: [id], onDelete: SetNull)
   touchpointRecords  CrmTouchpoint[]
   propostas          CrmProposta[]
-  entryDate          DateTime        @default(now())
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   closedAt           DateTime?
@@ -930,7 +929,6 @@ model CrmCard {
   @@index([funilId])
   @@index([origin])
   @@index([status])
-  @@index([entryDate])
   @@index([createdAt])
   @@index([responsavelId])
   @@index([motivoPerdaId])

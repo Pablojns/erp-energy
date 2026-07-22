@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
-import { generateUUID } from '@/src/lib/uuid';
+import { useEffect, useState } from 'react';
+import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
+import { CrmOrcamentoCatalogPickerModal } from '@/src/components/crm/orcamentos/crm-orcamento-catalog-picker';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import type { QuoteCatalogProductDto } from '@/src/services/api/quotes-api';
 
-type ProductOption = {
+type InventoryProduct = {
   id: string;
   sku: string;
   name: string;
@@ -15,13 +17,15 @@ type ProductOption = {
 };
 
 type PaginatedProducts = {
-  data: ProductOption[];
+  data: InventoryProduct[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 };
 
 type DraftItem = {
   key: string;
   productId: string;
+  sku: string;
+  name: string;
   quantity: string;
   unitPrice: string;
 };
@@ -34,47 +38,6 @@ function fieldClass(invalid?: boolean) {
   }`;
 }
 
-function productMatchesSearch(product: ProductOption, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  return (
-    product.sku.toLowerCase().includes(q) ||
-    product.name.toLowerCase().includes(q)
-  );
-}
-
-function sortProductsForSearch(
-  products: ProductOption[],
-  query: string,
-): ProductOption[] {
-  const filtered = products.filter((p) => productMatchesSearch(p, query));
-  const q = query.trim().toLowerCase();
-  if (!q) return filtered.slice(0, 40);
-  return filtered
-    .sort((a, b) => {
-      const aSku = a.sku.toLowerCase().startsWith(q) ? 0 : 1;
-      const bSku = b.sku.toLowerCase().startsWith(q) ? 0 : 1;
-      if (aSku !== bSku) return aSku - bSku;
-      return a.sku.localeCompare(b.sku, 'pt-BR');
-    })
-    .slice(0, 40);
-}
-
-async function loadActiveProducts(): Promise<ProductOption[]> {
-  const all: ProductOption[] = [];
-  let page = 1;
-  let totalPages = 1;
-  do {
-    const res = await erpFetchJson<PaginatedProducts>(
-      `products?page=${page}&pageSize=100&status=active&sortBy=sku&sortOrder=asc`,
-    );
-    all.push(...(res.data ?? []));
-    totalPages = res.meta?.totalPages ?? 1;
-    page += 1;
-  } while (page <= totalPages);
-  return all;
-}
-
 function money(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -83,9 +46,27 @@ function draftFromOrder(order: OrderDto): DraftItem[] {
   return order.items.map((it) => ({
     key: it.id,
     productId: it.productId ?? '',
+    sku: it.sku ?? '',
+    name: it.description ?? '',
     quantity: String(it.quantity ?? 1),
     unitPrice: it.unitPrice ?? '0',
   }));
+}
+
+async function resolveInventoryProductBySku(
+  sku: string,
+): Promise<InventoryProduct | null> {
+  const needle = sku.trim().toLowerCase();
+  if (!needle) return null;
+  const res = await erpFetchJson<PaginatedProducts>(
+    `products?search=${encodeURIComponent(sku.trim())}&pageSize=50&status=active`,
+  );
+  const rows = res.data ?? [];
+  return (
+    rows.find((p) => p.sku.trim().toLowerCase() === needle) ??
+    rows.find((p) => p.sku.trim().toLowerCase().includes(needle)) ??
+    null
+  );
 }
 
 export function SiteOrderItemsEditor(props: {
@@ -93,62 +74,21 @@ export function SiteOrderItemsEditor(props: {
   onSaved?: () => void;
 }) {
   const { order, onSaved } = props;
-  const [products, setProducts] = useState<ProductOption[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
   const [draft, setDraft] = useState<DraftItem[]>(() => draftFromOrder(order));
-  const [productSearch, setProductSearch] = useState<Record<string, string>>({});
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickingKey, setPickingKey] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(draftFromOrder(order));
-    setProductSearch({});
-    setOpenDropdown(null);
     setError(null);
+    setPickerOpen(false);
+    setPickingKey(null);
     // Reset só quando o pedido recarrega (id/updatedAt), não a cada re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [order.id, order.updatedAt]);
-
-  useEffect(() => {
-    if (products.length === 0) return;
-    setProductSearch((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const row of draft) {
-        if (!row.productId || next[row.key]) continue;
-        const p = products.find((x) => x.id === row.productId);
-        if (p) {
-          next[row.key] = p.name;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [products, draft]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoadingProducts(true);
-    void loadActiveProducts()
-      .then((rows) => {
-        if (!cancelled) setProducts(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setProducts([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingProducts(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const productById = useMemo(() => {
-    const map = new Map(products.map((p) => [p.id, p]));
-    return (id: string) => map.get(id);
-  }, [products]);
 
   const estimatedTotal = draft.reduce((acc, row) => {
     const qty = Number(row.quantity);
@@ -159,6 +99,43 @@ export function SiteOrderItemsEditor(props: {
 
   const updateRow = (key: string, patch: Partial<DraftItem>) => {
     setDraft((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  };
+
+  const openPickerFor = (key: string) => {
+    setPickingKey(key);
+    setPickerOpen(true);
+    setError(null);
+  };
+
+  const handleCatalogSelect = async (catalogProduct: QuoteCatalogProductDto) => {
+    if (!pickingKey) return;
+    setResolving(true);
+    setError(null);
+    try {
+      const inventory = await resolveInventoryProductBySku(catalogProduct.supplierCode);
+      if (!inventory) {
+        setError(
+          `SKU "${catalogProduct.supplierCode}" não encontrado no estoque. Cadastre o produto antes de usá-lo no pedido.`,
+        );
+        return;
+      }
+      const catalogPrice = Number(catalogProduct.salePrice);
+      updateRow(pickingKey, {
+        productId: inventory.id,
+        sku: inventory.sku,
+        name: inventory.name || catalogProduct.name,
+        unitPrice: Number.isFinite(catalogPrice)
+          ? String(catalogPrice)
+          : inventory.price ?? '0',
+      });
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Falha ao vincular produto do catálogo.',
+      );
+    } finally {
+      setResolving(false);
+      setPickingKey(null);
+    }
   };
 
   const handleSave = async () => {
@@ -213,6 +190,8 @@ export function SiteOrderItemsEditor(props: {
     }
   };
 
+  const busy = saving || resolving;
+
   return (
     <div className="exp-wb-table-wrap">
       <div className="exp-wb-table-head exp-wb-table-head--compact flex flex-wrap items-center justify-between gap-2">
@@ -221,14 +200,21 @@ export function SiteOrderItemsEditor(props: {
         </p>
         <button
           type="button"
-          disabled={saving || loadingProducts}
+          disabled={busy}
           onClick={() => {
             const key = generateUUID();
             setDraft((prev) => [
               ...prev,
-              { key, productId: '', quantity: '1', unitPrice: '0' },
+              {
+                key,
+                productId: '',
+                sku: '',
+                name: '',
+                quantity: '1',
+                unitPrice: '0',
+              },
             ]);
-            setProductSearch((prev) => ({ ...prev, [key]: '' }));
+            openPickerFor(key);
           }}
           className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--input-bg)] disabled:opacity-60"
         >
@@ -239,10 +225,6 @@ export function SiteOrderItemsEditor(props: {
 
       <div className="space-y-2 p-2">
         {draft.map((row, index) => {
-          const selected = productById(row.productId);
-          const searchQuery = productSearch[row.key] ?? selected?.name ?? '';
-          const filtered = sortProductsForSearch(products, searchQuery);
-          const showDropdown = openDropdown === row.key;
           const lineTotal =
             Number(row.quantity) *
             Number(String(row.unitPrice).replace(',', '.'));
@@ -255,72 +237,38 @@ export function SiteOrderItemsEditor(props: {
               <div className="text-xs font-semibold text-[var(--text-secondary)] sm:pt-2">
                 {(index + 1) * 10}
               </div>
-              <div className="relative min-w-0">
-                <input
-                  type="search"
-                  value={searchQuery}
-                  disabled={saving || loadingProducts}
-                  placeholder="Buscar SKU ou produto…"
-                  className={fieldClass(!row.productId)}
-                  onFocus={() => setOpenDropdown(row.key)}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setProductSearch((prev) => ({ ...prev, [row.key]: value }));
-                    setOpenDropdown(row.key);
-                    if (row.productId) {
-                      updateRow(row.key, { productId: '' });
-                    }
-                  }}
-                />
-                {selected && !openDropdown ? (
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-[var(--text-muted)]">
-                    {selected.sku}
-                  </p>
-                ) : null}
-                {showDropdown ? (
-                  <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
-                    {filtered.length === 0 ? (
-                      <li className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                        Nenhum produto
-                      </li>
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openPickerFor(row.key)}
+                  className={`${fieldClass(!row.productId)} flex items-start gap-2 text-left`}
+                >
+                  <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                  <span className="min-w-0 flex-1">
+                    {row.productId ? (
+                      <>
+                        <span className="block truncate font-medium text-[var(--text-primary)]">
+                          {row.name || 'Produto'}
+                        </span>
+                        <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
+                          {row.sku}
+                        </span>
+                      </>
                     ) : (
-                      filtered.map((p) => (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            className="flex w-full flex-col items-start px-3 py-2 text-left text-xs hover:bg-[var(--input-bg)]"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              updateRow(row.key, {
-                                productId: p.id,
-                                unitPrice: p.price ?? row.unitPrice,
-                              });
-                              setProductSearch((prev) => ({
-                                ...prev,
-                                [row.key]: p.name,
-                              }));
-                              setOpenDropdown(null);
-                            }}
-                          >
-                            <span className="font-medium text-[var(--text-primary)]">
-                              {p.name}
-                            </span>
-                            <span className="font-mono text-[var(--text-muted)]">
-                              {p.sku}
-                            </span>
-                          </button>
-                        </li>
-                      ))
+                      <span className="text-[var(--text-muted)]">
+                        Buscar produto no catálogo…
+                      </span>
                     )}
-                  </ul>
-                ) : null}
+                  </span>
+                </button>
               </div>
               <div>
                 <input
                   type="number"
                   min={1}
                   step={1}
-                  disabled={saving}
+                  disabled={busy}
                   value={row.quantity}
                   className={fieldClass()}
                   aria-label="Quantidade"
@@ -332,7 +280,7 @@ export function SiteOrderItemsEditor(props: {
                   type="number"
                   min={0}
                   step="0.01"
-                  disabled={saving}
+                  disabled={busy}
                   value={row.unitPrice}
                   className={fieldClass()}
                   aria-label="Preço unitário"
@@ -345,16 +293,11 @@ export function SiteOrderItemsEditor(props: {
               <div className="flex items-start justify-end">
                 <button
                   type="button"
-                  disabled={saving || draft.length <= 1}
+                  disabled={busy || draft.length <= 1}
                   title="Remover item"
                   className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] transition hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-40"
                   onClick={() => {
                     setDraft((prev) => prev.filter((r) => r.key !== row.key));
-                    setProductSearch((prev) => {
-                      const next = { ...prev };
-                      delete next[row.key];
-                      return next;
-                    });
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -374,7 +317,7 @@ export function SiteOrderItemsEditor(props: {
         </p>
         <button
           type="button"
-          disabled={saving || loadingProducts}
+          disabled={busy}
           onClick={() => void handleSave()}
           className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
         >
@@ -383,6 +326,20 @@ export function SiteOrderItemsEditor(props: {
         </button>
       </div>
       {error ? <p className="px-3 pb-2 text-xs text-rose-500">{error}</p> : null}
+      {resolving ? (
+        <p className="px-3 pb-2 text-xs text-[var(--text-muted)]">
+          Vinculando produto do catálogo ao estoque…
+        </p>
+      ) : null}
+
+      <CrmOrcamentoCatalogPickerModal
+        open={pickerOpen}
+        onClose={() => {
+          setPickerOpen(false);
+          setPickingKey(null);
+        }}
+        onSelect={(product) => void handleCatalogSelect(product)}
+      />
     </div>
   );
 }

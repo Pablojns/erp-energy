@@ -33,7 +33,7 @@ export function CrmCreateCardModal(props: {
   const [value, setValue] = useState('');
   const [origin, setOrigin] = useState<CrmCardOrigin>('FRIO');
   const [funilId, setFunilId] = useState('');
-  const [entryDate, setEntryDate] = useState(todayCrmDateInputValue);
+  const [createdAt, setCreatedAt] = useState(todayCrmDateInputValue);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<CrmCardDto | null>(null);
@@ -46,7 +46,7 @@ export function CrmCreateCardModal(props: {
     setValue('');
     setOrigin('FRIO');
     setFunilId(defaultFunilId ?? funis[0]?.id ?? '');
-    setEntryDate(todayCrmDateInputValue());
+    setCreatedAt(todayCrmDateInputValue());
     setError(null);
     setDuplicate(null);
   }, [defaultFunilId, funis, open]);
@@ -63,7 +63,7 @@ export function CrmCreateCardModal(props: {
       value: parsedValue != null && Number.isFinite(parsedValue) ? parsedValue : null,
       origin,
       funilId,
-      entryDate: crmDateInputToIso(entryDate || todayCrmDateInputValue()),
+      createdAt: crmDateInputToIso(createdAt || todayCrmDateInputValue()),
       force,
     });
     await onCreated();
@@ -197,11 +197,11 @@ export function CrmCreateCardModal(props: {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
-                Data de entrada
+                Criado em
                 <input
                   type="date"
-                  value={entryDate}
-                  onChange={(e) => setEntryDate(e.target.value)}
+                  value={createdAt}
+                  onChange={(e) => setCreatedAt(e.target.value)}
                   className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none"
                 />
               </label>

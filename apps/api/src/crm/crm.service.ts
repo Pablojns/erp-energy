@@ -88,7 +88,6 @@ type CrmCardRow = {
   contactsToday: number | null;
   convertedToMeeting: number | null;
   funilId: string;
-  entryDate: Date;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -210,7 +209,6 @@ export class CrmService {
       convertedToMeeting: row.convertedToMeeting,
       funilId: row.funilId,
       funil: row.funil ? this.serializeFunil(row.funil) : undefined,
-      entryDate: row.entryDate.toISOString(),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       closedAt: row.closedAt?.toISOString() ?? null,
@@ -576,6 +574,10 @@ export class CrmService {
     }
 
     const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
+    const createdAt = dto.createdAt ? new Date(dto.createdAt) : new Date();
+    if (Number.isNaN(createdAt.getTime())) {
+      throw new BadRequestException('Data de criação inválida.');
+    }
     const created = await this.prisma.client.crmCard.create({
       data: {
         name: dto.name.trim(),
@@ -589,7 +591,7 @@ export class CrmService {
         touchPoints: dto.touchPoints ?? 0,
         notes: dto.notes?.trim() || null,
         whatsappLog: dto.whatsappLog?.trim() || null,
-        entryDate: dto.entryDate ? new Date(dto.entryDate) : new Date(),
+        createdAt,
         funilId: dto.funilId,
         status: defaultStatusId,
       },
@@ -629,17 +631,13 @@ export class CrmService {
     if (dto.observations !== undefined) {
       data.observations = dto.observations?.trim() || null;
     }
-    if (dto.entryDate !== undefined) {
-      const nextEntry = new Date(dto.entryDate);
-      if (!Number.isNaN(nextEntry.getTime())) {
-        const prevDay = before.entryDate.toISOString().slice(0, 10);
-        const nextDay = nextEntry.toISOString().slice(0, 10);
-        // Só altera entryDate quando o dia muda de fato — evita sobrescrever
-        // a data de entrada com a data do salvamento a cada edição.
-        if (nextDay !== prevDay) {
-          data.entryDate = nextEntry;
-        }
+    if (dto.createdAt !== undefined) {
+      const nextCreated = new Date(dto.createdAt);
+      if (Number.isNaN(nextCreated.getTime())) {
+        throw new BadRequestException('Data de criação inválida.');
       }
+      // Persiste exatamente a data informada (migração / ajuste manual).
+      data.createdAt = nextCreated;
     }
     if (dto.prospectionDate !== undefined) {
       data.prospectionDate = dto.prospectionDate
