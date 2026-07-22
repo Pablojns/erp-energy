@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@erp/database';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   NOTIFICATION_PRIORITY,
@@ -18,6 +19,7 @@ import {
   CreatePurchaseRequestDto,
   PurchaseRequestType,
 } from './dto/create-purchase-request.dto';
+import type { UpdatePurchaseRequestQuantityDto } from './dto/update-purchase-request-quantity.dto';
 import type { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import type { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
 import {
@@ -77,6 +79,7 @@ export class PurchaseRequestService {
     private readonly prisma: PrismaService,
     private readonly r2: R2StorageService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   async criar(
@@ -472,15 +475,8 @@ export class PurchaseRequestService {
 
   async atualizarQuantidade(
     id: string,
-    dto: {
-      suggestedQty?: number;
-      quantity?: number;
-      engravingPrice?: number | null;
-      itemPrice?: number | null;
-      customerName?: string | null;
-      priority?: 'NORMAL' | 'URGENTE';
-      link?: string | null;
-    },
+    dto: UpdatePurchaseRequestQuantityDto,
+    userId?: string,
   ) {
     const existing = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
@@ -488,10 +484,22 @@ export class PurchaseRequestService {
         id: true,
         status: true,
         type: true,
+        quoteId: true,
         quoteItemId: true,
         quantity: true,
         itemPrice: true,
         engravingPrice: true,
+        customerName: true,
+        sku: true,
+        itemName: true,
+        supplierName: true,
+        deliveryAddress: true,
+        observation: true,
+        saleOrderRef: true,
+        priority: true,
+        link: true,
+        suggestedQty: true,
+        quoteItem: { select: { engraving: true } },
       },
     });
     if (!existing) {
@@ -548,6 +556,34 @@ export class PurchaseRequestService {
         dto.customerName == null ? null : dto.customerName.trim() || null;
     }
 
+    if (dto.sku !== undefined) {
+      data.sku = dto.sku == null ? null : dto.sku.trim() || null;
+    }
+
+    if (dto.itemName !== undefined) {
+      data.itemName = dto.itemName == null ? null : dto.itemName.trim() || null;
+    }
+
+    if (dto.supplierName !== undefined) {
+      data.supplierName =
+        dto.supplierName == null ? null : dto.supplierName.trim() || null;
+    }
+
+    if (dto.deliveryAddress !== undefined) {
+      data.deliveryAddress =
+        dto.deliveryAddress == null ? null : dto.deliveryAddress.trim() || null;
+    }
+
+    if (dto.observation !== undefined) {
+      data.observation =
+        dto.observation == null ? null : dto.observation.trim() || null;
+    }
+
+    if (dto.saleOrderRef !== undefined) {
+      data.saleOrderRef =
+        dto.saleOrderRef == null ? null : dto.saleOrderRef.trim() || null;
+    }
+
     if (dto.priority !== undefined) {
       data.priority = dto.priority;
     }
@@ -556,15 +592,38 @@ export class PurchaseRequestService {
       data.link = dto.link == null ? null : dto.link.trim() || null;
     }
 
-    if (Object.keys(data).length === 0) {
+    // Técnica de gravação fica no QuoteItem; sem vínculo, guarda em observation.
+    if (dto.engravingName !== undefined && !existing.quoteItemId) {
+      const technique =
+        dto.engravingName == null ? null : dto.engravingName.trim() || null;
+      const baseObs =
+        dto.observation !== undefined
+          ? dto.observation == null
+            ? ''
+            : dto.observation.trim()
+          : existing.observation?.trim() ?? '';
+      const withoutGravacao = baseObs
+        .split(/\s*\|\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .filter((part) => !/^Gravação:\s*/i.test(part));
+      if (technique) {
+        withoutGravacao.push(`Gravação: ${technique}`);
+      }
+      data.observation = withoutGravacao.length
+        ? withoutGravacao.join(' | ')
+        : null;
+    }
+
+    const hasPrFields = Object.keys(data).length > 0;
+    const hasEngravingOnly =
+      dto.engravingName !== undefined && Boolean(existing.quoteItemId);
+    if (!hasPrFields && !hasEngravingOnly) {
       throw new BadRequestException('Informe ao menos um campo para atualizar.');
     }
 
     // Recalcula valor da linha (produto + gravação) × qtd
-    const nextQty =
-      dto.quantity ??
-      existing.quantity ??
-      1;
+    const nextQty = dto.quantity ?? existing.quantity ?? 1;
     const nextItemPrice =
       dto.itemPrice !== undefined
         ? dto.itemPrice
@@ -589,24 +648,116 @@ export class PurchaseRequestService {
       data.purchaseValue = new Prisma.Decimal(line.toFixed(2));
     }
 
-    const updated = await this.prisma.client.purchaseRequest.update({
-      where: { id },
-      data,
-      include: PURCHASE_REQUEST_INCLUDE,
-    });
+    const updated =
+      Object.keys(data).length > 0
+        ? await this.prisma.client.purchaseRequest.update({
+            where: { id },
+            data,
+            include: PURCHASE_REQUEST_INCLUDE,
+          })
+        : await this.prisma.client.purchaseRequest.findUniqueOrThrow({
+            where: { id },
+            include: PURCHASE_REQUEST_INCLUDE,
+          });
 
-    if (
-      existing.quoteItemId &&
-      (dto.quantity != null || dto.itemPrice !== undefined)
-    ) {
+    const shouldSyncQuoteItem =
+      Boolean(existing.quoteItemId) &&
+      (dto.quantity != null ||
+        dto.itemPrice !== undefined ||
+        dto.engravingPrice !== undefined ||
+        dto.sku !== undefined ||
+        dto.itemName !== undefined ||
+        dto.supplierName !== undefined ||
+        dto.engravingName !== undefined ||
+        dto.productImageUrl !== undefined);
+
+    if (shouldSyncQuoteItem && existing.quoteItemId) {
       await this.syncLinkedQuoteItem({
         quoteItemId: existing.quoteItemId,
         quantity: dto.quantity,
         productPrice: dto.itemPrice,
+        engravingPrice: dto.engravingPrice,
+        sku: dto.sku,
+        description: dto.itemName,
+        supplier: dto.supplierName,
+        engraving: dto.engravingName,
+        imageUrl: dto.productImageUrl,
       });
     }
 
-    return this.serialize(updated, true);
+    if (existing.quoteId && dto.customerName !== undefined) {
+      await this.prisma.client.quote.update({
+        where: { id: existing.quoteId },
+        data: {
+          customerName:
+            dto.customerName == null
+              ? existing.customerName?.trim() || '—'
+              : dto.customerName.trim() || '—',
+        },
+      });
+    }
+
+    if (existing.quoteId && dto.deliveryAddress !== undefined) {
+      await this.prisma.client.quote.update({
+        where: { id: existing.quoteId },
+        data: {
+          deliveryAddress:
+            dto.deliveryAddress == null
+              ? null
+              : dto.deliveryAddress.trim() || null,
+        },
+      });
+    }
+
+    const refreshed = shouldSyncQuoteItem
+      ? await this.prisma.client.purchaseRequest.findUniqueOrThrow({
+          where: { id },
+          include: PURCHASE_REQUEST_INCLUDE,
+        })
+      : updated;
+
+    const beforeSnapshot = {
+      customerName: existing.customerName,
+      sku: existing.sku,
+      itemName: existing.itemName,
+      supplierName: existing.supplierName,
+      quantity: existing.quantity,
+      suggestedQty: existing.suggestedQty,
+      itemPrice: existing.itemPrice?.toString() ?? null,
+      engravingPrice: existing.engravingPrice?.toString() ?? null,
+      engravingName: existing.quoteItem?.engraving ?? null,
+      deliveryAddress: existing.deliveryAddress,
+      observation: existing.observation,
+      saleOrderRef: existing.saleOrderRef,
+      priority: existing.priority,
+      link: existing.link,
+    };
+    const afterSnapshot = {
+      customerName: refreshed.customerName,
+      sku: refreshed.sku,
+      itemName: refreshed.itemName,
+      supplierName: refreshed.supplierName,
+      quantity: refreshed.quantity,
+      suggestedQty: refreshed.suggestedQty,
+      itemPrice: refreshed.itemPrice?.toString() ?? null,
+      engravingPrice: refreshed.engravingPrice?.toString() ?? null,
+      engravingName: refreshed.quoteItem?.engraving ?? null,
+      deliveryAddress: refreshed.deliveryAddress,
+      observation: refreshed.observation,
+      saleOrderRef: refreshed.saleOrderRef,
+      priority: refreshed.priority,
+      link: refreshed.link,
+    };
+
+    await this.audit.log({
+      userId: userId ?? null,
+      action: 'PURCHASE_REQUEST_UPDATED',
+      entity: 'PurchaseRequest',
+      entityId: id,
+      changes: { before: beforeSnapshot, after: afterSnapshot },
+    });
+
+    return this.serialize(refreshed, true);
   }
 
   async adicionarImagens(id: string, files?: Express.Multer.File[]) {
@@ -682,11 +833,17 @@ export class PurchaseRequestService {
     return this.serialize(updated, true);
   }
 
-  /** Propaga qty/preço do produto para o QuoteItem e recalcula totais do orçamento. */
+  /** Propaga campos do PR para o QuoteItem e recalcula totais do orçamento. */
   private async syncLinkedQuoteItem(input: {
     quoteItemId: string;
     quantity?: number;
     productPrice?: number | null;
+    engravingPrice?: number | null;
+    sku?: string | null;
+    description?: string | null;
+    supplier?: string | null;
+    engraving?: string | null;
+    imageUrl?: string | null;
   }) {
     const item = await this.prisma.client.quoteItem.findUnique({
       where: { id: input.quoteItemId },
@@ -712,6 +869,12 @@ export class PurchaseRequestService {
       input.productPrice !== undefined && input.productPrice !== null
         ? new Prisma.Decimal(Number(input.productPrice).toFixed(2))
         : item.productPrice ?? item.unitPrice;
+    const engravingPrice =
+      input.engravingPrice !== undefined
+        ? input.engravingPrice == null
+          ? null
+          : new Prisma.Decimal(Number(input.engravingPrice).toFixed(2))
+        : item.engravingPrice;
 
     const commission = toDecimal(item.quote.commissionPercent, 2);
     const reserve = toDecimal(item.quote.marginReservePercent, 6);
@@ -724,7 +887,7 @@ export class PurchaseRequestService {
 
     const unitPrecise = calcQuoteItemUnitPriceDecimal({
       productPrice,
-      engravingPrice: item.engravingPrice,
+      engravingPrice,
       commissionPercent: commission,
       marginReservePercent: reserve,
       salesMarginPercent: sales,
@@ -735,15 +898,36 @@ export class PurchaseRequestService {
     const unitPrice = roundMoneyDecimal(unitPrecise, 2);
     const lineTotal = unitPrice.mul(quantity);
 
+    const itemData: Prisma.QuoteItemUpdateInput = {
+      quantity,
+      productPrice,
+      engravingPrice,
+      unitPrice,
+      total: lineTotal,
+    };
+    if (input.sku !== undefined) {
+      itemData.sku = input.sku?.trim() || item.sku;
+    }
+    if (input.description !== undefined) {
+      itemData.description = input.description?.trim() || item.description;
+    }
+    if (input.supplier !== undefined) {
+      itemData.supplier =
+        input.supplier == null ? null : input.supplier.trim() || null;
+    }
+    if (input.engraving !== undefined) {
+      itemData.engraving =
+        input.engraving == null ? null : input.engraving.trim() || null;
+    }
+    if (input.imageUrl !== undefined) {
+      itemData.imageUrl =
+        input.imageUrl == null ? null : input.imageUrl.trim() || null;
+    }
+
     await this.prisma.client.$transaction(async (tx) => {
       await tx.quoteItem.update({
         where: { id: item.id },
-        data: {
-          quantity,
-          productPrice,
-          unitPrice,
-          total: lineTotal,
-        },
+        data: itemData,
       });
       const items = await tx.quoteItem.findMany({
         where: { quoteId: item.quoteId },

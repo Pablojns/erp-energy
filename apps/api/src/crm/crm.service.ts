@@ -157,10 +157,12 @@ export class CrmService {
 
   private resolveLastTouchpointAt(
     touchpoints: CrmTouchpointRow[] | undefined,
-    fallback: Date,
-  ): string {
+    fallbackAt?: Date,
+  ): string | null {
     const done = (touchpoints ?? []).filter((tp) => tp.done);
-    if (done.length === 0) return fallback.toISOString();
+    if (done.length === 0) {
+      return fallbackAt ? fallbackAt.toISOString() : null;
+    }
 
     const latest = done.reduce((acc, tp) => {
       const at = tp.date ?? tp.createdAt;
@@ -184,16 +186,13 @@ export class CrmService {
     statusMap?: Map<string, CrmStatusRow>,
   ) {
     const statusMeta = statusMap?.get(row.status);
-    const lastTouchpointAt = this.resolveLastTouchpointAt(
-      row.touchpointRecords,
-      row.createdAt,
-    );
+    const lastTouchpointAt = this.resolveLastTouchpointAt(row.touchpointRecords);
     const score = computeCrmLeadScore({
       phone: row.phone,
       email: row.email,
       value: row.value,
       touchPoints: row.touchPoints,
-      lastTouchpointAt,
+      lastTouchpointAt: lastTouchpointAt ?? row.updatedAt,
     });
     return {
       id: row.id,
@@ -236,7 +235,7 @@ export class CrmService {
             .sort((a, b) => a.number - b.number)
             .map((tp) => this.serializeTouchpoint(tp))
         : undefined,
-      lastTouchpointAt,
+      lastTouchpointAt: lastTouchpointAt ?? undefined,
       score,
     };
   }
@@ -631,7 +630,16 @@ export class CrmService {
       data.observations = dto.observations?.trim() || null;
     }
     if (dto.entryDate !== undefined) {
-      data.entryDate = new Date(dto.entryDate);
+      const nextEntry = new Date(dto.entryDate);
+      if (!Number.isNaN(nextEntry.getTime())) {
+        const prevDay = before.entryDate.toISOString().slice(0, 10);
+        const nextDay = nextEntry.toISOString().slice(0, 10);
+        // Só altera entryDate quando o dia muda de fato — evita sobrescrever
+        // a data de entrada com a data do salvamento a cada edição.
+        if (nextDay !== prevDay) {
+          data.entryDate = nextEntry;
+        }
+      }
     }
     if (dto.prospectionDate !== undefined) {
       data.prospectionDate = dto.prospectionDate
@@ -818,10 +826,11 @@ export class CrmService {
       ) {
         return false;
       }
-      const last = this.resolveLastTouchpointAt(
-        card.touchpointRecords,
-        card.createdAt,
-      );
+      const last =
+        this.resolveLastTouchpointAt(
+          card.touchpointRecords,
+          card.createdAt,
+        ) ?? card.createdAt;
       return now - new Date(last).getTime() > cutoffMs;
     }).length;
   }
@@ -1436,10 +1445,11 @@ export class CrmService {
       ) {
         return false;
       }
-      const last = this.resolveLastTouchpointAt(
-        card.touchpointRecords,
-        card.createdAt,
-      );
+      const last =
+        this.resolveLastTouchpointAt(
+          card.touchpointRecords,
+          card.createdAt,
+        ) ?? card.createdAt;
       return now - new Date(last).getTime() > cutoffMs;
     });
   }

@@ -264,6 +264,26 @@ export async function excluirEtiquetaCorreios(id: string) {
   });
 }
 
+export async function atualizarEtiquetaCorreios(
+  id: string,
+  body: {
+    codigoRastreio?: string;
+    prePostagemId?: string;
+    nomeDestinatario?: string;
+    cepDestino?: string;
+    servico?: string;
+    status?: string;
+  },
+) {
+  return erpFetchJson<CorreiosEtiquetaDto>(
+    `correios/etiquetas/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 export async function criarPrePostagemManual(input: CorreiosManualLabelInput) {
   return erpFetchJson<Record<string, unknown>>('correios/prepostagem', {
     method: 'POST',

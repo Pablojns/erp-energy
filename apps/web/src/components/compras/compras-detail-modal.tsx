@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Download, Loader2, Save, Trash2, Upload, X } from 'lucide-react';
+import { Download, Loader2, Pencil, Save, Trash2, Upload, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  listQuoteCatalog,
+  type QuoteCatalogProductDto,
+} from '@/src/services/api/quotes-api';
 import {
   erpFetchFormData,
   fetchPurchaseDetail,
@@ -30,6 +34,17 @@ import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { useIsMobileKanban } from '@/src/hooks/use-is-mobile-kanban';
 
 const OBSERVATION_URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
+
+type EditableFieldKey =
+  | 'customerName'
+  | 'itemName'
+  | 'sku'
+  | 'supplierName'
+  | 'engravingName'
+  | 'engravingPrice'
+  | 'deliveryAddress'
+  | 'observation'
+  | 'saleOrderRef';
 
 function engravingNameFromRow(row: PurchaseRequest) {
   if (row.engravingName?.trim()) return row.engravingName.trim();
@@ -115,6 +130,21 @@ export function ComprasDetailModal(props: {
   const [savingPriority, setSavingPriority] = useState(false);
   const [linkInput, setLinkInput] = useState('');
   const [savingLink, setSavingLink] = useState(false);
+  const [customerNameInput, setCustomerNameInput] = useState('');
+  const [itemNameInput, setItemNameInput] = useState('');
+  const [skuInput, setSkuInput] = useState('');
+  const [supplierInput, setSupplierInput] = useState('');
+  const [engravingNameInput, setEngravingNameInput] = useState('');
+  const [engravingPriceInput, setEngravingPriceInput] = useState('');
+  const [deliveryAddressInput, setDeliveryAddressInput] = useState('');
+  const [observationInput, setObservationInput] = useState('');
+  const [saleOrderRefInput, setSaleOrderRefInput] = useState('');
+  const [editingField, setEditingField] = useState<EditableFieldKey | null>(null);
+  const [savingField, setSavingField] = useState<EditableFieldKey | null>(null);
+  const [skuSuggestions, setSkuSuggestions] = useState<QuoteCatalogProductDto[]>([]);
+  const [skuSearching, setSkuSearching] = useState(false);
+  const [skuSuggestOpen, setSkuSuggestOpen] = useState(false);
+  const [catalogImageUrl, setCatalogImageUrl] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [removingImageId, setRemovingImageId] = useState<string | null>(null);
   const [movingEtapa, setMovingEtapa] = useState(false);
@@ -134,6 +164,19 @@ export function ComprasDetailModal(props: {
           setItemPriceInput(purchaseUnitPrice(detail) || '');
           setPriority(detail.priority === 'URGENTE' ? 'URGENTE' : 'NORMAL');
           setLinkInput(detail.link ?? '');
+          setCustomerNameInput(detail.customerName ?? '');
+          setItemNameInput(displayName(detail));
+          setSkuInput(detail.sku ?? detail.product?.sku ?? '');
+          setSupplierInput(displaySupplierName(detail) || '');
+          setEngravingNameInput(engravingNameFromRow(detail) ?? '');
+          setEngravingPriceInput(detail.engravingPrice ?? '');
+          setDeliveryAddressInput(detail.deliveryAddress ?? '');
+          setObservationInput(manualObservationText(detail.observation));
+          setSaleOrderRefInput(detail.saleOrderRef ?? '');
+          setEditingField(null);
+          setCatalogImageUrl(null);
+          setSkuSuggestions([]);
+          setSkuSuggestOpen(false);
         }
       })
       .catch((err) => {
@@ -148,6 +191,52 @@ export function ComprasDetailModal(props: {
       cancelled = true;
     };
   }, [props.rowId]);
+
+  useEffect(() => {
+    if (editingField !== 'sku') {
+      setSkuSuggestions([]);
+      setSkuSuggestOpen(false);
+      setSkuSearching(false);
+      return;
+    }
+    const term = skuInput.trim();
+    if (term.length < 2) {
+      setSkuSuggestions([]);
+      setSkuSuggestOpen(false);
+      setSkuSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSkuSearching(true);
+    const timer = window.setTimeout(() => {
+      void listQuoteCatalog({
+        search: term,
+        active: true,
+        page: 1,
+        pageSize: 12,
+        includeTotal: false,
+      })
+        .then((res) => {
+          if (cancelled) return;
+          setSkuSuggestions(res.data);
+          setSkuSuggestOpen(res.data.length > 0);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setSkuSuggestions([]);
+          setSkuSuggestOpen(false);
+        })
+        .finally(() => {
+          if (!cancelled) setSkuSearching(false);
+        });
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingField, skuInput]);
 
   const handleDelete = async () => {
     if (!row || !window.confirm('Excluir esta solicitação permanentemente?')) return;
@@ -180,17 +269,295 @@ export function ComprasDetailModal(props: {
   const liveEngravingTotal = useMemo(() => {
     if (!row) return null;
     const qty = Number(quantityInput);
-    const unit = Number(String(row.engravingPrice ?? '').replace(',', '.'));
+    const unit = Number(
+      String(
+        editingField === 'engravingPrice'
+          ? engravingPriceInput
+          : row.engravingPrice ?? '',
+      ).replace(',', '.'),
+    );
     if (Number.isFinite(qty) && qty >= 1 && Number.isFinite(unit) && unit >= 0) {
       return qty * unit;
     }
     return calcEngravingTotalFromRow(row);
-  }, [quantityInput, row]);
+  }, [quantityInput, row, editingField, engravingPriceInput]);
 
-  const quoteCodeDisplay = formatQuoteCodeDisplay(row?.saleOrderRef);
+  const quoteCodeDisplay = formatQuoteCodeDisplay(
+    editingField === 'saleOrderRef' ? saleOrderRefInput : row?.saleOrderRef,
+  );
   const observationText = manualObservationText(row?.observation);
   const engravingTechnique = row ? engravingNameFromRow(row) : null;
   const addressDisplay = formatDeliveryAddressDisplay(row?.deliveryAddress);
+
+  const applyUpdatedRow = (updated: PurchaseRequest) => {
+    setRow(updated);
+    setExpectedArrival(
+      updated.expectedArrival ? updated.expectedArrival.slice(0, 10) : '',
+    );
+    setQuantityInput(String(displayQty(updated)));
+    setItemPriceInput(purchaseUnitPrice(updated) || '');
+    setPriority(updated.priority === 'URGENTE' ? 'URGENTE' : 'NORMAL');
+    setLinkInput(updated.link ?? '');
+    setCustomerNameInput(updated.customerName ?? '');
+    setItemNameInput(displayName(updated));
+    setSkuInput(updated.sku ?? updated.product?.sku ?? '');
+    setSupplierInput(displaySupplierName(updated) || '');
+    setEngravingNameInput(engravingNameFromRow(updated) ?? '');
+    setEngravingPriceInput(updated.engravingPrice ?? '');
+    setDeliveryAddressInput(updated.deliveryAddress ?? '');
+    setObservationInput(manualObservationText(updated.observation));
+    setSaleOrderRefInput(updated.saleOrderRef ?? '');
+    setEditingField(null);
+    setCatalogImageUrl(null);
+    setSkuSuggestions([]);
+    setSkuSuggestOpen(false);
+  };
+
+  const applyCatalogProduct = (product: QuoteCatalogProductDto) => {
+    setSkuInput(product.supplierCode);
+    setSupplierInput(product.supplier?.trim() || '');
+    setItemNameInput(product.name?.trim() || product.description?.trim() || '');
+    setCatalogImageUrl(product.imageUrl?.trim() || null);
+    setSkuSuggestions([]);
+    setSkuSuggestOpen(false);
+  };
+
+  const findExactCatalogMatch = async (
+    sku: string,
+  ): Promise<QuoteCatalogProductDto | null> => {
+    const trimmed = sku.trim();
+    if (!trimmed) return null;
+    try {
+      const res = await listQuoteCatalog({
+        search: trimmed,
+        active: true,
+        page: 1,
+        pageSize: 20,
+        includeTotal: false,
+      });
+      const needle = trimmed.toLowerCase();
+      return (
+        res.data.find(
+          (row) =>
+            row.supplierCode.trim().toLowerCase() === needle ||
+            row.friendlyCode?.trim().toLowerCase() === needle ||
+            row.compositeCode?.trim().toLowerCase() === needle,
+        ) ?? null
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const patchPurchaseFields = async (
+    field: EditableFieldKey,
+    body: Record<string, unknown>,
+  ) => {
+    if (!row) return;
+    setSavingField(field);
+    setError(null);
+    try {
+      const updated = await erpFetchJson<PurchaseRequest>(`api/compras/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      applyUpdatedRow(updated);
+      props.onStatusChanged?.(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar alteração.');
+    } finally {
+      setSavingField(null);
+    }
+  };
+
+  const handleSaveEditableField = async (field: EditableFieldKey) => {
+    switch (field) {
+      case 'customerName':
+        await patchPurchaseFields(field, {
+          customerName: customerNameInput.trim() || null,
+        });
+        break;
+      case 'itemName':
+        await patchPurchaseFields(field, {
+          itemName: itemNameInput.trim() || null,
+        });
+        break;
+      case 'sku': {
+        let sku = skuInput.trim();
+        let supplier = supplierInput.trim();
+        let itemName = itemNameInput.trim();
+        let imageUrl = catalogImageUrl;
+
+        if (sku) {
+          const match = await findExactCatalogMatch(sku);
+          if (match) {
+            sku = match.supplierCode.trim();
+            if (!supplier) supplier = match.supplier?.trim() || '';
+            if (!itemName) {
+              itemName = match.name?.trim() || match.description?.trim() || '';
+            }
+            if (!imageUrl) imageUrl = match.imageUrl?.trim() || null;
+            setSkuInput(sku);
+            setSupplierInput(supplier || match.supplier?.trim() || '');
+            setItemNameInput(
+              itemName || match.name?.trim() || match.description?.trim() || '',
+            );
+            setCatalogImageUrl(imageUrl);
+          }
+        }
+
+        await patchPurchaseFields('sku', {
+          sku: sku || null,
+          supplierName: supplier || null,
+          itemName: itemName || null,
+          ...(imageUrl ? { productImageUrl: imageUrl } : {}),
+        });
+        break;
+      }
+      case 'supplierName':
+        await patchPurchaseFields(field, {
+          supplierName: supplierInput.trim() || null,
+        });
+        break;
+      case 'engravingName':
+        await patchPurchaseFields(field, {
+          engravingName: engravingNameInput.trim() || null,
+        });
+        break;
+      case 'engravingPrice': {
+        const raw = engravingPriceInput.trim();
+        if (!raw) {
+          await patchPurchaseFields(field, { engravingPrice: null });
+          break;
+        }
+        const nextPrice = Number(raw.replace(',', '.'));
+        if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+          setError('Informe um preço de gravação válido.');
+          return;
+        }
+        await patchPurchaseFields(field, { engravingPrice: nextPrice });
+        break;
+      }
+      case 'deliveryAddress':
+        await patchPurchaseFields(field, {
+          deliveryAddress: deliveryAddressInput.trim() || null,
+        });
+        break;
+      case 'observation':
+        await patchPurchaseFields(field, {
+          observation: observationInput.trim() || null,
+        });
+        break;
+      case 'saleOrderRef':
+        await patchPurchaseFields(field, {
+          saleOrderRef: saleOrderRefInput.trim() || null,
+        });
+        break;
+      default:
+        break;
+    }
+  };
+
+  const renderEditableField = (opts: {
+    field: EditableFieldKey;
+    label: string;
+    valueDisplay: ReactNode;
+    draft: string;
+    onDraftChange: (value: string) => void;
+    multiline?: boolean;
+    inputClassName?: string;
+    displayClassName?: string;
+  }) => {
+    const {
+      field,
+      label,
+      valueDisplay,
+      draft,
+      onDraftChange,
+      multiline,
+      inputClassName,
+      displayClassName,
+    } = opts;
+    const isEditing = editingField === field;
+    const isSaving = savingField === field;
+
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            {label}
+          </p>
+          {canEditOpenRequest && !isEditing ? (
+            <button
+              type="button"
+              onClick={() => setEditingField(field)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+              aria-label={`Editar ${label}`}
+              title={`Editar ${label}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+        {isEditing ? (
+          <div className="mt-1 flex gap-2">
+            {multiline ? (
+              <textarea
+                value={draft}
+                onChange={(e) => onDraftChange(e.target.value)}
+                rows={3}
+                className={`${fieldClass()} ${inputClassName ?? ''}`}
+              />
+            ) : (
+              <input
+                value={draft}
+                onChange={(e) => onDraftChange(e.target.value)}
+                className={`${fieldClass()} ${inputClassName ?? ''}`}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => void handleSaveEditableField(field)}
+              disabled={isSaving}
+              className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
+            >
+              {isSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Salvar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!row) return;
+                setEditingField(null);
+                setCustomerNameInput(row.customerName ?? '');
+                setItemNameInput(displayName(row));
+                setSkuInput(row.sku ?? row.product?.sku ?? '');
+                setSupplierInput(displaySupplierName(row) || '');
+                setEngravingNameInput(engravingNameFromRow(row) ?? '');
+                setEngravingPriceInput(row.engravingPrice ?? '');
+                setDeliveryAddressInput(row.deliveryAddress ?? '');
+                setObservationInput(manualObservationText(row.observation));
+                setSaleOrderRefInput(row.saleOrderRef ?? '');
+              }}
+              disabled={isSaving}
+              className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-2 text-gray-600 hover:bg-gray-100 disabled:opacity-60"
+              aria-label="Cancelar edição"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className={`mt-1 ${displayClassName ?? 'font-semibold text-gray-900'}`}>
+            {valueDisplay}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const handleDownloadImage = async (image: PurchaseRequestImage) => {
     if (!row) return;
@@ -420,17 +787,31 @@ export function ComprasDetailModal(props: {
 
             {/* Header */}
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 pb-4">
-              <div className="min-w-0">
-                {quoteCodeDisplay ? (
-                  <p className="text-2xl font-bold tracking-tight text-[#2AACE2]">
-                    {quoteCodeDisplay}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500">Sem orçamento vinculado</p>
-                )}
-                <p className="mt-1 text-base font-semibold text-gray-900">
-                  {row.customerName?.trim() || '—'}
-                </p>
+              <div className="min-w-0 flex-1 space-y-3">
+                {renderEditableField({
+                  field: 'saleOrderRef',
+                  label: 'Orçamento',
+                  valueDisplay: quoteCodeDisplay ? (
+                    <span className="text-2xl font-bold tracking-tight text-[#2AACE2]">
+                      {quoteCodeDisplay}
+                    </span>
+                  ) : (
+                    <span className="text-sm font-normal text-gray-500">
+                      Sem orçamento vinculado
+                    </span>
+                  ),
+                  draft: saleOrderRefInput,
+                  onDraftChange: setSaleOrderRefInput,
+                  displayClassName: '',
+                })}
+                {renderEditableField({
+                  field: 'customerName',
+                  label: 'Nome do cliente',
+                  valueDisplay: row.customerName?.trim() || '—',
+                  draft: customerNameInput,
+                  onDraftChange: setCustomerNameInput,
+                  displayClassName: 'text-base font-semibold text-gray-900',
+                })}
               </div>
               <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
                 Prioridade
@@ -451,14 +832,18 @@ export function ComprasDetailModal(props: {
             <div className="space-y-4 text-sm">
               {/* Identificação do item */}
               <section className="rounded-xl border border-gray-200 bg-gray-50/80 p-3 sm:p-4">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Nome
-                  </p>
-                  <h3 className="mt-1 text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
-                    {displayName(row)}
-                  </h3>
-                </div>
+                {renderEditableField({
+                  field: 'itemName',
+                  label: 'Nome',
+                  valueDisplay: (
+                    <span className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
+                      {displayName(row)}
+                    </span>
+                  ),
+                  draft: itemNameInput,
+                  onDraftChange: setItemNameInput,
+                  displayClassName: '',
+                })}
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div>
@@ -558,21 +943,132 @@ export function ComprasDetailModal(props: {
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                      SKU
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">
-                      {row.sku ?? row.product?.sku ?? '—'}
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        SKU
+                      </p>
+                      {canEditOpenRequest && editingField !== 'sku' ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingField('sku')}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                          aria-label="Editar SKU"
+                          title="Editar SKU"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                    {editingField === 'sku' ? (
+                      <div className="relative mt-1">
+                        <div className="flex gap-2">
+                          <input
+                            value={skuInput}
+                            onChange={(e) => {
+                              setSkuInput(e.target.value);
+                              setSkuSuggestOpen(true);
+                            }}
+                            onFocus={() => {
+                              if (skuSuggestions.length > 0) setSkuSuggestOpen(true);
+                            }}
+                            placeholder="Buscar SKU no catálogo XBZ/SPOT…"
+                            className={fieldClass()}
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveEditableField('sku')}
+                            disabled={savingField === 'sku'}
+                            className="inline-flex shrink-0 items-center gap-2 erp-focus-ring erp-btn erp-btn-primary erp-btn--sm disabled:opacity-60"
+                          >
+                            {savingField === 'sku' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Save className="h-3.5 w-3.5" />
+                            )}
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!row) return;
+                              setEditingField(null);
+                              setSkuInput(row.sku ?? row.product?.sku ?? '');
+                              setSupplierInput(displaySupplierName(row) || '');
+                              setItemNameInput(displayName(row));
+                              setCatalogImageUrl(null);
+                              setSkuSuggestions([]);
+                              setSkuSuggestOpen(false);
+                            }}
+                            disabled={savingField === 'sku'}
+                            className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-2 text-gray-600 hover:bg-gray-100 disabled:opacity-60"
+                            aria-label="Cancelar edição"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {skuSearching ? (
+                          <p className="mt-1 text-xs text-gray-500">
+                            <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+                            Buscando no catálogo…
+                          </p>
+                        ) : null}
+                        {skuSuggestOpen && skuSuggestions.length > 0 ? (
+                          <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg">
+                            {skuSuggestions.map((product) => (
+                              <li key={product.id}>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => applyCatalogProduct(product)}
+                                >
+                                  {product.imageUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={product.imageUrl}
+                                      alt=""
+                                      className="mt-0.5 h-9 w-9 shrink-0 rounded border border-gray-200 object-cover"
+                                    />
+                                  ) : (
+                                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400">
+                                      —
+                                    </span>
+                                  )}
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block font-mono text-xs font-semibold text-gray-900">
+                                      {product.supplierCode}
+                                      <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-600">
+                                        {product.supplier || '—'}
+                                      </span>
+                                    </span>
+                                    <span className="block truncate text-xs text-gray-600">
+                                      {product.name}
+                                    </span>
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          Se o SKU existir no catálogo, o fornecedor (XBZ/SPOT) e o nome
+                          são preenchidos automaticamente.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 font-semibold text-gray-900">
+                        {row.sku ?? row.product?.sku ?? '—'}
+                      </p>
+                    )}
                   </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Fornecedor
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">
-                      {displaySupplierName(row) || '—'}
-                    </p>
-                  </div>
+                  {renderEditableField({
+                    field: 'supplierName',
+                    label: 'Fornecedor',
+                    valueDisplay: displaySupplierName(row) || '—',
+                    draft: supplierInput,
+                    onDraftChange: setSupplierInput,
+                  })}
                 </div>
               </section>
 
@@ -616,10 +1112,10 @@ export function ComprasDetailModal(props: {
                       <p className="mt-1 font-semibold">{displayQty(row)}</p>
                     </div>
                   )}
-                  {canEditOpenRequest && !isWeg ? (
+                  {canEditOpenRequest ? (
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Preço do item
+                        {isWeg ? 'Preço base WEG' : 'Preço do item'}
                       </p>
                       <div className="mt-1 flex gap-2">
                         <input
@@ -672,22 +1168,20 @@ export function ComprasDetailModal(props: {
               {/* Gravação: técnica — preço — total */}
               <section className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Gravação
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">
-                      {engravingTechnique || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Preço da gravação
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">
-                      {formatMoney(row.engravingPrice)}
-                    </p>
-                  </div>
+                  {renderEditableField({
+                    field: 'engravingName',
+                    label: 'Gravação',
+                    valueDisplay: engravingTechnique || '—',
+                    draft: engravingNameInput,
+                    onDraftChange: setEngravingNameInput,
+                  })}
+                  {renderEditableField({
+                    field: 'engravingPrice',
+                    label: 'Preço da gravação',
+                    valueDisplay: formatMoney(row.engravingPrice),
+                    draft: engravingPriceInput,
+                    onDraftChange: setEngravingPriceInput,
+                  })}
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                       Total gravação
@@ -730,14 +1224,19 @@ export function ComprasDetailModal(props: {
                     ) : null}
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Endereço
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap break-words rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
-                    {addressDisplay}
-                  </p>
-                </div>
+                {renderEditableField({
+                  field: 'deliveryAddress',
+                  label: 'Endereço',
+                  valueDisplay: (
+                    <span className="whitespace-pre-wrap break-words rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 block">
+                      {addressDisplay}
+                    </span>
+                  ),
+                  draft: deliveryAddressInput,
+                  onDraftChange: setDeliveryAddressInput,
+                  multiline: true,
+                  displayClassName: '',
+                })}
               </section>
 
               {/* Link externo */}
@@ -778,17 +1277,21 @@ export function ComprasDetailModal(props: {
                 )}
               </section>
 
-              {/* Observação — só se houver dados */}
-              {observationText ? (
-                <section className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Observação
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap break-words text-gray-900">
-                    {renderObservationWithLinks(observationText)}
-                  </p>
-                </section>
-              ) : null}
+              {/* Observação */}
+              <section className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
+                {renderEditableField({
+                  field: 'observation',
+                  label: 'Observação',
+                  valueDisplay: observationText
+                    ? renderObservationWithLinks(observationText)
+                    : '—',
+                  draft: observationInput,
+                  onDraftChange: setObservationInput,
+                  multiline: true,
+                  displayClassName:
+                    'whitespace-pre-wrap break-words font-normal text-gray-900',
+                })}
+              </section>
 
               {/* Responsável e valor */}
               <section className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4">

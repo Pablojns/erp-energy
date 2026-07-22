@@ -6,6 +6,7 @@ import {
   CORREIOS_SERVICES,
   type CorreiosServiceId,
   type CorreiosTrackingEvent,
+  atualizarEtiquetaCorreios,
   baixarComprovanteEntrega,
   buscarCepCorreios,
   cancelarEtiquetaCorreios,
@@ -21,9 +22,11 @@ import {
   rastrearCorreios,
   rastrearCorreiosLote,
 } from '@/src/services/api/correios-api';
+import { parseDeliveryAddress } from '@/src/components/cadastros/delivery-address';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
   normalizePedidoFromApi,
+  pedidoApiUrl,
   pedidosListFetchInit,
 } from '@/src/services/api/pedidos-normalize';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
@@ -71,6 +74,27 @@ function latestTrackingDescription(data: unknown): string {
   return eventos[0]?.descricao ?? 'Sem eventos';
 }
 
+function servicoIdFromLabel(servico: string): CorreiosServiceId {
+  const normalized = servico.trim().toUpperCase();
+  if (normalized.includes('SEDEX')) return 'SEDEX';
+  if (normalized.includes('MINI')) return 'MINI';
+  return 'PAC';
+}
+
+function extractCodigoRastreio(prePostagem: Record<string, unknown>): string {
+  const candidates = [
+    prePostagem.codigoObjeto,
+    prePostagem.codigoRastreio,
+    prePostagem.codigo,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return '';
+}
+
 export function CorreiosWorkspace() {
   const [tab, setTab] = useState<TabId>('cotacao');
 
@@ -115,6 +139,11 @@ export function CorreiosWorkspace() {
   const [etiquetaServico, setEtiquetaServico] = useState<CorreiosServiceId>('PAC');
   const [etiquetaPeso, setEtiquetaPeso] = useState('300');
   const [etiquetaValor, setEtiquetaValor] = useState('0');
+  const [etiquetaNumeroPed, setEtiquetaNumeroPed] = useState('');
+  const [etiquetaCodigoRastreio, setEtiquetaCodigoRastreio] = useState('');
+  const [editingEtiquetaId, setEditingEtiquetaId] = useState<string | null>(null);
+  const [hasExistingTracking, setHasExistingTracking] = useState(false);
+  const [buscandoPedidoEtiqueta, setBuscandoPedidoEtiqueta] = useState(false);
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [buscandoCepRemetente, setBuscandoCepRemetente] = useState(false);
   const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
@@ -138,6 +167,8 @@ export function CorreiosWorkspace() {
     () => ETIQUETA_SERVICES.find((s) => s.id === etiquetaServico) ?? ETIQUETA_SERVICES[0],
     [etiquetaServico],
   );
+
+  const isAtualizarEtiquetaMode = Boolean(editingEtiquetaId || hasExistingTracking);
 
   const objetoEntregue = useMemo(
     () => isCorreiosObjetoEntregue(rastreioEventos),
@@ -366,7 +397,146 @@ export function CorreiosWorkspace() {
     }
   };
 
-  const handleGerarEtiqueta = async () => {
+  const syncRastreioPedido = async (trackingCode: string) => {
+    const numeroPed = etiquetaNumeroPed.trim().replace(/^#/, '');
+    if (!numeroPed || !trackingCode.trim()) return;
+    await erpFetchJson(pedidoApiUrl(numeroPed, 'rastreio'), {
+      method: 'PATCH',
+      body: JSON.stringify({ trackingCode: trackingCode.trim() }),
+    });
+  };
+
+  const fillDestinatarioFromPedido = (order: OrderDto) => {
+    const nome =
+      order.receiverName?.trim() || order.customerName?.trim() || '';
+    setDestinatarioNome(nome);
+    const address =
+      parseDeliveryAddress(order.deliveryAddress) ??
+      parseDeliveryAddress(order.unloadingPoint);
+    if (address) {
+      setEtiquetaCep(formatCepInput(address.cep));
+      setEtiquetaLogradouro(address.logradouro);
+      setEtiquetaNumero(address.numero);
+      setEtiquetaComplemento(address.complemento);
+      setEtiquetaBairro(address.bairro);
+      setEtiquetaCidade(address.cidade);
+      setEtiquetaUf(address.uf.toUpperCase().slice(0, 2));
+      return;
+    }
+    if (order.deliveryCity) setEtiquetaCidade(order.deliveryCity);
+    if (order.deliveryState) {
+      setEtiquetaUf(order.deliveryState.toUpperCase().slice(0, 2));
+    }
+  };
+
+  const handleBuscarPedidoEtiqueta = async () => {
+    const numeroPed = etiquetaNumeroPed.trim().replace(/^#/, '');
+    if (!numeroPed) return;
+
+    setBuscandoPedidoEtiqueta(true);
+    setEtiquetaErro(null);
+    try {
+      const raw = await erpFetchJson<Record<string, unknown>>(
+        pedidoApiUrl(numeroPed),
+        pedidosListFetchInit,
+      );
+      const order = normalizePedidoFromApi(raw);
+      fillDestinatarioFromPedido(order);
+
+      const tracking = order.trackingCode?.trim() || '';
+      if (tracking) {
+        setEtiquetaCodigoRastreio(tracking);
+        setHasExistingTracking(true);
+        const match = etiquetasEmitidas.find(
+          (row) =>
+            row.codigoRastreio.trim().toUpperCase() === tracking.toUpperCase() &&
+            row.status === 'ATIVA',
+        );
+        setEditingEtiquetaId(match?.id ?? null);
+        if (match) {
+          setEtiquetaCep(formatCepInput(match.cepDestino));
+          setDestinatarioNome(match.nomeDestinatario);
+          setEtiquetaServico(servicoIdFromLabel(match.servico));
+          if (match.cepDestino.replace(/\D/g, '').length === 8) {
+            void handleBuscarCepEtiqueta(match.cepDestino);
+          }
+        }
+      } else {
+        setEtiquetaCodigoRastreio('');
+        setHasExistingTracking(false);
+        setEditingEtiquetaId(null);
+      }
+    } catch (error) {
+      setEtiquetaErro(
+        error instanceof Error ? error.message : 'Pedido não encontrado.',
+      );
+      setHasExistingTracking(false);
+      setEditingEtiquetaId(null);
+    } finally {
+      setBuscandoPedidoEtiqueta(false);
+    }
+  };
+
+  const handleEditarEtiqueta = (row: CorreiosEtiquetaDto) => {
+    setEditingEtiquetaId(row.id);
+    setHasExistingTracking(true);
+    setEtiquetaCodigoRastreio(row.codigoRastreio);
+    setDestinatarioNome(row.nomeDestinatario);
+    setEtiquetaCep(formatCepInput(row.cepDestino));
+    setEtiquetaServico(servicoIdFromLabel(row.servico));
+    setEtiquetaErro(null);
+    if (row.cepDestino.replace(/\D/g, '').length === 8) {
+      void handleBuscarCepEtiqueta(row.cepDestino);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const clearEtiquetaEditMode = () => {
+    setEditingEtiquetaId(null);
+    setHasExistingTracking(false);
+    setEtiquetaCodigoRastreio('');
+  };
+
+  const handleAtualizarEtiqueta = async () => {
+    if (!destinatarioNome.trim()) {
+      setEtiquetaErro('Informe o nome do destinatário.');
+      return;
+    }
+    const codigo = etiquetaCodigoRastreio.trim();
+    if (!codigo) {
+      setEtiquetaErro('Informe o código de rastreio para atualizar.');
+      return;
+    }
+    if (!editingEtiquetaId && !etiquetaNumeroPed.trim()) {
+      setEtiquetaErro(
+        'Selecione uma etiqueta existente ou informe o número do pedido.',
+      );
+      return;
+    }
+
+    setGerandoEtiqueta(true);
+    setEtiquetaErro(null);
+    try {
+      if (editingEtiquetaId) {
+        await atualizarEtiquetaCorreios(editingEtiquetaId, {
+          codigoRastreio: codigo,
+          nomeDestinatario: destinatarioNome.trim(),
+          cepDestino: etiquetaCep,
+          servico: etiquetaServicoSelecionado.label,
+        });
+      }
+      await syncRastreioPedido(codigo);
+      await loadEtiquetasEmitidas();
+    } catch (error) {
+      setEtiquetaErro(
+        error instanceof Error ? error.message : 'Falha ao atualizar etiqueta.',
+      );
+    } finally {
+      setGerandoEtiqueta(false);
+    }
+  };
+
+  const handleGerarEtiqueta = async (forceNova = false) => {
     if (!remetenteNome.trim() || remetenteCep.replace(/\D/g, '').length !== 8) {
       setEtiquetaErro('Preencha os dados do remetente.');
       return;
@@ -390,6 +560,11 @@ export function CorreiosWorkspace() {
     }
     if (!etiquetaLogradouro.trim() || !etiquetaCidade.trim() || !etiquetaUf.trim()) {
       setEtiquetaErro('Preencha o endereço completo do destinatário.');
+      return;
+    }
+
+    if (!forceNova && isAtualizarEtiquetaMode) {
+      await handleAtualizarEtiqueta();
       return;
     }
 
@@ -430,8 +605,21 @@ export function CorreiosWorkspace() {
         throw new Error('Correios não retornou o ID da pré-postagem.');
       }
 
+      const codigoNovo = extractCodigoRastreio(prePostagem);
+      if (codigoNovo) {
+        await syncRastreioPedido(codigoNovo);
+        setEtiquetaCodigoRastreio(codigoNovo);
+      }
+
       await gerarRotuloCorreios([idPrePostagem]);
       await loadEtiquetasEmitidas();
+      if (etiquetaNumeroPed.trim() && codigoNovo) {
+        setEtiquetaCodigoRastreio(codigoNovo);
+        setHasExistingTracking(true);
+        setEditingEtiquetaId(null);
+      } else {
+        clearEtiquetaEditMode();
+      }
     } catch (error) {
       setEtiquetaErro(
         error instanceof Error ? error.message : 'Falha ao gerar etiqueta.',
@@ -893,6 +1081,31 @@ export function CorreiosWorkspace() {
               <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">Destinatário</h3>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <label className="block text-sm md:col-span-2 xl:col-span-3">
+              <span className="mb-1 block text-[var(--text-secondary)]">Nº do pedido (opcional)</span>
+              <div className="flex gap-2">
+                <input
+                  value={etiquetaNumeroPed}
+                  onChange={(e) => setEtiquetaNumeroPed(e.target.value)}
+                  onBlur={() => void handleBuscarPedidoEtiqueta()}
+                  placeholder="Ex: 12345"
+                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                />
+                <button
+                  type="button"
+                  disabled={buscandoPedidoEtiqueta || !etiquetaNumeroPed.trim()}
+                  onClick={() => void handleBuscarPedidoEtiqueta()}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 text-sm font-semibold text-[var(--text-primary)] disabled:opacity-60"
+                >
+                  {buscandoPedidoEtiqueta ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                  Buscar
+                </button>
+              </div>
+            </label>
+            <label className="block text-sm md:col-span-2 xl:col-span-3">
               <span className="mb-1 block text-[var(--text-secondary)]">Nome do destinatário</span>
               <input
                 value={destinatarioNome}
@@ -997,6 +1210,19 @@ export function CorreiosWorkspace() {
                 className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
               />
             </label>
+            {isAtualizarEtiquetaMode ? (
+              <label className="block text-sm md:col-span-2 xl:col-span-3">
+                <span className="mb-1 block text-[var(--text-secondary)]">
+                  Código de rastreio
+                </span>
+                <input
+                  value={etiquetaCodigoRastreio}
+                  onChange={(e) => setEtiquetaCodigoRastreio(e.target.value)}
+                  placeholder="Código atual da etiqueta"
+                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 font-mono text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                />
+              </label>
+            ) : null}
               </div>
             </div>
           </div>
@@ -1021,20 +1247,51 @@ export function CorreiosWorkspace() {
             </p>
           ) : null}
 
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              disabled={gerandoEtiqueta || buscandoCep || buscandoCepRemetente || carregandoRemetente}
-              onClick={() => void handleGerarEtiqueta()}
-              className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
-            >
-              {gerandoEtiqueta ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Tag className="h-4 w-4" />
-              )}
-              Gerar Etiqueta
-            </button>
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+            {isAtualizarEtiquetaMode ? (
+              <>
+                <button
+                  type="button"
+                  disabled={gerandoEtiqueta || buscandoCep || buscandoCepRemetente || carregandoRemetente}
+                  onClick={() => void handleGerarEtiqueta(true)}
+                  className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-4 text-sm font-semibold text-[var(--text-primary)] disabled:opacity-60"
+                >
+                  {gerandoEtiqueta ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Tag className="h-4 w-4" />
+                  )}
+                  Gerar Nova Etiqueta
+                </button>
+                <button
+                  type="button"
+                  disabled={gerandoEtiqueta || buscandoCep || buscandoCepRemetente || carregandoRemetente}
+                  onClick={() => void handleAtualizarEtiqueta()}
+                  className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
+                >
+                  {gerandoEtiqueta ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Tag className="h-4 w-4" />
+                  )}
+                  Atualizar Etiqueta
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={gerandoEtiqueta || buscandoCep || buscandoCepRemetente || carregandoRemetente}
+                onClick={() => void handleGerarEtiqueta(false)}
+                className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--color-text-inverse)] disabled:opacity-60"
+              >
+                {gerandoEtiqueta ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Tag className="h-4 w-4" />
+                )}
+                Gerar Etiqueta
+              </button>
+            )}
           </div>
 
           <div className="mt-8 border-t border-[var(--border-color)] pt-6">
@@ -1100,6 +1357,14 @@ export function CorreiosWorkspace() {
                               <td className="px-3 py-2 text-[var(--text-primary)]">{row.status}</td>
                               <td className="px-3 py-2">
                                 <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={acaoLoading}
+                                    onClick={() => handleEditarEtiqueta(row)}
+                                    className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-50"
+                                  >
+                                    Editar
+                                  </button>
                                   <button
                                     type="button"
                                     disabled={!isAtiva || acaoLoading}

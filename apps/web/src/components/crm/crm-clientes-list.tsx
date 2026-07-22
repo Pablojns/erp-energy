@@ -5,7 +5,7 @@ import { Search, Upload, Users } from 'lucide-react';
 import { CrmImportModal } from '@/src/components/crm/crm-import-modal';
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import { EmptyState } from '@/src/components/ui/empty-state';
-import { cardMatchesEntryDateRange } from '@/src/components/crm/crm-helpers';
+import { cardMatchesEntryDateRange, getCrmLastContactAt } from '@/src/components/crm/crm-helpers';
 import {
   CRM_CARD_ORIGINS,
   CRM_ORIGIN_BADGE_CLASS,
@@ -45,7 +45,7 @@ export function CrmClientesList(props: {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return props.cards.filter((card) => {
+    const rows = props.cards.filter((card) => {
       if (originFilter !== 'TODOS' && card.origin !== originFilter) return false;
       if (statusFilter !== 'TODOS' && card.status !== statusFilter) return false;
       if (responsavelFilter === 'NONE') {
@@ -64,6 +64,12 @@ export function CrmClientesList(props: {
         .toLowerCase();
       return haystack.includes(q);
     });
+    // Mais novo → mais antigo pela data de criação original (imutável)
+    rows.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    return rows;
   }, [
     entryDateFrom,
     entryDateTo,
@@ -188,6 +194,7 @@ export function CrmClientesList(props: {
                 <th className="px-4 py-3 font-semibold">Touch.</th>
                 <th className="px-4 py-3 font-semibold">Score</th>
                 <th className="px-4 py-3 font-semibold">Criado</th>
+                <th className="px-4 py-3 font-semibold">Último touchpoint</th>
               </tr>
             </thead>
             <tbody>
@@ -246,6 +253,9 @@ export function CrmClientesList(props: {
                     </td>
                     <td className="px-4 py-3 text-[var(--erp-fg-muted)]">
                       {formatDate(card.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--erp-fg-muted)]">
+                      {formatDate(getCrmLastContactAt(card))}
                     </td>
                   </tr>
                 );

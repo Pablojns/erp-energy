@@ -113,9 +113,10 @@ export class PurchaseRequestController {
   @Patch(':id')
   atualizar(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePurchaseRequestQuantityDto,
   ) {
-    return this.purchaseRequests.atualizarQuantidade(id, dto);
+    return this.purchaseRequests.atualizarQuantidade(id, dto, user.id);
   }
 
   @Post(':id/imagens')
@@ -144,9 +145,10 @@ export class PurchaseRequestController {
   @Patch(':id/quantidade')
   atualizarQuantidade(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePurchaseRequestQuantityDto,
   ) {
-    return this.purchaseRequests.atualizarQuantidade(id, dto);
+    return this.purchaseRequests.atualizarQuantidade(id, dto, user.id);
   }
 
   @Patch(':id/comprado')

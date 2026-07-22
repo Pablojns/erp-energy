@@ -520,6 +520,58 @@ export class CorreiosService {
     return { ok: true };
   }
 
+  async atualizarEtiqueta(
+    id: string,
+    input: {
+      codigoRastreio?: string;
+      prePostagemId?: string;
+      nomeDestinatario?: string;
+      cepDestino?: string;
+      servico?: string;
+      status?: string;
+    },
+  ) {
+    const row = await this.prisma.client.correiosEtiqueta.findUnique({
+      where: { id },
+    });
+    if (!row) {
+      throw new BadRequestException('Etiqueta não encontrada.');
+    }
+
+    const data: {
+      codigoRastreio?: string;
+      prePostagemId?: string;
+      nomeDestinatario?: string;
+      cepDestino?: string;
+      servico?: string;
+      status?: string;
+    } = {};
+
+    if (input.codigoRastreio !== undefined) {
+      data.codigoRastreio = input.codigoRastreio.trim();
+    }
+    if (input.prePostagemId !== undefined) {
+      data.prePostagemId = input.prePostagemId.trim();
+    }
+    if (input.nomeDestinatario !== undefined) {
+      data.nomeDestinatario = input.nomeDestinatario.trim();
+    }
+    if (input.cepDestino !== undefined) {
+      data.cepDestino = input.cepDestino.replace(/\D/g, '');
+    }
+    if (input.servico !== undefined) {
+      data.servico = input.servico.trim();
+    }
+    if (input.status !== undefined) {
+      data.status = input.status.trim();
+    }
+
+    return this.prisma.client.correiosEtiqueta.update({
+      where: { id },
+      data,
+    });
+  }
+
   async registrarEtiqueta(input: {
     codigoRastreio: string;
     prePostagemId: string;

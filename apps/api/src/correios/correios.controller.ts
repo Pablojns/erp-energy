@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -30,6 +31,23 @@ export class CorreiosController {
   @Get('etiquetas')
   listEtiquetas() {
     return this.correiosService.listEtiquetas();
+  }
+
+  /** PATCH /correios/etiquetas/:id — atualiza etiqueta existente (sem criar duplicata) */
+  @Patch('etiquetas/:id')
+  atualizarEtiqueta(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      codigoRastreio?: string;
+      prePostagemId?: string;
+      nomeDestinatario?: string;
+      cepDestino?: string;
+      servico?: string;
+      status?: string;
+    },
+  ) {
+    return this.correiosService.atualizarEtiqueta(id, body);
   }
 
   /** DELETE /correios/etiquetas/:id — remove do histórico local */

@@ -116,7 +116,7 @@ export function CrmKanbanListView(props: {
     { key: 'touchPoints', label: 'Touchpoints' },
     { key: 'score', label: 'Score' },
     { key: 'responsavel', label: 'Responsável' },
-    { key: 'lastActivity', label: 'Última atividade' },
+    { key: 'lastActivity', label: 'Último touchpoint' },
   ];
 
   if (props.loading) {

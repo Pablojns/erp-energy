@@ -40,7 +40,16 @@ export function isCrmClosedStatus(card: CrmCardDto): boolean {
 }
 
 export function getCrmLastContactAt(card: CrmCardDto): string {
-  return card.lastTouchpointAt ?? card.createdAt;
+  return card.lastTouchpointAt ?? card.updatedAt ?? card.createdAt;
+}
+
+export function getCrmCreationDate(card: CrmCardDto): string {
+  return card.createdAt;
+}
+
+export function formatCrmDate(value: string | null | undefined) {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString('pt-BR');
 }
 
 export function isCrmFollowUpOverdue(card: CrmCardDto): boolean {
@@ -278,10 +287,6 @@ export function resolveRelatoriosPeriod(
     startDate: start.toISOString(),
     endDate: end.toISOString(),
   };
-}
-
-export function formatCrmDate(value: string) {
-  return new Date(value).toLocaleDateString('pt-BR');
 }
 
 export function crmUserInitials(name: string) {

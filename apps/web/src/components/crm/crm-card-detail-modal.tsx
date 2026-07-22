@@ -172,7 +172,11 @@ export function CrmCardDetailModal(props: {
     setError(null);
     try {
       const parsedValue = value.trim() ? Number(value.replace(',', '.')) : null;
-      await updateCrmCard(card.id, {
+      const originalEntryDay = toCrmDateInputValue(
+        card.entryDate ?? card.createdAt,
+      );
+      const nextEntryDay = entryDate.trim() || originalEntryDay;
+      const payload: Parameters<typeof updateCrmCard>[1] = {
         name: name.trim(),
         phone: phone.trim() || null,
         email: email.trim() || null,
@@ -181,16 +185,21 @@ export function CrmCardDetailModal(props: {
         status: extra?.status ?? statusId,
         observations: observations.trim() || null,
         whatsappLog: whatsappLog.trim() || null,
-        entryDate: crmDateInputToIso(entryDate || toCrmDateInputValue(card.entryDate ?? card.createdAt)),
         funilId,
         responsavelId: responsavelId || null,
         touchPoints: doneCount,
         motivoPerdaId: extra?.motivoPerdaId,
         motivoPerdaTexto: extra?.motivoPerdaTexto,
-      });
+      };
+      // Nunca reenvia entryDate a cada save — só quando o usuário alterou o dia.
+      if (nextEntryDay !== originalEntryDay) {
+        payload.entryDate = crmDateInputToIso(nextEntryDay);
+      }
+      await updateCrmCard(card.id, payload);
       await upsertCrmTouchpoints(card.id, touchpoints);
       const refreshed = await getCrmCard(card.id);
       setCard(refreshed);
+      setEntryDate(toCrmDateInputValue(refreshed.entryDate ?? refreshed.createdAt));
       setTouchpoints(mergeTouchpoints(refreshed.touchpoints));
       await onUpdated();
       if (extra?.closeAfter) onClose();
@@ -477,6 +486,19 @@ export function CrmCardDetailModal(props: {
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
+                  Criado em
+                  <input
+                    type="text"
+                    value={
+                      card
+                        ? new Date(card.createdAt).toLocaleDateString('pt-BR')
+                        : '—'
+                    }
+                    disabled
+                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] outline-none opacity-80"
+                  />
                 </label>
                 <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Data de entrada

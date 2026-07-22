@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { MessageCircle, XCircle } from 'lucide-react';
-import { crmUserInitials, isCrmFollowUpOverdue } from '@/src/components/crm/crm-helpers';
+import { crmUserInitials, formatCrmDate, getCrmLastContactAt, isCrmFollowUpOverdue } from '@/src/components/crm/crm-helpers';
 import { CrmLeadScoreThermometer } from '@/src/components/crm/crm-lead-score';
 import { MobileEtapaSelect } from '@/src/components/mobile/mobile-etapa-select';
 import { useIsMobileKanban } from '@/src/hooks/use-is-mobile-kanban';
@@ -200,6 +200,18 @@ export function CrmKanbanCard(props: {
             {' '}
             touchpoint{card.touchPoints === 1 ? '' : 's'}
           </span>
+        </div>
+
+        <div className="hidden space-y-0.5 pt-1 text-[11px] text-[var(--erp-fg-muted)] md:block">
+          <p>
+            Criado: <span className="font-medium text-[var(--erp-fg-secondary)]">{formatCrmDate(card.createdAt)}</span>
+          </p>
+          <p>
+            Último touchpoint:{' '}
+            <span className="font-medium text-[var(--erp-fg-secondary)]">
+              {formatCrmDate(getCrmLastContactAt(card))}
+            </span>
+          </p>
         </div>
       </div>
     </article>
