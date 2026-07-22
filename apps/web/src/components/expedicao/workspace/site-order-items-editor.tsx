@@ -6,7 +6,7 @@ import { CrmOrcamentoCatalogPickerModal } from '@/src/components/crm/orcamentos/
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
+import { numeroPedFromOrder, normalizePedidoFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 import type { QuoteCatalogProductDto } from '@/src/services/api/quotes-api';
 
 type InventoryProduct = {
@@ -71,7 +71,7 @@ async function resolveInventoryProductBySku(
 
 export function SiteOrderItemsEditor(props: {
   order: OrderDto;
-  onSaved?: () => void;
+  onSaved?: () => void | Promise<void>;
 }) {
   const { order, onSaved } = props;
   const [draft, setDraft] = useState<DraftItem[]>(() => draftFromOrder(order));
@@ -81,14 +81,18 @@ export function SiteOrderItemsEditor(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingKey, setPickingKey] = useState<string | null>(null);
 
+  const itemsFingerprint = order.items
+    .map((it) => `${it.id}:${it.productId ?? ''}:${it.sku}:${it.quantity}:${it.unitPrice ?? ''}`)
+    .join('|');
+
   useEffect(() => {
     setDraft(draftFromOrder(order));
     setError(null);
     setPickerOpen(false);
     setPickingKey(null);
-    // Reset só quando o pedido recarrega (id/updatedAt), não a cada re-render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [order.id, order.updatedAt]);
+    // Sincroniza quando os itens do pedido mudam de fato (após refetch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional fingerprint
+  }, [order.id, itemsFingerprint]);
 
   const estimatedTotal = draft.reduce((acc, row) => {
     const qty = Number(row.quantity);
@@ -178,11 +182,20 @@ export function SiteOrderItemsEditor(props: {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson(`api/pedidos/${encodeURIComponent(numeroPed)}/site-items`, {
-        method: 'PATCH',
-        body: JSON.stringify({ items }),
-      });
-      onSaved?.();
+      const saved = await erpFetchJson<Record<string, unknown>>(
+        pedidoApiUrl(numeroPed, 'site-items'),
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ items }),
+        },
+      );
+      if (saved && typeof saved === 'object') {
+        const normalized = normalizePedidoFromApi(saved);
+        if (normalized.items?.length) {
+          setDraft(draftFromOrder(normalized));
+        }
+      }
+      await onSaved?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar itens.');
     } finally {

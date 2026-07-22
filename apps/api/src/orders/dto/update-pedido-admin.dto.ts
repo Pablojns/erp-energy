@@ -18,6 +18,7 @@ export class UpdatePedidoAdminItemDto {
   id!: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   lineNumber?: number;
@@ -33,6 +34,7 @@ export class UpdatePedidoAdminItemDto {
   description?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   quantity?: number;

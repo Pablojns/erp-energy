@@ -43,9 +43,8 @@ export function SeparationItemsTable(props: {
     return (
       <SiteOrderItemsEditor
         order={order}
-        onSaved={() => {
-          void data.refreshAll();
-          onAfterAction?.();
+        onSaved={async () => {
+          await onAfterAction?.();
         }}
       />
     );

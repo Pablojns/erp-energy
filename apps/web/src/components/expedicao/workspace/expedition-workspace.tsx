@@ -109,15 +109,19 @@ export function ExpeditionWorkspace(props: {
   }, [data.refreshAll]);
 
   const openOrderEdit = (order: OrderDto) => {
+    const rich =
+      displayOrder?.id === order.id && (displayOrder.items?.length ?? 0) > 0
+        ? displayOrder
+        : order;
     if (
-      order.source === 'WEG_MERCADO_ELETRONICO' ||
-      order.source === 'SITE' ||
-      order.source === 'VENDA_EXTERNA'
+      rich.source === 'WEG_MERCADO_ELETRONICO' ||
+      rich.source === 'SITE' ||
+      rich.source === 'VENDA_EXTERNA'
     ) {
-      setAdminEditOrder(order);
+      setAdminEditOrder(rich);
       return;
     }
-    setEditOrder(order);
+    setEditOrder(rich);
     setNewOrderOpen(true);
   };
 
@@ -453,9 +457,8 @@ export function ExpeditionWorkspace(props: {
             isOpen={Boolean(adminEditOrder)}
             order={adminEditOrder}
             onClose={() => setAdminEditOrder(null)}
-            onSaved={() => {
-              void data.refreshAll();
-              void refetchDetail();
+            onSaved={async () => {
+              await refetchDetail();
               data.setToast({
                 variant: 'ok',
                 message: 'Pedido atualizado (registrado nos logs).',

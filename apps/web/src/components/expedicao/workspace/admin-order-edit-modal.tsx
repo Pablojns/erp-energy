@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
+import { CrmOrcamentoCatalogPickerModal } from '@/src/components/crm/orcamentos/crm-orcamento-catalog-picker';
+import { canEditSiteOrderItems } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import type { QuoteCatalogProductDto } from '@/src/services/api/quotes-api';
 
 const ORDER_STATUSES = [
   'NOVO',
@@ -26,6 +29,29 @@ const ITEM_STATUS_OPTIONS = ['', 'Recebido', 'Em falta'];
 
 type CarrierOption = { id: string; name: string; isActive: boolean };
 
+type InventoryProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  price?: string;
+};
+
+type PaginatedProducts = {
+  data: InventoryProduct[];
+  meta: { page: number; pageSize: number; total: number; totalPages: number };
+};
+
+type EditItemRow = {
+  id: string;
+  lineNumber: number;
+  productId: string;
+  sku: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  mercadoEletronicoItemStatus: string;
+};
+
 function fieldClass() {
   return 'w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]';
 }
@@ -34,14 +60,31 @@ function readOnlyFieldClass() {
   return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
 }
 
+async function resolveInventoryProductBySku(
+  sku: string,
+): Promise<InventoryProduct | null> {
+  const needle = sku.trim().toLowerCase();
+  if (!needle) return null;
+  const res = await erpFetchJson<PaginatedProducts>(
+    `products?search=${encodeURIComponent(sku.trim())}&pageSize=50&status=active`,
+  );
+  const rows = res.data ?? [];
+  return (
+    rows.find((p) => p.sku.trim().toLowerCase() === needle) ??
+    rows.find((p) => p.sku.trim().toLowerCase().includes(needle)) ??
+    null
+  );
+}
+
 export function AdminOrderEditModal(props: {
   isOpen: boolean;
   order: OrderDto | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }) {
   const { isOpen, order, onClose, onSaved } = props;
   const [saving, setSaving] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
 
@@ -59,16 +102,9 @@ export function AdminOrderEditModal(props: {
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [totalValue, setTotalValue] = useState('');
   const [carrierId, setCarrierId] = useState('');
-  const [items, setItems] = useState<
-    Array<{
-      id: string;
-      lineNumber: number;
-      sku: string;
-      description: string;
-      quantity: string;
-      mercadoEletronicoItemStatus: string;
-    }>
-  >([]);
+  const [items, setItems] = useState<EditItemRow[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickingIndex, setPickingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -97,13 +133,17 @@ export function AdminOrderEditModal(props: {
       order.items.map((it) => ({
         id: it.id,
         lineNumber: it.lineNumber,
+        productId: it.productId ?? '',
         sku: it.sku,
         description: it.description,
         quantity: String(it.quantity),
+        unitPrice: it.unitPrice ?? '0',
         mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus ?? '',
       })),
     );
     setError(null);
+    setPickerOpen(false);
+    setPickingIndex(null);
   }, [isOpen, order]);
 
   if (!isOpen || !order) return null;
@@ -111,45 +151,142 @@ export function AdminOrderEditModal(props: {
   const numeroPed = numeroPedFromOrder(order);
   if (!numeroPed) return null;
 
+  const isSiteOrder = order.source === 'SITE';
+  const siteItemsEditable = canEditSiteOrderItems(order, 'orders');
   const isSimpleCustomerLayout =
-    order.source === 'SITE' || order.source === 'VENDA_EXTERNA';
+    isSiteOrder || order.source === 'VENDA_EXTERNA';
   const orderNumberDisplay = order.externalOrderNumber ?? order.code;
   const deliveryAddressDisplay = formatDeliveryAddressDisplay(
     order.deliveryAddress ?? order.unloadingPoint,
   );
+  const busy = saving || resolving;
+
+  const openPickerFor = (idx: number) => {
+    if (!siteItemsEditable) return;
+    setPickingIndex(idx);
+    setPickerOpen(true);
+    setError(null);
+  };
+
+  const handleCatalogSelect = async (catalogProduct: QuoteCatalogProductDto) => {
+    if (pickingIndex == null) return;
+    setResolving(true);
+    setError(null);
+    try {
+      const inventory = await resolveInventoryProductBySku(catalogProduct.supplierCode);
+      if (!inventory) {
+        setError(
+          `SKU "${catalogProduct.supplierCode}" não encontrado no estoque. Cadastre o produto antes de usá-lo no pedido.`,
+        );
+        return;
+      }
+      const catalogPrice = Number(catalogProduct.salePrice);
+      setItems((prev) => {
+        const next = [...prev];
+        const current = next[pickingIndex];
+        if (!current) return prev;
+        next[pickingIndex] = {
+          ...current,
+          productId: inventory.id,
+          sku: inventory.sku,
+          description: inventory.name || catalogProduct.name,
+          unitPrice: Number.isFinite(catalogPrice)
+            ? String(catalogPrice)
+            : inventory.price ?? current.unitPrice,
+        };
+        return next;
+      });
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Falha ao vincular produto do catálogo.',
+      );
+    } finally {
+      setResolving(false);
+      setPickingIndex(null);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
-        method: 'PATCH',
-        body: JSON.stringify({
-          receiverName,
-          unloadingPoint,
-          deliveryCnpj,
-          orderDate: orderDate || undefined,
-          requestedDeliveryDate: requestedDeliveryDate || undefined,
-          notes,
-          obsExpedicao: obsExpedicao,
-          status,
-          priority: Number(priority),
-          mercadoEletronicoStatus,
-          contaAzulStatus,
-          invoiceNumber,
-          totalValue,
-          carrierId: carrierId.trim() || null,
-          items: items.map((it) => ({
-            id: it.id,
-            lineNumber: it.lineNumber,
-            sku: it.sku,
-            description: it.description,
-            quantity: Number(it.quantity),
-            mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
-          })),
-        }),
-      });
-      onSaved();
+      const headerPayload = {
+        receiverName,
+        unloadingPoint,
+        deliveryCnpj,
+        orderDate: orderDate || undefined,
+        requestedDeliveryDate: requestedDeliveryDate || undefined,
+        notes,
+        obsExpedicao: obsExpedicao,
+        status,
+        priority: Number(priority),
+        mercadoEletronicoStatus,
+        contaAzulStatus,
+        invoiceNumber,
+        totalValue,
+        carrierId: carrierId.trim() || null,
+      };
+
+      if (isSiteOrder && siteItemsEditable) {
+        const siteItems: Array<{
+          productId: string;
+          quantity: number;
+          unitPrice: number;
+        }> = [];
+
+        for (const it of items) {
+          let productId = it.productId;
+          if (!productId && it.sku.trim()) {
+            const found = await resolveInventoryProductBySku(it.sku);
+            productId = found?.id ?? '';
+          }
+          if (!productId) {
+            throw new Error(
+              `Selecione o produto do estoque na linha ${it.lineNumber}.`,
+            );
+          }
+          const qty = Number(it.quantity);
+          if (!Number.isInteger(qty) || qty < 1) {
+            throw new Error(`Quantidade inválida na linha ${it.lineNumber}.`);
+          }
+          const unitPrice = Number(String(it.unitPrice).replace(',', '.'));
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            throw new Error(`Preço inválido na linha ${it.lineNumber}.`);
+          }
+          siteItems.push({ productId, quantity: qty, unitPrice });
+        }
+
+        const productIds = siteItems.map((i) => i.productId);
+        if (new Set(productIds).size !== productIds.length) {
+          throw new Error('Não repita o mesmo produto em mais de um item.');
+        }
+
+        await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
+          method: 'PATCH',
+          body: JSON.stringify(headerPayload),
+        });
+        await erpFetchJson(pedidoApiUrl(numeroPed, 'site-items'), {
+          method: 'PATCH',
+          body: JSON.stringify({ items: siteItems }),
+        });
+      } else {
+        await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
+          method: 'PATCH',
+          body: JSON.stringify({
+            ...headerPayload,
+            items: items.map((it) => ({
+              id: it.id,
+              lineNumber: it.lineNumber,
+              sku: it.sku,
+              description: it.description,
+              quantity: Number(it.quantity),
+              mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
+            })),
+          }),
+        });
+      }
+
+      await onSaved();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar pedido.');
@@ -298,8 +435,16 @@ export function AdminOrderEditModal(props: {
               <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
                 <tr>
                   <th className="px-2 py-2 text-left">Linha</th>
-                  <th className="px-2 py-2 text-left">SKU</th>
-                  <th className="px-2 py-2 text-left">Item</th>
+                  {isSiteOrder ? (
+                    <th className="px-2 py-2 text-left" colSpan={2}>
+                      Produto (estoque)
+                    </th>
+                  ) : (
+                    <>
+                      <th className="px-2 py-2 text-left">SKU</th>
+                      <th className="px-2 py-2 text-left">Item</th>
+                    </>
+                  )}
                   <th className="px-2 py-2 text-left">Qtd</th>
                   {!isSimpleCustomerLayout ? (
                     <th className="px-2 py-2 text-left">Status item</th>
@@ -310,36 +455,91 @@ export function AdminOrderEditModal(props: {
                 {items.map((it, idx) => (
                   <tr key={it.id} className="border-t border-[var(--border-color)]">
                     <td className="px-2 py-2">{it.lineNumber}</td>
+                    {isSiteOrder ? (
+                      <td className="px-2 py-2" colSpan={2}>
+                        <button
+                          type="button"
+                          disabled={busy || !siteItemsEditable}
+                          onClick={() => openPickerFor(idx)}
+                          className={`${fieldClass()} flex items-start gap-2 text-left disabled:cursor-default disabled:opacity-80`}
+                        >
+                          <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1">
+                            {it.productId || it.sku ? (
+                              <>
+                                <span className="block truncate font-medium text-[var(--text-primary)]">
+                                  {it.description || 'Produto'}
+                                </span>
+                                <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
+                                  {it.sku}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[var(--text-muted)]">
+                                Buscar produto no catálogo…
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      </td>
+                    ) : (
+                      <>
+                        <td className="px-2 py-2">
+                          <input
+                            className={fieldClass()}
+                            value={it.sku}
+                            onChange={(e) => {
+                              const next = [...items];
+                              next[idx] = { ...it, sku: e.target.value };
+                              setItems(next);
+                            }}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            className={fieldClass()}
+                            value={it.description}
+                            onChange={(e) => {
+                              const next = [...items];
+                              next[idx] = { ...it, description: e.target.value };
+                              setItems(next);
+                            }}
+                          />
+                        </td>
+                      </>
+                    )}
                     <td className="px-2 py-2">
-                      <input className={fieldClass()} value={it.sku} onChange={(e) => {
-                        const next = [...items];
-                        next[idx] = { ...it, sku: e.target.value };
-                        setItems(next);
-                      }} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input className={fieldClass()} value={it.description} onChange={(e) => {
-                        const next = [...items];
-                        next[idx] = { ...it, description: e.target.value };
-                        setItems(next);
-                      }} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input type="number" min={1} className={`${fieldClass()} w-20`} value={it.quantity} onChange={(e) => {
-                        const next = [...items];
-                        next[idx] = { ...it, quantity: e.target.value };
-                        setItems(next);
-                      }} />
+                      <input
+                        type="number"
+                        min={1}
+                        className={`${fieldClass()} w-20`}
+                        value={it.quantity}
+                        disabled={busy || (isSiteOrder && !siteItemsEditable)}
+                        onChange={(e) => {
+                          const next = [...items];
+                          next[idx] = { ...it, quantity: e.target.value };
+                          setItems(next);
+                        }}
+                      />
                     </td>
                     {!isSimpleCustomerLayout ? (
                       <td className="px-2 py-2">
-                        <select className={fieldClass()} value={it.mercadoEletronicoItemStatus} onChange={(e) => {
-                          const next = [...items];
-                          next[idx] = { ...it, mercadoEletronicoItemStatus: e.target.value };
-                          setItems(next);
-                        }}>
+                        <select
+                          className={fieldClass()}
+                          value={it.mercadoEletronicoItemStatus}
+                          onChange={(e) => {
+                            const next = [...items];
+                            next[idx] = {
+                              ...it,
+                              mercadoEletronicoItemStatus: e.target.value,
+                            };
+                            setItems(next);
+                          }}
+                        >
                           {ITEM_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt || 'empty'} value={opt}>{opt || '—'}</option>
+                            <option key={opt || 'empty'} value={opt}>
+                              {opt || '—'}
+                            </option>
                           ))}
                         </select>
                       </td>
@@ -349,6 +549,11 @@ export function AdminOrderEditModal(props: {
               </tbody>
             </table>
           </div>
+          {resolving ? (
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              Vinculando produto do catálogo ao estoque…
+            </p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--border-color)] px-5 py-4">
@@ -357,7 +562,7 @@ export function AdminOrderEditModal(props: {
           </button>
           <button
             type="button"
-            disabled={saving}
+            disabled={busy}
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             onClick={() => void handleSave()}
           >
@@ -366,6 +571,15 @@ export function AdminOrderEditModal(props: {
           </button>
         </div>
       </div>
+
+      <CrmOrcamentoCatalogPickerModal
+        open={pickerOpen}
+        onClose={() => {
+          setPickerOpen(false);
+          setPickingIndex(null);
+        }}
+        onSelect={(product) => void handleCatalogSelect(product)}
+      />
     </div>
   );
 }
