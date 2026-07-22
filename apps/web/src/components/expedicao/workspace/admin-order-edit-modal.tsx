@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
-import { CrmOrcamentoCatalogPickerModal } from '@/src/components/crm/orcamentos/crm-orcamento-catalog-picker';
 import { canEditSiteOrderItems } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import {
+  InventoryProductPickerModal,
+  type InventoryProductOption,
+} from '@/src/components/expedicao/workspace/inventory-product-picker-modal';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
-import type { QuoteCatalogProductDto } from '@/src/services/api/quotes-api';
 
 const ORDER_STATUSES = [
   'NOVO',
@@ -28,18 +30,6 @@ const ORDER_STATUSES = [
 const ITEM_STATUS_OPTIONS = ['', 'Recebido', 'Em falta'];
 
 type CarrierOption = { id: string; name: string; isActive: boolean };
-
-type InventoryProduct = {
-  id: string;
-  sku: string;
-  name: string;
-  price?: string;
-};
-
-type PaginatedProducts = {
-  data: InventoryProduct[];
-  meta: { page: number; pageSize: number; total: number; totalPages: number };
-};
 
 type EditItemRow = {
   id: string;
@@ -60,22 +50,6 @@ function readOnlyFieldClass() {
   return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
 }
 
-async function resolveInventoryProductBySku(
-  sku: string,
-): Promise<InventoryProduct | null> {
-  const needle = sku.trim().toLowerCase();
-  if (!needle) return null;
-  const res = await erpFetchJson<PaginatedProducts>(
-    `products?search=${encodeURIComponent(sku.trim())}&pageSize=50&status=active`,
-  );
-  const rows = res.data ?? [];
-  return (
-    rows.find((p) => p.sku.trim().toLowerCase() === needle) ??
-    rows.find((p) => p.sku.trim().toLowerCase().includes(needle)) ??
-    null
-  );
-}
-
 export function AdminOrderEditModal(props: {
   isOpen: boolean;
   order: OrderDto | null;
@@ -84,7 +58,6 @@ export function AdminOrderEditModal(props: {
 }) {
   const { isOpen, order, onClose, onSaved } = props;
   const [saving, setSaving] = useState(false);
-  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
 
@@ -159,7 +132,7 @@ export function AdminOrderEditModal(props: {
   const deliveryAddressDisplay = formatDeliveryAddressDisplay(
     order.deliveryAddress ?? order.unloadingPoint,
   );
-  const busy = saving || resolving;
+  const busy = saving;
 
   const openPickerFor = (idx: number) => {
     if (!siteItemsEditable) return;
@@ -168,42 +141,22 @@ export function AdminOrderEditModal(props: {
     setError(null);
   };
 
-  const handleCatalogSelect = async (catalogProduct: QuoteCatalogProductDto) => {
+  const handleInventorySelect = (product: InventoryProductOption) => {
     if (pickingIndex == null) return;
-    setResolving(true);
-    setError(null);
-    try {
-      const inventory = await resolveInventoryProductBySku(catalogProduct.supplierCode);
-      if (!inventory) {
-        setError(
-          `SKU "${catalogProduct.supplierCode}" não encontrado no estoque. Cadastre o produto antes de usá-lo no pedido.`,
-        );
-        return;
-      }
-      const catalogPrice = Number(catalogProduct.salePrice);
-      setItems((prev) => {
-        const next = [...prev];
-        const current = next[pickingIndex];
-        if (!current) return prev;
-        next[pickingIndex] = {
-          ...current,
-          productId: inventory.id,
-          sku: inventory.sku,
-          description: inventory.name || catalogProduct.name,
-          unitPrice: Number.isFinite(catalogPrice)
-            ? String(catalogPrice)
-            : inventory.price ?? current.unitPrice,
-        };
-        return next;
-      });
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'Falha ao vincular produto do catálogo.',
-      );
-    } finally {
-      setResolving(false);
-      setPickingIndex(null);
-    }
+    setItems((prev) => {
+      const next = [...prev];
+      const current = next[pickingIndex];
+      if (!current) return prev;
+      next[pickingIndex] = {
+        ...current,
+        productId: product.id,
+        sku: product.sku,
+        description: product.name,
+        unitPrice: product.price ?? current.unitPrice,
+      };
+      return next;
+    });
+    setPickingIndex(null);
   };
 
   const handleSave = async () => {
@@ -235,12 +188,7 @@ export function AdminOrderEditModal(props: {
         }> = [];
 
         for (const it of items) {
-          let productId = it.productId;
-          if (!productId && it.sku.trim()) {
-            const found = await resolveInventoryProductBySku(it.sku);
-            productId = found?.id ?? '';
-          }
-          if (!productId) {
+          if (!it.productId) {
             throw new Error(
               `Selecione o produto do estoque na linha ${it.lineNumber}.`,
             );
@@ -253,7 +201,11 @@ export function AdminOrderEditModal(props: {
           if (!Number.isFinite(unitPrice) || unitPrice < 0) {
             throw new Error(`Preço inválido na linha ${it.lineNumber}.`);
           }
-          siteItems.push({ productId, quantity: qty, unitPrice });
+          siteItems.push({
+            productId: it.productId,
+            quantity: qty,
+            unitPrice,
+          });
         }
 
         const productIds = siteItems.map((i) => i.productId);
@@ -476,7 +428,7 @@ export function AdminOrderEditModal(props: {
                               </>
                             ) : (
                               <span className="text-[var(--text-muted)]">
-                                Buscar produto no catálogo…
+                                Buscar produto no estoque…
                               </span>
                             )}
                           </span>
@@ -549,11 +501,6 @@ export function AdminOrderEditModal(props: {
               </tbody>
             </table>
           </div>
-          {resolving ? (
-            <p className="mt-2 text-xs text-[var(--text-muted)]">
-              Vinculando produto do catálogo ao estoque…
-            </p>
-          ) : null}
         </div>
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--border-color)] px-5 py-4">
@@ -572,13 +519,13 @@ export function AdminOrderEditModal(props: {
         </div>
       </div>
 
-      <CrmOrcamentoCatalogPickerModal
+      <InventoryProductPickerModal
         open={pickerOpen}
         onClose={() => {
           setPickerOpen(false);
           setPickingIndex(null);
         }}
-        onSelect={(product) => void handleCatalogSelect(product)}
+        onSelect={handleInventorySelect}
       />
     </div>
   );

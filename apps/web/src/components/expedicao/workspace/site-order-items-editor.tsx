@@ -2,24 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
-import { CrmOrcamentoCatalogPickerModal } from '@/src/components/crm/orcamentos/crm-orcamento-catalog-picker';
+import {
+  InventoryProductPickerModal,
+  type InventoryProductOption,
+} from '@/src/components/expedicao/workspace/inventory-product-picker-modal';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder, normalizePedidoFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
-import type { QuoteCatalogProductDto } from '@/src/services/api/quotes-api';
-
-type InventoryProduct = {
-  id: string;
-  sku: string;
-  name: string;
-  price?: string;
-};
-
-type PaginatedProducts = {
-  data: InventoryProduct[];
-  meta: { page: number; pageSize: number; total: number; totalPages: number };
-};
+import {
+  numeroPedFromOrder,
+  normalizePedidoFromApi,
+  pedidoApiUrl,
+} from '@/src/services/api/pedidos-normalize';
 
 type DraftItem = {
   key: string;
@@ -53,22 +47,6 @@ function draftFromOrder(order: OrderDto): DraftItem[] {
   }));
 }
 
-async function resolveInventoryProductBySku(
-  sku: string,
-): Promise<InventoryProduct | null> {
-  const needle = sku.trim().toLowerCase();
-  if (!needle) return null;
-  const res = await erpFetchJson<PaginatedProducts>(
-    `products?search=${encodeURIComponent(sku.trim())}&pageSize=50&status=active`,
-  );
-  const rows = res.data ?? [];
-  return (
-    rows.find((p) => p.sku.trim().toLowerCase() === needle) ??
-    rows.find((p) => p.sku.trim().toLowerCase().includes(needle)) ??
-    null
-  );
-}
-
 export function SiteOrderItemsEditor(props: {
   order: OrderDto;
   onSaved?: () => void | Promise<void>;
@@ -76,7 +54,6 @@ export function SiteOrderItemsEditor(props: {
   const { order, onSaved } = props;
   const [draft, setDraft] = useState<DraftItem[]>(() => draftFromOrder(order));
   const [saving, setSaving] = useState(false);
-  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingKey, setPickingKey] = useState<string | null>(null);
@@ -111,35 +88,15 @@ export function SiteOrderItemsEditor(props: {
     setError(null);
   };
 
-  const handleCatalogSelect = async (catalogProduct: QuoteCatalogProductDto) => {
+  const handleInventorySelect = (product: InventoryProductOption) => {
     if (!pickingKey) return;
-    setResolving(true);
-    setError(null);
-    try {
-      const inventory = await resolveInventoryProductBySku(catalogProduct.supplierCode);
-      if (!inventory) {
-        setError(
-          `SKU "${catalogProduct.supplierCode}" não encontrado no estoque. Cadastre o produto antes de usá-lo no pedido.`,
-        );
-        return;
-      }
-      const catalogPrice = Number(catalogProduct.salePrice);
-      updateRow(pickingKey, {
-        productId: inventory.id,
-        sku: inventory.sku,
-        name: inventory.name || catalogProduct.name,
-        unitPrice: Number.isFinite(catalogPrice)
-          ? String(catalogPrice)
-          : inventory.price ?? '0',
-      });
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'Falha ao vincular produto do catálogo.',
-      );
-    } finally {
-      setResolving(false);
-      setPickingKey(null);
-    }
+    updateRow(pickingKey, {
+      productId: product.id,
+      sku: product.sku,
+      name: product.name,
+      unitPrice: product.price ?? '0',
+    });
+    setPickingKey(null);
   };
 
   const handleSave = async () => {
@@ -203,7 +160,7 @@ export function SiteOrderItemsEditor(props: {
     }
   };
 
-  const busy = saving || resolving;
+  const busy = saving;
 
   return (
     <div className="exp-wb-table-wrap">
@@ -270,7 +227,7 @@ export function SiteOrderItemsEditor(props: {
                       </>
                     ) : (
                       <span className="text-[var(--text-muted)]">
-                        Buscar produto no catálogo…
+                        Buscar produto no estoque…
                       </span>
                     )}
                   </span>
@@ -339,19 +296,14 @@ export function SiteOrderItemsEditor(props: {
         </button>
       </div>
       {error ? <p className="px-3 pb-2 text-xs text-rose-500">{error}</p> : null}
-      {resolving ? (
-        <p className="px-3 pb-2 text-xs text-[var(--text-muted)]">
-          Vinculando produto do catálogo ao estoque…
-        </p>
-      ) : null}
 
-      <CrmOrcamentoCatalogPickerModal
+      <InventoryProductPickerModal
         open={pickerOpen}
         onClose={() => {
           setPickerOpen(false);
           setPickingKey(null);
         }}
-        onSelect={(product) => void handleCatalogSelect(product)}
+        onSelect={handleInventorySelect}
       />
     </div>
   );
