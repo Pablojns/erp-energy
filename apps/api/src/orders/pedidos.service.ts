@@ -26,6 +26,7 @@ import type { CreateVendaExternaPedidoDto } from './dto/create-venda-externa-ped
 import type { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
+import type { UpdateSitePedidoItemsDto } from './dto/update-site-pedido-items.dto';
 import type { OrderQueryDto } from './dto/order-query.dto';
 import {
   decimalFromStringOrZero,
@@ -103,6 +104,44 @@ export class PedidosService {
 
   createVendaExterna(userId: string, dto: CreateVendaExternaPedidoDto) {
     return this.orders.createVendaExterna(userId, dto);
+  }
+
+  /**
+   * Edita itens de pedido SITE antes do envio à separação.
+   * Libera reservas, substitui linhas, recalcula total e re-reserva.
+   */
+  async updateSitePedidoItems(
+    userId: string,
+    numeroPed: string,
+    dto: UpdateSitePedidoItemsDto,
+  ) {
+    const numeroStr = numeroPed.trim();
+    const order = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: numeroStr },
+      select: { id: true, source: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    if (order.source !== OrderSource.SITE) {
+      throw new BadRequestException(
+        'Somente pedidos do site podem editar itens por esta rota.',
+      );
+    }
+
+    const editableStatuses: OrderStatus[] = [
+      OrderStatus.NOVO,
+      OrderStatus.ANALISADO,
+      OrderStatus.PARCIAL,
+      OrderStatus.RESERVADO,
+    ];
+    if (!editableStatuses.includes(order.status)) {
+      throw new BadRequestException(
+        'Só é possível editar itens do site antes de enviar para separação.',
+      );
+    }
+
+    await this.orders.replaceSiteOrderItems(userId, order.id, dto.items);
+    return this.reserveSitePedido(order.id, userId);
   }
 
   /**
@@ -242,7 +281,7 @@ export class PedidosService {
       await tx.order.update({
         where: { id: order.id },
         data: {
-          status: OrderStatus.EM_SEPARACAO,
+          status: stockCoverage,
           reservedAt: new Date(),
         },
       });
@@ -254,7 +293,7 @@ export class PedidosService {
         entityId: order.id,
         changes: {
           code: order.code,
-          status: OrderStatus.EM_SEPARACAO,
+          status: stockCoverage,
           stockCoverage,
           source: 'site',
           reservedFullQuantity: true,

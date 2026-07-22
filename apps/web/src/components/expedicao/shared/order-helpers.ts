@@ -311,6 +311,21 @@ export function isSeparationWorkspaceOrder(order: OrderDto): boolean {
   );
 }
 
+/** Itens de pedido SITE editáveis na aba Pedidos (antes do envio à separação). */
+export function canEditSiteOrderItems(
+  order: OrderDto,
+  mode: 'orders' | 'separation' = 'orders',
+): boolean {
+  if (mode !== 'orders') return false;
+  if (order.source !== 'SITE') return false;
+  return (
+    order.status === 'NOVO' ||
+    order.status === 'ANALISADO' ||
+    order.status === 'PARCIAL' ||
+    order.status === 'RESERVADO'
+  );
+}
+
 /** Pedido com lote parcial ou itens ainda não enviados na separação. */
 export function orderMatchesParcialFilter(order: OrderDto): boolean {
   // Status terminal manual (ex.: FINALIZADO) prevalece sobre derivação por itens.

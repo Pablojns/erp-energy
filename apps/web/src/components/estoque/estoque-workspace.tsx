@@ -3628,7 +3628,9 @@ export function EstoqueWorkspace() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">{p.stockQty}</p>
+                    <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
+                      {p.availableQty ?? Math.max(0, p.stockQty - (p.reservedQty ?? 0))}
+                    </p>
                     <div className="mt-1 flex items-center justify-between text-[11px]">
                       <span className={`rounded-full border px-2 py-0.5 ${
                         p.stockQty <= 0

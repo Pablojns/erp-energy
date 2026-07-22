@@ -1025,6 +1025,146 @@ export class OrderService {
     });
   }
 
+  /**
+   * Substitui itens de pedido SITE (libera reservas físicas, recalcula totais).
+   * A re-reserva fica a cargo do chamador (`reserveSitePedido`).
+   */
+  async replaceSiteOrderItems(
+    userId: string,
+    orderId: string,
+    items: Array<{ productId: string; quantity: number; unitPrice?: number }>,
+  ) {
+    if (!items.length) {
+      throw new BadRequestException('Informe ao menos um item.');
+    }
+
+    const mergedLines = new Map<
+      string,
+      { qty: number; unitPriceHint?: number }
+    >();
+    for (const li of items) {
+      const prev = mergedLines.get(li.productId);
+      if (prev) {
+        mergedLines.set(li.productId, {
+          qty: prev.qty + li.quantity,
+          unitPriceHint: prev.unitPriceHint ?? li.unitPrice,
+        });
+      } else {
+        mergedLines.set(li.productId, {
+          qty: li.quantity,
+          unitPriceHint: li.unitPrice,
+        });
+      }
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+      if (!order) throw new NotFoundException('Pedido não encontrado.');
+      if (order.source !== OrderSource.SITE) {
+        throw new BadRequestException(
+          'Somente pedidos do site podem ter itens substituídos por esta rota.',
+        );
+      }
+
+      await this.releaseReservations(
+        tx,
+        userId,
+        orderStockReference(order),
+        order.id,
+        order.items.map((it) => ({
+          id: it.id,
+          productId: it.productId,
+          reservedQuantity: it.reservedQuantity,
+        })),
+      );
+
+      const productIds = [...mergedLines.keys()].sort();
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        orderBy: { id: 'asc' },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+
+      for (const pid of productIds) {
+        const p = byId.get(pid);
+        if (!p) {
+          throw new BadRequestException(`Produto ${pid} não encontrado.`);
+        }
+        if (!p.isActive) {
+          throw new BadRequestException(
+            `Produto ${p.name} está inativo e não pode constar em pedidos.`,
+          );
+        }
+      }
+
+      let subtotalDec = new Prisma.Decimal(0);
+      let lineNumber = 10;
+      const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+
+      for (const pid of productIds) {
+        const p = byId.get(pid)!;
+        const { qty, unitPriceHint } = mergedLines.get(pid)!;
+        const unitPrice =
+          unitPriceHint !== undefined && unitPriceHint !== null
+            ? new Prisma.Decimal(Number(unitPriceHint).toFixed(2))
+            : p.price;
+        const totalLine = unitPrice.mul(qty).toDecimalPlaces(2);
+        subtotalDec = subtotalDec.add(totalLine);
+
+        creates.push({
+          product: { connect: { id: pid } },
+          lineNumber,
+          sku: p.sku,
+          description: p.name,
+          quantity: qty,
+          reservedQuantity: 0,
+          unitPrice: unitPrice.toDecimalPlaces(2),
+          totalPrice: totalLine,
+          discount: new Prisma.Decimal(0),
+          stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+        });
+        lineNumber += 10;
+      }
+
+      const totalFixed = subtotalDec.toDecimalPlaces(2);
+
+      await tx.orderItem.deleteMany({ where: { orderId: order.id } });
+
+      const updated = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          subtotal: totalFixed,
+          total: totalFixed,
+          totalValue: totalFixed,
+          items: { create: creates },
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_SITE_ITEMS_UPDATED',
+        entity: 'Order',
+        entityId: updated.id,
+        changes: {
+          externalOrderNumber: updated.externalOrderNumber,
+          lines: updated.items.length,
+          subtotal: totalFixed.toString(),
+          source: 'site',
+        },
+      });
+
+      return this.serializeOrder(updated);
+    });
+  }
+
   async updateManualPedido(
     userId: string,
     numeroPed: string,

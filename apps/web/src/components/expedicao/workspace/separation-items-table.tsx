@@ -9,7 +9,12 @@ import {
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
-import { summarizeItemReceiptStatus, resolveItemReceiptStatusForOrder } from '@/src/components/expedicao/shared/order-helpers';
+import { SiteOrderItemsEditor } from '@/src/components/expedicao/workspace/site-order-items-editor';
+import {
+  canEditSiteOrderItems,
+  summarizeItemReceiptStatus,
+  resolveItemReceiptStatusForOrder,
+} from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
@@ -24,6 +29,7 @@ export function SeparationItemsTable(props: {
   const { order, data, mode = 'separation', onAfterAction } = props;
   const isOrdersMode = mode === 'orders';
   const isVendaExterna = order.source === 'VENDA_EXTERNA';
+  const siteItemsEditable = canEditSiteOrderItems(order, mode);
   const stockByItemId = useOrderItemsStock(order.items);
   const receiptSummary = summarizeItemReceiptStatus(order.items);
 
@@ -33,6 +39,17 @@ export function SeparationItemsTable(props: {
     }
   }, [isOrdersMode, order.id, order.items]);
 
+  if (siteItemsEditable) {
+    return (
+      <SiteOrderItemsEditor
+        order={order}
+        onSaved={() => {
+          void data.refreshAll();
+          onAfterAction?.();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="exp-wb-table-wrap">

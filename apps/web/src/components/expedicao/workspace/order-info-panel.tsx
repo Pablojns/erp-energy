@@ -171,6 +171,17 @@ export const OrderInfoPanel = forwardRef<
     };
   }, [order.items]);
   const point = displayOrDash(order.unloadingPoint);
+  const simpleCliente = displayOrDash(order.customerName);
+  const simpleEndereco = formatDeliveryAddressDisplay(
+    order.deliveryAddress ?? order.unloadingPoint,
+  );
+  const pointAsAddress = formatDeliveryAddressDisplay(order.unloadingPoint);
+  // Pedidos (Site/Venda Externa): oculta Recebedor/Ponto quando idênticos a Cliente/Endereço.
+  const hideDuplicateReceiverPoint =
+    isOrdersMode &&
+    isSimpleCustomerLayout &&
+    receiver === simpleCliente &&
+    (point === simpleEndereco || pointAsAddress === simpleEndereco);
   const notes = order.notes?.trim() || null;
   const notaVenda = order.invoiceNumber?.trim() || null;
   const isFinalized =
@@ -751,16 +762,18 @@ export const OrderInfoPanel = forwardRef<
         <div className="exp-wb-order-parties-grid">
           {isSimpleCustomerLayout ? (
             <>
-              <PartyCell label="Cliente" value={displayOrDash(order.customerName)} />
+              <PartyCell label="Cliente" value={simpleCliente} />
               <PartyCell
                 label="Endereço"
-                value={formatDeliveryAddressDisplay(
-                  order.deliveryAddress ?? order.unloadingPoint,
-                )}
+                value={simpleEndereco}
                 multiline
               />
-              <PartyCell label="Recebedor" value={receiver} />
-              <PartyCell label="Ponto de descarga" value={point} />
+              {!hideDuplicateReceiverPoint ? (
+                <>
+                  <PartyCell label="Recebedor" value={receiver} />
+                  <PartyCell label="Ponto de descarga" value={point} />
+                </>
+              ) : null}
             </>
           ) : (
             <>

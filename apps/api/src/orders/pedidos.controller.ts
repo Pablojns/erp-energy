@@ -39,6 +39,7 @@ import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
+import { UpdateSitePedidoItemsDto } from './dto/update-site-pedido-items.dto';
 import { GenerateRomaneioDto } from './dto/generate-romaneio.dto';
 import { GerarNfLoteDto } from './dto/gerar-nf-lote.dto';
 import { NfAutomaticoService } from './nf-automatico.service';
@@ -157,6 +158,16 @@ export class PedidosController {
       );
     }
     return this.pedidos.updateAdmin(user.id, numeroPed, dto);
+  }
+
+  @Patch(':numeroPed/site-items')
+  @RequirePermission('expedicao', 'editar_pedido')
+  updateSiteItems(
+    @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateSitePedidoItemsDto,
+  ) {
+    return this.pedidos.updateSitePedidoItems(user.id, numeroPed, dto);
   }
 
   @Delete('lgpd/titular/:documento')
