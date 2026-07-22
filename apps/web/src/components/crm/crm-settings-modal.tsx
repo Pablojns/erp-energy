@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { GlowButton } from '@/src/components/shell/glow-button';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import {
@@ -45,6 +45,8 @@ export function CrmSettingsModal(props: {
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#6366f1');
   const [newRequiresText, setNewRequiresText] = useState(false);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -56,7 +58,7 @@ export function CrmSettingsModal(props: {
         listCrmFunis(),
         listCrmMotivosPerda(),
       ]);
-      setStatuses(statusData);
+      setStatuses(statusData.filter((s) => s.name !== 'Perdido'));
       setChannels(channelData);
       setFunis(funilData);
       setMotivos(motivoData);
@@ -73,6 +75,7 @@ export function CrmSettingsModal(props: {
     setNewName('');
     setNewColor('#6366f1');
     setNewRequiresText(false);
+    setEditingNameId(null);
     void load();
   }, [open]);
 
@@ -82,6 +85,12 @@ export function CrmSettingsModal(props: {
     const name = newName.trim();
     if (!name) {
       setError('Informe o nome.');
+      return;
+    }
+    if (tab === 'status' && name.toLowerCase() === 'perdido') {
+      setError(
+        'Use o funil "Orçamento Reprovado" e o botão Marcar como Perdido — não crie status Perdido.',
+      );
       return;
     }
     setSaving(true);
@@ -131,6 +140,66 @@ export function CrmSettingsModal(props: {
     }
   };
 
+  const handleSaveName = async (
+    kind: 'status' | 'channels' | 'funis',
+    id: string,
+  ) => {
+    const name = editingNameValue.trim();
+    if (!name) {
+      setError('Informe o nome.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (kind === 'status') await updateCrmStatus(id, { name });
+      else if (kind === 'channels') await updateCrmChannel(id, { name });
+      else await updateCrmFunil(id, { name });
+      setEditingNameId(null);
+      await load();
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao renomear.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReorder = async (
+    kind: 'status' | 'funis',
+    id: string,
+    direction: 'up' | 'down',
+  ) => {
+    const rows = kind === 'status' ? statuses : funis;
+    const index = rows.findIndex((r) => r.id === id);
+    if (index < 0) return;
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= rows.length) return;
+
+    const current = rows[index]!;
+    const swap = rows[swapIndex]!;
+    const currentOrder = 'order' in current ? (current.order ?? index) : index;
+    const swapOrder = 'order' in swap ? (swap.order ?? swapIndex) : swapIndex;
+
+    setSaving(true);
+    setError(null);
+    try {
+      if (kind === 'status') {
+        await updateCrmStatus(current.id, { order: swapOrder });
+        await updateCrmStatus(swap.id, { order: currentOrder });
+      } else {
+        await updateCrmFunil(current.id, { order: swapOrder });
+        await updateCrmFunil(swap.id, { order: currentOrder });
+      }
+      await load();
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao reordenar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async (kind: SettingsTab, id: string, label: string) => {
     if (!window.confirm(`Excluir "${label}"?`)) return;
     setSaving(true);
@@ -165,6 +234,98 @@ export function CrmSettingsModal(props: {
           ? 'funil'
           : 'motivo';
 
+  const renderEditableRow = (
+    kind: 'status' | 'channels' | 'funis',
+    row: CrmStatusDto | CrmChannelDto | CrmFunilDto,
+    index: number,
+    total: number,
+  ) => {
+    const canReorder = kind === 'status' || kind === 'funis';
+    const editing = editingNameId === row.id;
+
+    return (
+      <div
+        key={row.id}
+        className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2"
+      >
+        {'color' in row ? (
+          <input
+            type="color"
+            value={row.color ?? (kind === 'channels' ? '#22c55e' : '#6366f1')}
+            onChange={(e) => void handleUpdateColor(kind, row.id, e.target.value)}
+            disabled={saving}
+            className="h-8 w-10 shrink-0 cursor-pointer rounded border border-[var(--border-color)] bg-transparent"
+          />
+        ) : null}
+        {editing ? (
+          <input
+            value={editingNameValue}
+            onChange={(e) => setEditingNameValue(e.target.value)}
+            disabled={saving}
+            className="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1 text-sm text-[var(--text-primary)] outline-none"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleSaveName(kind, row.id);
+              if (e.key === 'Escape') setEditingNameId(null);
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left text-sm text-[var(--text-primary)] hover:underline disabled:no-underline"
+            disabled={saving}
+            title="Clique para renomear"
+            onClick={() => {
+              setEditingNameId(row.id);
+              setEditingNameValue(row.name);
+            }}
+          >
+            {row.name}
+          </button>
+        )}
+        {editing ? (
+          <GlowButton
+            variant="secondary"
+            disabled={saving}
+            onClick={() => void handleSaveName(kind, row.id)}
+          >
+            OK
+          </GlowButton>
+        ) : null}
+        {canReorder ? (
+          <div className="flex shrink-0 flex-col gap-0.5">
+            <button
+              type="button"
+              disabled={saving || index === 0}
+              onClick={() => void handleReorder(kind, row.id, 'up')}
+              className="rounded p-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-card)] disabled:opacity-30"
+              aria-label="Mover para cima"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              disabled={saving || index >= total - 1}
+              onClick={() => void handleReorder(kind, row.id, 'down')}
+              className="rounded p-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-card)] disabled:opacity-30"
+              aria-label="Mover para baixo"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void handleDelete(kind, row.id, row.name)}
+          className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-100 disabled:opacity-30"
+          aria-label={`Excluir ${row.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div
       role="presentation"
@@ -197,6 +358,7 @@ export function CrmSettingsModal(props: {
                   setNewName('');
                   setNewColor(item.id === 'channels' ? '#22c55e' : '#6366f1');
                   setNewRequiresText(false);
+                  setEditingNameId(null);
                   setError(null);
                 }}
                 className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
@@ -242,42 +404,17 @@ export function CrmSettingsModal(props: {
                         </button>
                       </div>
                     ))
-                  : (tab === 'status' ? statuses : tab === 'channels' ? channels : funis).map(
-                      (row) => (
-                        <div
-                          key={row.id}
-                          className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2"
-                        >
-                          <input
-                            type="color"
-                            value={
-                              'color' in row && row.color
-                                ? row.color
-                                : tab === 'channels'
-                                  ? '#22c55e'
-                                  : '#6366f1'
-                            }
-                            onChange={(e) =>
-                              void handleUpdateColor(tab as Exclude<SettingsTab, 'motivos'>, row.id, e.target.value)
-                            }
-                            disabled={saving}
-                            className="h-8 w-10 shrink-0 cursor-pointer rounded border border-[var(--border-color)] bg-transparent"
-                          />
-                          <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
-                            {row.name}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => void handleDelete(tab, row.id, row.name)}
-                            className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-100 disabled:opacity-50"
-                            aria-label={`Excluir ${row.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ),
-                    )}
+                  : tab === 'status'
+                    ? statuses.map((row, index) =>
+                        renderEditableRow('status', row, index, statuses.length),
+                      )
+                    : tab === 'channels'
+                      ? channels.map((row, index) =>
+                          renderEditableRow('channels', row, index, channels.length),
+                        )
+                      : funis.map((row, index) =>
+                          renderEditableRow('funis', row, index, funis.length),
+                        )}
               </div>
 
               <div className="mt-4 flex flex-wrap items-end gap-2">

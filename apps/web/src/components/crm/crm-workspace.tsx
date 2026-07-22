@@ -435,6 +435,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
       <CrmCreateCardModal
         open={cardModalOpen}
         funis={funis}
+        defaultFunilId={funis.find((f) => f.name === 'Novo Lead')?.id}
         onClose={() => setCardModalOpen(false)}
         onCreated={refresh}
         onViewExisting={(card) => setDetailCardId(card.id)}

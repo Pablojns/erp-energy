@@ -869,6 +869,7 @@ model CrmFunil {
   color     String?
   createdAt DateTime  @default(now())
   cards     CrmCard[]
+  originCards CrmCard[] @relation("CrmCardFunilOrigem")
 
   @@index([order])
 }
@@ -914,6 +915,13 @@ model CrmCard {
   convertedToMeeting Int?
   funilId            String
   funil              CrmFunil        @relation(fields: [funilId], references: [id], onDelete: Restrict)
+  /// Funil de origem (ex.: antes de reprovação)
+  funilOrigemId      String?
+  funilOrigem        CrmFunil?       @relation("CrmCardFunilOrigem", fields: [funilOrigemId], references: [id], onDelete: SetNull)
+  /// Histórico de funis pelos quais o card passou (conversão / relatório)
+  funilHistory       Json?
+  /// Nome do status legado no momento da migração para funis-etapa
+  statusLegacy       String?
   status             String          @default("NOVO_LEAD")
   responsavelId      String?         @db.Uuid
   responsavel        User?           @relation("CrmCardResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
@@ -927,6 +935,7 @@ model CrmCard {
   closedAt           DateTime?
 
   @@index([funilId])
+  @@index([funilOrigemId])
   @@index([origin])
   @@index([status])
   @@index([createdAt])

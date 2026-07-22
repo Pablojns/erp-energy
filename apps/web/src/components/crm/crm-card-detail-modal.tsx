@@ -157,7 +157,12 @@ export function CrmCardDetailModal(props: {
 
   if (!cardId) return null;
 
-  const isPerdido = selectedStatus?.name === 'Perdido';
+  const isPerdido =
+    selectedStatus?.name === 'Perdido' ||
+    card?.funil?.name === 'Orçamento Reprovado' ||
+    card?.funil?.name === 'Perdidos' ||
+    funis.find((f) => f.id === funilId)?.name === 'Orçamento Reprovado' ||
+    funis.find((f) => f.id === funilId)?.name === 'Perdidos';
 
   const updateTouchpoint = (number: number, patch: Partial<CrmTouchpointInput>) => {
     setTouchpoints((current) =>
@@ -167,6 +172,7 @@ export function CrmCardDetailModal(props: {
 
   const save = async (extra?: {
     status?: string;
+    funilId?: string;
     closeAfter?: boolean;
     motivoPerdaId?: string | null;
     motivoPerdaTexto?: string | null;
@@ -187,7 +193,7 @@ export function CrmCardDetailModal(props: {
         status: extra?.status ?? statusId,
         observations: observations.trim() || null,
         whatsappLog: whatsappLog.trim() || null,
-        funilId,
+        funilId: extra?.funilId ?? funilId,
         responsavelId: responsavelId || null,
         touchPoints: doneCount,
         createdAt: crmDateInputToIso(nextCreatedDay),
@@ -199,6 +205,8 @@ export function CrmCardDetailModal(props: {
       const refreshed = await getCrmCard(card.id);
       setCard(refreshed);
       setCreatedAt(toCrmDateInputValue(refreshed.createdAt));
+      setFunilId(refreshed.funilId);
+      setStatusId(refreshed.status);
       setTouchpoints(mergeTouchpoints(refreshed.touchpoints));
       await onUpdated();
       if (extra?.closeAfter) onClose();
@@ -210,14 +218,13 @@ export function CrmCardDetailModal(props: {
   };
 
   const markStatus = async (statusName: 'Fechado' | 'Perdido') => {
+    if (statusName === 'Perdido') {
+      setLossModalOpen(true);
+      return;
+    }
     const target = findCrmStatusByName(statuses, statusName);
     if (!target) {
       setError(`Status "${statusName}" não encontrado.`);
-      return;
-    }
-    if (statusName === 'Perdido') {
-      setStatusId(target.id);
-      setLossModalOpen(true);
       return;
     }
     setStatusId(target.id);
@@ -225,14 +232,21 @@ export function CrmCardDetailModal(props: {
   };
 
   const confirmLoss = async (motivoPerdaId: string, motivoPerdaTexto: string | null) => {
-    const target = findCrmStatusByName(statuses, 'Perdido');
-    if (!target) {
-      setError('Status "Perdido" não encontrado.');
+    const reprovadoFunil =
+      funis.find((f) => f.name === 'Orçamento Reprovado') ??
+      funis.find((f) => f.name === 'Perdidos');
+    const perdidoStatus = findCrmStatusByName(statuses, 'Perdido');
+    if (!reprovadoFunil) {
+      setError(
+        'Funil "Orçamento Reprovado" não encontrado. Recarregue o CRM ou abra as configurações.',
+      );
       return;
     }
-    setStatusId(target.id);
+    if (perdidoStatus) setStatusId(perdidoStatus.id);
+    setFunilId(reprovadoFunil.id);
     await save({
-      status: target.id,
+      status: perdidoStatus?.id ?? statusId,
+      funilId: reprovadoFunil.id,
       closeAfter: true,
       motivoPerdaId,
       motivoPerdaTexto,

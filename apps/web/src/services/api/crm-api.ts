@@ -78,6 +78,18 @@ export type CrmCardDto = {
   convertedToMeeting: number | null;
   funilId: string;
   funil?: CrmFunilDto;
+  funilOrigemId?: string | null;
+  funilOrigem?: CrmFunilDto | null;
+  funilHistory?: Array<{
+    funilId: string;
+    funilName: string;
+    at: string;
+    fromFunilId?: string | null;
+    fromFunilName?: string | null;
+    statusLegacy?: string | null;
+    reason?: string | null;
+  }>;
+  statusLegacy?: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;

@@ -768,6 +768,37 @@ export class PedidosService {
       }
     });
 
+    const qtyOrSkuChanged = Boolean(
+      dto.items?.some((item) => {
+        const prev = before.items.find((it) => it.id === item.id);
+        if (!prev) return true;
+        if (item.quantity !== undefined && item.quantity !== prev.quantity) {
+          return true;
+        }
+        if (item.sku !== undefined && item.sku.trim() !== prev.sku) {
+          return true;
+        }
+        return false;
+      }),
+    );
+
+    if (qtyOrSkuChanged) {
+      const reservationCount = await this.prisma.client.stockReservation.count({
+        where: { orderId: before.id },
+      });
+      const hadLineReserve = before.items.some((it) => it.reservedQuantity > 0);
+      if (
+        reservationCount > 0 ||
+        hadLineReserve ||
+        before.source === OrderSource.SITE
+      ) {
+        await this.orders.resyncPhysicalReservationsKeepingStatus(
+          userId,
+          before.id,
+        );
+      }
+    }
+
     const after = await this.prisma.client.order.findFirst({
       where: { id: before.id },
       include: { items: { orderBy: { lineNumber: 'asc' } } },

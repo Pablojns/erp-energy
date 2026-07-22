@@ -36,7 +36,12 @@ export type CrmActivityItem = {
 
 export function isCrmClosedStatus(card: CrmCardDto): boolean {
   const name = card.statusMeta?.name;
-  return name === 'Fechado' || name === 'Perdido';
+  return (
+    name === 'Fechado' ||
+    name === 'Perdido' ||
+    card.funil?.name === 'Orçamento Reprovado' ||
+    card.funil?.name === 'Perdidos'
+  );
 }
 
 export function getCrmLastContactAt(card: CrmCardDto): string {

@@ -3499,6 +3499,148 @@ export class OrderService {
     }
   }
 
+  /**
+   * Libera reservas físicas e recria conforme as quantidades atuais dos itens.
+   * Não altera o status do pedido (seguro para EM_SEPARACAO / pós-reserva).
+   */
+  async resyncPhysicalReservationsKeepingStatus(
+    userId: string,
+    orderId: string,
+  ) {
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: { orderBy: { lineNumber: 'asc' } } },
+      });
+      if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+      await this.releaseReservations(
+        tx,
+        userId,
+        orderStockReference(order),
+        order.id,
+        order.items.map((it) => ({
+          id: it.id,
+          productId: it.productId,
+          reservedQuantity: it.reservedQuantity,
+        })),
+      );
+
+      const orderRef = orderStockReference(order);
+
+      for (const line of order.items) {
+        const qty = line.quantity;
+        let productId = line.productId;
+        let skuNorm = line.sku.trim();
+
+        if (!productId) {
+          const found = await tx.product.findFirst({
+            where: {
+              sku: {
+                equals: line.sku.trim(),
+                mode: Prisma.QueryMode.insensitive,
+              },
+              isActive: true,
+            },
+          });
+          if (found) {
+            productId = found.id;
+            skuNorm = found.sku;
+            await tx.orderItem.update({
+              where: { id: line.id },
+              data: { productId },
+            });
+          }
+        }
+
+        if (!productId) {
+          await tx.orderItem.update({
+            where: { id: line.id },
+            data: {
+              reservedQuantity: qty,
+              missingQty: qty,
+              availableAtAnalysis: 0,
+              stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
+            },
+          });
+          continue;
+        }
+
+        const pRow = await tx.product.findUnique({ where: { id: productId } });
+        if (!pRow?.isActive) {
+          await tx.orderItem.update({
+            where: { id: line.id },
+            data: {
+              reservedQuantity: qty,
+              missingQty: qty,
+              availableAtAnalysis: 0,
+              stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
+            },
+          });
+          continue;
+        }
+
+        const physicalAvailable = Math.max(0, pRow.stockQty - pRow.reservedQty);
+        const missing = Math.max(0, qty - physicalAvailable);
+        let stockStatus: OrderItemStockStatus;
+        if (missing <= 0) {
+          stockStatus = OrderItemStockStatus.COMPLETO;
+        } else if (missing >= qty) {
+          stockStatus = OrderItemStockStatus.SEM_ESTOQUE;
+        } else {
+          stockStatus = OrderItemStockStatus.PARCIAL;
+        }
+
+        await tx.orderItem.update({
+          where: { id: line.id },
+          data: {
+            availableAtAnalysis: physicalAvailable,
+            missingQty: missing,
+            reservedQuantity: qty,
+            stockStatus,
+          },
+        });
+
+        await tx.stockReservation.deleteMany({
+          where: { orderItemId: line.id },
+        });
+
+        await tx.product.update({
+          where: { id: productId },
+          data: { reservedQty: { increment: qty } },
+        });
+
+        await tx.stockReservation.create({
+          data: {
+            orderId: order.id,
+            orderItemId: line.id,
+            productId,
+            sku: skuNorm,
+            quantity: qty,
+            createdById: userId,
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId,
+            movementType: StockMovementType.RESERVA,
+            quantity: qty,
+            reference: orderRef,
+            notes: `Ajuste reserva pedido ${orderRef}`,
+            movedById: userId,
+          },
+        });
+      }
+    });
+
+    return this.findOne(orderId);
+  }
+
   private static computeMissingSkuForReserve(row: OrderSerializeSource): boolean {
     if (
       row.status !== OrderStatus.NOVO &&

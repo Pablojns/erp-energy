@@ -26,6 +26,8 @@ import type { UpdateCrmStatusDto } from './dto/update-crm-status.dto';
 import type { UpsertCrmTouchpointsDto } from './dto/upsert-crm-touchpoints.dto';
 import { CRM_CARD_ORIGINS } from './dto/create-crm-card.dto';
 import {
+  CRM_REPROVADO_FUNIL_NAME,
+  appendFunilHistoryEntry,
   getCrmStatusIdByName,
   getDefaultCrmStatusId,
 } from './crm.seed';
@@ -88,6 +90,9 @@ type CrmCardRow = {
   contactsToday: number | null;
   convertedToMeeting: number | null;
   funilId: string;
+  funilOrigemId?: string | null;
+  funilHistory?: unknown;
+  statusLegacy?: string | null;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -96,6 +101,7 @@ type CrmCardRow = {
   motivoPerdaId?: string | null;
   motivoPerdaTexto?: string | null;
   funil?: CrmFunilRow;
+  funilOrigem?: CrmFunilRow | null;
   responsavel?: { id: string; name: string; email: string } | null;
   motivoPerda?: CrmMotivoPerdaRow | null;
   touchpointRecords?: CrmTouchpointRow[];
@@ -105,6 +111,7 @@ type CrmCardRow = {
 export class CrmService {
   private readonly cardInclude = {
     funil: true,
+    funilOrigem: true,
     touchpointRecords: { orderBy: { number: 'asc' as const } },
     responsavel: { select: { id: true, name: true, email: true } },
     motivoPerda: true,
@@ -209,6 +216,12 @@ export class CrmService {
       convertedToMeeting: row.convertedToMeeting,
       funilId: row.funilId,
       funil: row.funil ? this.serializeFunil(row.funil) : undefined,
+      funilOrigemId: row.funilOrigemId ?? null,
+      funilOrigem: row.funilOrigem
+        ? this.serializeFunil(row.funilOrigem)
+        : undefined,
+      funilHistory: Array.isArray(row.funilHistory) ? row.funilHistory : [],
+      statusLegacy: row.statusLegacy ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       closedAt: row.closedAt?.toISOString() ?? null,
@@ -250,6 +263,23 @@ export class CrmService {
   private async loadStatusMap() {
     const rows = await this.prisma.client.crmStatus.findMany();
     return new Map(rows.map((row) => [row.id, row]));
+  }
+
+  private async ensureReprovadoFunil() {
+    const existing = await this.prisma.client.crmFunil.findFirst({
+      where: { name: CRM_REPROVADO_FUNIL_NAME },
+    });
+    if (existing) return existing;
+    const max = await this.prisma.client.crmFunil.aggregate({
+      _max: { order: true },
+    });
+    return this.prisma.client.crmFunil.create({
+      data: {
+        name: CRM_REPROVADO_FUNIL_NAME,
+        order: (max._max.order ?? -1) + 1,
+        color: '#71717a',
+      },
+    });
   }
 
   private async resolveClosedStatusIds() {
@@ -574,6 +604,7 @@ export class CrmService {
     }
 
     const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
+    const funil = await this.assertFunilExists(dto.funilId);
     const createdAt = dto.createdAt ? new Date(dto.createdAt) : new Date();
     if (Number.isNaN(createdAt.getTime())) {
       throw new BadRequestException('Data de criação inválida.');
@@ -594,6 +625,14 @@ export class CrmService {
         createdAt,
         funilId: dto.funilId,
         status: defaultStatusId,
+        funilHistory: [
+          {
+            funilId: funil.id,
+            funilName: funil.name,
+            at: createdAt.toISOString(),
+            reason: 'created',
+          },
+        ],
       },
       include: this.cardInclude,
     });
@@ -664,12 +703,66 @@ export class CrmService {
       }
     }
 
-    const nextStatus = dto.status ?? before.status;
-    const markingPerdido =
-      dto.status !== undefined && dto.status === perdidoId;
-    const alreadyPerdido = before.status === perdidoId;
+    const reprovadoFunil = await this.ensureReprovadoFunil();
+    const movingToReprovado =
+      (dto.funilId !== undefined && dto.funilId === reprovadoFunil.id) ||
+      (dto.status !== undefined && dto.status === perdidoId);
+    const leavingReprovado =
+      before.funilId === reprovadoFunil.id &&
+      dto.funilId !== undefined &&
+      dto.funilId !== reprovadoFunil.id;
+
+    if (movingToReprovado) {
+      if (before.funilId !== reprovadoFunil.id) {
+        data.funilOrigem = {
+          connect: { id: before.funilOrigemId ?? before.funilId },
+        };
+        data.funil = { connect: { id: reprovadoFunil.id } };
+      }
+      data.closedAt = new Date();
+      if (perdidoId) {
+        data.status = perdidoId;
+      }
+    }
+
+    if (leavingReprovado) {
+      data.funilOrigem = { disconnect: true };
+      if (dto.status === undefined || (dto.status !== perdidoId && dto.status !== fechadoId)) {
+        data.closedAt = null;
+      }
+      if (dto.status !== undefined && dto.status !== perdidoId) {
+        data.motivoPerda = { disconnect: true };
+        data.motivoPerdaTexto = null;
+      }
+    }
+
+    const nextFunilId =
+      movingToReprovado && before.funilId !== reprovadoFunil.id
+        ? reprovadoFunil.id
+        : dto.funilId !== undefined
+          ? dto.funilId
+          : before.funilId;
+    if (nextFunilId !== before.funilId) {
+      const targetFunil =
+        nextFunilId === reprovadoFunil.id
+          ? reprovadoFunil
+          : await this.assertFunilExists(nextFunilId);
+      data.funilHistory = appendFunilHistoryEntry(before.funilHistory, {
+        funilId: targetFunil.id,
+        funilName: targetFunil.name,
+        at: new Date().toISOString(),
+        fromFunilId: before.funilId,
+        fromFunilName: before.funil?.name ?? null,
+        reason: movingToReprovado ? 'marcado_perdido' : 'update',
+      });
+    }
+
+    const markingPerdido = movingToReprovado;
+    const alreadyPerdido =
+      before.status === perdidoId || before.funilId === reprovadoFunil.id;
     const willBePerdido =
-      nextStatus === perdidoId || (alreadyPerdido && dto.status === undefined);
+      markingPerdido ||
+      (alreadyPerdido && !leavingReprovado && dto.status === undefined);
 
     if (markingPerdido || (willBePerdido && dto.motivoPerdaId !== undefined)) {
       const motivoId =
@@ -788,11 +881,56 @@ export class CrmService {
   }
 
   async moveCard(id: string, funilId: string) {
-    await this.assertCardExists(id);
-    await this.assertFunilExists(funilId);
+    const before = await this.assertCardExists(id);
+    const target = await this.assertFunilExists(funilId);
+    if (before.funilId === funilId) {
+      const statusMap = await this.loadStatusMap();
+      const full = await this.prisma.client.crmCard.findUnique({
+        where: { id },
+        include: this.cardInclude,
+      });
+      if (!full) throw new NotFoundException('Card não encontrado.');
+      return this.serializeCard(full, statusMap);
+    }
+
+    const { fechadoId, perdidoId } = await this.resolveClosedStatusIds();
+    const reprovadoFunil = await this.ensureReprovadoFunil();
+    const history = appendFunilHistoryEntry(before.funilHistory, {
+      funilId: target.id,
+      funilName: target.name,
+      at: new Date().toISOString(),
+      fromFunilId: before.funilId,
+      fromFunilName: before.funil?.name ?? null,
+      reason: 'kanban_move',
+    });
+
+    const data: Prisma.CrmCardUpdateInput = {
+      funil: { connect: { id: funilId } },
+      funilHistory: history,
+    };
+
+    if (funilId === reprovadoFunil.id) {
+      data.funilOrigem = {
+        connect: { id: before.funilOrigemId ?? before.funilId },
+      };
+      data.closedAt = new Date();
+      if (perdidoId) data.status = perdidoId;
+    } else if (before.funilId === reprovadoFunil.id) {
+      data.funilOrigem = { disconnect: true };
+      if (before.status === perdidoId) {
+        data.closedAt = null;
+        data.motivoPerda = { disconnect: true };
+        data.motivoPerdaTexto = null;
+        const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
+        data.status = defaultStatusId;
+      } else if (before.status !== fechadoId) {
+        data.closedAt = null;
+      }
+    }
+
     const updated = await this.prisma.client.crmCard.update({
       where: { id },
-      data: { funilId },
+      data,
       include: this.cardInclude,
     });
     const statusMap = await this.loadStatusMap();
@@ -1252,10 +1390,13 @@ export class CrmService {
       orderBy: { order: 'asc' },
     });
     const funil =
-      funis.find((f) => this.isOrcamentoFunilName(f.name)) ?? funis[0] ?? null;
+      funis.find((f) => f.name === 'Orçamento Solicitado') ??
+      funis.find((f) => this.isOrcamentoFunilName(f.name)) ??
+      funis[0] ??
+      null;
     if (!funil) {
       throw new BadRequestException(
-        'Nenhum funil CRM configurado. Crie o funil "Orçamentos" antes de cadastrar orçamentos.',
+        'Nenhum funil CRM configurado. Crie o funil "Orçamento Solicitado" antes de cadastrar orçamentos.',
       );
     }
 
@@ -1263,6 +1404,7 @@ export class CrmService {
       (await getCrmStatusIdByName(this.prisma.client, 'Orçamento Solicitado')) ??
       (await getDefaultCrmStatusId(this.prisma.client));
 
+    const createdAt = new Date();
     const created = await this.prisma.client.crmCard.create({
       data: {
         name: input.name.trim(),
@@ -1277,6 +1419,14 @@ export class CrmService {
         status: statusId,
         responsavelId: input.responsavelId?.trim() || null,
         notes: 'Criado automaticamente a partir de orçamento direto.',
+        funilHistory: [
+          {
+            funilId: funil.id,
+            funilName: funil.name,
+            at: createdAt.toISOString(),
+            reason: 'orcamento_direto',
+          },
+        ],
       },
     });
 

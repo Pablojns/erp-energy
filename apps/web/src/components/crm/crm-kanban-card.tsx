@@ -17,7 +17,12 @@ import {
 const DRAG_MIME = 'application/x-crm-card-id';
 
 function isPerdido(card: CrmCardDto) {
-  return card.statusMeta?.name === 'Perdido';
+  return (
+    card.funil?.name === 'Orçamento Reprovado' ||
+    card.funil?.name === 'Perdidos' ||
+    card.statusMeta?.name === 'Perdido' ||
+    Boolean(card.motivoPerdaMeta)
+  );
 }
 
 function isFechado(card: CrmCardDto) {
