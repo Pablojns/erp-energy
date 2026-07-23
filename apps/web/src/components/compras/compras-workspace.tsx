@@ -10,41 +10,33 @@ import { ComprasKanbanBoard } from './compras-kanban-board';
 import { ComprasNewRequestModal } from './compras-new-request-modal';
 import {
   ComprasPeriodFilter,
-  getCurrentMonthRange,
 } from './compras-period-filter';
 import { ComprasResolveModal } from './compras-resolve-modal';
 import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
+import { TYPE_FILTER_OPTIONS } from './compras-types';
 
 const COMPRAS_FILTERS_STORAGE_KEY = 'erp.compras.filters';
 
 type StoredComprasFilters = {
-  typeFilter: 'all' | PurchaseType;
+  /** Sempre inicia em 'all' no load — não restaurar tipo salvo, senão WEG_CONTRATO some. */
   priorityFilter: 'all' | PurchasePriority;
 };
 
 function readStoredFilters(): StoredComprasFilters {
   const fallback: StoredComprasFilters = {
-    typeFilter: 'all',
     priorityFilter: 'all',
   };
   try {
     const raw = window.localStorage.getItem(COMPRAS_FILTERS_STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<StoredComprasFilters>;
-    const typeFilter =
-      parsed.typeFilter === 'WEG_CONTRATO' ||
-      parsed.typeFilter === 'VENDA_EXTERNA' ||
-      parsed.typeFilter === 'MARKETPLACE' ||
-      parsed.typeFilter === 'all'
-        ? parsed.typeFilter
-        : 'all';
     const priorityFilter =
       parsed.priorityFilter === 'URGENTE' ||
       parsed.priorityFilter === 'NORMAL' ||
       parsed.priorityFilter === 'all'
         ? parsed.priorityFilter
         : 'all';
-    return { typeFilter, priorityFilter };
+    return { priorityFilter };
   } catch {
     return fallback;
   }
@@ -52,7 +44,10 @@ function readStoredFilters(): StoredComprasFilters {
 
 function writeStoredFilters(filters: StoredComprasFilters): void {
   try {
-    window.localStorage.setItem(COMPRAS_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    window.localStorage.setItem(
+      COMPRAS_FILTERS_STORAGE_KEY,
+      JSON.stringify({ typeFilter: 'all', ...filters }),
+    );
   } catch {
     /* ignore quota / private mode */
   }
@@ -64,8 +59,9 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | PurchasePriority>('all');
   const [filtersHydrated, setFiltersHydrated] = useState(false);
-  const [dateFrom, setDateFrom] = useState(() => getCurrentMonthRange().from);
-  const [dateTo, setDateTo] = useState(() => getCurrentMonthRange().to);
+  // Sem filtro de data no load: pedidos WEG_CONTRATO fora do mês atual também aparecem
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [rows, setRows] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,15 +84,16 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
 
   useEffect(() => {
     const stored = readStoredFilters();
-    setTypeFilter(stored.typeFilter);
+    // Tipo sempre 'all' ao abrir — evita esconder WEG_CONTRATO por filtro antigo no localStorage
+    setTypeFilter('all');
     setPriorityFilter(stored.priorityFilter);
     setFiltersHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!filtersHydrated) return;
-    writeStoredFilters({ typeFilter, priorityFilter });
-  }, [filtersHydrated, typeFilter, priorityFilter]);
+    writeStoredFilters({ priorityFilter });
+  }, [filtersHydrated, priorityFilter]);
 
   const clearFilters = useCallback(() => {
     setTypeFilter('all');
@@ -117,11 +114,13 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         if (dateFrom.trim()) params.set('startDate', dateFrom.trim());
         if (dateTo.trim()) params.set('endDate', dateTo.trim());
 
+        // Tipo/prioridade em ambas as views — inclui WEG_CONTRATO quando Tipo = Todos
+        if (typeFilter !== 'all') params.set('type', typeFilter);
+        if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+
         if (activeView === 'compras') {
           const cleanSearch = search.trim();
           if (cleanSearch) params.set('search', cleanSearch);
-          if (typeFilter !== 'all') params.set('type', typeFilter);
-          if (priorityFilter !== 'all') params.set('priority', priorityFilter);
         }
 
         const data = await fetchPurchaseRequests(params);
@@ -209,12 +208,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
           <FilterDropdown
             label="Tipo"
             value={typeFilter}
-            options={[
-              { value: 'all', label: 'Todos' },
-              { value: 'WEG_CONTRATO', label: 'WEG' },
-              { value: 'VENDA_EXTERNA', label: 'Venda Externa' },
-              { value: 'MARKETPLACE', label: 'Marketplace' },
-            ]}
+            options={TYPE_FILTER_OPTIONS}
             onChange={(value) => setTypeFilter(value as typeof typeFilter)}
           />
 
@@ -244,7 +238,6 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             dateFrom={dateFrom}
             dateTo={dateTo}
             onChange={handlePeriodChange}
-            hideAllPreset
           />
 
           <button

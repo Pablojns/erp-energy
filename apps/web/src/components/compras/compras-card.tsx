@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { PurchaseRequest } from './compras-types';
-import { TYPE_LABEL } from './compras-types';
+import { typeLabel } from './compras-types';
 import {
   calcPaidTotalFromRow,
   displayName,
@@ -20,7 +20,8 @@ import {
 const DRAG_ACTIVATION_DISTANCE = 8;
 const QUOTE_CODE_COLOR = '#2AACE2';
 
-function typeLabelClass(type: PurchaseRequest['type']) {
+/** Venda Externa = amarelo; WEG_CONTRATO = azul escuro (mesmo padrão "WEG"). */
+function typeLabelClass(type: PurchaseRequest['type'] | string) {
   if (type === 'VENDA_EXTERNA') return 'text-yellow-500';
   if (type === 'WEG_CONTRATO') return 'text-blue-900';
   return 'text-[var(--erp-accent)]';
@@ -120,7 +121,7 @@ export function ComprasCard(props: {
     >
       <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 md:mb-2">
         <span className={`text-xs font-semibold ${typeLabelClass(row.type)}`}>
-          {TYPE_LABEL[row.type]}
+          {typeLabel(row.type)}
         </span>
         <span className={`text-xs font-semibold ${priorityLabelClass(row.priority)}`}>
           {priorityLabel(row.priority)}
@@ -193,7 +194,7 @@ export function ComprasCardPreview(props: { row: PurchaseRequest }) {
     <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3 shadow-2xl">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <span className={`text-xs font-semibold ${typeLabelClass(row.type)}`}>
-          {TYPE_LABEL[row.type]}
+          {typeLabel(row.type)}
         </span>
         <span className={`text-xs font-semibold ${priorityLabelClass(row.priority)}`}>
           {priorityLabel(row.priority)}

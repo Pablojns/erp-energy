@@ -114,6 +114,19 @@ export const TYPE_LABEL: Record<PurchaseType, string> = {
   MARKETPLACE: 'Marketplace',
 };
 
+/** Opções do filtro "Tipo" — inclui todos os types válidos da API. */
+export const TYPE_FILTER_OPTIONS: Array<{ value: 'all' | PurchaseType; label: string }> = [
+  { value: 'all', label: 'Todos' },
+  { value: 'WEG_CONTRATO', label: 'WEG' },
+  { value: 'VENDA_EXTERNA', label: 'Venda Externa' },
+  { value: 'MARKETPLACE', label: 'Marketplace' },
+];
+
+export function typeLabel(type: string): string {
+  if (type in TYPE_LABEL) return TYPE_LABEL[type as PurchaseType];
+  return type;
+}
+
 export function purchaseStatusLabel(status: PurchaseStatus): string {
   if (status === 'COMPRADO') return 'Pedido Enviado/Aprovado';
   const fromKanban = KANBAN_COLUMNS.find((column) => column.id === status);

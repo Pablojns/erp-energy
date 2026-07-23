@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -193,13 +193,15 @@ export const OrderInfoPanel = forwardRef<
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [customers, setCustomers] = useState<
-    Array<{ id: string; name: string; document: string | null; isActive: boolean }>
+    Array<{ id: string; name: string; cnpj: string | null; isActive: boolean }>
   >([]);
   const [cnpjInput, setCnpjInput] = useState(
     order.deliveryCnpj ?? order.customerDocument ?? '',
   );
+  const [cnpjComboOpen, setCnpjComboOpen] = useState(false);
   const [savingCnpj, setSavingCnpj] = useState(false);
   const [cnpjError, setCnpjError] = useState<string | null>(null);
+  const cnpjComboRef = useRef<HTMLDivElement>(null);
   const lastSavedCnpjRef = useRef(
     (order.deliveryCnpj ?? order.customerDocument ?? '').trim(),
   );
@@ -399,11 +401,11 @@ export const OrderInfoPanel = forwardRef<
     if (isSimpleCustomerLayout) return;
     let cancelled = false;
     void erpFetchJson<
-      Array<{ id: string; name: string; document: string | null; isActive: boolean }>
+      Array<{ id: string; name: string; cnpj: string | null; isActive: boolean }>
     >('cadastros/customers')
       .then((rows) => {
         if (!cancelled) {
-          setCustomers(rows.filter((c) => c.isActive));
+          setCustomers(rows.filter((c) => c.isActive && Boolean(c.cnpj?.trim())));
         }
       })
       .catch(() => {
@@ -419,7 +421,18 @@ export const OrderInfoPanel = forwardRef<
     setCnpjInput(order.deliveryCnpj ?? order.customerDocument ?? '');
     lastSavedCnpjRef.current = initial;
     setCnpjError(null);
+    setCnpjComboOpen(false);
   }, [order.id, order.deliveryCnpj, order.customerDocument]);
+
+  useEffect(() => {
+    if (!cnpjComboOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (cnpjComboRef.current?.contains(e.target as Node)) return;
+      setCnpjComboOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [cnpjComboOpen]);
 
   const digitsOnly = (value: string) => value.replace(/\D/g, '');
 
@@ -427,9 +440,27 @@ export const OrderInfoPanel = forwardRef<
     const digits = digitsOnly(raw);
     if (digits.length < 11) return null;
     return (
-      customers.find((c) => digitsOnly(c.document ?? '') === digits) ?? null
+      customers.find((c) => digitsOnly(c.cnpj ?? '') === digits) ?? null
     );
   };
+
+  const filteredCustomers = useMemo(() => {
+    const q = cnpjInput.trim().toLowerCase();
+    const qDigits = digitsOnly(cnpjInput);
+    if (!q) return customers.slice(0, 12);
+    return customers
+      .filter((c) => {
+        const name = c.name.toLowerCase();
+        const cnpj = (c.cnpj ?? '').toLowerCase();
+        const cnpjDigits = digitsOnly(c.cnpj ?? '');
+        return (
+          name.includes(q) ||
+          cnpj.includes(q) ||
+          (qDigits.length > 0 && cnpjDigits.includes(qDigits))
+        );
+      })
+      .slice(0, 12);
+  }, [customers, cnpjInput]);
 
   const saveCnpj = async (raw: string, customerId?: string | null) => {
     const numeroPed = numeroPedFromOrder(order);
@@ -468,8 +499,23 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
+  const selectCustomer = async (customer: {
+    id: string;
+    name: string;
+    cnpj: string | null;
+  }) => {
+    const cnpj = customer.cnpj?.trim() || '';
+    setCnpjInput(cnpj);
+    setCnpjComboOpen(false);
+    await saveCnpj(cnpj, customer.id);
+  };
+
   const handleCnpjBlur = async () => {
     if (fieldsReadOnly || isSimpleCustomerLayout) return;
+    // Aguarda um tick para permitir mousedown na sugestão antes do blur/salvar.
+    await new Promise((r) => window.setTimeout(r, 120));
+    if (cnpjComboRef.current?.contains(document.activeElement)) return;
+
     const trimmed = cnpjInput.trim();
     if (trimmed === lastSavedCnpjRef.current) return;
 
@@ -479,7 +525,7 @@ export const OrderInfoPanel = forwardRef<
         `CNPJ corresponde ao cliente "${match.name}".\n\nVincular este cliente ao pedido?`,
       );
       if (link) {
-        await saveCnpj(match.document?.trim() || trimmed, match.id);
+        await saveCnpj(match.cnpj?.trim() || trimmed, match.id);
         return;
       }
     }
@@ -885,46 +931,86 @@ export const OrderInfoPanel = forwardRef<
             </>
           ) : (
             <>
-              <div className="exp-wb-order-party-cell">
+              <div className="exp-wb-order-party-cell exp-wb-order-party-cell--wrap relative z-20 overflow-visible">
                 <span className="exp-wb-order-party-label">Comprador (CNPJ)</span>
-                <div className="exp-wb-order-party-value-row min-w-0">
+                <div className="exp-wb-order-party-value-row min-w-0 overflow-visible">
                   {fieldsReadOnly ? (
                     <span className="exp-wb-order-party-value" title={cnpj}>
                       {cnpj}
                     </span>
                   ) : (
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div ref={cnpjComboRef} className="relative z-20 w-full min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <input
-                          list="weg-cnpj-customers"
-                          value={cnpjInput}
-                          onChange={(e) => {
-                            setCnpjInput(e.target.value);
-                            setCnpjError(null);
-                          }}
-                          onBlur={() => void handleCnpjBlur()}
-                          disabled={savingCnpj}
-                          placeholder="Digite o CNPJ ou selecione um cliente"
-                          className={inputClassName}
-                          aria-label="CNPJ comprador"
-                        />
+                        <div className="relative min-w-0 flex-1">
+                          <input
+                            value={cnpjInput}
+                            onChange={(e) => {
+                              setCnpjInput(e.target.value);
+                              setCnpjError(null);
+                              setCnpjComboOpen(true);
+                            }}
+                            onFocus={() => setCnpjComboOpen(true)}
+                            onBlur={() => void handleCnpjBlur()}
+                            disabled={savingCnpj}
+                            placeholder="Digite CNPJ ou busque cliente…"
+                            className={`${inputClassName} pr-7`}
+                            aria-label="CNPJ comprador"
+                            aria-autocomplete="list"
+                            aria-expanded={cnpjComboOpen}
+                            role="combobox"
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                            aria-label="Mostrar clientes cadastrados"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setCnpjComboOpen((open) => !open);
+                            }}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                         {savingCnpj ? (
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
                         ) : null}
                       </div>
-                      <datalist id="weg-cnpj-customers">
-                        {customers
-                          .filter((c) => c.document?.trim())
-                          .map((c) => (
-                            <option
-                              key={c.id}
-                              value={c.document ?? ''}
-                              label={`${c.name} — ${c.document}`}
-                            />
-                          ))}
-                      </datalist>
+                      {cnpjComboOpen ? (
+                        <ul
+                          role="listbox"
+                          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] py-1 shadow-lg"
+                        >
+                          {filteredCustomers.length === 0 ? (
+                            <li className="px-2.5 py-2 text-[11px] text-[var(--text-muted)]">
+                              Nenhum cliente encontrado — digite um CNPJ novo e saia do campo para salvar.
+                            </li>
+                          ) : (
+                            filteredCustomers.map((c) => (
+                              <li key={c.id} role="option">
+                                <button
+                                  type="button"
+                                  className="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left hover:bg-[var(--input-bg)]"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    void selectCustomer(c);
+                                  }}
+                                >
+                                  <span className="text-[12px] font-medium text-[var(--text-primary)]">
+                                    {c.name}
+                                  </span>
+                                  <span className="text-[11px] text-[var(--text-secondary)]">
+                                    {c.cnpj}
+                                  </span>
+                                </button>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      ) : null}
                       {cnpjError ? (
-                        <span className="text-[11px] text-red-500">{cnpjError}</span>
+                        <span className="mt-1 block text-[11px] text-red-500">{cnpjError}</span>
                       ) : null}
                     </div>
                   )}
