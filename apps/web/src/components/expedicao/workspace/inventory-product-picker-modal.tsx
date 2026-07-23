@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Package, Search, X } from 'lucide-react';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
@@ -272,22 +272,30 @@ export function InventoryProductPickerModal(props: {
                           props.onClose();
                         }}
                       >
+                        <div
+                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] text-[var(--erp-fg-muted)]"
+                          aria-hidden
+                        >
+                          <Package className="h-5 w-5" />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-[var(--erp-fg)]">
                             {product.name}
                           </p>
-                          <p className="mt-0.5 font-mono text-[11px] text-[var(--erp-fg-muted)]">
-                            {product.sku}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right text-xs">
-                          <p className="font-semibold tabular-nums text-[var(--erp-fg)]">
-                            {money(product.price)}
-                          </p>
-                          <p className="mt-0.5 text-[var(--erp-fg-muted)]">
-                            Disp.:{' '}
+                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--erp-fg-muted)]">
+                            <span className="font-mono">
+                              SKU: {product.sku || '—'}
+                            </span>
+                            <span aria-hidden>|</span>
+                            <span>
+                              Disp.:{' '}
+                              <span className="font-semibold tabular-nums text-[var(--erp-fg)]">
+                                {available == null ? '—' : available}
+                              </span>
+                            </span>
+                            <span aria-hidden>|</span>
                             <span className="font-semibold tabular-nums text-[var(--erp-fg)]">
-                              {available == null ? '—' : available}
+                              {money(product.price)}
                             </span>
                           </p>
                         </div>

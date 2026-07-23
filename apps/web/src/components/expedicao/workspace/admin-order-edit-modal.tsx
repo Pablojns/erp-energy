@@ -1,10 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
-import { canEditSiteOrderItems } from '@/src/components/expedicao/shared/order-helpers';
-import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import {
+  canEditSiteOrderItems,
+  resolveItemReceiptStatusForOrder,
+} from '@/src/components/expedicao/shared/order-helpers';
+import { useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
+import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
+import {
+  OrderItemOrderedQtyCell,
+  OrderItemStockQtyCell,
+} from '@/src/components/expedicao/workspace/order-item-stock-cells';
+import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import {
   InventoryProductPickerModal,
   type InventoryProductOption,
@@ -39,6 +48,7 @@ type EditItemRow = {
   description: string;
   quantity: string;
   unitPrice: string;
+  pickedQty: number;
   mercadoEletronicoItemStatus: string;
 };
 
@@ -79,6 +89,38 @@ export function AdminOrderEditModal(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingIndex, setPickingIndex] = useState<number | null>(null);
 
+  const stockLookupItems = useMemo((): OrderItemDto[] => {
+    if (!isOpen || !order || order.source !== 'SITE') return [];
+    return items.map((it) => {
+      const original = order.items.find((o) => o.id === it.id);
+      return {
+        ...(original ?? {
+          id: it.id,
+          lineNumber: it.lineNumber,
+          reservedQuantity: 0,
+          unit: null,
+          ncm: null,
+          totalPrice: '0',
+          stockAvailable: null,
+          openNeed: 0,
+          stockCoversOpenNeed: false,
+          product: null,
+        }),
+        id: it.id,
+        lineNumber: it.lineNumber,
+        sku: it.sku,
+        description: it.description,
+        quantity: Number(it.quantity) || 0,
+        unitPrice: it.unitPrice,
+        productId: it.productId || null,
+        pickedQty: it.pickedQty,
+        mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
+      } as OrderItemDto;
+    });
+  }, [isOpen, order, items]);
+
+  const stockByItemId = useOrderItemsStock(stockLookupItems);
+
   useEffect(() => {
     if (!isOpen) return;
     void erpFetchJson<CarrierOption[]>('cadastros/carriers')
@@ -111,6 +153,7 @@ export function AdminOrderEditModal(props: {
         description: it.description,
         quantity: String(it.quantity),
         unitPrice: it.unitPrice ?? '0',
+        pickedQty: it.pickedQty ?? 0,
         mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus ?? '',
       })),
     );
@@ -260,7 +303,7 @@ export function AdminOrderEditModal(props: {
         aria-label="Fechar"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-2xl">
+      <div className="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">
@@ -382,122 +425,176 @@ export function AdminOrderEditModal(props: {
           )}
 
           <h3 className="mt-5 mb-2 text-sm font-semibold text-[var(--text-primary)]">Itens</h3>
+          {isSiteOrder && siteItemsEditable ? (
+            <p className="mb-2 text-xs text-[var(--text-secondary)]">
+              Clique no produto para trocar o item do estoque. Quantidade editável abaixo.
+            </p>
+          ) : null}
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
             <table className="min-w-full text-sm">
               <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
                 <tr>
                   <th className="px-2 py-2 text-left">Linha</th>
+                  <th className="px-2 py-2 text-left">SKU</th>
+                  <th className="px-2 py-2 text-left">Item</th>
+                  <th className="px-2 py-2 text-center">Qtd</th>
                   {isSiteOrder ? (
-                    <th className="px-2 py-2 text-left" colSpan={2}>
-                      Produto (estoque)
-                    </th>
-                  ) : (
                     <>
-                      <th className="px-2 py-2 text-left">SKU</th>
-                      <th className="px-2 py-2 text-left">Item</th>
+                      <th className="px-2 py-2 text-center whitespace-nowrap">Qtd Separada</th>
+                      <th className="px-2 py-2 text-center">Falta</th>
+                      <th className="px-2 py-2 text-center">Qtd Estoque</th>
+                      <th className="px-2 py-2 text-center">Status item</th>
                     </>
-                  )}
-                  <th className="px-2 py-2 text-left">Qtd</th>
-                  {!isSimpleCustomerLayout ? (
+                  ) : !isSimpleCustomerLayout ? (
                     <th className="px-2 py-2 text-left">Status item</th>
                   ) : null}
                 </tr>
               </thead>
               <tbody>
-                {items.map((it, idx) => (
-                  <tr key={it.id} className="border-t border-[var(--border-color)]">
-                    <td className="px-2 py-2">{it.lineNumber}</td>
-                    {isSiteOrder ? (
-                      <td className="px-2 py-2" colSpan={2}>
-                        <button
-                          type="button"
-                          disabled={busy || !siteItemsEditable}
-                          onClick={() => openPickerFor(idx)}
-                          className={`${fieldClass()} flex items-start gap-2 text-left disabled:cursor-default disabled:opacity-80`}
-                        >
-                          <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
-                          <span className="min-w-0 flex-1">
-                            {it.productId || it.sku ? (
-                              <>
-                                <span className="block truncate font-medium text-[var(--text-primary)]">
-                                  {it.description || 'Produto'}
-                                </span>
-                                <span className="block truncate font-mono text-[10px] text-[var(--text-muted)]">
-                                  {it.sku}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="text-[var(--text-muted)]">
-                                Buscar produto no estoque…
+                {items.map((it, idx) => {
+                  const qtyNum = Number(it.quantity) || 0;
+                  const picked = it.pickedQty ?? 0;
+                  const missing = Math.max(0, qtyNum - picked);
+                  const stock = stockByItemId[it.id] ?? {
+                    available: null,
+                    loading: true,
+                  };
+                  const orderItemForStatus = order.items.find((o) => o.id === it.id);
+
+                  if (isSiteOrder) {
+                    return (
+                      <tr key={it.id} className="border-t border-[var(--border-color)]">
+                        <td className="px-2 py-2 text-xs">{it.lineNumber}</td>
+                        <td className="px-2 py-2 font-mono text-xs">{it.sku || '—'}</td>
+                        <td className="px-2 py-2">
+                          {siteItemsEditable ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => openPickerFor(idx)}
+                              className={`${fieldClass()} flex max-w-md items-start gap-2 text-left`}
+                              title="Trocar produto"
+                            >
+                              <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                              <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">
+                                {it.description || 'Buscar produto no estoque…'}
                               </span>
-                            )}
-                          </span>
-                        </button>
-                      </td>
-                    ) : (
-                      <>
-                        <td className="px-2 py-2">
-                          <input
-                            className={fieldClass()}
-                            value={it.sku}
-                            onChange={(e) => {
-                              const next = [...items];
-                              next[idx] = { ...it, sku: e.target.value };
-                              setItems(next);
-                            }}
+                            </button>
+                          ) : (
+                            <span className="text-xs" title={it.description}>
+                              {it.description || '—'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {siteItemsEditable ? (
+                            <input
+                              type="number"
+                              min={1}
+                              className={`${fieldClass()} mx-auto w-20 text-center`}
+                              value={it.quantity}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const next = [...items];
+                                next[idx] = { ...it, quantity: e.target.value };
+                                setItems(next);
+                              }}
+                            />
+                          ) : (
+                            <OrderItemOrderedQtyCell qty={qtyNum} />
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center text-xs font-semibold">{picked}</td>
+                        <td
+                          className={`px-2 py-2 text-center text-xs font-semibold ${
+                            missing > 0 ? 'text-amber-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          {missing}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <OrderItemStockQtyCell orderedQty={qtyNum} stock={stock} />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <OrderItemReceiptStatusBadge
+                            status={
+                              orderItemForStatus
+                                ? resolveItemReceiptStatusForOrder(
+                                    orderItemForStatus,
+                                    order.status,
+                                  )
+                                : it.mercadoEletronicoItemStatus || null
+                            }
                           />
                         </td>
-                        <td className="px-2 py-2">
-                          <input
-                            className={fieldClass()}
-                            value={it.description}
-                            onChange={(e) => {
-                              const next = [...items];
-                              next[idx] = { ...it, description: e.target.value };
-                              setItems(next);
-                            }}
-                          />
-                        </td>
-                      </>
-                    )}
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        min={1}
-                        className={`${fieldClass()} w-20`}
-                        value={it.quantity}
-                        disabled={busy || (isSiteOrder && !siteItemsEditable)}
-                        onChange={(e) => {
-                          const next = [...items];
-                          next[idx] = { ...it, quantity: e.target.value };
-                          setItems(next);
-                        }}
-                      />
-                    </td>
-                    {!isSimpleCustomerLayout ? (
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={it.id} className="border-t border-[var(--border-color)]">
+                      <td className="px-2 py-2">{it.lineNumber}</td>
                       <td className="px-2 py-2">
-                        <select
+                        <input
                           className={fieldClass()}
-                          value={it.mercadoEletronicoItemStatus}
+                          value={it.sku}
                           onChange={(e) => {
                             const next = [...items];
-                            next[idx] = {
-                              ...it,
-                              mercadoEletronicoItemStatus: e.target.value,
-                            };
+                            next[idx] = { ...it, sku: e.target.value };
                             setItems(next);
                           }}
-                        >
-                          {ITEM_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt || 'empty'} value={opt}>
-                              {opt || '—'}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </td>
-                    ) : null}
-                  </tr>
-                ))}
+                      <td className="px-2 py-2">
+                        <input
+                          className={fieldClass()}
+                          value={it.description}
+                          onChange={(e) => {
+                            const next = [...items];
+                            next[idx] = { ...it, description: e.target.value };
+                            setItems(next);
+                          }}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={1}
+                          className={`${fieldClass()} w-20`}
+                          value={it.quantity}
+                          disabled={busy}
+                          onChange={(e) => {
+                            const next = [...items];
+                            next[idx] = { ...it, quantity: e.target.value };
+                            setItems(next);
+                          }}
+                        />
+                      </td>
+                      {!isSimpleCustomerLayout ? (
+                        <td className="px-2 py-2">
+                          <select
+                            className={fieldClass()}
+                            value={it.mercadoEletronicoItemStatus}
+                            onChange={(e) => {
+                              const next = [...items];
+                              next[idx] = {
+                                ...it,
+                                mercadoEletronicoItemStatus: e.target.value,
+                              };
+                              setItems(next);
+                            }}
+                          >
+                            {ITEM_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt || 'empty'} value={opt}>
+                                {opt || '—'}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

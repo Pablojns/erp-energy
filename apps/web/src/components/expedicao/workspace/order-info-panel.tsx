@@ -695,7 +695,7 @@ export const OrderInfoPanel = forwardRef<
                 onClick={onEditOrder}
               >
                 <Pencil className="h-3.5 w-3.5" />
-                Editar
+                Editar Pedido
               </button>
             ) : null}
             {canEmitEtiqueta ? (
