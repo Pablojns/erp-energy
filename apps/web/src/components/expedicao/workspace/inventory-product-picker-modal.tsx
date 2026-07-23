@@ -60,6 +60,8 @@ export function InventoryProductPickerModal(props: {
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
   const requestIdRef = useRef(0);
+  // Termo já aplicado (comparado no debounce para resetar paginação junto do setSearch).
+  const searchRef = useRef('');
 
   const resetList = useCallback(() => {
     setPage(1);
@@ -69,94 +71,105 @@ export function InventoryProductPickerModal(props: {
     setTotal(0);
   }, []);
 
+  // Ao abrir/fechar, zera o estado da busca e da paginação.
   useEffect(() => {
     if (!props.open) return;
     setSearchInput('');
     setSearch('');
+    searchRef.current = '';
     setError(null);
     resetList();
   }, [props.open, resetList]);
 
-  // Busca em tempo real (debounce).
+  // Busca em tempo real (debounce). Quando o termo muda, o setSearch e o
+  // resetList acontecem no MESMO batch, evitando dessincronização entre
+  // `page` e `search` (que fazia o load buscar uma página fora do intervalo).
   useEffect(() => {
     if (!props.open) return;
     const handle = window.setTimeout(() => {
       const next = searchInput.trim();
-      setSearch((prev) => {
-        if (prev === next) return prev;
-        return next;
-      });
+      if (searchRef.current === next) return;
+      searchRef.current = next;
+      setSearch(next);
+      resetList();
     }, 250);
     return () => window.clearTimeout(handle);
-  }, [props.open, searchInput]);
+  }, [props.open, searchInput, resetList]);
 
-  // Ao mudar o termo, reinicia a paginação (o load reage via `search` no callback).
-  const searchRef = useRef(search);
-  useEffect(() => {
-    if (!props.open) return;
-    if (searchRef.current === search) return;
-    searchRef.current = search;
-    resetList();
-  }, [props.open, search, resetList]);
+  // Único carregador: reage a mudanças de `page`/`search`. isAppend = page > 1.
+  const load = useCallback(async () => {
+    const isAppend = page > 1;
+    const requestId = ++requestIdRef.current;
+    if (isAppend) {
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        status: 'active',
+        sortBy: 'sku',
+        sortOrder: 'asc',
+      });
+      if (search) params.set('search', search);
 
-  const load = useCallback(
-    async (pageToLoad: number, append: boolean) => {
-      const requestId = ++requestIdRef.current;
-      if (append) {
-        setLoadingMore(true);
-      } else {
-        setLoading(true);
-      }
-      setError(null);
-      try {
-        const params = new URLSearchParams({
-          page: String(pageToLoad),
-          pageSize: String(pageSize),
-          status: 'active',
-          sortBy: 'sku',
-          sortOrder: 'asc',
-        });
-        if (search) params.set('search', search);
+      const res = await erpFetchJson<PaginatedProducts>(
+        `products?${params.toString()}`,
+      );
+      if (requestId !== requestIdRef.current) return;
 
-        const res = await erpFetchJson<PaginatedProducts>(
-          `products?${params.toString()}`,
-        );
-        if (requestId !== requestIdRef.current) return;
-
-        const nextRows = res.data ?? [];
-        const meta = res.meta;
-        setTotal(meta?.total ?? nextRows.length);
-        setRows((prev) => (append ? [...prev, ...nextRows] : nextRows));
-        const more =
-          meta != null
-            ? pageToLoad < meta.totalPages
-            : nextRows.length >= pageSize;
-        setHasMore(more);
-        hasMoreRef.current = more;
-      } catch (e) {
-        if (requestId !== requestIdRef.current) return;
-        setError(
-          e instanceof Error ? e.message : 'Falha ao carregar produtos do estoque.',
-        );
-        if (!append) setRows([]);
-        setHasMore(false);
-        hasMoreRef.current = false;
-      } finally {
-        if (requestId === requestIdRef.current) {
-          setLoading(false);
-          setLoadingMore(false);
-          loadingMoreRef.current = false;
+      const nextRows = res.data ?? [];
+      const meta = res.meta;
+      setTotal(meta?.total ?? nextRows.length);
+      setRows((prev) => {
+        if (!isAppend) return nextRows;
+        // Evita perder a página 1 se um append chegar com lista vazia (race).
+        if (prev.length === 0 && page > 1) return nextRows;
+        const seen = new Set(prev.map((r) => r.id));
+        const merged = [...prev];
+        for (const row of nextRows) {
+          if (!seen.has(row.id)) {
+            seen.add(row.id);
+            merged.push(row);
+          }
         }
+        return merged;
+      });
+      const more =
+        nextRows.length === 0
+          ? false
+          : meta != null
+            ? page < meta.totalPages
+            : nextRows.length >= pageSize;
+      setHasMore(more);
+      hasMoreRef.current = more;
+    } catch (e) {
+      if (requestId !== requestIdRef.current) return;
+      setError(
+        e instanceof Error ? e.message : 'Falha ao carregar produtos do estoque.',
+      );
+      if (!isAppend) setRows([]);
+      setHasMore(false);
+      hasMoreRef.current = false;
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        loadingMoreRef.current = false;
       }
-    },
-    [search],
-  );
+    }
+  }, [page, search]);
 
   useEffect(() => {
     if (!props.open) return;
-    void load(page, page > 1);
-  }, [props.open, page, load]);
+    void load();
+  }, [props.open, load]);
 
+  // Carrega a próxima página ao aproximar do fim (scroll infinito).
   useEffect(() => {
     if (!props.open) return;
     const root = listRef.current;
@@ -222,7 +235,11 @@ export function InventoryProductPickerModal(props: {
             </label>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-[var(--erp-fg-muted)]">
-                {total > 0 ? `${total} produto(s)` : null}
+                {total > 0
+                  ? `${rows.length} de ${total} produto${
+                      total === 1 ? '' : 's'
+                    }${hasMore ? ' · role para carregar mais' : ''}`
+                  : null}
               </span>
             </div>
             {error ? (

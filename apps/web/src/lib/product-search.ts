@@ -2,6 +2,10 @@
  * Busca inteligente de produtos do estoque (client-side).
  * Espelha a semântica de `buildProductSmartSearchWhere` no backend:
  * todas as palavras devem aparecer, em qualquer ordem.
+ *
+ * Tokens curtos (≤3): correspondência exata a uma palavra completa
+ * (evita "p" casar dentro de "polo").
+ * Tokens longos (4+): substring dentro de alguma palavra.
  */
 
 export type ProductSearchable = {
@@ -9,6 +13,9 @@ export type ProductSearchable = {
   name: string;
   internalCode?: string | null;
 };
+
+/** Tokens com este tamanho ou menos exigem palavra completa exata. */
+export const PRODUCT_SEARCH_SHORT_TOKEN_MAX = 3;
 
 export function normalizeProductSearchText(value: string): string {
   return value
@@ -25,8 +32,13 @@ export function splitProductSearchTokens(search: string): string[] {
   return normalized.split(/\s+/).filter(Boolean);
 }
 
+/** Divide texto em palavras completas (espaço, hífen e demais separadores). */
+export function splitProductWords(value: string): string[] {
+  return normalizeProductSearchText(value).split(/\s+/).filter(Boolean);
+}
+
 function productNameWords(product: ProductSearchable): string[] {
-  return normalizeProductSearchText(product.name).split(/\s+/).filter(Boolean);
+  return splitProductWords(product.name);
 }
 
 function productSearchWords(product: ProductSearchable): string[] {
@@ -39,8 +51,15 @@ function productSearchWords(product: ProductSearchable): string[] {
   return [...extra, ...words];
 }
 
-function tokenMatchesWord(token: string, word: string): boolean {
-  return word === token || word.startsWith(token);
+/**
+ * Curto (≤3): palavra === token.
+ * Longo (4+): token é substring de alguma palavra completa.
+ */
+export function tokenMatchesWord(token: string, word: string): boolean {
+  if (token.length <= PRODUCT_SEARCH_SHORT_TOKEN_MAX) {
+    return word === token;
+  }
+  return word.includes(token);
 }
 
 export function productMatchesSearch(
