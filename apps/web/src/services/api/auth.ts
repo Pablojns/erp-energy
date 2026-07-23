@@ -23,6 +23,7 @@ export type AuthUser = {
   email: string;
   isActive: boolean;
   roles: string[];
+  defaultContext?: string | null;
 };
 
 export type AuthResponse = {

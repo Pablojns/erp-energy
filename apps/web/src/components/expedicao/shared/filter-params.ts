@@ -55,6 +55,8 @@ export function buildFilterParams(opts: {
   separationSubFilter?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  /** Contexto global WEG | SITE | ALL — ALL não envia filtro. */
+  businessContext?: 'WEG' | 'SITE' | 'ALL';
 }): URLSearchParams {
   const params = new URLSearchParams();
   const f = opts.appliedFilters;
@@ -62,6 +64,9 @@ export function buildFilterParams(opts: {
   applyStatusFilter(opts.statusFilter, params, opts.mode ?? 'expedition');
 
   if (f.source !== 'all') params.set('source', f.source);
+  if (opts.businessContext === 'WEG' || opts.businessContext === 'SITE') {
+    params.set('businessContext', opts.businessContext);
+  }
   if (f.invoiceStatus !== 'all') params.set('invoiceStatus', f.invoiceStatus);
   if (f.externalOrderNumber.trim())
     params.set('externalOrderNumber', f.externalOrderNumber.trim());

@@ -52,6 +52,21 @@ export class ProductQueryDto {
   @IsUUID('4')
   categoryId?: string;
 
+  /** Filtro de origem do produto (WEG / SITE / LONDRINA…). */
+  @IsOptional()
+  @IsString()
+  origin?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  companyEntityId?: string;
+
+  /** Contexto global: WEG (SP) | SITE (Londrina). */
+  @IsOptional()
+  @IsString()
+  @IsIn(['WEG', 'SITE', 'ALL'])
+  businessContext?: 'WEG' | 'SITE' | 'ALL';
+
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     value === true || value === 'true',

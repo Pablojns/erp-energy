@@ -5,6 +5,14 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Product } from '@erp/database';
 import { AuditService } from '../common/audit.service';
+import {
+  PRODUCT_ORIGINS_BY_CONTEXT,
+  type DefaultBusinessContext,
+} from '../common/business-context';
+import {
+  COMPANY_CNPJ_LONDRINA,
+  COMPANY_CNPJ_SAO_PAULO,
+} from '../cadastros/company-entities.seed';
 import { ProductCategoryService } from '../product-category/product-category.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateProductDto } from './dto/create-product.dto';
@@ -204,6 +212,22 @@ export class ProductService {
           },
         ],
       });
+    }
+
+    if (query.origin?.trim()) {
+      clauses.push({
+        origin: { equals: query.origin.trim(), mode: 'insensitive' },
+      });
+    }
+
+    if (query.companyEntityId?.trim()) {
+      clauses.push({ companyEntityId: query.companyEntityId.trim() });
+    }
+
+    if (query.businessContext === 'WEG' || query.businessContext === 'SITE') {
+      clauses.push(
+        await this.buildBusinessContextProductWhere(query.businessContext),
+      );
     }
 
     let baseWhere: Prisma.ProductWhereInput =
@@ -466,6 +490,29 @@ export class ProductService {
       }
     }
     return null;
+  }
+
+  private async buildBusinessContextProductWhere(
+    context: DefaultBusinessContext,
+  ): Promise<Prisma.ProductWhereInput> {
+    const cnpj =
+      context === 'WEG' ? COMPANY_CNPJ_SAO_PAULO : COMPANY_CNPJ_LONDRINA;
+    const company = await this.prisma.client.companyEntity.findFirst({
+      where: { cnpj, isActive: true },
+      select: { id: true },
+    });
+    const origins = PRODUCT_ORIGINS_BY_CONTEXT[context];
+    const or: Prisma.ProductWhereInput[] = [
+      { origin: { in: origins, mode: 'insensitive' } },
+    ];
+    if (company) {
+      or.push({ companyEntityId: company.id });
+    }
+    // Catálogo legado sem origin/company → visível só no WEG (padrão histórico).
+    if (context === 'WEG') {
+      or.push({ AND: [{ origin: null }, { companyEntityId: null }] });
+    }
+    return { OR: or };
   }
 
   private async ensureExists(id: string) {

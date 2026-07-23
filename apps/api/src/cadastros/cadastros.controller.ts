@@ -27,6 +27,10 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { UpdateNameCadastroDto } from './dto/update-name-cadastro.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import {
+  CreateCompanyEntityDto,
+  UpdateCompanyEntityDto,
+} from './dto/company-entity.dto';
 
 @Controller('cadastros')
 @UseGuards(JwtGuard)
@@ -281,5 +285,41 @@ export class CadastrosController {
   ) {
     this.assertAdmin(user);
     return this.cadastros.deleteCustomer(id);
+  }
+
+  @Get('company-entities')
+  @RequirePermission('cadastros', 'ver_cadastros')
+  listCompanyEntities() {
+    return this.cadastros.listCompanyEntities();
+  }
+
+  @Post('company-entities')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('cadastros', 'criar_cadastro')
+  createCompanyEntity(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateCompanyEntityDto,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.createCompanyEntity(dto);
+  }
+
+  @Patch('company-entities/:id')
+  updateCompanyEntity(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCompanyEntityDto,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.updateCompanyEntity(id, dto);
+  }
+
+  @Patch('company-entities/:id/toggle')
+  toggleCompanyEntity(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    this.assertAdmin(user);
+    return this.cadastros.toggleCompanyEntity(id);
   }
 }

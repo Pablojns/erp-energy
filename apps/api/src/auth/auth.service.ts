@@ -17,6 +17,7 @@ import { ResetUserPasswordDto } from './dto/reset-user-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import type { AuthUser } from './interfaces/auth-user.interface';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
+import { resolveDefaultBusinessContext } from '../common/business-context';
 
 type UserWithRoles = {
   id: string;
@@ -26,6 +27,7 @@ type UserWithRoles = {
   tokenVersion: number;
   passwordHash: string;
   department?: string | null;
+  defaultContext?: string | null;
   userRoles: Array<{
     role: {
       name: string;
@@ -50,6 +52,7 @@ export class AuthService implements OnModuleInit {
     await this.ensureAdminRole();
     await this.ensureOperadorRole();
     await this.ensureInitialAdminUser();
+    await this.ensureDefaultContextsForUsers();
   }
 
   async register(registerDto: RegisterDto) {
@@ -82,6 +85,10 @@ export class AuthService implements OnModuleInit {
         name: registerDto.name.trim(),
         email,
         passwordHash,
+        defaultContext: resolveDefaultBusinessContext({
+          name: registerDto.name,
+          email,
+        }),
         userRoles: {
           create: {
             roleId: role.id,
@@ -209,6 +216,9 @@ export class AuthService implements OnModuleInit {
           ...(dto.department !== undefined
             ? { department: dto.department?.trim() || null }
             : {}),
+          ...(dto.defaultContext !== undefined
+            ? { defaultContext: dto.defaultContext }
+            : {}),
           ...(dto.isActive !== undefined
             ? {
                 isActive: dto.isActive,
@@ -278,6 +288,7 @@ export class AuthService implements OnModuleInit {
       email: user.email,
       isActive: user.isActive,
       department: user.department ?? null,
+      defaultContext: user.defaultContext === 'SITE' ? 'SITE' : 'WEG',
       roles: user.userRoles.map(
         (userRole: UserWithRoles['userRoles'][number]) => userRole.role.name,
       ),
@@ -299,6 +310,22 @@ export class AuthService implements OnModuleInit {
       expiresIn: this.configService.get<string>('JWT_EXPIRES_IN') ?? '1d',
       user: serializedUser,
     };
+  }
+
+  private async ensureDefaultContextsForUsers(): Promise<void> {
+    const users = await this.prismaService.client.user.findMany({
+      select: { id: true, name: true, email: true, defaultContext: true },
+    });
+    for (const user of users) {
+      const expected = resolveDefaultBusinessContext(user);
+      // Só aplica regra Aline→SITE; não sobrescreve preferência manual SITE de outros.
+      if (expected === 'SITE' && user.defaultContext !== 'SITE') {
+        await this.prismaService.client.user.update({
+          where: { id: user.id },
+          data: { defaultContext: 'SITE' },
+        });
+      }
+    }
   }
 
   private async ensureAdminRole(): Promise<void> {

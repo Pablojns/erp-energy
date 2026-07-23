@@ -308,12 +308,16 @@ export function NewSiteOrderModal(props: {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [customers, setCustomers] = useState<CadastroOption[]>([]);
   const [carriers, setCarriers] = useState<CadastroOption[]>([]);
+  const [companies, setCompanies] = useState<
+    Array<{ id: string; name: string; cnpj: string; isMatriz: boolean }>
+  >([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
 
   const [externalOrderNumber, setExternalOrderNumber] = useState('');
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [carrierId, setCarrierId] = useState('');
+  const [companyEntityId, setCompanyEntityId] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<OrderItemForm[]>([newItemRow()]);
   const [productSearch, setProductSearch] = useState<Record<string, string>>({});
@@ -381,6 +385,7 @@ export function NewSiteOrderModal(props: {
     setRequestedDeliveryDate('');
     setCustomerId('');
     setCarrierId('');
+    setCompanyEntityId('');
     setNotes('');
     setItems([newItemRow()]);
     setProductSearch({});
@@ -408,9 +413,12 @@ export function NewSiteOrderModal(props: {
     void Promise.all([
       loadActiveCadastro('cadastros/customers'),
       loadActiveCadastro('cadastros/carriers'),
+      erpFetchJson<
+        Array<{ id: string; name: string; cnpj: string; isMatriz: boolean; isActive: boolean }>
+      >('cadastros/company-entities'),
       loadActiveProducts(),
     ])
-      .then(([cust, carr, prods]) => {
+      .then(([cust, carr, comps, prods]) => {
         setCustomers(cust);
         setCarriers(
           carr.filter((c) =>
@@ -418,6 +426,18 @@ export function NewSiteOrderModal(props: {
               c.name.trim().toUpperCase() as (typeof SITE_CARRIER_NAMES)[number],
             ),
           ),
+        );
+        const activeCompanies = comps.filter((c) => c.isActive);
+        setCompanies(activeCompanies);
+        // Site → Londrina (filial)
+        const londrina = activeCompanies.find((c) =>
+          c.name.toLowerCase().includes('londrina'),
+        );
+        setCompanyEntityId(
+          londrina?.id ??
+            activeCompanies.find((c) => !c.isMatriz)?.id ??
+            activeCompanies[0]?.id ??
+            '',
         );
         setProducts(prods);
       })
@@ -547,6 +567,7 @@ export function NewSiteOrderModal(props: {
           customerId,
           deliveryCnpj,
           carrierId,
+          companyEntityId: companyEntityId || undefined,
           notes: notes.trim() || undefined,
           items: items.map((row) => ({
             productId: row.productId,
@@ -799,6 +820,26 @@ export function NewSiteOrderModal(props: {
                 </select>
               </label>
               <FieldError message={fieldErrors.carrierId} />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block">
+                <span className={labelClass()}>CNPJ emissor da nota</span>
+                <select
+                  value={companyEntityId}
+                  onChange={(e) => setCompanyEntityId(e.target.value)}
+                  className={fieldClass()}
+                  disabled={saving || loadingOptions}
+                >
+                  <option value="">Padrão (Londrina)</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.isMatriz ? ' · Matriz' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <label className="block sm:col-span-2">

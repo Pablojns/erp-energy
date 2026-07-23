@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { OrderService } from './order.service';
+import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
@@ -744,6 +745,32 @@ export class PedidosService {
       (data as Prisma.OrderUpdateInput & { carrierId?: string | null }).carrierId =
         dto.carrierId;
     }
+    if (dto.companyEntityId !== undefined) {
+      (
+        data as Prisma.OrderUpdateInput & {
+          companyEntityId?: string | null;
+        }
+      ).companyEntityId = dto.companyEntityId;
+    }
+    if (dto.customerId !== undefined) {
+      if (dto.customerId) {
+        const customer = await this.prisma.client.customer.findUnique({
+          where: { id: dto.customerId },
+          select: { id: true, name: true, document: true, isActive: true },
+        });
+        if (!customer?.isActive) {
+          throw new BadRequestException('Cliente inválido ou inativo.');
+        }
+        data.customer = { connect: { id: customer.id } };
+        data.customerName = customer.name;
+        data.customerDocument = customer.document?.trim() || null;
+        if (dto.deliveryCnpj === undefined) {
+          data.deliveryCnpj = customer.document?.trim() || null;
+        }
+      } else {
+        data.customer = { disconnect: true };
+      }
+    }
 
     await this.prisma.client.$transaction(async (tx) => {
       await tx.order.update({ where: { id: before.id }, data });
@@ -1327,8 +1354,8 @@ export class PedidosService {
     const nome =
       order.receiverName?.trim() || order.customerName?.trim() || 'Destinatário';
     const cpfCnpj =
-      order.customerDocument?.replace(/\D/g, '') ||
       order.deliveryCnpj?.replace(/\D/g, '') ||
+      order.customerDocument?.replace(/\D/g, '') ||
       '';
 
     const structured =
@@ -2472,6 +2499,9 @@ export class PedidosService {
             tx,
           );
           (orderData as Prisma.OrderUncheckedCreateInput).carrierId = carrierId;
+          // WEG → Energy Brands São Paulo
+          (orderData as Prisma.OrderUncheckedCreateInput).companyEntityId =
+            await findSaoPauloCompanyEntityId(tx);
 
           if (!existing) {
             const urgentMatch = await this.findMatchingUrgentManualOrder(

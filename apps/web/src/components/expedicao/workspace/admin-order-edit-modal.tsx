@@ -70,6 +70,9 @@ export function AdminOrderEditModal(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
+  const [companies, setCompanies] = useState<
+    Array<{ id: string; name: string; cnpj: string; isMatriz: boolean }>
+  >([]);
 
   const [receiverName, setReceiverName] = useState('');
   const [unloadingPoint, setUnloadingPoint] = useState('');
@@ -85,6 +88,7 @@ export function AdminOrderEditModal(props: {
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [totalValue, setTotalValue] = useState('');
   const [carrierId, setCarrierId] = useState('');
+  const [companyEntityId, setCompanyEntityId] = useState('');
   const [items, setItems] = useState<EditItemRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingIndex, setPickingIndex] = useState<number | null>(null);
@@ -126,6 +130,17 @@ export function AdminOrderEditModal(props: {
     void erpFetchJson<CarrierOption[]>('cadastros/carriers')
       .then((rows) => setCarriers(rows.filter((c) => c.isActive)))
       .catch(() => setCarriers([]));
+    void erpFetchJson<
+      Array<{
+        id: string;
+        name: string;
+        cnpj: string;
+        isMatriz: boolean;
+        isActive: boolean;
+      }>
+    >('cadastros/company-entities')
+      .then((rows) => setCompanies(rows.filter((c) => c.isActive)))
+      .catch(() => setCompanies([]));
   }, [isOpen]);
 
   useEffect(() => {
@@ -144,6 +159,7 @@ export function AdminOrderEditModal(props: {
     setInvoiceNumber(order.invoiceNumber ?? '');
     setTotalValue(order.totalValue ?? '');
     setCarrierId(order.carrierId ?? '');
+    setCompanyEntityId(order.companyEntityId ?? '');
     setItems(
       order.items.map((it) => ({
         id: it.id,
@@ -221,6 +237,7 @@ export function AdminOrderEditModal(props: {
         invoiceNumber,
         totalValue,
         carrierId: carrierId.trim() || null,
+        companyEntityId: companyEntityId.trim() || null,
       };
 
       if (isSiteOrder && siteItemsEditable) {
@@ -355,6 +372,25 @@ export function AdminOrderEditModal(props: {
                 <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Observação</span>
                 <textarea className={`${fieldClass()} min-h-[72px]`} value={notes} onChange={(e) => setNotes(e.target.value)} />
               </label>
+
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  CNPJ emissor da nota
+                </span>
+                <select
+                  className={fieldClass()}
+                  value={companyEntityId}
+                  onChange={(e) => setCompanyEntityId(e.target.value)}
+                >
+                  <option value="">— Não definido —</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.isMatriz ? ' · Matriz' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </>
           ) : (
             <>
@@ -398,6 +434,24 @@ export function AdminOrderEditModal(props: {
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Transportadora</span>
                   <PremiumSelect value={carrierId} onChange={setCarrierId} options={carrierOptions} placeholder="Selecionar…" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    CNPJ emissor da nota
+                  </span>
+                  <select
+                    className={fieldClass()}
+                    value={companyEntityId}
+                    onChange={(e) => setCompanyEntityId(e.target.value)}
+                  >
+                    <option value="">— Não definido —</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.isMatriz ? ' · Matriz' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status ME</span>

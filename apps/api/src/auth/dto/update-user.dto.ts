@@ -35,4 +35,9 @@ export class UpdateUserDto {
   @IsString()
   @IsIn([...USER_DEPARTMENTS])
   department?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['WEG', 'SITE'])
+  defaultContext?: 'WEG' | 'SITE';
 }

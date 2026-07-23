@@ -17,6 +17,7 @@ import {
   useExpeditionSelectedPedido,
 } from '@/src/hooks/useExpeditionPedidosBridge';
 import { useExpedicaoHeaderActions } from '@/src/components/expedicao/layout/expedicao-header-actions-context';
+import { useBusinessContext } from '@/src/components/layout/business-context-provider';
 import { useSwipeBack } from '@/src/hooks/use-swipe-back';
 
 export type ExpeditionWorkspaceMode = 'orders' | 'separation';
@@ -29,12 +30,19 @@ export function ExpeditionWorkspace(props: {
   isAdmin?: boolean;
 }) {
   const { mode, initialStatusFilter, initialSearch, onNewOrder, isAdmin = false } = props;
+  const { context: businessContext } = useBusinessContext();
   const data = useExpeditionPedidosBridge({
     mode: mode === 'separation' ? 'separation' : 'expedition',
     initialStatusFilter:
       initialStatusFilter ?? 'all',
     initialOrderSource:
-      mode === 'orders' ? 'WEG_MERCADO_ELETRONICO' : 'all',
+      mode === 'orders'
+        ? businessContext === 'SITE'
+          ? 'SITE'
+          : businessContext === 'WEG'
+            ? 'WEG_MERCADO_ELETRONICO'
+            : 'all'
+        : 'all',
     initialSearch,
   });
 
@@ -42,7 +50,9 @@ export function ExpeditionWorkspace(props: {
   const [siteOrderOpen, setSiteOrderOpen] = useState(false);
   const [vendaExternaOpen, setVendaExternaOpen] = useState(false);
   const [wegImportOpen, setWegImportOpen] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE' | 'VENDA_EXTERNA'>('WEG');
+  const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE' | 'VENDA_EXTERNA'>(
+    businessContext === 'SITE' ? 'SITE' : 'WEG',
+  );
   const prevSourceFilterRef = useRef(sourceFilter);
   const [adminEditOrder, setAdminEditOrder] = useState<OrderDto | null>(null);
   const [editOrder, setEditOrder] = useState<OrderDto | null>(null);
@@ -84,8 +94,29 @@ export function ExpeditionWorkspace(props: {
     setMobileDetailOpen(false);
   }, [data.statusFilter, mode, sourceFilter]);
 
+  // Contexto global força a aba WEG/SITE; em Todos não sobrescreve ao entrar.
+  useEffect(() => {
+    if (businessContext === 'ALL') return;
+    const next = businessContext === 'SITE' ? 'SITE' : 'WEG';
+    setSourceFilter((prev) => (prev === next ? prev : next));
+  }, [businessContext]);
+
   useEffect(() => {
     if (mode !== 'orders') return;
+    // Em Todos: só aplica chip se o usuário trocou a aba (não ao entrar no contexto).
+    if (businessContext === 'ALL') {
+      if (prevSourceFilterRef.current === sourceFilter) return;
+      prevSourceFilterRef.current = sourceFilter;
+      const nextSource =
+        sourceFilter === 'WEG'
+          ? 'WEG_MERCADO_ELETRONICO'
+          : sourceFilter === 'SITE'
+            ? 'SITE'
+            : 'VENDA_EXTERNA';
+      data.setAppliedFilters((f) => ({ ...f, source: nextSource }));
+      data.setPage(1);
+      return;
+    }
     const nextSource =
       sourceFilter === 'WEG'
         ? 'WEG_MERCADO_ELETRONICO'
@@ -100,7 +131,7 @@ export function ExpeditionWorkspace(props: {
       prevSourceFilterRef.current = sourceFilter;
       data.setPage(1);
     }
-  }, [sourceFilter, mode, data.setPage, data.setAppliedFilters]);
+  }, [sourceFilter, mode, businessContext, data.setPage, data.setAppliedFilters]);
 
   useEffect(() => {
     const onRefresh = () => void data.refreshAll();

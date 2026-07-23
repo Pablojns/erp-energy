@@ -356,7 +356,9 @@ export function SeparationWorkbench(props: {
       orderStatus === 'NF_PENDENTE');
   const canAttachNf = canGerarNfFlask;
   const hasInvoice = Boolean(order.invoiceNumber?.trim());
-  // SITE + Correios: etiqueta sem exigir NF. Demais fontes/transportadoras: NF obrigatória.
+  // SITE + Correios: etiqueta sem exigir NF.
+  // Demais (incl. WEG + Correios): NF obrigatória; libera após NF em NF_ATRELADA
+  // ou quando já há NF no pedido pós-separação (planilha / atrelamento).
   const canPrintEtiquetaAndExit =
     mode === 'separation' &&
     order.status !== 'FINALIZADO' &&
@@ -368,7 +370,11 @@ export function SeparationWorkbench(props: {
         order.status === 'NF_ATRELADA' ||
         readyForEtiqueta
       : hasInvoice &&
-        (order.status === 'NF_ATRELADA' || readyForEtiqueta));
+        (order.status === 'NF_ATRELADA' ||
+          readyForEtiqueta ||
+          order.status === 'SEPARADO' ||
+          order.status === 'AGUARDANDO_NF' ||
+          orderStatus === 'NF_PENDENTE'));
   const shouldShowNfAction = mode === 'separation' && canGenerateExit;
   const canRemessaExit =
     mode === 'separation' &&
@@ -723,6 +729,9 @@ export function SeparationWorkbench(props: {
                   setReadyForEtiqueta(true);
                 } else if (!order.invoiceNumber?.trim()) {
                   openNfFlaskModal();
+                } else {
+                  // WEG (e demais) com NF já atrelada/planilha → libera etiqueta.
+                  setReadyForEtiqueta(true);
                 }
               })
               .finally(() => setConcluding(false));

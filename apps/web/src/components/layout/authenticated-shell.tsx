@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { BusinessContextProvider } from '@/src/components/layout/business-context-provider';
 import { ModuleRouteGuard } from '@/src/components/layout/module-route-guard';
 import { NavPermissionsProvider } from '@/src/components/layout/nav-permissions-context';
 import { AppShell } from '@/src/components/shell/app-shell';
@@ -18,9 +19,11 @@ export function AuthenticatedShell({
 }: AuthenticatedShellProps) {
   return (
     <NavPermissionsProvider user={user} permissions={permissions}>
-      <AppShell user={user}>
-        <ModuleRouteGuard>{children}</ModuleRouteGuard>
-      </AppShell>
+      <BusinessContextProvider user={user}>
+        <AppShell user={user}>
+          <ModuleRouteGuard>{children}</ModuleRouteGuard>
+        </AppShell>
+      </BusinessContextProvider>
     </NavPermissionsProvider>
   );
 }

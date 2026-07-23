@@ -27,9 +27,11 @@ import {
   type PedidosSortOrder,
 } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
 import { isSeparationWorkspaceOrder } from '@/src/components/expedicao/shared/order-helpers';
+import { useBusinessContext } from '@/src/components/layout/business-context-provider';
 
 export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}) {
   const mode = opts.mode ?? 'expedition';
+  const { context: businessContext, orderSource } = useBusinessContext();
   const [statusFilter, setStatusFilter] = useState<StatusFilterId>(
     opts.initialStatusFilter ?? 'all',
   );
@@ -56,12 +58,35 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   // atrás de SEPARADO/AGUARDANDO_NF quando ordenados por orderDate desc.
   const infiniteScroll = true;
 
+  // Sincroniza source com o contexto: WEG/SITE forçam; Todos libera (source=all).
+  useEffect(() => {
+    if (businessContext === 'ALL') {
+      setAppliedFilters((prev) =>
+        prev.source === 'all' ? prev : { ...prev, source: 'all' },
+      );
+      setPage(1);
+      return;
+    }
+    setAppliedFilters((prev) => {
+      const nextSource = orderSource as FilterFormState['source'];
+      if (prev.source === nextSource) return prev;
+      return { ...prev, source: nextSource };
+    });
+    setPage(1);
+  }, [businessContext, orderSource]);
+
   const appliedFiltersForApi = useMemo(
     () => ({
       ...appliedFilters,
       filterValue: filterValueDebounced,
+      // Em Todos, respeita source local (all no início; chips depois).
+      // Em WEG/SITE, força o source do contexto.
+      source:
+        businessContext === 'ALL'
+          ? appliedFilters.source
+          : (orderSource as FilterFormState['source']),
     }),
-    [appliedFilters, filterValueDebounced],
+    [appliedFilters, filterValueDebounced, orderSource, businessContext],
   );
 
   const {
@@ -82,6 +107,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     infinite: infiniteScroll,
     sortBy,
     sortOrder,
+    businessContext: businessContext === 'ALL' ? undefined : businessContext,
   });
 
   const loadMoreOrders = useCallback(() => {

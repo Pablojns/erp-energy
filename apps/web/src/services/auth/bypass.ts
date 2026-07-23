@@ -11,4 +11,5 @@ export const DEV_MOCK_USER: AuthUser = {
   email: 'dev@local',
   isActive: true,
   roles: ['ADMIN'],
+  defaultContext: 'WEG',
 };

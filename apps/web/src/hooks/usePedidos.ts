@@ -31,6 +31,7 @@ export type UsePedidosOptions = {
   infinite?: boolean;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  businessContext?: 'WEG' | 'SITE' | 'ALL';
 };
 
 export function usePedidos(opts: UsePedidosOptions = {}) {
@@ -45,6 +46,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
     infinite = false,
     sortBy = 'orderDate',
     sortOrder = 'desc',
+    businessContext,
   } = opts;
 
   const [pedidos, setPedidos] = useState<OrderDto[]>([]);
@@ -64,6 +66,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
         mode,
         sortBy,
         sortOrder,
+        businessContext,
       }),
     [
       search,
@@ -73,6 +76,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
       mode,
       sortBy,
       sortOrder,
+      businessContext,
     ],
   );
   const listQueryKeyRef = useRef(listQueryKey);
@@ -115,6 +119,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           mode,
           sortBy,
           sortOrder,
+          businessContext,
         });
         params.set('page', String(effectivePage));
         params.set('pageSize', String(pageSize));

@@ -34,6 +34,10 @@ export class CreateSitePedidoDto {
   carrierId!: string;
 
   @IsOptional()
+  @IsUUID('4', { message: 'Empresa (CNPJ) inválida.' })
+  companyEntityId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(4000)
   notes?: string;

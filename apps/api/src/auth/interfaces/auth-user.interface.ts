@@ -5,4 +5,6 @@ export interface AuthUser {
   isActive: boolean;
   roles: string[];
   department?: string | null;
+  /** WEG | SITE — padrão ao logar (seletor pode sobrescrever na sessão). */
+  defaultContext?: string | null;
 }

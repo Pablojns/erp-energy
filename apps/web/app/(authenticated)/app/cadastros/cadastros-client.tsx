@@ -26,13 +26,15 @@ import {
   formatDeliveryAddressDisplay,
   parseDeliveryAddress,
 } from '@/src/components/cadastros/delivery-address';
+import { CompanyEntitiesPanel } from '@/src/components/cadastros/company-entities-panel';
 
 type CadastroTab =
   | 'receivers'
   | 'unloading-points'
   | 'carriers'
   | 'suppliers'
-  | 'customers';
+  | 'customers'
+  | 'company-entities';
 
 type NameCadastro = {
   id: string;
@@ -115,6 +117,18 @@ const TABS: TabConfig[] = [
       { key: 'name', header: 'Nome' },
       { key: 'cnpj', header: 'CNPJ/CPF' },
       { key: 'deliveryAddress', header: 'Endereço de entrega' },
+      { key: 'status', header: 'Status' },
+    ],
+  },
+  {
+    id: 'company-entities',
+    label: 'Empresas',
+    icon: <Building2 size={16} />,
+    apiPath: 'cadastros/company-entities',
+    entityLabel: 'Empresa',
+    columns: [
+      { key: 'name', header: 'Nome' },
+      { key: 'cnpj', header: 'CNPJ' },
       { key: 'status', header: 'Status' },
     ],
   },
@@ -840,8 +854,12 @@ export function CadastrosClient({ isAdmin }: { isAdmin: boolean }) {
         ))}
       </div>
 
-      <section className="erp-module-card flex min-h-0 flex-1 flex-col overflow-hidden">
-        <CadastroTable key={activeTab} tab={tab} isAdmin={isAdmin} />
+      <section className="erp-module-card flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+        {activeTab === 'company-entities' ? (
+          <CompanyEntitiesPanel />
+        ) : (
+          <CadastroTable key={activeTab} tab={tab} isAdmin={isAdmin} />
+        )}
       </section>
     </div>
   );

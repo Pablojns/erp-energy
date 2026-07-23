@@ -6,11 +6,17 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CadastrosController } from './cadastros.controller';
 import { CadastrosService } from './cadastros.service';
 import { CarriersSeedService } from './carriers-seed.service';
+import { CompanyEntitiesSeedService } from './company-entities-seed.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, PermissionsModule],
   controllers: [CadastrosController],
-  providers: [CadastrosService, CarriersSeedService, AuditService],
+  providers: [
+    CadastrosService,
+    CarriersSeedService,
+    CompanyEntitiesSeedService,
+    AuditService,
+  ],
   exports: [CadastrosService],
 })
 export class CadastrosModule {}

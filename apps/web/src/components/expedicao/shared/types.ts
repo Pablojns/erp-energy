@@ -69,6 +69,7 @@ export type OrderDto = {
   mercadoEletronicoNumber: string | null;
   customerName: string;
   customerDocument: string | null;
+  customerId?: string | null;
   customerCity?: string | null;
   customerState?: string | null;
   receiverName: string | null;
@@ -84,6 +85,9 @@ export type OrderDto = {
   volumes: number | null;
   carrierId: string | null;
   carrierName: string | null;
+  companyEntityId?: string | null;
+  companyEntityName?: string | null;
+  companyEntityCnpj?: string | null;
   trackingCode?: string | null;
   status: OrderStatus;
   priority: number;

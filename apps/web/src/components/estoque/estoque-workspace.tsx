@@ -36,6 +36,7 @@ import {
 } from '@/src/components/shared/erp-filter-bar';
 import { TableColumnsPicker } from '@/src/components/shared/table-columns-picker';
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
+import { useBusinessContext } from '@/src/components/layout/business-context-provider';
 import { useTableColumnPreferences } from '@/src/hooks/use-table-column-preferences';
 import type { ColumnDefinition } from '@/src/lib/table-column-preferences';
 import { GlowButton } from '@/src/components/shell/glow-button';
@@ -741,6 +742,7 @@ const emptyForm: ProductFormState = {
 
 export function EstoqueWorkspace() {
   const { user } = useNavPermissions();
+  const { context: businessContext } = useBusinessContext();
   const movementColumnPrefs = useTableColumnPreferences(
     user.id,
     MOVEMENT_TABLE_ID,
@@ -1070,6 +1072,9 @@ export function EstoqueWorkspace() {
           const params = new URLSearchParams();
           params.set('page', String(page));
           params.set('pageSize', String(pageSize));
+          if (businessContext === 'WEG' || businessContext === 'SITE') {
+            params.set('businessContext', businessContext);
+          }
           if (productSearchDebounced.trim()) {
             params.set('search', productSearchDebounced.trim());
           }
@@ -1119,7 +1124,7 @@ export function EstoqueWorkspace() {
         setProductsLoading(false);
       }
     },
-    [productSearchDebounced, isAdmin, showInactive],
+    [productSearchDebounced, isAdmin, showInactive, businessContext],
   );
 
   const reloadProductsForTab = useCallback(async () => {

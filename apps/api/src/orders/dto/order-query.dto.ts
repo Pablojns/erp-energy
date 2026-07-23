@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
 } from 'class-validator';
@@ -150,6 +151,17 @@ export class OrderQueryDto {
   @IsString()
   @MaxLength(200)
   filterValue?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsUUID('4')
+  companyEntityId?: string;
+
+  /** Contexto global: WEG (SP) | SITE (Londrina). */
+  @IsOptional()
+  @IsString()
+  @IsIn(['WEG', 'SITE', 'ALL'])
+  businessContext?: 'WEG' | 'SITE' | 'ALL';
 
   @IsOptional()
   @IsString()

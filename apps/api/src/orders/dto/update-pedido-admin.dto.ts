@@ -116,6 +116,15 @@ export class UpdatePedidoAdminDto {
   carrierId?: string | null;
 
   @IsOptional()
+  @IsUUID('4')
+  companyEntityId?: string | null;
+
+  /** Vincular cliente cadastrado (opcional) ao editar CNPJ do pedido WEG. */
+  @IsOptional()
+  @IsUUID('4')
+  customerId?: string | null;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdatePedidoAdminItemDto)

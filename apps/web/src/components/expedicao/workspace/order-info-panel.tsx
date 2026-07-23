@@ -192,6 +192,17 @@ export const OrderInfoPanel = forwardRef<
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
+  const [customers, setCustomers] = useState<
+    Array<{ id: string; name: string; document: string | null; isActive: boolean }>
+  >([]);
+  const [cnpjInput, setCnpjInput] = useState(
+    order.deliveryCnpj ?? order.customerDocument ?? '',
+  );
+  const [savingCnpj, setSavingCnpj] = useState(false);
+  const [cnpjError, setCnpjError] = useState<string | null>(null);
+  const lastSavedCnpjRef = useRef(
+    (order.deliveryCnpj ?? order.customerDocument ?? '').trim(),
+  );
   const [notaRemessa, setNotaRemessa] = useState(order.notaRemessa ?? '');
   const [notaVendaInput, setNotaVendaInput] = useState(order.invoiceNumber ?? '');
   const [notaRemessaConfirmada, setNotaRemessaConfirmada] = useState(
@@ -224,7 +235,13 @@ export const OrderInfoPanel = forwardRef<
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
 
-  const canEmitEtiqueta = order.status === 'FINALIZADO';
+  const canEmitEtiqueta =
+    order.status === 'FINALIZADO' ||
+    (isCorreiosCarrier(order.carrierName) &&
+      Boolean(order.invoiceNumber?.trim()) &&
+      (order.status === 'NF_ATRELADA' ||
+        order.status === 'AGUARDANDO_NF' ||
+        order.status === 'SEPARADO'));
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
   const canCancelCorreiosEtiqueta =
     isCorreiosOrder && Boolean(order.trackingCode?.trim());
@@ -377,6 +394,97 @@ export const OrderInfoPanel = forwardRef<
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (isSimpleCustomerLayout) return;
+    let cancelled = false;
+    void erpFetchJson<
+      Array<{ id: string; name: string; document: string | null; isActive: boolean }>
+    >('cadastros/customers')
+      .then((rows) => {
+        if (!cancelled) {
+          setCustomers(rows.filter((c) => c.isActive));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCustomers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSimpleCustomerLayout]);
+
+  useEffect(() => {
+    const initial = (order.deliveryCnpj ?? order.customerDocument ?? '').trim();
+    setCnpjInput(order.deliveryCnpj ?? order.customerDocument ?? '');
+    lastSavedCnpjRef.current = initial;
+    setCnpjError(null);
+  }, [order.id, order.deliveryCnpj, order.customerDocument]);
+
+  const digitsOnly = (value: string) => value.replace(/\D/g, '');
+
+  const findCustomerByCnpj = (raw: string) => {
+    const digits = digitsOnly(raw);
+    if (digits.length < 11) return null;
+    return (
+      customers.find((c) => digitsOnly(c.document ?? '') === digits) ?? null
+    );
+  };
+
+  const saveCnpj = async (raw: string, customerId?: string | null) => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setCnpjError('Número do pedido inválido.');
+      return false;
+    }
+    const trimmed = raw.trim();
+    if (trimmed === lastSavedCnpjRef.current && customerId === undefined) {
+      return true;
+    }
+
+    setSavingCnpj(true);
+    setCnpjError(null);
+    try {
+      const body: { deliveryCnpj: string | null; customerId?: string | null } = {
+        deliveryCnpj: trimmed || null,
+      };
+      if (customerId !== undefined) {
+        body.customerId = customerId;
+      }
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      lastSavedCnpjRef.current = trimmed;
+      onStatusChanged?.();
+      return true;
+    } catch (err) {
+      setCnpjError(
+        err instanceof Error ? err.message : 'Não foi possível salvar o CNPJ.',
+      );
+      return false;
+    } finally {
+      setSavingCnpj(false);
+    }
+  };
+
+  const handleCnpjBlur = async () => {
+    if (fieldsReadOnly || isSimpleCustomerLayout) return;
+    const trimmed = cnpjInput.trim();
+    if (trimmed === lastSavedCnpjRef.current) return;
+
+    const match = findCustomerByCnpj(trimmed);
+    if (match && match.id !== order.customerId) {
+      const link = window.confirm(
+        `CNPJ corresponde ao cliente "${match.name}".\n\nVincular este cliente ao pedido?`,
+      );
+      if (link) {
+        await saveCnpj(match.document?.trim() || trimmed, match.id);
+        return;
+      }
+    }
+    await saveCnpj(trimmed);
+  };
 
   const carrierOptions = [
     { value: '', label: '— Selecionar —' },
@@ -777,7 +885,51 @@ export const OrderInfoPanel = forwardRef<
             </>
           ) : (
             <>
-              <PartyCell label="Comprador" value={cnpj} />
+              <div className="exp-wb-order-party-cell">
+                <span className="exp-wb-order-party-label">Comprador (CNPJ)</span>
+                <div className="exp-wb-order-party-value-row min-w-0">
+                  {fieldsReadOnly ? (
+                    <span className="exp-wb-order-party-value" title={cnpj}>
+                      {cnpj}
+                    </span>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          list="weg-cnpj-customers"
+                          value={cnpjInput}
+                          onChange={(e) => {
+                            setCnpjInput(e.target.value);
+                            setCnpjError(null);
+                          }}
+                          onBlur={() => void handleCnpjBlur()}
+                          disabled={savingCnpj}
+                          placeholder="Digite o CNPJ ou selecione um cliente"
+                          className={inputClassName}
+                          aria-label="CNPJ comprador"
+                        />
+                        {savingCnpj ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
+                        ) : null}
+                      </div>
+                      <datalist id="weg-cnpj-customers">
+                        {customers
+                          .filter((c) => c.document?.trim())
+                          .map((c) => (
+                            <option
+                              key={c.id}
+                              value={c.document ?? ''}
+                              label={`${c.name} — ${c.document}`}
+                            />
+                          ))}
+                      </datalist>
+                      {cnpjError ? (
+                        <span className="text-[11px] text-red-500">{cnpjError}</span>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </div>
               <PartyCell label="Endereço" value={address} multiline />
               <PartyCell label="Recebedor" value={receiver} />
               <PartyCell label="Ponto de descarga" value={point} />

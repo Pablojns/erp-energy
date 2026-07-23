@@ -19,6 +19,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { LogoutButton } from '@/src/components/auth/logout-button';
+import { BusinessContextSelector } from '@/src/components/layout/business-context-selector';
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import { NotificationsBell } from '@/src/components/layout/notifications-bell';
 import { useGlobalSearch } from '@/src/components/shell/global-search-provider';
@@ -101,6 +102,7 @@ export function TopNavigation({ user }: TopNavigationProps) {
         </nav>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+          <BusinessContextSelector />
           <button
             type="button"
             onClick={openSearch}

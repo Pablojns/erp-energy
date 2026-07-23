@@ -39,6 +39,10 @@ import {
   orderNumberFromOrder,
   upsertStockReservation,
 } from '../stock/stock-reservation.helpers';
+import {
+  findLondrinaCompanyEntityId,
+  findSaoPauloCompanyEntityId,
+} from '../cadastros/company-entities.seed';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -143,7 +147,9 @@ type OrderSerializeSource = {
   shippedAt: Date | null;
   invoicedAt: Date | null;
   carrierId: string | null;
+  companyEntityId?: string | null;
   carrier?: { id: string; name: string } | null;
+  companyEntity?: { id: string; name: string; cnpj: string } | null;
   linkedOrderId: string | null;
   isUrgentManual: boolean;
   linkedOrder?: {
@@ -171,7 +177,7 @@ export class OrderService {
   /** KPIs da expedição — respeita os mesmos filtros da listagem (exceto paginação). */
   async summary(query: OrderQueryDto) {
     try {
-      const where = this.buildWhere(query);
+      const where = await this.buildWhere(query);
 
       const todayUtc = OrderService.startOfUtcDay(new Date());
 
@@ -386,7 +392,7 @@ export class OrderService {
         : 15;
 
     try {
-      const where = this.buildWhere(query);
+      const where = await this.buildWhere(query);
 
       const orderBy = this.buildOrderBy(query);
 
@@ -863,6 +869,22 @@ export class OrderService {
       const deliveryCnpj =
         dto.deliveryCnpj?.trim() || customerDocument || null;
 
+      let companyEntityId: string | null =
+        dto.companyEntityId?.trim() || null;
+      if (!companyEntityId) {
+        // Site → Energy Brands Londrina
+        companyEntityId = await findLondrinaCompanyEntityId(tx);
+      } else {
+        const company = await tx.companyEntity.findFirst({
+          where: { id: companyEntityId, isActive: true },
+          select: { id: true },
+        });
+        if (!company) {
+          throw new BadRequestException('Empresa (CNPJ) inválida ou inativa.');
+        }
+        companyEntityId = company.id;
+      }
+
       const order = await tx.order.create({
         data: {
           source: OrderSource.SITE,
@@ -886,6 +908,7 @@ export class OrderService {
           total: totalFixed,
           totalValue: totalFixed,
           carrierId: carrier.id,
+          companyEntityId,
           items: { create: creates },
         },
         include: OrderService.orderInclude(),
@@ -1438,6 +1461,9 @@ export class OrderService {
         tx,
       );
 
+      // WEG → Energy Brands São Paulo
+      const companyEntityId = await findSaoPauloCompanyEntityId(tx);
+
       const order = await tx.order.create({
         data: {
           source: OrderSource.WEG_MERCADO_ELETRONICO,
@@ -1468,6 +1494,7 @@ export class OrderService {
           total: totalFixed,
           totalValue: totalFixed,
           carrierId,
+          companyEntityId,
           items: { create: creates },
         },
         include: OrderService.orderInclude(),
@@ -2706,7 +2733,7 @@ export class OrderService {
     throw new BadRequestException(`Transição de status inválida: ${from} → ${to}.`);
   }
 
-  private buildWhere(query: OrderQueryDto): Prisma.OrderWhereInput {
+  private async buildWhere(query: OrderQueryDto): Promise<Prisma.OrderWhereInput> {
     const clauses: Prisma.OrderWhereInput[] = [];
 
     const ws = query.workspace?.trim();
@@ -2772,6 +2799,18 @@ export class OrderService {
       } else {
         clauses.push({ source: src as OrderSource });
       }
+    }
+
+    const businessContext = query.businessContext?.trim();
+    if (businessContext === 'WEG' || businessContext === 'SITE') {
+      clauses.push(
+        await this.buildBusinessContextOrderWhere(businessContext),
+      );
+    }
+
+    const companyEntityId = query.companyEntityId?.trim();
+    if (companyEntityId) {
+      clauses.push({ companyEntityId });
     }
 
     const ext = query.externalOrderNumber?.trim();
@@ -2908,6 +2947,28 @@ export class OrderService {
     }
 
     return where;
+  }
+
+  /** WEG → source WEG(+MANUAL/ECOMMERCE) e/ou CNPJ SP; SITE → source SITE e/ou CNPJ Londrina. */
+  private async buildBusinessContextOrderWhere(
+    context: 'WEG' | 'SITE',
+  ): Promise<Prisma.OrderWhereInput> {
+    if (context === 'WEG') {
+      const spId = await findSaoPauloCompanyEntityId(this.prisma.client);
+      return {
+        OR: [
+          { source: { in: [...WEG_TAB_ORDER_SOURCES] } },
+          ...(spId ? [{ companyEntityId: spId }] : []),
+        ],
+      };
+    }
+    const londrinaId = await findLondrinaCompanyEntityId(this.prisma.client);
+    return {
+      OR: [
+        { source: OrderSource.SITE },
+        ...(londrinaId ? [{ companyEntityId: londrinaId }] : []),
+      ],
+    };
   }
 
   /** Busca inteligente: números curtos = NF; números longos = pedido; texto = prefixo. */
@@ -3081,6 +3142,9 @@ export class OrderService {
     return {
       carrier: {
         select: { id: true, name: true },
+      },
+      companyEntity: {
+        select: { id: true, name: true, cnpj: true },
       },
       linkedOrder: {
         select: {
@@ -3691,6 +3755,9 @@ export class OrderService {
       volumes: row.volumes ?? null,
       carrierId: row.carrierId,
       carrierName: row.carrier?.name ?? null,
+      companyEntityId: row.companyEntityId ?? null,
+      companyEntityName: row.companyEntity?.name ?? null,
+      companyEntityCnpj: row.companyEntity?.cnpj ?? null,
       trackingCode: row.exits?.[0]?.trackingCode ?? row.trackingCode ?? null,
       linkedOrderId: row.linkedOrderId,
       isUrgentManual: row.isUrgentManual,

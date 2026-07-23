@@ -29,6 +29,7 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
       : null,
     customerName: String(raw.customerName ?? '—'),
     customerDocument: raw.customerDocument ? String(raw.customerDocument) : null,
+    customerId: raw.customerId ? String(raw.customerId) : null,
     customerCity: raw.customerCity ? String(raw.customerCity) : null,
     customerState: raw.customerState ? String(raw.customerState) : null,
     receiverName: raw.receiverName ? String(raw.receiverName) : null,
@@ -46,6 +47,15 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
         : null,
     carrierId: raw.carrierId ? String(raw.carrierId) : null,
     carrierName: raw.carrierName ? String(raw.carrierName) : null,
+    companyEntityId: raw.companyEntityId
+      ? String(raw.companyEntityId)
+      : null,
+    companyEntityName: raw.companyEntityName
+      ? String(raw.companyEntityName)
+      : null,
+    companyEntityCnpj: raw.companyEntityCnpj
+      ? String(raw.companyEntityCnpj)
+      : null,
     trackingCode: raw.trackingCode ? String(raw.trackingCode) : null,
     status: (raw.status as OrderDto['status']) ?? 'NOVO',
     priority: Number(raw.priority ?? 3),

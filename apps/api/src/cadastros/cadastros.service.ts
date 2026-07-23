@@ -352,4 +352,160 @@ export class CadastrosService {
     if (!row) throw new NotFoundException('Cliente não encontrado.');
     return row;
   }
+
+  // --- Company entities (Multi-CNPJ) ---
+
+  private normalizeCnpjDigits(value: string): string {
+    return value.replace(/\D/g, '');
+  }
+
+  private serializeCompanyEntity(row: {
+    id: string;
+    name: string;
+    cnpj: string;
+    inscricaoEstadual: string | null;
+    endereco: string | null;
+    isMatriz: boolean;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: row.id,
+      name: row.name,
+      cnpj: row.cnpj,
+      inscricaoEstadual: row.inscricaoEstadual,
+      endereco: row.endereco,
+      isMatriz: row.isMatriz,
+      isActive: row.isActive,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  listCompanyEntities() {
+    return this.prisma.client.companyEntity
+      .findMany({
+        orderBy: [{ isMatriz: 'desc' }, { name: 'asc' }],
+      })
+      .then((rows) => rows.map((row) => this.serializeCompanyEntity(row)));
+  }
+
+  async createCompanyEntity(dto: {
+    name: string;
+    cnpj: string;
+    inscricaoEstadual?: string;
+    endereco?: string;
+    isMatriz?: boolean;
+  }) {
+    const cnpj = this.normalizeCnpjDigits(dto.cnpj);
+    if (cnpj.length < 11) {
+      throw new BadRequestException('CNPJ inválido.');
+    }
+    if (dto.isMatriz) {
+      await this.prisma.client.companyEntity.updateMany({
+        where: { isMatriz: true },
+        data: { isMatriz: false },
+      });
+    }
+    try {
+      const created = await this.prisma.client.companyEntity.create({
+        data: {
+          name: dto.name.trim(),
+          cnpj,
+          inscricaoEstadual: this.trimOptional(dto.inscricaoEstadual) ?? null,
+          endereco: this.trimOptional(dto.endereco) ?? null,
+          isMatriz: Boolean(dto.isMatriz),
+        },
+      });
+      return this.serializeCompanyEntity(created);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException('Já existe empresa com este CNPJ.');
+      }
+      throw error;
+    }
+  }
+
+  async updateCompanyEntity(
+    id: string,
+    dto: {
+      name?: string;
+      cnpj?: string;
+      inscricaoEstadual?: string | null;
+      endereco?: string | null;
+      isMatriz?: boolean;
+      isActive?: boolean;
+    },
+  ) {
+    await this.assertCompanyEntityExists(id);
+    const data: {
+      name?: string;
+      cnpj?: string;
+      inscricaoEstadual?: string | null;
+      endereco?: string | null;
+      isMatriz?: boolean;
+      isActive?: boolean;
+    } = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.cnpj !== undefined) {
+      const cnpj = this.normalizeCnpjDigits(dto.cnpj);
+      if (cnpj.length < 11) {
+        throw new BadRequestException('CNPJ inválido.');
+      }
+      data.cnpj = cnpj;
+    }
+    if (dto.inscricaoEstadual !== undefined) {
+      data.inscricaoEstadual = this.trimOptional(dto.inscricaoEstadual) ?? null;
+    }
+    if (dto.endereco !== undefined) {
+      data.endereco = this.trimOptional(dto.endereco) ?? null;
+    }
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.isMatriz === true) {
+      await this.prisma.client.companyEntity.updateMany({
+        where: { isMatriz: true, NOT: { id } },
+        data: { isMatriz: false },
+      });
+      data.isMatriz = true;
+    } else if (dto.isMatriz === false) {
+      data.isMatriz = false;
+    }
+
+    try {
+      const updated = await this.prisma.client.companyEntity.update({
+        where: { id },
+        data,
+      });
+      return this.serializeCompanyEntity(updated);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException('Já existe empresa com este CNPJ.');
+      }
+      throw error;
+    }
+  }
+
+  async toggleCompanyEntity(id: string) {
+    const row = await this.assertCompanyEntityExists(id);
+    const updated = await this.prisma.client.companyEntity.update({
+      where: { id },
+      data: { isActive: !row.isActive },
+    });
+    return this.serializeCompanyEntity(updated);
+  }
+
+  private async assertCompanyEntityExists(id: string) {
+    const row = await this.prisma.client.companyEntity.findUnique({
+      where: { id },
+    });
+    if (!row) throw new NotFoundException('Empresa não encontrada.');
+    return row;
+  }
 }
