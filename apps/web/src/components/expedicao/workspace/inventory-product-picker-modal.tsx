@@ -69,11 +69,6 @@ export function InventoryProductPickerModal(props: {
     setTotal(0);
   }, []);
 
-  const applySearch = () => {
-    setSearch(searchInput.trim());
-    resetList();
-  };
-
   useEffect(() => {
     if (!props.open) return;
     setSearchInput('');
@@ -81,6 +76,28 @@ export function InventoryProductPickerModal(props: {
     setError(null);
     resetList();
   }, [props.open, resetList]);
+
+  // Busca em tempo real (debounce).
+  useEffect(() => {
+    if (!props.open) return;
+    const handle = window.setTimeout(() => {
+      const next = searchInput.trim();
+      setSearch((prev) => {
+        if (prev === next) return prev;
+        return next;
+      });
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [props.open, searchInput]);
+
+  // Ao mudar o termo, reinicia a paginação (o load reage via `search` no callback).
+  const searchRef = useRef(search);
+  useEffect(() => {
+    if (!props.open) return;
+    if (searchRef.current === search) return;
+    searchRef.current = search;
+    resetList();
+  }, [props.open, search, resetList]);
 
   const load = useCallback(
     async (pageToLoad: number, append: boolean) => {
@@ -197,9 +214,6 @@ export function InventoryProductPickerModal(props: {
                 <input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') applySearch();
-                  }}
                   placeholder="Buscar por nome ou SKU interno…"
                   className="erp-module-input pl-9"
                   autoFocus
@@ -207,13 +221,6 @@ export function InventoryProductPickerModal(props: {
               </div>
             </label>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={applySearch}
-                className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
-              >
-                Buscar
-              </button>
               <span className="text-xs text-[var(--erp-fg-muted)]">
                 {total > 0 ? `${total} produto(s)` : null}
               </span>

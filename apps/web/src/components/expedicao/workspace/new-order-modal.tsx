@@ -5,6 +5,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { sortProductsForSearch } from '@/src/lib/product-search';
 import { normalizePedidoFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 type CadastroOption = {
@@ -98,23 +99,6 @@ function formatCustomerLabel(c: CadastroOption) {
 
 function lineNumberForIndex(index: number) {
   return (index + 1) * 10;
-}
-
-function normalizeProductSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function productMatchesSearch(product: ProductOption, query: string): boolean {
-  const normalizedQuery = normalizeProductSearchText(query);
-  if (!normalizedQuery) return true;
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  const haystack = normalizeProductSearchText(`${product.sku} ${product.name}`);
-  return tokens.every((token) => haystack.includes(token));
 }
 
 type OrderFormSnapshot = {
@@ -925,11 +909,14 @@ export function NewOrderModal(props: {
                 const selectedProduct = productById(row.productId);
                 const lineNo = lineNumberForIndex(index);
                 const searchQuery = productSearch[row.key] ?? '';
-                const filteredProducts = products.filter(
-                  (product) =>
-                    product.id === row.productId ||
-                    productMatchesSearch(product, searchQuery),
-                );
+                const filteredProducts = (() => {
+                  const ranked = sortProductsForSearch(products, searchQuery);
+                  if (!row.productId) return ranked;
+                  const selected = products.find((p) => p.id === row.productId);
+                  if (!selected) return ranked;
+                  if (ranked.some((p) => p.id === selected.id)) return ranked;
+                  return [selected, ...ranked];
+                })();
 
                 return (
                   <div key={row.key}>

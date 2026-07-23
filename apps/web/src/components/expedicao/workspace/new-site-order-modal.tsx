@@ -5,6 +5,9 @@ import { Loader2, Plus, X } from 'lucide-react';
 import { generateUUID } from '@/src/lib/uuid';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  sortProductsForSearch,
+} from '@/src/lib/product-search';
 import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
 
 const SITE_CARRIER_NAMES = ['JADLOG', 'SEDEX', 'PAC', 'MINI ENVIOS'] as const;
@@ -138,72 +141,6 @@ function newItemRow(): OrderItemForm {
 
 function lineNumberForIndex(index: number) {
   return (index + 1) * 10;
-}
-
-function normalizeProductSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function productNameWords(product: ProductOption): string[] {
-  return normalizeProductSearchText(product.name).split(/\s+/).filter(Boolean);
-}
-
-function productSearchWords(product: ProductOption): string[] {
-  const sku = normalizeProductSearchText(product.sku);
-  const nameWords = productNameWords(product);
-  return sku ? [sku, ...nameWords] : nameWords;
-}
-
-function tokenMatchesWord(token: string, word: string): boolean {
-  return word === token || word.startsWith(token);
-}
-
-function productMatchesSearch(product: ProductOption, query: string): boolean {
-  const normalizedQuery = normalizeProductSearchText(query);
-  if (!normalizedQuery) return true;
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  const words = productSearchWords(product);
-  return tokens.every((token) => words.some((word) => tokenMatchesWord(token, word)));
-}
-
-function compareProductsByName(a: ProductOption, b: ProductOption): number {
-  return (
-    a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }) ||
-    a.sku.localeCompare(b.sku, 'pt-BR', { sensitivity: 'base' })
-  );
-}
-
-function productSearchRank(product: ProductOption, query: string): number {
-  const normalizedQuery = normalizeProductSearchText(query);
-  if (!normalizedQuery) return 0;
-
-  const nameWords = productNameWords(product);
-  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  const firstToken = queryTokens[0] ?? '';
-  const firstWord = nameWords[0] ?? '';
-
-  if (firstToken && firstWord && tokenMatchesWord(firstToken, firstWord)) {
-    return 0;
-  }
-
-  return 1;
-}
-
-function sortProductsForSearch(products: ProductOption[], query: string): ProductOption[] {
-  const normalizedQuery = normalizeProductSearchText(query);
-  const matches = normalizedQuery
-    ? products.filter((product) => productMatchesSearch(product, query))
-    : [...products];
-
-  return matches.sort((a, b) => {
-    if (!normalizedQuery) return compareProductsByName(a, b);
-    return productSearchRank(a, query) - productSearchRank(b, query) || compareProductsByName(a, b);
-  });
 }
 
 function buildFieldErrors(

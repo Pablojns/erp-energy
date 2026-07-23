@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CreateProductDto } from './dto/create-product.dto';
 import type { ProductQueryDto } from './dto/product-query.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
+import { buildProductSmartSearchWhere } from './product-search';
 
 const SORT_FIELDS = [
   'name',
@@ -181,21 +182,8 @@ export class ProductService {
     const clauses: Prisma.ProductWhereInput[] = [];
 
     if (query.search?.trim()) {
-      const term = query.search.trim();
-      clauses.push({
-        OR: [
-          { name: { contains: term, mode: 'insensitive' } },
-          { internalCode: { contains: term, mode: 'insensitive' } },
-          { sku: { contains: term, mode: 'insensitive' } },
-          { supplierSku: { contains: term, mode: 'insensitive' } },
-          { category: { contains: term, mode: 'insensitive' } },
-          {
-            productCategory: {
-              name: { contains: term, mode: 'insensitive' },
-            },
-          },
-        ],
-      });
+      const smart = buildProductSmartSearchWhere(query.search);
+      if (smart) clauses.push(smart);
     }
 
     if (query.status === 'active') {

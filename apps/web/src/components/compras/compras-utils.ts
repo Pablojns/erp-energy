@@ -8,6 +8,11 @@ import type {
   SupplierLite,
 } from './compras-types';
 import { KANBAN_COLUMNS } from './compras-types';
+import { productMatchesSearch as matchProductSearch } from '@/src/lib/product-search';
+
+export function productMatchesSearch(product: ProductLite, query: string) {
+  return matchProductSearch(product, query);
+}
 
 export function typeBadgeClass(type: PurchaseType): 'info' | 'warning' | 'accent' {
   if (type === 'WEG_CONTRATO') return 'info';
@@ -54,13 +59,6 @@ export function normalizeSearch(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-}
-
-export function productMatchesSearch(product: ProductLite, query: string) {
-  const normalized = normalizeSearch(query);
-  if (!normalized) return true;
-  const haystack = normalizeSearch(`${product.sku} ${product.name} ${product.internalCode ?? ''}`);
-  return normalized.split(/\s+/).every((token) => haystack.includes(token));
 }
 
 export function displayName(row: PurchaseRequest) {
