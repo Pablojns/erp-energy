@@ -28,6 +28,11 @@ import { StockService } from './stock.service';
 export class StockController {
   constructor(private readonly stockService: StockService) {}
 
+  @Get('products/:productId/reservations')
+  listProductReservations(@Param('productId', ParseUUIDPipe) productId: string) {
+    return this.stockService.listProductReservations(productId);
+  }
+
   @Get('summary')
   summary(@Query() query: StockSummaryQueryDto) {
     return this.stockService.summary(query);

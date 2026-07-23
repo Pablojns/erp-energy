@@ -42,6 +42,10 @@ import {
 } from './pedidos-import';
 import { orderStockReference } from './order-domain';
 import { parseNfFlaskResult } from './nf-flask-payload';
+import {
+  orderNumberFromOrder,
+  upsertStockReservation,
+} from '../stock/stock-reservation.helpers';
 
 function mapStatusItemToStockStatus(v: StatusItemValue): OrderItemStockStatus {
   if (v === 'completo') return OrderItemStockStatus.COMPLETO;
@@ -234,24 +238,19 @@ export class PedidosService {
           },
         });
 
-        await tx.stockReservation.deleteMany({
-          where: { orderItemId: line.id },
-        });
-
         await tx.product.update({
           where: { id: productId },
           data: { reservedQty: { increment: qty } },
         });
 
-        await tx.stockReservation.create({
-          data: {
-            orderId: order.id,
-            orderItemId: line.id,
-            productId,
-            sku: skuNorm,
-            quantity: qty,
-            createdById: userId,
-          },
+        await upsertStockReservation(tx, {
+          orderId: order.id,
+          orderItemId: line.id,
+          productId,
+          sku: skuNorm,
+          quantity: qty,
+          orderNumber: orderNumberFromOrder(order),
+          createdById: userId,
         });
 
         const orderRef = orderStockReference(order);

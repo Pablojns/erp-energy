@@ -170,6 +170,31 @@ type ProductDto = {
   updatedAt: string;
 };
 
+type ProductReservationRow = {
+  id: string;
+  productId: string;
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  orderSource: string;
+  sku: string;
+  quantity: number;
+  createdAt: string;
+};
+
+type ProductReservationsResponse = {
+  product: {
+    id: string;
+    sku: string;
+    name: string;
+    stockQty: number;
+    reservedQty: number;
+    availableQty: number;
+  };
+  reservations: ProductReservationRow[];
+  totalReserved: number;
+};
+
 type SupplierOption = {
   id: string;
   name: string;
@@ -748,6 +773,9 @@ export function EstoqueWorkspace() {
   const [supplierFilterSearch, setSupplierFilterSearch] = useState('');
   const [categoryFilterSearch, setCategoryFilterSearch] = useState('');
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
+  const [productReservations, setProductReservations] = useState<ProductReservationRow[]>([]);
+  const [productReservationsLoading, setProductReservationsLoading] = useState(false);
+  const [productReservationsError, setProductReservationsError] = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsData, setProductsData] = useState<Paginated<ProductDto> | null>(
     null,
@@ -2374,6 +2402,38 @@ export function EstoqueWorkspace() {
     [inventoryProducts, selectedInventoryId],
   );
 
+  useEffect(() => {
+    if (!selectedInventoryId) {
+      setProductReservations([]);
+      setProductReservationsError(null);
+      setProductReservationsLoading(false);
+      return;
+    }
+    let active = true;
+    setProductReservationsLoading(true);
+    setProductReservationsError(null);
+    void erpFetchJson<ProductReservationsResponse>(
+      `stock/products/${selectedInventoryId}/reservations`,
+    )
+      .then((res) => {
+        if (!active) return;
+        setProductReservations(res.reservations ?? []);
+      })
+      .catch((e) => {
+        if (!active) return;
+        setProductReservations([]);
+        setProductReservationsError(
+          e instanceof Error ? e.message : 'Falha ao carregar reservas.',
+        );
+      })
+      .finally(() => {
+        if (active) setProductReservationsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedInventoryId, selectedInventoryProduct?.reservedQty]);
+
   const selectedMovements = useMemo(() => {
     if (!selectedInventoryProduct) return [];
     return movementItems
@@ -2642,7 +2702,127 @@ export function EstoqueWorkspace() {
           <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.totalValue}</span>
         </p>
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <Package className="h-4 w-4 text-[#64748b]" />
+            Qtd real
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {selectedInventoryProduct.stockQty}
+            </p>
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">em estoque físico</p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <Package className="h-4 w-4 text-[#f59e0b]" />
+            Reservado
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {selectedInventoryProduct.reservedQty ?? 0}
+            </p>
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">
+            {productReservations.length > 0
+              ? `${productReservations.length} pedido(s)`
+              : 'sem reservas ativas'}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <Package className="h-4 w-4 text-[#3b82f6]" />
+            Disponível
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {Math.max(
+                0,
+                selectedInventoryProduct.stockQty -
+                  (selectedInventoryProduct.reservedQty ?? 0),
+              )}
+            </p>
+            <MiniGauge
+              value={Math.max(
+                0,
+                selectedInventoryProduct.stockQty -
+                  (selectedInventoryProduct.reservedQty ?? 0),
+              )}
+              max={selectedGaugeMax.availableMax}
+              color="#3b82f6"
+            />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">real − reservado</p>
+        </div>
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
+            Estoque mín.
+          </p>
+          <div className="mt-3 flex items-end justify-between gap-2">
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedInventoryProduct.minStock}</p>
+            <MiniGauge value={selectedInventoryProduct.minStock} max={selectedGaugeMax.minMax} color="#f59e0b" />
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">configurado</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 text-sm font-semibold text-[var(--text-primary)]">
+          Reservas ativas
+        </p>
+        <div className="erp-scrollbar overflow-x-auto rounded-xl border border-[var(--border-color)]">
+          {productReservationsLoading ? (
+            <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
+              Carregando reservas…
+            </p>
+          ) : productReservationsError ? (
+            <p className="px-3 py-4 text-sm text-rose-500">{productReservationsError}</p>
+          ) : productReservations.length === 0 ? (
+            <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
+              Nenhuma reserva ativa para este produto.
+            </p>
+          ) : (
+            <table className="w-full min-w-[420px] border-collapse text-left text-sm">
+              <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
+                <tr>
+                  <th className="px-2 py-1.5">Pedido</th>
+                  <th className="px-2 py-1.5 text-center">Qtd reservada</th>
+                  <th className="px-2 py-1.5">Data</th>
+                  <th className="px-2 py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productReservations.map((r, idx) => (
+                  <tr
+                    key={r.id}
+                    className={`border-b border-[var(--border-color)] ${
+                      idx % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'
+                    }`}
+                  >
+                    <td className="px-2 py-1.5 font-medium text-[var(--text-primary)]">
+                      {r.orderNumber}
+                    </td>
+                    <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
+                      {r.quantity}
+                    </td>
+                    <td className="px-2 py-1.5 text-[var(--text-secondary)]">
+                      {formatDateTime(r.createdAt)}
+                    </td>
+                    <td className="px-2 py-1.5 text-xs text-[var(--text-secondary)]">
+                      {r.orderStatus}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
             <PackagePlus className="h-4 w-4 text-[#22c55e]" />
@@ -2664,46 +2844,6 @@ export function EstoqueWorkspace() {
             <MiniGauge value={selectedMovementStats.outbound} max={selectedGaugeMax.outMax} color="#ef4444" />
           </div>
           <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
-        </div>
-        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-            <Package className="h-4 w-4 text-[#3b82f6]" />
-            Qtd Disponível
-          </p>
-          <div className="mt-3 flex items-end justify-between gap-2">
-            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
-              {Math.max(
-                0,
-                selectedInventoryProduct.stockQty -
-                  (selectedInventoryProduct.reservedQty ?? 0),
-              )}
-            </p>
-            <MiniGauge
-              value={Math.max(
-                0,
-                selectedInventoryProduct.stockQty -
-                  (selectedInventoryProduct.reservedQty ?? 0),
-              )}
-              max={selectedGaugeMax.availableMax}
-              color="#3b82f6"
-            />
-          </div>
-          <p className="text-xs text-[var(--text-muted)]">
-            {(selectedInventoryProduct.reservedQty ?? 0) > 0
-              ? `${selectedInventoryProduct.reservedQty} reservada(s) · ${selectedInventoryProduct.stockQty} em estoque`
-              : 'disponível'}
-          </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-            <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
-            Estoque mín.
-          </p>
-          <div className="mt-3 flex items-end justify-between gap-2">
-            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedInventoryProduct.minStock}</p>
-            <MiniGauge value={selectedInventoryProduct.minStock} max={selectedGaugeMax.minMax} color="#f59e0b" />
-          </div>
-          <p className="text-xs text-[var(--text-muted)]">configurado</p>
         </div>
       </div>
       <div className="mt-4">
@@ -3630,6 +3770,18 @@ export function EstoqueWorkspace() {
                     </div>
                     <p className="mt-1 text-lg font-bold text-[var(--text-primary)] sm:text-xl">
                       {p.availableQty ?? Math.max(0, p.stockQty - (p.reservedQty ?? 0))}
+                      <span className="ml-1 text-xs font-medium text-[var(--text-muted)]">
+                        disp.
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] tabular-nums text-[var(--text-secondary)]">
+                      Real: {p.stockQty}
+                      {' · '}
+                      Res.: {p.reservedQty ?? 0}
+                      {' · '}
+                      Disp.:{' '}
+                      {p.availableQty ??
+                        Math.max(0, p.stockQty - (p.reservedQty ?? 0))}
                     </p>
                     <div className="mt-1 flex items-center justify-between text-[11px]">
                       <span className={`rounded-full border px-2 py-0.5 ${

@@ -66,7 +66,69 @@ export class StockService implements OnModuleInit {
     }
   }
 
+  /** Reservas ativas de um produto (pedido, qty, data). */
+  async listProductReservations(productId: string) {
+    const product = await this.prisma.client.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        stockQty: true,
+        reservedQty: true,
+      },
+    });
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado.');
+    }
 
+    const rows = await this.prisma.client.stockReservation.findMany({
+      where: { productId, releasedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        order: {
+          select: {
+            id: true,
+            code: true,
+            externalOrderNumber: true,
+            status: true,
+            source: true,
+          },
+        },
+      },
+    });
+
+    const reservations = rows.map((r) => {
+      const orderNumber =
+        r.orderNumber?.trim() ||
+        r.order.externalOrderNumber?.trim() ||
+        r.order.code;
+      return {
+        id: r.id,
+        productId: r.productId,
+        orderId: r.orderId,
+        orderNumber,
+        orderStatus: r.order.status,
+        orderSource: r.order.source,
+        sku: r.sku,
+        quantity: r.quantity,
+        createdAt: r.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      product: {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        stockQty: product.stockQty,
+        reservedQty: product.reservedQty,
+        availableQty: Math.max(0, product.stockQty - product.reservedQty),
+      },
+      reservations,
+      totalReserved: reservations.reduce((acc, r) => acc + r.quantity, 0),
+    };
+  }
 
   async summary(query?: StockSummaryQueryDto) {
     const [activeProducts, inactiveProducts, agg, lowStockRows, valorRows] =
@@ -1374,15 +1436,16 @@ export class StockService implements OnModuleInit {
     deletedItems: number;
   }> {
     const reservations = await tx.stockReservation.findMany({
-      where: { orderId: order.id },
+      where: { orderId: order.id, releasedAt: null },
       orderBy: { productId: 'asc' },
     });
 
     for (const r of reservations) {
       await this.safeDecrementReservedQty(tx, r.productId, r.quantity);
     }
-    const delRes = await tx.stockReservation.deleteMany({
-      where: { orderId: order.id },
+    const delRes = await tx.stockReservation.updateMany({
+      where: { orderId: order.id, releasedAt: null },
+      data: { releasedAt: new Date() },
     });
 
     const movementWhere = StockService.buildOrderStockMovementWhere(order);

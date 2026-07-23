@@ -32,6 +32,13 @@ import {
 } from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { AppLogger } from '../common/logger/app-logger';
+import {
+  findActiveReservationByOrderItem,
+  markOrderItemReservationReleased,
+  markStockReservationReleased,
+  orderNumberFromOrder,
+  upsertStockReservation,
+} from '../stock/stock-reservation.helpers';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -1512,7 +1519,7 @@ export class OrderService {
 
       const orderRef = orderStockReference(order);
       const resCount = await tx.stockReservation.count({
-        where: { orderId: order.id },
+        where: { orderId: order.id, releasedAt: null },
       });
       if (resCount > 0) {
         await this.releaseReservations(
@@ -2207,9 +2214,7 @@ export class OrderService {
         const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
-        const reservation = await tx.stockReservation.findUnique({
-          where: { orderItemId: it.id },
-        });
+        const reservation = await findActiveReservationByOrderItem(tx, it.id);
         const reservationQty = reservation?.quantity ?? 0;
         const decReserved = Math.min(reservationQty, qtyOut);
 
@@ -2247,7 +2252,7 @@ export class OrderService {
         if (reservation) {
           const remaining = reservationQty - decReserved;
           if (remaining <= 0) {
-            await tx.stockReservation.delete({ where: { id: reservation.id } });
+            await markStockReservationReleased(tx, reservation.id);
           } else {
             await tx.stockReservation.update({
               where: { id: reservation.id },
@@ -2369,9 +2374,7 @@ export class OrderService {
         const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
-        const r = await tx.stockReservation.findUnique({
-          where: { orderItemId: it.id },
-        });
+        const r = await findActiveReservationByOrderItem(tx, it.id);
         const reservationQty = r?.quantity ?? 0;
         const decReserved = Math.min(reservationQty, qtyOut);
 
@@ -2409,7 +2412,7 @@ export class OrderService {
         if (r) {
           const remaining = reservationQty - decReserved;
           if (remaining <= 0) {
-            await tx.stockReservation.delete({ where: { id: r.id } });
+            await markStockReservationReleased(tx, r.id);
           } else {
             await tx.stockReservation.update({
               where: { id: r.id },
@@ -3091,6 +3094,7 @@ export class OrderService {
         take: 1,
       },
       stockReservations: {
+        where: { releasedAt: null },
         select: { id: true },
         take: 1,
       },
@@ -3312,9 +3316,7 @@ export class OrderService {
             stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
           },
         });
-        await tx.stockReservation.deleteMany({
-          where: { orderItemId: line.id },
-        });
+        await markOrderItemReservationReleased(tx, line.id);
         continue;
       }
 
@@ -3328,9 +3330,7 @@ export class OrderService {
             stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
           },
         });
-        await tx.stockReservation.deleteMany({
-          where: { orderItemId: line.id },
-        });
+        await markOrderItemReservationReleased(tx, line.id);
         continue;
       }
 
@@ -3353,25 +3353,20 @@ export class OrderService {
         },
       });
 
-      await tx.stockReservation.deleteMany({
-        where: { orderItemId: line.id },
-      });
-
       if (take > 0) {
         await tx.product.update({
           where: { id: productId },
           data: { reservedQty: { increment: take } },
         });
 
-        await tx.stockReservation.create({
-          data: {
-            orderId,
-            orderItemId: line.id,
-            productId,
-            sku: skuNorm,
-            quantity: take,
-            createdById: userId,
-          },
+        await upsertStockReservation(tx, {
+          orderId,
+          orderItemId: line.id,
+          productId,
+          sku: skuNorm,
+          quantity: take,
+          orderNumber: orderCode,
+          createdById: userId,
         });
 
         await tx.stockMovement.create({
@@ -3384,6 +3379,8 @@ export class OrderService {
             movedById: userId,
           },
         });
+      } else {
+        await markOrderItemReservationReleased(tx, line.id);
       }
     }
 
@@ -3419,7 +3416,7 @@ export class OrderService {
     }>,
   ) {
     const reservations = await tx.stockReservation.findMany({
-      where: { orderId },
+      where: { orderId, releasedAt: null },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -3454,7 +3451,7 @@ export class OrderService {
             movedById: userId,
           },
         });
-        await tx.stockReservation.delete({ where: { id: r.id } });
+        await markStockReservationReleased(tx, r.id);
       }
 
       const sortedItems = [...items].sort((a, b) =>
@@ -3605,24 +3602,19 @@ export class OrderService {
           },
         });
 
-        await tx.stockReservation.deleteMany({
-          where: { orderItemId: line.id },
-        });
-
         await tx.product.update({
           where: { id: productId },
           data: { reservedQty: { increment: qty } },
         });
 
-        await tx.stockReservation.create({
-          data: {
-            orderId: order.id,
-            orderItemId: line.id,
-            productId,
-            sku: skuNorm,
-            quantity: qty,
-            createdById: userId,
-          },
+        await upsertStockReservation(tx, {
+          orderId: order.id,
+          orderItemId: line.id,
+          productId,
+          sku: skuNorm,
+          quantity: qty,
+          orderNumber: orderNumberFromOrder(order),
+          createdById: userId,
         });
 
         await tx.stockMovement.create({

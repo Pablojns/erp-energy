@@ -439,16 +439,20 @@ model OrderItem {
   @@index([createdAt])
 }
 
-/// Reserva física por linha — quantidade pode ser menor que o solicitado (reserva flexível)
+/// Reserva física por linha — quantidade pode ser menor que o solicitado (reserva flexível).
+/// Ativa enquanto `releasedAt` for null; ao liberar/sair, marca releasedAt (histórico).
 model StockReservation {
-  id          String   @id @default(uuid()) @db.Uuid
-  orderId     String   @db.Uuid
-  orderItemId String   @unique @db.Uuid
-  productId   String   @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
+  orderId     String    @db.Uuid
+  orderItemId String    @unique @db.Uuid
+  productId   String    @db.Uuid
   sku         String
+  /// Número do pedido (externalOrderNumber ou code) no momento da reserva
+  orderNumber String?
   quantity    Int
-  createdAt   DateTime @default(now())
-  createdById String?  @db.Uuid
+  createdAt   DateTime  @default(now())
+  releasedAt  DateTime?
+  createdById String?   @db.Uuid
 
   order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -457,6 +461,8 @@ model StockReservation {
 
   @@index([orderId])
   @@index([productId])
+  @@index([productId, releasedAt])
+  @@index([releasedAt])
 }
 
 model StockMovement {
