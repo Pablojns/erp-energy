@@ -814,6 +814,97 @@ export class CorreiosService {
     throw new BadRequestException('Timeout ao gerar rótulo Correios.');
   }
 
+  /**
+   * Declaração de Conteúdo oficial (HTML) — Manual Correios API seção K:
+   * GET /prepostagem/v1/prepostagens/declaracaoconteudo/{ids}
+   * Pré-postagem deve estar com status PREPOSTADO.
+   */
+  async gerarDeclaracaoConteudo(idPrePostagem: string): Promise<Buffer> {
+    const id = idPrePostagem.trim();
+    if (!id) {
+      throw new BadRequestException('ID da pré-postagem é obrigatório.');
+    }
+
+    const headers = await this.authHeader();
+    try {
+      const { data, status, headers: respHeaders } = await this.api.get(
+        `/prepostagem/v1/prepostagens/declaracaoconteudo/${encodeURIComponent(id)}`,
+        {
+          headers: {
+            ...headers,
+            Accept: 'text/html, application/json, */*',
+          },
+          responseType: 'arraybuffer',
+          validateStatus: () => true,
+        },
+      );
+
+      const buf = Buffer.from(data);
+      const contentType = String(respHeaders['content-type'] ?? '');
+
+      if (status >= 200 && status < 300) {
+        if (contentType.includes('html') || contentType.includes('text')) {
+          return buf;
+        }
+        const asText = buf.toString('utf8');
+        if (asText.trim().startsWith('<')) {
+          return buf;
+        }
+        try {
+          const parsed = JSON.parse(asText) as {
+            dados?: string;
+            html?: string;
+            message?: string;
+            msgs?: string[];
+          };
+          if (parsed.html) {
+            return Buffer.from(parsed.html, 'utf8');
+          }
+          if (parsed.dados) {
+            return Buffer.from(parsed.dados, 'base64');
+          }
+          const msg =
+            parsed.msgs?.join?.(' ') ||
+            parsed.message ||
+            'Correios não retornou a Declaração de Conteúdo.';
+          throw new BadRequestException(msg);
+        } catch (e) {
+          if (e instanceof BadRequestException) throw e;
+          return buf;
+        }
+      }
+
+      let msg = 'Falha ao emitir Declaração de Conteúdo nos Correios.';
+      try {
+        const parsed = JSON.parse(buf.toString('utf8')) as {
+          msgs?: string[];
+          message?: string;
+          detail?: string;
+        };
+        msg =
+          parsed.msgs?.join?.(' ') ||
+          parsed.message ||
+          parsed.detail ||
+          msg;
+      } catch {
+        /* keep default */
+      }
+      this.logger.error(
+        `Declaração de Conteúdo Correios falhou — status ${status} — body: ${buf.toString('utf8').slice(0, 500)}`,
+      );
+      throw new BadRequestException(msg);
+    } catch (err: unknown) {
+      if (err instanceof BadRequestException) throw err;
+      const apiBody = (err as { response?: { data?: unknown } })?.response?.data;
+      this.logger.error(
+        `Declaração de Conteúdo Correios falhou — body: ${JSON.stringify(apiBody)}`,
+      );
+      throw new BadRequestException(
+        'Falha ao emitir Declaração de Conteúdo nos Correios.',
+      );
+    }
+  }
+
   async buscarPrePostagemPorCodigoObjeto(codigoObjeto: string) {
     const headers = await this.authHeader();
     const codigo = codigoObjeto.replace(/\s/g, '').toUpperCase();

@@ -377,12 +377,35 @@ export async function gerarRotuloCorreios(idsPrePostagem: string[]) {
   openCorreiosPdfBlob(blob);
 }
 
-export async function baixarComprovanteEntrega(codigo: string) {
-  const clean = codigo.trim().toUpperCase();
+export function openCorreiosHtmlBlob(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Declaração de Conteúdo oficial (HTML) da pré-postagem já emitida. */
+export async function emitirDeclaracaoConteudoCorreios(prePostagemId: string) {
+  const id = prePostagemId.trim();
+  if (!id) {
+    throw new Error('Pré-postagem inválida para Declaração de Conteúdo.');
+  }
   const blob = await erpFetchCorreiosBlob(
+    `correios/prepostagem/${encodeURIComponent(id)}/declaracao-conteudo`,
+  );
+  openCorreiosHtmlBlob(blob);
+}
+
+export async function baixarComprovanteEntrega(codigo: string) {
+  const blob = await fetchComprovanteEntregaBlob(codigo);
+  openCorreiosPdfBlob(blob);
+}
+
+/** Busca o comprovante (PDF/imagem) sem abrir automaticamente — para modal. */
+export async function fetchComprovanteEntregaBlob(codigo: string): Promise<Blob> {
+  const clean = codigo.trim().toUpperCase();
+  return erpFetchCorreiosBlob(
     `correios/comprovante/${encodeURIComponent(clean)}`,
   );
-  openCorreiosPdfBlob(blob);
 }
 
 export function isCorreiosObjetoEntregue(eventos: CorreiosTrackingEvent[]): boolean {

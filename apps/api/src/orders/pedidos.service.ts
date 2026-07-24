@@ -745,15 +745,14 @@ export class PedidosService {
       data.totalValue = totalDec;
     }
     if (dto.carrierId !== undefined) {
-      (data as Prisma.OrderUpdateInput & { carrierId?: string | null }).carrierId =
-        dto.carrierId;
+      data.carrier = dto.carrierId
+        ? { connect: { id: dto.carrierId } }
+        : { disconnect: true };
     }
     if (dto.companyEntityId !== undefined) {
-      (
-        data as Prisma.OrderUpdateInput & {
-          companyEntityId?: string | null;
-        }
-      ).companyEntityId = dto.companyEntityId;
+      data.companyEntity = dto.companyEntityId
+        ? { connect: { id: dto.companyEntityId } }
+        : { disconnect: true };
     }
     if (dto.customerId !== undefined) {
       if (dto.customerId) {

@@ -135,6 +135,24 @@ export class CorreiosController {
     res.send(pdf);
   }
 
+  /**
+   * GET /correios/prepostagem/:id/declaracao-conteudo
+   * Declaração de Conteúdo oficial (HTML) da pré-postagem já emitida.
+   */
+  @Get('prepostagem/:id/declaracao-conteudo')
+  async gerarDeclaracaoConteudo(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const html = await this.correiosService.gerarDeclaracaoConteudo(id);
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Disposition': `inline; filename="declaracao-conteudo-${id}.html"`,
+      'Content-Length': html.length,
+    });
+    res.send(html);
+  }
+
   /** DELETE /correios/prepostagem/:id — cancela pré-postagem pelo ID Correios */
   @Delete('prepostagem/:id')
   cancelarPrePostagem(@Param('id') id: string) {

@@ -150,6 +150,7 @@ type OrderSerializeSource = {
   companyEntityId?: string | null;
   carrier?: { id: string; name: string } | null;
   companyEntity?: { id: string; name: string; cnpj: string } | null;
+  customer?: { deliveryAddress: string | null } | null;
   linkedOrderId: string | null;
   isUrgentManual: boolean;
   linkedOrder?: {
@@ -3151,6 +3152,9 @@ export class OrderService {
       companyEntity: {
         select: { id: true, name: true, cnpj: true },
       },
+      customer: {
+        select: { deliveryAddress: true },
+      },
       linkedOrder: {
         select: {
           id: true,
@@ -3753,7 +3757,10 @@ export class OrderService {
       deliveryCnpj: row.deliveryCnpj,
       deliveryCity: row.deliveryCity,
       deliveryState: row.deliveryState,
-      deliveryAddress: row.deliveryAddress,
+      deliveryAddress:
+        row.deliveryAddress?.trim() ||
+        row.customer?.deliveryAddress?.trim() ||
+        null,
       notes: row.notes,
       notaRemessa: row.notaRemessa,
       notaRemessaConfirmada: row.notaRemessaConfirmada ?? false,

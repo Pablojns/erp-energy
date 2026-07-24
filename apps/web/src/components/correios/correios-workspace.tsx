@@ -12,7 +12,9 @@ import {
   cancelarEtiquetaCorreios,
   cotarCorreios,
   criarPrePostagemManual,
+  emitirDeclaracaoConteudoCorreios,
   excluirEtiquetaCorreios,
+  fetchComprovanteEntregaBlob,
   gerarRotuloCorreios,
   getCorreiosRemetentePadrao,
   isCorreiosObjetoEntregue,
@@ -72,6 +74,10 @@ function formatCepInput(value: string): string {
 function latestTrackingDescription(data: unknown): string {
   const eventos = parseCorreiosTrackingEvents(data);
   return eventos[0]?.descricao ?? 'Sem eventos';
+}
+
+function isTrackingStatusEntregue(status: string): boolean {
+  return status.toLowerCase().includes('entregue');
 }
 
 function servicoIdFromLabel(servico: string): CorreiosServiceId {
@@ -157,6 +163,12 @@ export function CorreiosWorkspace() {
   const [pedidosLoading, setPedidosLoading] = useState(false);
   const [pedidosErro, setPedidosErro] = useState<string | null>(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState(false);
+  const [comprovantePedidoId, setComprovantePedidoId] = useState<string | null>(null);
+  const [comprovanteModal, setComprovanteModal] = useState<{
+    codigo: string;
+    url: string;
+    isPdf: boolean;
+  } | null>(null);
 
   const servicoSelecionado = useMemo(
     () => COTACAO_SERVICES.find((s) => s.id === servico) ?? COTACAO_SERVICES[0],
@@ -185,6 +197,38 @@ export function CorreiosWorkspace() {
     });
   }, [etiquetaBusca, etiquetasEmitidas]);
 
+  const applyTrackingStatuses = useCallback(
+    async (rows: TrackedOrderRow[]): Promise<TrackedOrderRow[]> => {
+      const codigos = [...new Set(rows.map((p) => p.trackingCode))];
+      if (codigos.length === 0) return rows;
+
+      const data = await rastrearCorreiosLote(codigos);
+      const objetos = (() => {
+        if (!data || typeof data !== 'object') return [];
+        const root = data as Record<string, unknown>;
+        return Array.isArray(root.objetos) ? root.objetos : [];
+      })();
+
+      const statusByCode = new Map<string, string>();
+      for (const objeto of objetos) {
+        if (!objeto || typeof objeto !== 'object') continue;
+        const row = objeto as Record<string, unknown>;
+        const codigo = String(row.codObjeto ?? row.codigo ?? '')
+          .trim()
+          .toUpperCase();
+        if (!codigo) continue;
+        statusByCode.set(codigo, latestTrackingDescription(objeto));
+      }
+
+      return rows.map((row) => ({
+        ...row,
+        lastStatus:
+          statusByCode.get(row.trackingCode.toUpperCase()) ?? row.lastStatus,
+      }));
+    },
+    [],
+  );
+
   const loadPedidosComRastreio = useCallback(async () => {
     setPedidosLoading(true);
     setPedidosErro(null);
@@ -208,9 +252,30 @@ export function CorreiosWorkspace() {
           receiverName: order.receiverName?.trim() || '—',
           carrierName: order.carrierName?.trim() || '—',
           trackingCode: order.trackingCode!.trim(),
-          lastStatus: '—',
+          lastStatus: 'Consultando…',
         }));
+
       setPedidos(rows);
+
+      if (rows.length > 0) {
+        try {
+          const withStatus = await applyTrackingStatuses(rows);
+          setPedidos(withStatus);
+        } catch (statusError) {
+          setPedidos((prev) =>
+            prev.map((row) =>
+              row.lastStatus === 'Consultando…'
+                ? { ...row, lastStatus: '—' }
+                : row,
+            ),
+          );
+          setPedidosErro(
+            statusError instanceof Error
+              ? statusError.message
+              : 'Falha ao atualizar status dos pedidos.',
+          );
+        }
+      }
     } catch (error) {
       setPedidosErro(
         error instanceof Error ? error.message : 'Falha ao carregar pedidos com rastreio.',
@@ -219,13 +284,21 @@ export function CorreiosWorkspace() {
     } finally {
       setPedidosLoading(false);
     }
-  }, []);
+  }, [applyTrackingStatuses]);
 
   useEffect(() => {
     if (tab === 'pedidos') {
       void loadPedidosComRastreio();
     }
   }, [loadPedidosComRastreio, tab]);
+
+  useEffect(() => {
+    return () => {
+      if (comprovanteModal?.url) {
+        URL.revokeObjectURL(comprovanteModal.url);
+      }
+    };
+  }, [comprovanteModal?.url]);
 
   const loadRemetentePadrao = useCallback(async () => {
     setCarregandoRemetente(true);
@@ -643,6 +716,47 @@ export function CorreiosWorkspace() {
     }
   };
 
+  const resolvePrePostagemIdEmEdicao = (): string | null => {
+    if (editingEtiquetaId) {
+      const match = etiquetasEmitidas.find((e) => e.id === editingEtiquetaId);
+      if (match?.prePostagemId?.trim()) return match.prePostagemId.trim();
+    }
+    const codigo = etiquetaCodigoRastreio.trim();
+    if (codigo) {
+      const match = etiquetasEmitidas.find(
+        (e) => e.codigoRastreio.replace(/\s/g, '').toUpperCase() === codigo.replace(/\s/g, '').toUpperCase(),
+      );
+      if (match?.prePostagemId?.trim()) return match.prePostagemId.trim();
+    }
+    return null;
+  };
+
+  const handleEmitirDeclaracaoConteudo = async (row?: CorreiosEtiquetaDto) => {
+    const prePostagemId = row?.prePostagemId?.trim() || resolvePrePostagemIdEmEdicao();
+    if (!prePostagemId) {
+      setEtiquetaErro(
+        'Selecione/edite uma etiqueta emitida para gerar a Declaração de Conteúdo.',
+      );
+      return;
+    }
+
+    if (row) setEtiquetaAcaoId(row.id);
+    else setGerandoEtiqueta(true);
+    setEtiquetaErro(null);
+    try {
+      await emitirDeclaracaoConteudoCorreios(prePostagemId);
+    } catch (error) {
+      setEtiquetaErro(
+        error instanceof Error
+          ? error.message
+          : 'Falha ao emitir Declaração de Conteúdo.',
+      );
+    } finally {
+      setEtiquetaAcaoId(null);
+      setGerandoEtiqueta(false);
+    }
+  };
+
   const handleCancelarEtiqueta = async (row: CorreiosEtiquetaDto) => {
     const confirmed = window.confirm(
       'Deseja cancelar a pré-postagem e excluir esta etiqueta?',
@@ -698,34 +812,58 @@ export function CorreiosWorkspace() {
     }
   };
 
+  const closeComprovanteModal = () => {
+    setComprovanteModal((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  };
+
+  const handleBaixarComprovantePedido = async (row: TrackedOrderRow) => {
+    const codigo = row.trackingCode.trim();
+    if (!codigo) return;
+
+    setComprovantePedidoId(row.id);
+    setPedidosErro(null);
+    try {
+      const blob = await fetchComprovanteEntregaBlob(codigo);
+      const url = URL.createObjectURL(blob);
+      const isPdf =
+        blob.type.includes('pdf') ||
+        blob.type === '' ||
+        blob.type === 'application/octet-stream';
+      setComprovanteModal((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return { codigo, url, isPdf };
+      });
+    } catch (error) {
+      setPedidosErro(
+        error instanceof Error ? error.message : 'Falha ao baixar comprovante.',
+      );
+    } finally {
+      setComprovantePedidoId(null);
+    }
+  };
+
+  const handleDownloadComprovanteModal = () => {
+    if (!comprovanteModal) return;
+    const a = document.createElement('a');
+    a.href = comprovanteModal.url;
+    a.download = `comprovante-${comprovanteModal.codigo.replace(/\s/g, '').toUpperCase()}.${
+      comprovanteModal.isPdf ? 'pdf' : 'jpg'
+    }`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const handleAtualizarTodos = async () => {
     if (pedidos.length === 0) return;
     setAtualizandoStatus(true);
     setPedidosErro(null);
     try {
-      const codigos = [...new Set(pedidos.map((p) => p.trackingCode))];
-      const data = await rastrearCorreiosLote(codigos);
-      const objetos = (() => {
-        if (!data || typeof data !== 'object') return [];
-        const root = data as Record<string, unknown>;
-        return Array.isArray(root.objetos) ? root.objetos : [];
-      })();
-
-      const statusByCode = new Map<string, string>();
-      for (const objeto of objetos) {
-        if (!objeto || typeof objeto !== 'object') continue;
-        const row = objeto as Record<string, unknown>;
-        const codigo = String(row.codObjeto ?? row.codigo ?? '').trim().toUpperCase();
-        if (!codigo) continue;
-        statusByCode.set(codigo, latestTrackingDescription(objeto));
-      }
-
-      setPedidos((prev) =>
-        prev.map((row) => ({
-          ...row,
-          lastStatus: statusByCode.get(row.trackingCode.toUpperCase()) ?? row.lastStatus,
-        })),
-      );
+      const updated = await applyTrackingStatuses(pedidos);
+      setPedidos(updated);
     } catch (error) {
       setPedidosErro(
         error instanceof Error ? error.message : 'Falha ao atualizar status dos pedidos.',
@@ -1276,6 +1414,19 @@ export function CorreiosWorkspace() {
                   )}
                   Atualizar Etiqueta
                 </button>
+                <button
+                  type="button"
+                  disabled={gerandoEtiqueta || buscandoCep || buscandoCepRemetente || carregandoRemetente}
+                  onClick={() => void handleEmitirDeclaracaoConteudo()}
+                  className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-4 text-sm font-semibold text-[var(--text-primary)] disabled:opacity-60"
+                >
+                  {gerandoEtiqueta ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PackageSearch className="h-4 w-4" />
+                  )}
+                  Emitir Declaração de Conteúdo
+                </button>
               </>
             ) : (
               <button
@@ -1375,6 +1526,14 @@ export function CorreiosWorkspace() {
                                   </button>
                                   <button
                                     type="button"
+                                    disabled={!isAtiva || acaoLoading || !row.prePostagemId}
+                                    onClick={() => void handleEmitirDeclaracaoConteudo(row)}
+                                    className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-50"
+                                  >
+                                    {acaoLoading ? '…' : 'Declaração de Conteúdo'}
+                                  </button>
+                                  <button
+                                    type="button"
                                     disabled={!isAtiva || acaoLoading}
                                     onClick={() => void handleCancelarEtiqueta(row)}
                                     className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-semibold text-rose-600 disabled:opacity-50"
@@ -1418,7 +1577,7 @@ export function CorreiosWorkspace() {
             </div>
             <button
               type="button"
-              disabled={atualizandoStatus || pedidos.length === 0}
+              disabled={atualizandoStatus || pedidosLoading || pedidos.length === 0}
               onClick={() => void handleAtualizarTodos()}
               className="inline-flex h-[40px] items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-4 text-sm font-semibold text-[var(--text-primary)] disabled:opacity-60"
             >
@@ -1427,9 +1586,13 @@ export function CorreiosWorkspace() {
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              Atualizar status de todos
+              Atualizar status
             </button>
           </div>
+
+          <p className="mb-4 text-sm text-[var(--text-secondary)]">
+            Pedidos com status Entregue podem ter o comprovante baixado aqui mesmo.
+          </p>
 
           {pedidosErro ? (
             <p className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-600">
@@ -1456,27 +1619,108 @@ export function CorreiosWorkspace() {
                     <th className="px-3 py-2">Transportadora</th>
                     <th className="px-3 py-2">Rastreio</th>
                     <th className="px-3 py-2">Último status</th>
+                    <th className="px-3 py-2">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pedidos.map((row) => (
-                    <tr key={row.id} className="border-t border-[var(--border-color)]">
-                      <td className="px-3 py-2 font-medium text-[var(--text-primary)]">
-                        #{row.numero}
-                      </td>
-                      <td className="px-3 py-2 text-[var(--text-primary)]">{row.receiverName}</td>
-                      <td className="px-3 py-2 text-[var(--text-primary)]">{row.carrierName}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-[var(--text-primary)]">
-                        {row.trackingCode}
-                      </td>
-                      <td className="px-3 py-2 text-[var(--text-primary)]">{row.lastStatus}</td>
-                    </tr>
-                  ))}
+                  {pedidos.map((row) => {
+                    const entregue = isTrackingStatusEntregue(row.lastStatus);
+                    const loadingComprovante = comprovantePedidoId === row.id;
+                    return (
+                      <tr key={row.id} className="border-t border-[var(--border-color)]">
+                        <td className="px-3 py-2 font-medium text-[var(--text-primary)]">
+                          #{row.numero}
+                        </td>
+                        <td className="px-3 py-2 text-[var(--text-primary)]">{row.receiverName}</td>
+                        <td className="px-3 py-2 text-[var(--text-primary)]">{row.carrierName}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-[var(--text-primary)]">
+                          {row.trackingCode}
+                        </td>
+                        <td className="px-3 py-2 text-[var(--text-primary)]">{row.lastStatus}</td>
+                        <td className="px-3 py-2">
+                          {entregue ? (
+                            <button
+                              type="button"
+                              disabled={loadingComprovante || atualizandoStatus}
+                              onClick={() => void handleBaixarComprovantePedido(row)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-xs font-semibold text-[var(--accent)] underline-offset-2 hover:underline disabled:opacity-50"
+                            >
+                              {loadingComprovante ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : null}
+                              Baixar Comprovante
+                            </button>
+                          ) : (
+                            <span className="text-xs text-[var(--text-secondary)]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </section>
+      ) : null}
+
+      {comprovanteModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay,rgba(0,0,0,0.55))] p-4">
+          <div
+            className="absolute inset-0"
+            aria-hidden
+            onClick={closeComprovanteModal}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Comprovante de entrega"
+            className="relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-xl"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Comprovante de entrega
+                </h3>
+                <p className="font-mono text-xs text-[var(--text-secondary)]">
+                  {comprovanteModal.codigo}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadComprovanteModal}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-3 text-sm font-semibold text-[var(--color-text-inverse)]"
+                >
+                  Baixar
+                </button>
+                <button
+                  type="button"
+                  onClick={closeComprovanteModal}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 text-sm font-semibold text-[var(--text-primary)]"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-[var(--input-bg)] p-3">
+              {comprovanteModal.isPdf ? (
+                <iframe
+                  title={`Comprovante ${comprovanteModal.codigo}`}
+                  src={comprovanteModal.url}
+                  className="h-[70vh] w-full rounded-lg border border-[var(--border-color)] bg-white"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={comprovanteModal.url}
+                  alt={`Comprovante de entrega ${comprovanteModal.codigo}`}
+                  className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg border border-[var(--border-color)] object-contain"
+                />
+              )}
+            </div>
+          </section>
+        </div>
       ) : null}
     </div>
   );
