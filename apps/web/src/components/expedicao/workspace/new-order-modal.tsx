@@ -7,13 +7,14 @@ import { generateUUID } from '@/src/lib/uuid';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { sortProductsForSearch } from '@/src/lib/product-search';
 import { normalizePedidoFromApi, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import {
+  WegBuyerCustomerSelector,
+  wegBuyerCustomerLabel,
+  type WegBuyerCustomer,
+} from '@/src/components/expedicao/workspace/weg-buyer-customer-selector';
 
-type CadastroOption = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  cnpj?: string | null;
-};
+/** Mesmo shape de WegBuyerCustomer — evita drift de tipos no seletor de comprador. */
+type CadastroOption = WegBuyerCustomer;
 
 type ProductOption = {
   id: string;
@@ -93,8 +94,7 @@ function newItemRow(): OrderItemForm {
 }
 
 function formatCustomerLabel(c: CadastroOption) {
-  const doc = c.cnpj?.trim();
-  return doc ? `${c.name} — ${doc}` : c.name;
+  return wegBuyerCustomerLabel(c);
 }
 
 function lineNumberForIndex(index: number) {
@@ -409,6 +409,7 @@ export function NewOrderModal(props: {
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState('');
   const [receiverId, setReceiverId] = useState('');
   const [customerId, setCustomerId] = useState('');
+  const [buyerQuery, setBuyerQuery] = useState('');
   const [unloadingPointId, setUnloadingPointId] = useState('');
   const [notes, setNotes] = useState('');
   const [isUrgentManual, setIsUrgentManual] = useState(false);
@@ -466,6 +467,7 @@ export function NewOrderModal(props: {
     setRequestedDeliveryDate('');
     setReceiverId('');
     setCustomerId('');
+    setBuyerQuery('');
     setUnloadingPointId('');
     setNotes('');
     setIsUrgentManual(false);
@@ -488,13 +490,14 @@ export function NewOrderModal(props: {
     ) => {
       const receiverMatch =
         r.find((row) => row.name.trim() === (order.receiverName ?? '').trim())?.id ?? '';
-      const customerMatch =
-        c.find(
-          (row) =>
-            row.name.trim() === order.customerName.trim() ||
-            (order.customerDocument &&
-              row.cnpj?.trim() === order.customerDocument.trim()),
-        )?.id ?? '';
+      const customerMatchRow = c.find(
+        (row) =>
+          row.name.trim() === order.customerName.trim() ||
+          (order.customerDocument &&
+            row.cnpj?.trim() === order.customerDocument.trim()) ||
+          (order.deliveryCnpj && row.cnpj?.trim() === order.deliveryCnpj.trim()),
+      );
+      const customerMatch = customerMatchRow?.id ?? '';
       const unloadingMatch =
         u.find((row) => row.name.trim() === (order.unloadingPoint ?? '').trim())?.id ?? '';
       const deliveryDate =
@@ -506,6 +509,11 @@ export function NewOrderModal(props: {
       setRequestedDeliveryDate(deliveryDate);
       setReceiverId(receiverMatch);
       setCustomerId(customerMatch);
+      setBuyerQuery(
+        customerMatchRow
+          ? formatCustomerLabel(customerMatchRow)
+          : order.deliveryCnpj ?? order.customerDocument ?? order.customerName ?? '',
+      );
       setUnloadingPointId(unloadingMatch);
       setNotes(order.notes ?? '');
       const nextItems =
@@ -798,25 +806,42 @@ export function NewOrderModal(props: {
                 <span className={labelClass()}>
                   CNPJ de entrega <span className="text-rose-400">*</span>
                 </span>
-                <select
-                  value={customerId}
-                  onChange={(e) => {
-                    setCustomerId(e.target.value);
+                <WegBuyerCustomerSelector
+                  customers={customers}
+                  value={buyerQuery}
+                  onChange={(next) => {
+                    setBuyerQuery(next);
+                    if (customerId) setCustomerId('');
                     clearFieldError('customerId');
                     setSubmitError(null);
                   }}
-                  className={fieldClass(Boolean(fieldErrors.customerId))}
+                  onSelect={(customer) => {
+                    setCustomerId(customer.id);
+                    setBuyerQuery(formatCustomerLabel(customer));
+                    clearFieldError('customerId');
+                    setSubmitError(null);
+                  }}
+                  onCreated={(created) => {
+                    setCustomers((prev) => {
+                      if (prev.some((c) => c.id === created.id)) return prev;
+                      const row: CadastroOption = {
+                        id: created.id,
+                        name: created.name,
+                        cnpj: created.cnpj ?? null,
+                        isActive: created.isActive ?? true,
+                      };
+                      return [...prev, row].sort((a, b) =>
+                        a.name.localeCompare(b.name),
+                      );
+                    });
+                  }}
                   disabled={saving || loadingOptions}
-                >
-                  <option value="">Selecione…</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {formatCustomerLabel(c)}
-                    </option>
-                  ))}
-                </select>
+                  error={fieldErrors.customerId ?? null}
+                  placeholder="Buscar por nome ou CNPJ…"
+                  inputClassName={fieldClass(Boolean(fieldErrors.customerId)) + ' pr-8'}
+                  listZIndexClassName="z-[60]"
+                />
               </label>
-              <FieldError message={fieldErrors.customerId} />
             </div>
 
             <div className="sm:col-span-2">

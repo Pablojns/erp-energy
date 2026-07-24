@@ -25,4 +25,9 @@ export class CreateCustomerDto {
   @IsString()
   @MaxLength(500)
   deliveryAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  inscricaoEstadual?: string;
 }

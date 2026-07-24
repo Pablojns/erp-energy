@@ -303,6 +303,7 @@ export class CadastrosService {
           email: this.trimOptional(dto.email) ?? null,
           phone: this.trimOptional(dto.phone) ?? null,
           deliveryAddress: this.trimOptional(dto.deliveryAddress) ?? null,
+          inscricaoEstadual: this.trimOptional(dto.inscricaoEstadual) ?? null,
         },
       })
       .then((row) => this.serializeCustomer(row));
