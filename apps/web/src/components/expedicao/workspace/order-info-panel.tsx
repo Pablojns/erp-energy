@@ -12,7 +12,6 @@ import {
 } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/order-clickable-status-badge';
-import { WegBuyerCustomerSelector, type WegBuyerCustomer } from '@/src/components/expedicao/workspace/weg-buyer-customer-selector';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
@@ -193,15 +192,6 @@ export const OrderInfoPanel = forwardRef<
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
-  const [customers, setCustomers] = useState<WegBuyerCustomer[]>([]);
-  const [cnpjInput, setCnpjInput] = useState(
-    order.deliveryCnpj ?? order.customerDocument ?? '',
-  );
-  const [savingCnpj, setSavingCnpj] = useState(false);
-  const [cnpjError, setCnpjError] = useState<string | null>(null);
-  const lastSavedCnpjRef = useRef(
-    (order.deliveryCnpj ?? order.customerDocument ?? '').trim(),
-  );
   const [notaRemessa, setNotaRemessa] = useState(order.notaRemessa ?? '');
   const [notaVendaInput, setNotaVendaInput] = useState(order.invoiceNumber ?? '');
   const [notaRemessaConfirmada, setNotaRemessaConfirmada] = useState(
@@ -393,111 +383,6 @@ export const OrderInfoPanel = forwardRef<
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (isSimpleCustomerLayout) return;
-    let cancelled = false;
-    void erpFetchJson<WegBuyerCustomer[]>('cadastros/customers')
-      .then((rows) => {
-        if (!cancelled) {
-          setCustomers(
-            rows
-              .filter((c) => c.isActive && Boolean(c.cnpj?.trim()))
-              .map((c) => ({
-                id: c.id,
-                name: c.name,
-                cnpj: c.cnpj ?? null,
-                isActive: c.isActive ?? true,
-              })),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setCustomers([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isSimpleCustomerLayout]);
-
-  useEffect(() => {
-    const initial = (order.deliveryCnpj ?? order.customerDocument ?? '').trim();
-    setCnpjInput(order.deliveryCnpj ?? order.customerDocument ?? '');
-    lastSavedCnpjRef.current = initial;
-    setCnpjError(null);
-  }, [order.id, order.deliveryCnpj, order.customerDocument]);
-
-  const digitsOnly = (value: string) => value.replace(/\D/g, '');
-
-  const findCustomerByCnpj = (raw: string) => {
-    const digits = digitsOnly(raw);
-    if (digits.length < 11) return null;
-    return (
-      customers.find((c) => digitsOnly(c.cnpj ?? '') === digits) ?? null
-    );
-  };
-
-  const saveCnpj = async (raw: string, customerId?: string | null) => {
-    const numeroPed = numeroPedFromOrder(order);
-    if (!numeroPed) {
-      setCnpjError('Número do pedido inválido.');
-      return false;
-    }
-    const trimmed = raw.trim();
-    if (trimmed === lastSavedCnpjRef.current && customerId === undefined) {
-      return true;
-    }
-
-    setSavingCnpj(true);
-    setCnpjError(null);
-    try {
-      const body: { deliveryCnpj: string | null; customerId?: string | null } = {
-        deliveryCnpj: trimmed || null,
-      };
-      if (customerId !== undefined) {
-        body.customerId = customerId;
-      }
-      await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      });
-      lastSavedCnpjRef.current = trimmed;
-      onStatusChanged?.();
-      return true;
-    } catch (err) {
-      setCnpjError(
-        err instanceof Error ? err.message : 'Não foi possível salvar o CNPJ.',
-      );
-      return false;
-    } finally {
-      setSavingCnpj(false);
-    }
-  };
-
-  const selectCustomer = async (customer: WegBuyerCustomer) => {
-    const cnpj = customer.cnpj?.trim() || '';
-    setCnpjInput(cnpj);
-    await saveCnpj(cnpj, customer.id);
-  };
-
-  const handleCnpjBlur = async () => {
-    if (fieldsReadOnly || isSimpleCustomerLayout) return;
-
-    const trimmed = cnpjInput.trim();
-    if (trimmed === lastSavedCnpjRef.current) return;
-
-    const match = findCustomerByCnpj(trimmed);
-    if (match && match.id !== order.customerId) {
-      const link = window.confirm(
-        `CNPJ corresponde ao cliente "${match.name}".\n\nVincular este cliente ao pedido?`,
-      );
-      if (link) {
-        await saveCnpj(match.cnpj?.trim() || trimmed, match.id);
-        return;
-      }
-    }
-    await saveCnpj(trimmed);
-  };
 
   const carrierOptions = [
     { value: '', label: '— Selecionar —' },
@@ -898,48 +783,14 @@ export const OrderInfoPanel = forwardRef<
             </>
           ) : (
             <>
-              <div className="exp-wb-order-party-cell exp-wb-order-party-cell--wrap relative z-20 overflow-visible">
-                <span className="exp-wb-order-party-label">Comprador (CNPJ)</span>
-                <div className="exp-wb-order-party-value-row min-w-0 overflow-visible">
-                  {fieldsReadOnly ? (
-                    <span className="exp-wb-order-party-value" title={cnpj}>
-                      {cnpj}
-                    </span>
-                  ) : (
-                    <WegBuyerCustomerSelector
-                      customers={customers}
-                      value={cnpjInput}
-                      onChange={(next) => {
-                        setCnpjInput(next);
-                        setCnpjError(null);
-                      }}
-                      onSelect={(customer) => {
-                        void selectCustomer(customer);
-                      }}
-                      onCreated={(created) => {
-                        setCustomers((prev) => {
-                          if (prev.some((c) => c.id === created.id)) return prev;
-                          return [
-                            ...prev,
-                            {
-                              id: created.id,
-                              name: created.name,
-                              cnpj: created.cnpj ?? null,
-                              isActive: created.isActive ?? true,
-                            },
-                          ].sort((a, b) => a.name.localeCompare(b.name));
-                        });
-                      }}
-                      onBlur={() => void handleCnpjBlur()}
-                      disabled={fieldsReadOnly}
-                      busy={savingCnpj}
-                      error={cnpjError}
-                      placeholder="Digite CNPJ ou busque cliente…"
-                      inputClassName={`${inputClassName} pr-7`}
-                    />
-                  )}
-                </div>
-              </div>
+              <PartyCell
+                label="Comprador (CNPJ)"
+                value={
+                  order.customerName?.trim()
+                    ? `${order.customerName.trim()} — ${cnpj}`
+                    : cnpj
+                }
+              />
               <PartyCell label="Endereço" value={address} multiline />
               <PartyCell label="Recebedor" value={receiver} />
               <PartyCell label="Ponto de descarga" value={point} />

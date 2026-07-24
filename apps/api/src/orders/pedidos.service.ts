@@ -706,6 +706,9 @@ export class PedidosService {
     if (dto.deliveryCnpj !== undefined) {
       data.deliveryCnpj = dto.deliveryCnpj.trim() || null;
     }
+    if (dto.deliveryAddress !== undefined) {
+      data.deliveryAddress = dto.deliveryAddress?.trim() || null;
+    }
     if (dto.notes !== undefined) {
       data.notes = dto.notes.trim() || null;
     }
@@ -756,7 +759,13 @@ export class PedidosService {
       if (dto.customerId) {
         const customer = await this.prisma.client.customer.findUnique({
           where: { id: dto.customerId },
-          select: { id: true, name: true, document: true, isActive: true },
+          select: {
+            id: true,
+            name: true,
+            document: true,
+            deliveryAddress: true,
+            isActive: true,
+          },
         });
         if (!customer?.isActive) {
           throw new BadRequestException('Cliente inválido ou inativo.');
@@ -767,13 +776,35 @@ export class PedidosService {
         if (dto.deliveryCnpj === undefined) {
           data.deliveryCnpj = customer.document?.trim() || null;
         }
+        if (dto.deliveryAddress === undefined) {
+          data.deliveryAddress = customer.deliveryAddress?.trim() || null;
+        }
       } else {
         data.customer = { disconnect: true };
       }
     }
 
+    const destinatarioChanged =
+      dto.deliveryCnpj !== undefined ||
+      dto.deliveryAddress !== undefined ||
+      dto.customerId !== undefined ||
+      dto.receiverName !== undefined ||
+      dto.unloadingPoint !== undefined;
+
+    if (destinatarioChanged) {
+      // Invalida etiqueta/pré-postagem antiga para a próxima emissão usar o endereço novo.
+      data.trackingCode = null;
+    }
+
     await this.prisma.client.$transaction(async (tx) => {
       await tx.order.update({ where: { id: before.id }, data });
+
+      if (destinatarioChanged) {
+        await tx.orderExit.updateMany({
+          where: { orderId: before.id },
+          data: { trackingCode: null },
+        });
+      }
 
       if (dto.items?.length) {
         for (const item of dto.items) {

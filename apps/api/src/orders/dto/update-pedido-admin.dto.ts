@@ -125,6 +125,11 @@ export class UpdatePedidoAdminDto {
   customerId?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  deliveryAddress?: string | null;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdatePedidoAdminItemDto)

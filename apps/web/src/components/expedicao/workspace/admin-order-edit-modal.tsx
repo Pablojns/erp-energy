@@ -18,6 +18,11 @@ import {
   InventoryProductPickerModal,
   type InventoryProductOption,
 } from '@/src/components/expedicao/workspace/inventory-product-picker-modal';
+import {
+  WegBuyerCustomerSelector,
+  wegBuyerCustomerLabel,
+  type WegBuyerCustomer,
+} from '@/src/components/expedicao/workspace/weg-buyer-customer-selector';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
@@ -77,6 +82,10 @@ export function AdminOrderEditModal(props: {
   const [receiverName, setReceiverName] = useState('');
   const [unloadingPoint, setUnloadingPoint] = useState('');
   const [deliveryCnpj, setDeliveryCnpj] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [buyerQuery, setBuyerQuery] = useState('');
+  const [customers, setCustomers] = useState<WegBuyerCustomer[]>([]);
   const [orderDate, setOrderDate] = useState('');
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -141,13 +150,36 @@ export function AdminOrderEditModal(props: {
     >('cadastros/company-entities')
       .then((rows) => setCompanies(rows.filter((c) => c.isActive)))
       .catch(() => setCompanies([]));
+    void erpFetchJson<WegBuyerCustomer[]>('cadastros/customers')
+      .then((rows) =>
+        setCustomers(
+          rows
+            .filter((c) => c.isActive)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              cnpj: c.cnpj ?? null,
+              deliveryAddress: c.deliveryAddress ?? null,
+              isActive: c.isActive ?? true,
+            })),
+        ),
+      )
+      .catch(() => setCustomers([]));
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !order) return;
     setReceiverName(order.receiverName ?? '');
     setUnloadingPoint(order.unloadingPoint ?? '');
-    setDeliveryCnpj(order.deliveryCnpj ?? order.customerDocument ?? '');
+    const initialCnpj = order.deliveryCnpj ?? order.customerDocument ?? '';
+    setDeliveryCnpj(initialCnpj);
+    setDeliveryAddress(order.deliveryAddress ?? '');
+    setCustomerId(order.customerId ?? null);
+    setBuyerQuery(
+      order.customerName?.trim()
+        ? `${order.customerName.trim()}${initialCnpj ? ` — ${initialCnpj}` : ''}`
+        : initialCnpj,
+    );
     setOrderDate(order.orderDate?.slice(0, 10) ?? '');
     setRequestedDeliveryDate(order.requestedDeliveryDate?.slice(0, 10) ?? '');
     setNotes(order.notes ?? '');
@@ -178,6 +210,23 @@ export function AdminOrderEditModal(props: {
     setPickingIndex(null);
   }, [isOpen, order]);
 
+  useEffect(() => {
+    if (!isOpen || !order || customers.length === 0) return;
+    const initialCnpj = (order.deliveryCnpj ?? order.customerDocument ?? '').trim();
+    const matched = customers.find(
+      (c) =>
+        c.id === (order.customerId ?? '') ||
+        (initialCnpj.length > 0 &&
+          (c.cnpj ?? '').replace(/\D/g, '') === initialCnpj.replace(/\D/g, '')),
+    );
+    if (!matched) return;
+    setCustomerId((prev) => prev ?? matched.id);
+    setBuyerQuery((prev) => (prev.trim() ? prev : wegBuyerCustomerLabel(matched)));
+    if (matched.deliveryAddress?.trim() && !order.deliveryAddress?.trim()) {
+      setDeliveryAddress(matched.deliveryAddress);
+    }
+  }, [isOpen, order, customers]);
+
   if (!isOpen || !order) return null;
 
   const numeroPed = numeroPedFromOrder(order);
@@ -189,9 +238,20 @@ export function AdminOrderEditModal(props: {
     isSiteOrder || order.source === 'VENDA_EXTERNA';
   const orderNumberDisplay = order.externalOrderNumber ?? order.code;
   const deliveryAddressDisplay = formatDeliveryAddressDisplay(
-    order.deliveryAddress ?? order.unloadingPoint,
+    deliveryAddress || unloadingPoint,
   );
   const busy = saving;
+
+  const applyBuyerCustomer = (customer: WegBuyerCustomer) => {
+    const cnpj = customer.cnpj?.trim() || '';
+    setCustomerId(customer.id);
+    setDeliveryCnpj(cnpj);
+    setBuyerQuery(wegBuyerCustomerLabel(customer));
+    if (customer.deliveryAddress?.trim()) {
+      setDeliveryAddress(customer.deliveryAddress);
+    }
+    setError(null);
+  };
 
   const openPickerFor = (idx: number) => {
     if (!siteItemsEditable) return;
@@ -226,6 +286,8 @@ export function AdminOrderEditModal(props: {
         receiverName,
         unloadingPoint,
         deliveryCnpj,
+        deliveryAddress: deliveryAddress.trim() || null,
+        customerId: customerId || null,
         orderDate: orderDate || undefined,
         requestedDeliveryDate: requestedDeliveryDate || undefined,
         notes,
@@ -395,6 +457,59 @@ export function AdminOrderEditModal(props: {
           ) : (
             <>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="block sm:col-span-2 lg:col-span-3">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Comprador
+                  </span>
+                  <WegBuyerCustomerSelector
+                    customers={customers}
+                    value={buyerQuery}
+                    onChange={(next) => {
+                      setBuyerQuery(next);
+                      setCustomerId(null);
+                    }}
+                    onSelect={(customer) => {
+                      applyBuyerCustomer(customer);
+                    }}
+                    onCreated={(created) => {
+                      const row: WegBuyerCustomer = {
+                        id: created.id,
+                        name: created.name,
+                        cnpj: created.cnpj ?? null,
+                        deliveryAddress: created.deliveryAddress ?? null,
+                        isActive: created.isActive ?? true,
+                      };
+                      setCustomers((prev) => {
+                        if (prev.some((c) => c.id === row.id)) return prev;
+                        return [...prev, row].sort((a, b) =>
+                          a.name.localeCompare(b.name),
+                        );
+                      });
+                      applyBuyerCustomer(row);
+                    }}
+                    disabled={busy}
+                    placeholder="Buscar por nome ou CNPJ…"
+                    listZIndexClassName="z-[60]"
+                  />
+                </label>
+                <label className="block sm:col-span-2 lg:col-span-3">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Endereço (atualiza ao selecionar o cliente)
+                  </span>
+                  <input
+                    className={readOnlyFieldClass()}
+                    readOnly
+                    value={deliveryAddressDisplay}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">CNPJ comprador</span>
+                  <input
+                    className={readOnlyFieldClass()}
+                    readOnly
+                    value={deliveryCnpj}
+                  />
+                </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Recebedor</span>
                   <input className={fieldClass()} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
@@ -402,10 +517,6 @@ export function AdminOrderEditModal(props: {
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Ponto de descarga</span>
                   <input className={fieldClass()} value={unloadingPoint} onChange={(e) => setUnloadingPoint(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">CNPJ comprador</span>
-                  <input className={fieldClass()} value={deliveryCnpj} onChange={(e) => setDeliveryCnpj(e.target.value)} />
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data pedido</span>

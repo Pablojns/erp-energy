@@ -828,6 +828,7 @@ export function NewOrderModal(props: {
                         id: created.id,
                         name: created.name,
                         cnpj: created.cnpj ?? null,
+                        deliveryAddress: created.deliveryAddress ?? null,
                         isActive: created.isActive ?? true,
                       };
                       return [...prev, row].sort((a, b) =>

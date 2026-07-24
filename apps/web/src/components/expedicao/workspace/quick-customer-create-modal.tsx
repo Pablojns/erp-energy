@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import { formatCpfCnpj, digitsOnly } from '@/src/components/cadastros/document-mask';
 import {
@@ -17,6 +17,15 @@ export type QuickCustomerCreated = {
   name: string;
   cnpj: string | null;
   isActive: boolean;
+  deliveryAddress?: string | null;
+};
+
+type ExistingCustomer = {
+  id: string;
+  name: string;
+  cnpj: string | null;
+  deliveryAddress?: string | null;
+  isActive: boolean;
 };
 
 type FormState = {
@@ -27,6 +36,21 @@ type FormState = {
   email: string;
   address: DeliveryAddressForm;
   addressLoaded: boolean;
+};
+
+type BrasilApiCnpj = {
+  razao_social?: string;
+  nome_fantasia?: string;
+  cnpj?: string;
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  ddd_telefone_1?: string;
+  email?: string;
 };
 
 function emptyForm(initialCnpj?: string): FormState {
@@ -47,6 +71,34 @@ function fieldClass(disabled?: boolean) {
   }`;
 }
 
+async function lookupCnpjBrasilApi(cnpjDigits: string): Promise<Partial<FormState> | null> {
+  const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjDigits}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as BrasilApiCnpj;
+  const razao = data.razao_social?.trim() || data.nome_fantasia?.trim() || '';
+  if (!razao && !data.cnpj) return null;
+
+  const cepDigits = digitsOnly(data.cep ?? '');
+  const hasAddress = cepDigits.length === 8 || Boolean(data.logradouro?.trim());
+
+  return {
+    name: razao,
+    cnpj: formatCpfCnpj(data.cnpj ?? cnpjDigits),
+    phone: data.ddd_telefone_1?.trim() || '',
+    email: data.email?.trim() || '',
+    address: {
+      cep: cepDigits.length === 8 ? formatCep(cepDigits) : '',
+      logradouro: data.logradouro?.trim() ?? '',
+      bairro: data.bairro?.trim() ?? '',
+      cidade: data.municipio?.trim() ?? '',
+      uf: data.uf?.trim().toUpperCase() ?? '',
+      numero: data.numero?.trim() ?? '',
+      complemento: data.complemento?.trim() ?? '',
+    },
+    addressLoaded: hasAddress,
+  };
+}
+
 export function QuickCustomerCreateModal(props: {
   open: boolean;
   initialCnpj?: string;
@@ -55,17 +107,106 @@ export function QuickCustomerCreateModal(props: {
 }) {
   const { open, initialCnpj, onClose, onCreated } = props;
   const [form, setForm] = useState<FormState>(() => emptyForm(initialCnpj));
+  const [searchQuery, setSearchQuery] = useState('');
+  const [existingCustomers, setExistingCustomers] = useState<ExistingCustomer[]>([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupHint, setLookupHint] = useState<string | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lookupSeq = useRef(0);
 
   useEffect(() => {
     if (!open) return;
     setForm(emptyForm(initialCnpj));
+    setSearchQuery(initialCnpj?.trim() ? formatCpfCnpj(initialCnpj) : '');
     setCepError(null);
     setError(null);
+    setLookupHint(null);
+    void erpFetchJson<ExistingCustomer[]>('cadastros/customers')
+      .then((rows) =>
+        setExistingCustomers(
+          rows
+            .filter((c) => c.isActive)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              cnpj: c.cnpj ?? null,
+              deliveryAddress: c.deliveryAddress ?? null,
+              isActive: c.isActive ?? true,
+            })),
+        ),
+      )
+      .catch(() => setExistingCustomers([]));
   }, [open, initialCnpj]);
+
+  const nameSuggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const qDigits = digitsOnly(searchQuery);
+    if (q.length < 2 || qDigits.length >= 11) return [];
+    return existingCustomers
+      .filter((c) => {
+        const name = c.name.toLowerCase();
+        const cnpj = (c.cnpj ?? '').toLowerCase();
+        return name.includes(q) || cnpj.includes(q);
+      })
+      .slice(0, 8);
+  }, [existingCustomers, searchQuery]);
+
+  useEffect(() => {
+    if (!open) return;
+    const qDigits = digitsOnly(searchQuery);
+    if (qDigits.length !== 14) return;
+
+    const seq = ++lookupSeq.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setLookupLoading(true);
+        setLookupHint(null);
+        try {
+          const local = existingCustomers.find(
+            (c) => digitsOnly(c.cnpj ?? '') === qDigits,
+          );
+          if (local) {
+            if (seq !== lookupSeq.current) return;
+            setForm((prev) => ({
+              ...prev,
+              name: local.name,
+              cnpj: formatCpfCnpj(local.cnpj ?? qDigits),
+            }));
+            setLookupHint(`Cliente já cadastrado: ${local.name}`);
+            return;
+          }
+
+          const fromApi = await lookupCnpjBrasilApi(qDigits);
+          if (seq !== lookupSeq.current) return;
+          if (!fromApi) {
+            setLookupHint('CNPJ não encontrado na consulta pública.');
+            setForm((prev) => ({
+              ...prev,
+              cnpj: formatCpfCnpj(qDigits),
+            }));
+            return;
+          }
+          setForm((prev) => ({
+            ...prev,
+            ...fromApi,
+            address: fromApi.address ?? prev.address,
+            addressLoaded: fromApi.addressLoaded ?? prev.addressLoaded,
+          }));
+          setLookupHint('Razão social preenchida pela consulta de CNPJ.');
+        } catch {
+          if (seq !== lookupSeq.current) return;
+          setLookupHint('Não foi possível consultar o CNPJ agora.');
+        } finally {
+          if (seq === lookupSeq.current) setLookupLoading(false);
+        }
+      })();
+    }, 400);
+
+    return () => window.clearTimeout(timer);
+  }, [open, searchQuery, existingCustomers]);
 
   if (!open) return null;
 
@@ -80,6 +221,17 @@ export function QuickCustomerCreateModal(props: {
       address: { ...prev.address, ...partial },
     }));
     setError(null);
+  };
+
+  const applyExistingCustomer = (customer: ExistingCustomer) => {
+    onCreated({
+      id: customer.id,
+      name: customer.name,
+      cnpj: customer.cnpj,
+      isActive: true,
+      deliveryAddress: customer.deliveryAddress ?? null,
+    });
+    onClose();
   };
 
   const handleCepSearch = async () => {
@@ -124,6 +276,10 @@ export function QuickCustomerCreateModal(props: {
     setSaving(true);
     setError(null);
     try {
+      const deliveryAddress = serializeDeliveryAddress({
+        ...form.address,
+        numero: form.address.numero.trim(),
+      });
       const created = await erpFetchJson<QuickCustomerCreated>('cadastros/customers', {
         method: 'POST',
         body: JSON.stringify({
@@ -132,13 +288,13 @@ export function QuickCustomerCreateModal(props: {
           inscricaoEstadual: form.inscricaoEstadual.trim() || undefined,
           phone: form.phone.trim() || undefined,
           email: form.email.trim() || undefined,
-          deliveryAddress: serializeDeliveryAddress({
-            ...form.address,
-            numero: form.address.numero.trim(),
-          }),
+          deliveryAddress,
         }),
       });
-      onCreated(created);
+      onCreated({
+        ...created,
+        deliveryAddress: created.deliveryAddress ?? deliveryAddress,
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao cadastrar cliente.');
@@ -180,6 +336,67 @@ export function QuickCustomerCreateModal(props: {
         </header>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div className="relative space-y-1">
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-[var(--text-secondary)]">
+                Busca (CNPJ ou razão social)
+              </span>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSearchQuery(next);
+                    const dig = digitsOnly(next);
+                    if (dig.length >= 11) {
+                      patch({ cnpj: formatCpfCnpj(next) });
+                    } else if (next.trim() && dig.length < 8) {
+                      patch({ name: next.trim() });
+                    }
+                  }}
+                  className={`${fieldClass(saving)} pr-9`}
+                  disabled={saving}
+                  placeholder="Digite CNPJ ou nome…"
+                  autoFocus
+                />
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                  {lookupLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                </span>
+              </div>
+            </label>
+            {lookupHint ? (
+              <p className="text-[11px] text-[var(--text-secondary)]">{lookupHint}</p>
+            ) : null}
+            {nameSuggestions.length > 0 ? (
+              <ul className="absolute left-0 right-0 z-20 mt-1 max-h-40 overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] py-1 shadow-lg">
+                {nameSuggestions.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      className="flex w-full flex-col items-start px-2.5 py-1.5 text-left hover:bg-[var(--input-bg)]"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyExistingCustomer(c);
+                      }}
+                    >
+                      <span className="text-[12px] font-medium text-[var(--text-primary)]">
+                        {c.name}
+                      </span>
+                      <span className="text-[11px] text-[var(--text-secondary)]">
+                        {c.cnpj ?? '—'}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-[var(--text-secondary)]">
               Nome / Razão Social <span className="text-rose-400">*</span>
@@ -190,7 +407,6 @@ export function QuickCustomerCreateModal(props: {
               onChange={(e) => patch({ name: e.target.value })}
               className={fieldClass(saving)}
               disabled={saving}
-              autoFocus
             />
           </label>
 
@@ -203,7 +419,11 @@ export function QuickCustomerCreateModal(props: {
                 type="text"
                 inputMode="numeric"
                 value={form.cnpj}
-                onChange={(e) => patch({ cnpj: formatCpfCnpj(e.target.value) })}
+                onChange={(e) => {
+                  const formatted = formatCpfCnpj(e.target.value);
+                  patch({ cnpj: formatted });
+                  setSearchQuery(formatted);
+                }}
                 className={fieldClass(saving)}
                 disabled={saving}
                 maxLength={18}

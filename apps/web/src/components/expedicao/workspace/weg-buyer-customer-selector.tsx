@@ -13,6 +13,7 @@ export type WegBuyerCustomer = {
   name: string;
   isActive: boolean;
   cnpj?: string | null;
+  deliveryAddress?: string | null;
 };
 
 function customerLabel(c: WegBuyerCustomer) {
@@ -211,6 +212,7 @@ export function WegBuyerCustomerSelector(props: {
             id: customer.id,
             name: customer.name,
             cnpj: customer.cnpj ?? null,
+            deliveryAddress: customer.deliveryAddress ?? null,
             isActive: customer.isActive ?? true,
           });
         }}
