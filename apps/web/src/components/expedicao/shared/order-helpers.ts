@@ -113,18 +113,11 @@ export function summarizeItemReceiptStatus(items: OrderItemDto[]): {
 
 export function resolveItemReceiptStatusForOrder(
   item: OrderItemDto,
-  orderStatus: string,
+  _orderStatus?: string,
 ): string | null | undefined {
+  // Sempre o dado real da planilha — não inferir OK a partir do status do pedido.
   const raw = item.mercadoEletronicoItemStatus?.trim();
-  if (raw) return raw;
-
-  if (orderStatus === 'FINALIZADO' || orderStatus === 'EXPEDIDO') {
-    const qty = item.quantity ?? 0;
-    const shipped = Math.max(item.pickedQty ?? 0, item.invoicedQty ?? 0);
-    if (qty > 0 && shipped >= qty) return 'OK';
-  }
-
-  return null;
+  return raw || null;
 }
 
 export function getItemSeparationStatus(item: OrderItemDto): {

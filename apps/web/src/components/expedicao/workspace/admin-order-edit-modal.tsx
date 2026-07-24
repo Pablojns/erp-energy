@@ -503,14 +503,6 @@ export function AdminOrderEditModal(props: {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">CNPJ comprador</span>
-                  <input
-                    className={readOnlyFieldClass()}
-                    readOnly
-                    value={deliveryCnpj}
-                  />
-                </label>
-                <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Recebedor</span>
                   <input className={fieldClass()} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
                 </label>

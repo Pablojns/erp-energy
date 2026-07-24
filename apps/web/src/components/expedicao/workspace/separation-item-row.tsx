@@ -70,7 +70,7 @@ export function SeparationItemRow(props: {
 
   const statusNode = alreadyReceived ? (
     <OrderItemReceiptStatusBadge
-      status={item.mercadoEletronicoItemStatus ?? 'Recebido'}
+      status={item.mercadoEletronicoItemStatus}
     />
   ) : (
     <span

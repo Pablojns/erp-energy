@@ -2041,8 +2041,8 @@ export class OrderService {
         }
       }
 
-      const hadPriorPartial =
-        Boolean(before.shippedAt) || Boolean(exit) || cameFromParcial;
+      // Saída órfã (sem shippedAt / sem histórico PARCIAL) não impede reset completo a NOVO.
+      const hadPriorPartial = Boolean(before.shippedAt) || cameFromParcial;
 
       if (hadPriorPartial) {
         for (const it of before.items) {
@@ -2107,9 +2107,14 @@ export class OrderService {
             pickedQty: 0,
             invoicedQty: 0,
             missingQty: 0,
+            // Limpa flag de recebimento da planilha (OK / Recebido).
+            mercadoEletronicoItemStatus: null,
           },
         });
       }
+
+      // Remove saída vinculada para não permanecer na lista de Saídas.
+      await tx.orderExit.deleteMany({ where: { orderId } });
 
       // Remove só o histórico criado nesta tentativa de separação.
       if (enteredSeparationAt) {
