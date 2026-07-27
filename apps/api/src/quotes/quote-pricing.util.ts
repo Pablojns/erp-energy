@@ -120,33 +120,6 @@ export function calcQuoteItemLineTotalDecimal(input: {
   return unitRounded.mul(qty);
 }
 
-/** @deprecated Prefer calcQuoteItemUnitPriceDecimal — mantido para compat. */
-export function calcQuoteItemUnitPrice(
-  productPrice: number,
-  engravingPrice: number,
-  commissionPercent: number,
-  marginReservePercent: number,
-  salesMarginPercent: number | string = DEFAULT_SALES_MARGIN_PERCENT,
-  quantity: number = 1,
-  difalValue: number = 0,
-  otherExtraCosts: number = 0,
-): number {
-  return Number(
-    roundMoneyDecimal(
-      calcQuoteItemUnitPriceDecimal({
-        productPrice,
-        engravingPrice,
-        commissionPercent,
-        marginReservePercent,
-        salesMarginPercent,
-        quantity,
-        difalValue,
-        otherExtraCosts,
-      }),
-    ).toString(),
-  );
-}
-
 /**
  * Fator custoBase → preçoFinal (margem por dentro):
  * 1 / (1 - (comissão + reserva + margemVenda) / 100)

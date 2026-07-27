@@ -19,7 +19,6 @@ import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { AuditService } from '../common/audit.service';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
-import { PermissionsModule } from '../common/permissions/permissions.module';
 import { CadastrosService } from './cadastros.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';

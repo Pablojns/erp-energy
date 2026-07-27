@@ -216,30 +216,3 @@ export function FinFilterOptionButton(props: {
 
 
 
-export function FinFilterFieldLabel(props: {
-
-  label: string;
-
-  children: ReactNode;
-
-}) {
-
-  return (
-
-    <label className="block space-y-1.5 text-xs text-[var(--fin-text-secondary)]">
-
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--fin-text-muted)]">
-
-        {props.label}
-
-      </span>
-
-      {props.children}
-
-    </label>
-
-  );
-
-}
-
-

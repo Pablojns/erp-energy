@@ -11,7 +11,8 @@ export type OrderItemStockState = {
 };
 
 type ProductStockRow = {
-  sku?: string;
+  id: string;
+  sku: string;
   availableQty?: number;
   stockQty?: number;
   reservedQty?: number;
@@ -24,23 +25,22 @@ function productAvailable(p: ProductStockRow): number {
   return (p.stockQty ?? 0) - (p.reservedQty ?? 0);
 }
 
-async function fetchProductAvailableByItem(item: OrderItemDto): Promise<number | null> {
+function resolveAvailableForItem(
+  item: OrderItemDto,
+  byId: Map<string, ProductStockRow>,
+  bySku: Map<string, ProductStockRow>,
+): number | null {
   const productId = item.productId ?? item.product?.id ?? null;
   if (productId) {
-    const p = await erpFetchJson<ProductStockRow>(`products/${productId}`);
-    return productAvailable(p);
+    const hit = byId.get(productId);
+    if (hit) return productAvailable(hit);
   }
-
-  const sku = item.sku?.trim();
-  if (!sku) return null;
-
-  const res = await erpFetchJson<{ data: ProductStockRow[] }>(
-    `products?search=${encodeURIComponent(sku)}&pageSize=50&status=active`,
-  );
-  const exact = res.data.find((p) => p.sku?.toLowerCase() === sku.toLowerCase());
-  if (exact) return productAvailable(exact);
-  if (res.data.length === 1) return productAvailable(res.data[0]!);
-  return null;
+  const sku = item.sku?.trim().toLowerCase();
+  if (sku) {
+    const hit = bySku.get(sku);
+    if (hit) return productAvailable(hit);
+  }
+  return resolveInitialItemAvailable(item);
 }
 
 export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderItemStockState> {
@@ -69,25 +69,69 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
       ),
     );
 
+    if (items.length === 0) {
+      setStockByItemId({});
+      return;
+    }
+
     void (async () => {
-      const results = await Promise.all(
-        items.map(async (item) => {
-          try {
-            const available = await fetchProductAvailableByItem(item);
-            return [item.id, available] as const;
-          } catch {
-            return [item.id, resolveInitialItemAvailable(item)] as const;
-          }
-        }),
-      );
-
-      if (cancelled) return;
-
-      setStockByItemId(
-        Object.fromEntries(
-          results.map(([id, available]) => [id, { available, loading: false }]),
+      const ids = [
+        ...new Set(
+          items
+            .map((it) => it.productId ?? it.product?.id ?? null)
+            .filter((id): id is string => Boolean(id)),
         ),
-      );
+      ];
+      const skus = [
+        ...new Set(
+          items
+            .filter((it) => !(it.productId ?? it.product?.id))
+            .map((it) => it.sku?.trim())
+            .filter((s): s is string => Boolean(s)),
+        ),
+      ];
+
+      try {
+        const res = await erpFetchJson<{ data: ProductStockRow[] }>(
+          'products/stock-batch',
+          {
+            method: 'POST',
+            body: JSON.stringify({ ids, skus }),
+          },
+        );
+
+        if (cancelled) return;
+
+        const byId = new Map(res.data.map((p) => [p.id, p]));
+        const bySku = new Map(
+          res.data.map((p) => [p.sku.trim().toLowerCase(), p]),
+        );
+
+        setStockByItemId(
+          Object.fromEntries(
+            items.map((item) => [
+              item.id,
+              {
+                available: resolveAvailableForItem(item, byId, bySku),
+                loading: false,
+              },
+            ]),
+          ),
+        );
+      } catch {
+        if (cancelled) return;
+        setStockByItemId(
+          Object.fromEntries(
+            items.map((item) => [
+              item.id,
+              {
+                available: resolveInitialItemAvailable(item),
+                loading: false,
+              },
+            ]),
+          ),
+        );
+      }
     })();
 
     return () => {

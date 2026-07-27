@@ -5,11 +5,10 @@
  * da Expedição (OrderQueue, SeparationWorkbench).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { INITIAL_FILTERS } from '@/src/components/expedicao/shared/constants';
 import type {
   BannerState,
-  ExpeditionSummary,
   FilterFormState,
   OrderDto,
   OrderStatus,
@@ -51,8 +50,8 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [filterValueDebounced, setFilterValueDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [sum, setSum] = useState<ExpeditionSummary | null>(null);
-  const [sumLoading, setSumLoading] = useState(true);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const refreshQueuedRef = useRef(false);
 
   // Separação precisa carregar além da 1ª página: pedidos EM_SEPARACAO podem ficar
   // atrás de SEPARADO/AGUARDANDO_NF quando ordenados por orderDate desc.
@@ -102,7 +101,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     search: searchDebounced,
     appliedFilters: appliedFiltersForApi,
     page,
-    pageSize: mode === 'separation' ? 100 : 25,
+    pageSize: 30,
     mode,
     infinite: infiniteScroll,
     sortBy,
@@ -164,30 +163,32 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     return () => clearTimeout(t);
   }, [appliedFilters.filterValue]);
 
-  const loadSummary = useCallback(async () => {
-    setSumLoading(true);
-    try {
-      const res = await erpFetchJson<ExpeditionSummary>('orders/summary');
-      setSum(res);
-    } catch {
-      setSum(null);
-    } finally {
-      setSumLoading(false);
-    }
-  }, []);
-
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadSummary(), refetchPedidos()]);
-  }, [loadSummary, refetchPedidos]);
+    // Coalesce + trailing: se outro trigger chegar durante o fetch, roda no máximo
+    // mais uma vez ao terminar (em vez de N requests paralelos/sequenciais).
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return refreshInFlightRef.current;
+    }
+
+    const run = (async () => {
+      try {
+        do {
+          refreshQueuedRef.current = false;
+          await refetchPedidos();
+        } while (refreshQueuedRef.current);
+      } finally {
+        refreshInFlightRef.current = null;
+      }
+    })();
+    refreshInFlightRef.current = run;
+    return run;
+  }, [refetchPedidos]);
 
   const refetchFromStart = useCallback(async () => {
     setPage(1);
-    await Promise.all([loadSummary(), refetchPedidos()]);
-  }, [loadSummary, refetchPedidos]);
-
-  useEffect(() => {
-    void loadSummary();
-  }, [loadSummary]);
+    await refreshAll();
+  }, [refreshAll]);
 
   useEffect(() => {
     if (!toast) return;
@@ -262,7 +263,6 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         body: JSON.stringify({}),
       });
       await refreshAll();
-      window.dispatchEvent(new Event('expedition-refresh'));
       setToast({ variant: 'ok', message: 'Saída registrada com nota de remessa.' });
       return true;
     } catch (e) {
@@ -292,7 +292,6 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
         });
       }
       await refreshAll();
-      window.dispatchEvent(new Event('expedition-refresh'));
       setToast({
         variant: 'ok',
         message: 'NF-e vinculada. Imprima a etiqueta para confirmar a saída.',
@@ -553,24 +552,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     void patchOrderStatus(order.id, 'CANCELADO');
   }
 
-  const filterCounts = useMemo(() => {
-    if (!sum) return {} as Partial<Record<StatusFilterId, number>>;
-    return {
-      all: sum.totalPedidos,
-      urgente: sum.urgentes,
-      aguardando_nf: sum.aguardandoNf,
-      em_separacao: sum.emSeparacao,
-      aguardando_estoque: sum.rupturaPedidos ?? 0,
-      pronto_separacao: sum.reservados,
-    } as Partial<Record<StatusFilterId, number>>;
-  }, [sum]);
-
   return {
     mode,
     statusFilter,
     setStatusFilter,
-    sum,
-    sumLoading,
     orders,
     meta,
     ordersLoading,
@@ -588,7 +573,6 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     setSortBy,
     sortOrder,
     setSortOrder,
-    filterCounts,
     refreshAll,
     refetchFromStart,
     reserveOrder,
@@ -664,10 +648,7 @@ function mergeListOrderIntoDetail(pedido: OrderDto, fromList: OrderDto): OrderDt
 }
 
 /** Detalhe do pedido selecionado (por número externo). */
-export function useExpeditionSelectedPedido(
-  selectedOrder: OrderDto | null,
-  onRefetchList: () => void,
-) {
+export function useExpeditionSelectedPedido(selectedOrder: OrderDto | null) {
   const numero = selectedOrder?.externalOrderNumber ?? null;
   const { pedido, loading, error, refetch } = usePedidoDetalhe(numero);
 
@@ -677,9 +658,14 @@ export function useExpeditionSelectedPedido(
     return mergeListOrderIntoDetail(pedido, selectedOrder);
   }, [pedido, selectedOrder]);
 
-  const refetchAll = useCallback(async () => {
-    await Promise.all([onRefetchList(), refetch()]);
-  }, [onRefetchList, refetch]);
+  const refetchDetail = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
-  return { displayOrder, detailLoading: loading, detailError: error, refetchDetail: refetchAll };
+  return {
+    displayOrder,
+    detailLoading: loading,
+    detailError: error,
+    refetchDetail,
+  };
 }

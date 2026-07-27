@@ -277,12 +277,3 @@ export function DualMonthlyChart({
     </div>
   );
 }
-
-export function DualMonthlyChartSkeleton() {
-  return (
-    <div className="dash-card flex h-full min-h-0 w-full flex-col space-y-3 p-2 md:p-3">
-      <div className="dash-skeleton h-4 w-56" />
-      <div className="dash-skeleton min-h-[120px] w-full flex-1 rounded-lg" />
-    </div>
-  );
-}

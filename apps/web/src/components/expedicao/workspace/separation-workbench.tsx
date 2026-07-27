@@ -324,8 +324,7 @@ export function SeparationWorkbench(props: {
       }
 
       setExitGenerated(true);
-      await data.refreshAll();
-      window.dispatchEvent(new Event('expedition-refresh'));
+      // onAfterAction já faz refresh da lista + detalhe (coalescido).
       onAfterAction?.();
       data.setToast({
         variant: 'ok',

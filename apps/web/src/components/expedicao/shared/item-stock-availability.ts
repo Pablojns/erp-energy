@@ -12,32 +12,6 @@ export function getStockAvailabilityTone(
   return 'partial';
 }
 
-export function stockAvailabilityLabel(tone: StockAvailabilityTone): string {
-  switch (tone) {
-    case 'ok':
-      return 'Suficiente';
-    case 'partial':
-      return 'Parcial';
-    case 'none':
-      return 'Sem estoque';
-    default:
-      return 'Indisponível';
-  }
-}
-
-export function stockAvailabilityBadgeClass(tone: StockAvailabilityTone): string {
-  switch (tone) {
-    case 'ok':
-      return 'exp-item-badge--ok';
-    case 'partial':
-      return 'exp-item-badge--warn';
-    case 'none':
-      return 'exp-item-badge--late';
-    default:
-      return 'exp-item-badge--pending';
-  }
-}
-
 export function resolveInitialItemAvailable(item: OrderItemDto): number | null {
   if (item.availableQty !== null && item.availableQty !== undefined) {
     return item.availableQty;

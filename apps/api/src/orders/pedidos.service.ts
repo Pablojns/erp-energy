@@ -578,16 +578,20 @@ export class PedidosService {
     });
 
     const orderBy = internals.buildOrderBy(query);
-    const total = await this.prisma.client.order.count({ where });
-    const rows = await this.prisma.client.order.findMany({
-      where,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      orderBy,
-      include: (
-        OrderService as unknown as { orderInclude(): Prisma.OrderInclude }
-      ).orderInclude(),
-    });
+    const [total, rows] = await Promise.all([
+      this.prisma.client.order.count({ where }),
+      this.prisma.client.order.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy,
+        include: (
+          OrderService as unknown as {
+            orderListInclude(): Prisma.OrderInclude;
+          }
+        ).orderListInclude(),
+      }),
+    ]);
 
     return {
       data: rows.map((row) => internals.serializeOrder(row)),
@@ -661,16 +665,20 @@ export class PedidosService {
     };
 
     const orderBy = internals.buildOrderBy(query);
-    const total = await this.prisma.client.order.count({ where });
-    const rows = await this.prisma.client.order.findMany({
-      where,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      orderBy,
-      include: (
-        OrderService as unknown as { orderInclude(): Prisma.OrderInclude }
-      ).orderInclude(),
-    });
+    const [total, rows] = await Promise.all([
+      this.prisma.client.order.count({ where }),
+      this.prisma.client.order.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy,
+        include: (
+          OrderService as unknown as {
+            orderListInclude(): Prisma.OrderInclude;
+          }
+        ).orderListInclude(),
+      }),
+    ]);
 
     return {
       data: rows.map((row) => internals.serializeOrder(row)),
@@ -1161,6 +1169,7 @@ export class PedidosService {
 
   async gerarEtiquetaCorreios(
     numeroPed: string,
+    userId?: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
     const trimmed = numeroPed.trim();
     const order = await this.prisma.client.order.findFirst({
@@ -1204,6 +1213,12 @@ export class PedidosService {
 
       if (prePostagemId && podeReimprimir) {
         const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
+        // Reimpressão: garante saída se ainda não existir (mesmo fluxo NF → etiqueta → saída).
+        await this.ensureSaidaAposEtiquetaCorreios(
+          order.id,
+          userId,
+          trackingExistente,
+        );
         return { buffer, filename };
       }
     }
@@ -1248,20 +1263,87 @@ export class PedidosService {
         ? prePostagem.codigoObjeto.trim()
         : '';
     if (codigoRastreio) {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: { trackingCode: codigoRastreio },
+      });
       if (exit) {
         await this.prisma.client.orderExit.update({
           where: { id: exit.id },
           data: { trackingCode: codigoRastreio },
         });
-      } else {
-        await this.prisma.client.order.update({
-          where: { id: order.id },
-          data: { trackingCode: codigoRastreio },
-        });
       }
     }
 
+    // Após emissão bem-sucedida: registra OrderExit automaticamente (NF → etiqueta → saída).
+    await this.ensureSaidaAposEtiquetaCorreios(
+      order.id,
+      userId,
+      codigoRastreio || trackingExistente,
+    );
+
     return { buffer, filename };
+  }
+
+  /**
+   * Garante OrderExit após etiqueta Correios (espelha o POST /saida do fluxo ERP).
+   * Idempotente: se a saída já existir, só sincroniza o rastreio.
+   */
+  private async ensureSaidaAposEtiquetaCorreios(
+    orderId: string,
+    userId: string | undefined,
+    codigoRastreio: string,
+  ) {
+    const tracking = codigoRastreio.trim();
+    const existing = await this.prisma.client.orderExit.findUnique({
+      where: { orderId },
+      select: { id: true, trackingCode: true },
+    });
+
+    if (existing) {
+      if (tracking && existing.trackingCode?.trim() !== tracking) {
+        await this.prisma.client.orderExit.update({
+          where: { id: existing.id },
+          data: { trackingCode: tracking },
+        });
+      }
+      return;
+    }
+
+    if (!userId) return;
+
+    const order = await this.prisma.client.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        invoiceNumber: true,
+        notaRemessa: true,
+      },
+    });
+    if (!order) return;
+
+    const canExit =
+      order.status === OrderStatus.SEPARADO ||
+      order.status === OrderStatus.AGUARDANDO_NF ||
+      order.status === OrderStatus.NF_ATRELADA;
+    if (!canExit) return;
+
+    const nfRaw =
+      order.invoiceNumber?.trim() || order.notaRemessa?.trim() || '';
+    if (!nfRaw) return;
+
+    const nfDigits = this.normalizeInvoiceNumberDigits(nfRaw) || nfRaw;
+
+    await this.orders.generateExitFromInvoice(orderId, userId, {
+      invoiceNumber: nfDigits,
+    });
+
+    if (tracking) {
+      await this.prisma.client.orderExit.updateMany({
+        where: { orderId },
+        data: { trackingCode: tracking },
+      });
+    }
   }
 
   async cancelarEtiquetaCorreios(numeroPed: string) {

@@ -17,6 +17,7 @@ import { ProductCategoryService } from '../product-category/product-category.ser
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateProductDto } from './dto/create-product.dto';
 import type { ProductQueryDto } from './dto/product-query.dto';
+import type { ProductStockBatchDto } from './dto/product-stock-batch.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
 import { buildProductSmartSearchWhere } from './product-search';
 
@@ -291,6 +292,65 @@ export class ProductService {
       throw new NotFoundException('Produto não encontrado.');
     }
     return this.serialize(product as ProductWithCategory);
+  }
+
+  /**
+   * Retorna estoque disponível para um conjunto de ids e/ou SKUs (1 query).
+   * Usado pela mesa de separação no lugar de N GETs products/:id.
+   */
+  async findStockBatch(dto: ProductStockBatchDto) {
+    const ids = [...new Set((dto.ids ?? []).map((id) => id.trim()).filter(Boolean))];
+    const skus = [
+      ...new Set(
+        (dto.skus ?? [])
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (ids.length === 0 && skus.length === 0) {
+      return { data: [] as Array<{
+        id: string;
+        sku: string;
+        stockQty: number;
+        reservedQty: number;
+        availableQty: number;
+      }> };
+    }
+
+    const or: Prisma.ProductWhereInput[] = [];
+    if (ids.length > 0) or.push({ id: { in: ids } });
+    if (skus.length > 0) {
+      or.push({
+        OR: skus.map((sku) => ({
+          sku: { equals: sku, mode: Prisma.QueryMode.insensitive },
+        })),
+      });
+    }
+
+    const rows = await this.prisma.client.product.findMany({
+      where: {
+        isActive: true,
+        OR: or,
+      },
+      select: {
+        id: true,
+        sku: true,
+        stockQty: true,
+        reservedQty: true,
+      },
+      take: 400,
+    });
+
+    return {
+      data: rows.map((p) => ({
+        id: p.id,
+        sku: p.sku,
+        stockQty: p.stockQty,
+        reservedQty: p.reservedQty,
+        availableQty: p.stockQty - p.reservedQty,
+      })),
+    };
   }
 
   async update(id: string, userId: string, dto: UpdateProductDto) {

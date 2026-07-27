@@ -2,12 +2,10 @@
 
 /* eslint-disable react-hooks/set-state-in-effect -- carregamento sob montagem, aba e debounce de busca */
 import {
-  AlertTriangle,
   ArrowRightLeft,
   BarChart3,
   Ban,
   Bookmark,
-  CircleDollarSign,
   ClipboardList,
   Download,
   Loader2,
@@ -20,7 +18,6 @@ import {
   Settings,
   SlidersHorizontal,
   Trash2,
-  TrendingUp,
   Undo2,
   X,
   ChevronRight,
@@ -53,7 +50,6 @@ import {
   MetricCardsSkeleton,
 } from '@/src/components/ui/skeleton';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
-import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useCloseOverlaysOnRouteChange } from '@/src/hooks/use-close-overlays-on-route';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
@@ -778,6 +774,7 @@ export function EstoqueWorkspace() {
   const [productReservations, setProductReservations] = useState<ProductReservationRow[]>([]);
   const [productReservationsLoading, setProductReservationsLoading] = useState(false);
   const [productReservationsError, setProductReservationsError] = useState<string | null>(null);
+  const [reservationsModalOpen, setReservationsModalOpen] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsData, setProductsData] = useState<Paginated<ProductDto> | null>(
     null,
@@ -2447,11 +2444,6 @@ export function EstoqueWorkspace() {
       .slice(0, 10);
   }, [selectedInventoryProduct, movementItems]);
 
-  const selectedProductMovementsAll = useMemo(() => {
-    if (!selectedInventoryProduct) return [];
-    return movementItems.filter((m) => m.product.id === selectedInventoryProduct.id);
-  }, [selectedInventoryProduct, movementItems]);
-
   const selectedMovementStats = useMemo(() => {
     const now = Date.now();
     const recent = movementItems.filter(
@@ -2469,9 +2461,14 @@ export function EstoqueWorkspace() {
     return { inbound, outbound };
   }, [movementItems, selectedInventoryProduct]);
 
+  const selectedProductMovementsAll = useMemo(() => {
+    if (!selectedInventoryProduct) return [];
+    return movementItems.filter((m) => m.product.id === selectedInventoryProduct.id);
+  }, [selectedInventoryProduct, movementItems]);
+
   const selectedGaugeMax = useMemo(() => {
     if (!selectedInventoryProduct) {
-      return { inMax: 500, outMax: 500, availableMax: 1, minMax: 1 };
+      return { inMax: 500, outMax: 500, availableMax: 1 };
     }
     const inPeak = Math.max(
       0,
@@ -2485,13 +2482,10 @@ export function EstoqueWorkspace() {
         .filter((m) => isOutboundMovementType(m.movementType))
         .map((m) => m.quantity),
     );
-    const availableMax = Math.max(1, selectedInventoryProduct.stockQty);
-    const minMax = Math.max(1, selectedInventoryProduct.stockQty);
     return {
       inMax: inPeak > 0 ? inPeak : 500,
       outMax: outPeak > 0 ? outPeak : 500,
-      availableMax,
-      minMax,
+      availableMax: Math.max(1, selectedInventoryProduct.stockQty),
     };
   }, [selectedInventoryProduct, selectedProductMovementsAll]);
 
@@ -2707,7 +2701,7 @@ export function EstoqueWorkspace() {
           <span className="font-semibold text-[var(--text-primary)]">{selectedPriceLine.totalValue}</span>
         </p>
       </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
             <Package className="h-4 w-4 text-[#64748b]" />
@@ -2720,7 +2714,12 @@ export function EstoqueWorkspace() {
           </div>
           <p className="text-xs text-[var(--text-muted)]">em estoque físico</p>
         </div>
-        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+        <button
+          type="button"
+          onClick={() => setReservationsModalOpen(true)}
+          className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--input-bg)]"
+          title="Ver reservas ativas"
+        >
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
             <Package className="h-4 w-4 text-[#f59e0b]" />
             Reservado
@@ -2735,7 +2734,7 @@ export function EstoqueWorkspace() {
               ? `${productReservations.length} pedido(s)`
               : 'sem reservas ativas'}
           </p>
-        </div>
+        </button>
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
             <Package className="h-4 w-4 text-[#3b82f6]" />
@@ -2763,79 +2762,18 @@ export function EstoqueWorkspace() {
         </div>
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-            <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
-            Estoque mín.
-          </p>
-          <div className="mt-3 flex items-end justify-between gap-2">
-            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedInventoryProduct.minStock}</p>
-            <MiniGauge value={selectedInventoryProduct.minStock} max={selectedGaugeMax.minMax} color="#f59e0b" />
-          </div>
-          <p className="text-xs text-[var(--text-muted)]">configurado</p>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <p className="mb-2 text-sm font-semibold text-[var(--text-primary)]">
-          Reservas ativas
-        </p>
-        <div className="erp-scrollbar overflow-x-auto rounded-xl border border-[var(--border-color)]">
-          {productReservationsLoading ? (
-            <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
-              Carregando reservas…
-            </p>
-          ) : productReservationsError ? (
-            <p className="px-3 py-4 text-sm text-rose-500">{productReservationsError}</p>
-          ) : productReservations.length === 0 ? (
-            <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
-              Nenhuma reserva ativa para este produto.
-            </p>
-          ) : (
-            <table className="w-full min-w-[420px] border-collapse text-left text-sm">
-              <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
-                <tr>
-                  <th className="px-2 py-1.5">Pedido</th>
-                  <th className="px-2 py-1.5 text-center">Qtd reservada</th>
-                  <th className="px-2 py-1.5">Data</th>
-                  <th className="px-2 py-1.5">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productReservations.map((r, idx) => (
-                  <tr
-                    key={r.id}
-                    className={`border-b border-[var(--border-color)] ${
-                      idx % 2 === 0 ? 'bg-[var(--bg-card)]' : 'bg-[var(--input-bg)]'
-                    }`}
-                  >
-                    <td className="px-2 py-1.5 font-medium text-[var(--text-primary)]">
-                      {r.orderNumber}
-                    </td>
-                    <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
-                      {r.quantity}
-                    </td>
-                    <td className="px-2 py-1.5 text-[var(--text-secondary)]">
-                      {formatDateTime(r.createdAt)}
-                    </td>
-                    <td className="px-2 py-1.5 text-xs text-[var(--text-secondary)]">
-                      {r.orderStatus}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
             <PackagePlus className="h-4 w-4 text-[#22c55e]" />
             Entradas
           </p>
           <div className="mt-3 flex items-end justify-between gap-2">
-            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedMovementStats.inbound}</p>
-            <MiniGauge value={selectedMovementStats.inbound} max={selectedGaugeMax.inMax} color="#22c55e" />
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {selectedMovementStats.inbound}
+            </p>
+            <MiniGauge
+              value={selectedMovementStats.inbound}
+              max={selectedGaugeMax.inMax}
+              color="#22c55e"
+            />
           </div>
           <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
         </div>
@@ -2845,8 +2783,14 @@ export function EstoqueWorkspace() {
             Saídas
           </p>
           <div className="mt-3 flex items-end justify-between gap-2">
-            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">{selectedMovementStats.outbound}</p>
-            <MiniGauge value={selectedMovementStats.outbound} max={selectedGaugeMax.outMax} color="#ef4444" />
+            <p className="text-lg font-bold text-[var(--text-primary)] sm:text-2xl">
+              {selectedMovementStats.outbound}
+            </p>
+            <MiniGauge
+              value={selectedMovementStats.outbound}
+              max={selectedGaugeMax.outMax}
+              color="#ef4444"
+            />
           </div>
           <p className="text-xs text-[var(--text-muted)]">últimos 30d</p>
         </div>
@@ -4674,6 +4618,92 @@ export function EstoqueWorkspace() {
                     Nenhuma categoria encontrada.
                   </p>
                 ) : null}
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {reservationsModalOpen && selectedInventoryProduct ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setReservationsModalOpen(false)}
+        >
+          <div
+            className="h-auto w-full max-w-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                    Reservas ativas
+                  </h2>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                    {selectedInventoryProduct.name} · SKU{' '}
+                    {selectedInventoryProduct.sku}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)]"
+                  aria-label="Fechar"
+                  onClick={() => setReservationsModalOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="erp-scrollbar mt-4 max-h-[60vh] overflow-auto rounded-xl border border-[var(--border-color)]">
+                {productReservationsLoading ? (
+                  <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
+                    Carregando reservas…
+                  </p>
+                ) : productReservationsError ? (
+                  <p className="px-3 py-4 text-sm text-rose-500">
+                    {productReservationsError}
+                  </p>
+                ) : productReservations.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-[var(--text-muted)]">
+                    Nenhuma reserva ativa para este produto.
+                  </p>
+                ) : (
+                  <table className="w-full min-w-[420px] border-collapse text-left text-sm">
+                    <thead className="sticky top-0 bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
+                      <tr>
+                        <th className="px-2 py-1.5">Pedido</th>
+                        <th className="px-2 py-1.5 text-center">Qtd reservada</th>
+                        <th className="px-2 py-1.5">Data</th>
+                        <th className="px-2 py-1.5">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productReservations.map((r, idx) => (
+                        <tr
+                          key={r.id}
+                          className={`border-b border-[var(--border-color)] ${
+                            idx % 2 === 0
+                              ? 'bg-[var(--bg-card)]'
+                              : 'bg-[var(--input-bg)]'
+                          }`}
+                        >
+                          <td className="px-2 py-1.5 font-medium text-[var(--text-primary)]">
+                            {r.orderNumber}
+                          </td>
+                          <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
+                            {r.quantity}
+                          </td>
+                          <td className="px-2 py-1.5 text-[var(--text-secondary)]">
+                            {formatDateTime(r.createdAt)}
+                          </td>
+                          <td className="px-2 py-1.5 text-xs text-[var(--text-secondary)]">
+                            {r.orderStatus}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </GlassCard>
           </div>

@@ -7,7 +7,6 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { Readable } from 'stream';
 
 @Injectable()
 export class R2StorageService {
@@ -47,20 +46,6 @@ export class R2StorageService {
       }),
       { expiresIn },
     );
-  }
-
-  async getObject(key: string): Promise<{
-    body: Readable;
-    contentType: string;
-    contentLength?: number;
-  }> {
-    const buffered = await this.getObjectBuffer(key);
-    const { Readable } = await import('stream');
-    return {
-      body: Readable.from(buffered.buffer),
-      contentType: buffered.contentType,
-      contentLength: buffered.buffer.length,
-    };
   }
 
   /** Lê o objeto inteiro em Buffer — evita streams SdkStream incompatíveis com Nest StreamableFile. */

@@ -19,7 +19,3 @@ export function formatCpfCnpj(value: string): string {
     .replace(/\.(\d{3})(\d)/, '.$1/$2')
     .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
 }
-
-export function isCpfFormatted(value: string) {
-  return digitsOnly(value).length <= 11;
-}

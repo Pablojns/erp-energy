@@ -1,7 +1,6 @@
 import type {
   KanbanColumnId,
   ProductLite,
-  PurchasePriority,
   PurchaseRequest,
   PurchaseStatus,
   PurchaseType,
@@ -12,16 +11,6 @@ import { productMatchesSearch as matchProductSearch } from '@/src/lib/product-se
 
 export function productMatchesSearch(product: ProductLite, query: string) {
   return matchProductSearch(product, query);
-}
-
-export function typeBadgeClass(type: PurchaseType): 'info' | 'warning' | 'accent' {
-  if (type === 'WEG_CONTRATO') return 'info';
-  if (type === 'VENDA_EXTERNA') return 'warning';
-  return 'accent';
-}
-
-export function priorityBadgeClass(priority: PurchasePriority): 'danger' | 'neutral' {
-  return priority === 'URGENTE' ? 'danger' : 'neutral';
 }
 
 export function formatDate(value: string | null) {
@@ -50,15 +39,6 @@ export function formatMoney(value: string | null) {
     style: 'currency',
     currency: 'BRL',
   }).format(Number(value));
-}
-
-export function normalizeSearch(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
 }
 
 export function displayName(row: PurchaseRequest) {

@@ -117,6 +117,22 @@ export class CrmService {
     motivoPerda: true,
   } satisfies Prisma.CrmCardInclude;
 
+  /** Include enxuto do board — só últimos touchpoints feitos (score / last contact). */
+  private readonly boardCardInclude = {
+    funil: true,
+    funilOrigem: true,
+    touchpointRecords: {
+      where: { done: true },
+      orderBy: [{ date: 'desc' as const }, { createdAt: 'desc' as const }],
+      take: 5,
+    },
+    responsavel: { select: { id: true, name: true, email: true } },
+    motivoPerda: true,
+  } satisfies Prisma.CrmCardInclude;
+
+  /** Máximo de cards por coluna do kanban (evita dump ilimitado). */
+  private static readonly BOARD_CARDS_PER_COLUMN = 50;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
@@ -569,14 +585,27 @@ export class CrmService {
   }
 
   async listCards() {
-    const [rows, statusMap] = await Promise.all([
-      this.prisma.client.crmCard.findMany({
-        include: this.cardInclude,
-        orderBy: [{ createdAt: 'desc' }],
+    const [funis, statusMap] = await Promise.all([
+      this.prisma.client.crmFunil.findMany({
+        orderBy: { order: 'asc' },
+        select: { id: true },
       }),
       this.loadStatusMap(),
     ]);
-    return rows.map((r) => this.serializeCard(r, statusMap));
+
+    const perColumn = CrmService.BOARD_CARDS_PER_COLUMN;
+    const columns = await Promise.all(
+      funis.map((funil) =>
+        this.prisma.client.crmCard.findMany({
+          where: { funilId: funil.id },
+          include: this.boardCardInclude,
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          take: perColumn,
+        }),
+      ),
+    );
+
+    return columns.flat().map((r) => this.serializeCard(r, statusMap));
   }
 
   async getCard(id: string) {
@@ -943,34 +972,6 @@ export class CrmService {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   }
 
-  private countLeadsSemContato(
-    cards: Array<
-      CrmCardRow & {
-        touchpointRecords?: CrmTouchpointRow[];
-      }
-    >,
-    statusMap: Map<string, CrmStatusRow>,
-    fechadoId?: string,
-    perdidoId?: string,
-  ) {
-    const cutoffMs = 3 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    return cards.filter((card) => {
-      if (
-        this.isClosedStatus(card.status, statusMap, fechadoId, perdidoId)
-      ) {
-        return false;
-      }
-      const last =
-        this.resolveLastTouchpointAt(
-          card.touchpointRecords,
-          card.createdAt,
-        ) ?? card.createdAt;
-      return now - new Date(last).getTime() > cutoffMs;
-    }).length;
-  }
-
   async getDashboard(query: CrmDashboardQueryDto) {
     const originFilter =
       query.origin && query.origin !== 'TODOS' ? query.origin : undefined;
@@ -981,55 +982,115 @@ export class CrmService {
       ...(periodStart ? { createdAt: { gte: periodStart } } : {}),
     };
 
-    const [cards, funis, statusMap, { fechadoId, perdidoId }] =
+    const [funis, statusMap, { fechadoId, perdidoId }, leads, touchAgg] =
       await Promise.all([
+        this.prisma.client.crmFunil.findMany({
+          orderBy: { order: 'asc' },
+          select: { id: true, name: true },
+        }),
+        this.loadStatusMap(),
+        this.resolveClosedStatusIds(),
+        this.prisma.client.crmCard.count({ where }),
+        this.prisma.client.crmCard.aggregate({
+          where,
+          _avg: { touchPoints: true },
+        }),
+      ]);
+
+    const orcamentoFunilIds = funis
+      .filter((f) => this.isOrcamentoFunilName(f.name))
+      .map((f) => f.id);
+
+    const fechadoWhere: Prisma.CrmCardWhereInput = {
+      ...where,
+      ...(fechadoId
+        ? { status: fechadoId }
+        : { status: { in: [...statusMap.values()].filter((s) => s.name === 'Fechado').map((s) => s.id) } }),
+    };
+
+    const perdidoWhere: Prisma.CrmCardWhereInput = {
+      ...where,
+      ...(perdidoId
+        ? { status: perdidoId }
+        : {
+            status: {
+              in: [...statusMap.values()]
+                .filter((s) => s.name === 'Perdido')
+                .map((s) => s.id),
+            },
+          }),
+    };
+
+    const orcamentoWhere: Prisma.CrmCardWhereInput = {
+      ...where,
+      OR: [
+        ...(orcamentoFunilIds.length > 0
+          ? [{ funilId: { in: orcamentoFunilIds } }]
+          : []),
+        { value: { gt: 0 } },
+      ],
+    };
+
+    const [
+      fechados,
+      valorFechadoAgg,
+      orcamentos,
+      fechadosSlim,
+      motivosGroup,
+      openSlim,
+    ] = await Promise.all([
+      this.prisma.client.crmCard.count({ where: fechadoWhere }),
+      this.prisma.client.crmCard.aggregate({
+        where: fechadoWhere,
+        _sum: { value: true },
+      }),
+      this.prisma.client.crmCard.count({ where: orcamentoWhere }),
       this.prisma.client.crmCard.findMany({
-        where,
-        include: {
-          funil: true,
-          touchpointRecords: { orderBy: { number: 'asc' } },
-          motivoPerda: true,
+        where: fechadoWhere,
+        select: { createdAt: true, closedAt: true },
+      }),
+      this.prisma.client.crmCard.groupBy({
+        by: ['motivoPerdaId'],
+        where: {
+          ...perdidoWhere,
+          motivoPerdaId: { not: null },
+        },
+        _count: { _all: true },
+      }),
+      // leads sem contato: só cards abertos, campos mínimos + último TP
+      this.prisma.client.crmCard.findMany({
+        where: {
+          ...where,
+          ...(fechadoId || perdidoId
+            ? {
+                status: {
+                  notIn: [fechadoId, perdidoId].filter(Boolean) as string[],
+                },
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          status: true,
+          touchpointRecords: {
+            where: { done: true },
+            orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+            take: 1,
+            select: { date: true, createdAt: true, done: true },
+          },
         },
       }),
-      this.prisma.client.crmFunil.findMany({
-        orderBy: { order: 'asc' },
-      }),
-      this.loadStatusMap(),
-      this.resolveClosedStatusIds(),
     ]);
 
-    const orcamentoFunilIds = new Set(
-      funis.filter((f) => this.isOrcamentoFunilName(f.name)).map((f) => f.id),
-    );
-
-    const isOrcamento = (card: {
-      funilId: string;
-      value: Prisma.Decimal | null;
-    }) =>
-      orcamentoFunilIds.has(card.funilId) ||
-      (card.value != null && Number(card.value) > 0);
-
-    const isFechado = (status: string) =>
-      this.isFechadoStatus(status, statusMap, fechadoId);
-    const isPerdido = (status: string) =>
-      status === perdidoId || statusMap.get(status)?.name === 'Perdido';
-
-    const leads = cards.length;
-    const orcamentos = cards.filter(isOrcamento).length;
-    const fechados = cards.filter((c) => isFechado(c.status)).length;
-    const fechadosCards = cards.filter((c) => isFechado(c.status));
-    const valorFechado = fechadosCards.reduce(
-      (sum, c) => sum + Number(c.value ?? 0),
-      0,
-    );
+    const valorFechado = Number(valorFechadoAgg._sum.value ?? 0);
     const ticketMedio = fechados > 0 ? valorFechado / fechados : 0;
-
     const taxaLeadOrcamento = leads > 0 ? (orcamentos / leads) * 100 : 0;
     const taxaLeadFechado = leads > 0 ? (fechados / leads) * 100 : 0;
     const taxaOrcamentoFechado =
       orcamentos > 0 ? (fechados / orcamentos) * 100 : 0;
 
-    const ciclosDias = fechadosCards
+    const ciclosDias = fechadosSlim
       .filter((c) => c.closedAt)
       .map(
         (c) =>
@@ -1041,66 +1102,101 @@ export class CrmService {
         ? ciclosDias.reduce((a, b) => a + b, 0) / ciclosDias.length
         : 0;
 
-    const touchpointsMedios =
-      cards.length > 0
-        ? cards.reduce((s, c) => s + c.touchPoints, 0) / cards.length
-        : 0;
+    const touchpointsMedios = touchAgg._avg.touchPoints ?? 0;
 
-    const porOrigem = CRM_CARD_ORIGINS.map((origin) => {
-      const subset = cards.filter((c) => c.origin === origin);
-      const subsetLeads = subset.length;
-      const subsetFechadosCards = subset.filter((c) => isFechado(c.status));
-      const subsetFechados = subsetFechadosCards.length;
-      const subsetOrcamentos = subset.filter(isOrcamento).length;
-      const subsetValorFechado = subsetFechadosCards.reduce(
-        (sum, c) => sum + Number(c.value ?? 0),
-        0,
-      );
-      const subsetCiclos = subsetFechadosCards
-        .filter((c) => c.closedAt)
-        .map(
-          (c) =>
-            (c.closedAt!.getTime() - c.createdAt.getTime()) /
-            (1000 * 60 * 60 * 24),
-        );
-      const subsetTouch =
-        subset.length > 0
-          ? subset.reduce((s, c) => s + c.touchPoints, 0) / subset.length
-          : 0;
+    const porOrigem = await Promise.all(
+      CRM_CARD_ORIGINS.map(async (origin) => {
+        const oWhere: Prisma.CrmCardWhereInput = { ...where, origin };
+        const oFechado: Prisma.CrmCardWhereInput = {
+          ...fechadoWhere,
+          origin,
+        };
+        const oOrc: Prisma.CrmCardWhereInput = {
+          ...orcamentoWhere,
+          origin,
+        };
 
-      return {
-        origin,
-        leads: subsetLeads,
-        orcamentos: subsetOrcamentos,
-        fechados: subsetFechados,
-        taxaLeadFechado:
-          subsetLeads > 0 ? (subsetFechados / subsetLeads) * 100 : 0,
-        ticketMedio:
-          subsetFechados > 0 ? subsetValorFechado / subsetFechados : 0,
-        cicloMedioDias:
-          subsetCiclos.length > 0
-            ? subsetCiclos.reduce((a, b) => a + b, 0) / subsetCiclos.length
-            : 0,
-        touchpointsMedios: subsetTouch,
-      };
-    });
+        const [subsetLeads, subsetFechados, subsetValor, subsetOrcamentos, subsetCicloRows, subsetTouch] =
+          await Promise.all([
+            this.prisma.client.crmCard.count({ where: oWhere }),
+            this.prisma.client.crmCard.count({ where: oFechado }),
+            this.prisma.client.crmCard.aggregate({
+              where: oFechado,
+              _sum: { value: true },
+            }),
+            this.prisma.client.crmCard.count({ where: oOrc }),
+            this.prisma.client.crmCard.findMany({
+              where: oFechado,
+              select: { createdAt: true, closedAt: true },
+            }),
+            this.prisma.client.crmCard.aggregate({
+              where: oWhere,
+              _avg: { touchPoints: true },
+            }),
+          ]);
 
-    const leadsSemContato = this.countLeadsSemContato(
-      cards,
-      statusMap,
-      fechadoId,
-      perdidoId,
+        const subsetValorFechado = Number(subsetValor._sum.value ?? 0);
+        const subsetCiclos = subsetCicloRows
+          .filter((c) => c.closedAt)
+          .map(
+            (c) =>
+              (c.closedAt!.getTime() - c.createdAt.getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+
+        return {
+          origin,
+          leads: subsetLeads,
+          orcamentos: subsetOrcamentos,
+          fechados: subsetFechados,
+          taxaLeadFechado:
+            subsetLeads > 0 ? (subsetFechados / subsetLeads) * 100 : 0,
+          ticketMedio:
+            subsetFechados > 0 ? subsetValorFechado / subsetFechados : 0,
+          cicloMedioDias:
+            subsetCiclos.length > 0
+              ? subsetCiclos.reduce((a, b) => a + b, 0) / subsetCiclos.length
+              : 0,
+          touchpointsMedios: subsetTouch._avg.touchPoints ?? 0,
+        };
+      }),
     );
 
-    const motivosPerdaDistribuicao = this.buildMotivosPerdaDistribuicao(
-      cards,
-      isPerdido,
-    );
+    const cutoffMs = 3 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const leadsSemContato = openSlim.filter((card) => {
+      if (this.isClosedStatus(card.status, statusMap, fechadoId, perdidoId)) {
+        return false;
+      }
+      const tp = card.touchpointRecords[0];
+      const last = tp ? (tp.date ?? tp.createdAt) : card.createdAt;
+      return now - last.getTime() > cutoffMs;
+    }).length;
 
-    const now = new Date();
+    const motivoIds = motivosGroup
+      .map((g) => g.motivoPerdaId)
+      .filter((id): id is string => Boolean(id));
+    const motivosRows =
+      motivoIds.length > 0
+        ? await this.prisma.client.crmMotivoPerda.findMany({
+            where: { id: { in: motivoIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const motivoNameById = new Map(motivosRows.map((m) => [m.id, m.name]));
+    const motivosPerdaDistribuicao = motivosGroup
+      .filter((g) => g.motivoPerdaId)
+      .map((g) => ({
+        motivoId: g.motivoPerdaId!,
+        motivoName: motivoNameById.get(g.motivoPerdaId!) ?? 'Sem motivo',
+        count: g._count._all,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const nowDate = new Date();
     const metasMes = await this.buildMetasMesProgress(
-      now.getMonth() + 1,
-      now.getFullYear(),
+      nowDate.getMonth() + 1,
+      nowDate.getFullYear(),
     );
 
     return {

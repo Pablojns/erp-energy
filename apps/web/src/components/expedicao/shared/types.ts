@@ -123,21 +123,6 @@ export type PaginatedOrders = {
   };
 };
 
-export type ExpeditionSummary = {
-  totalPedidos: number;
-  pedidosWeg: number;
-  urgentes: number;
-  atrasados: number;
-  reservados: number;
-  emSeparacao: number;
-  aguardandoNf: number;
-  faturados: number;
-  cobrarRecebimento: number;
-  valorTotal: string;
-  estoqueReservadoTotal?: string;
-  rupturaPedidos?: number;
-};
-
 export type PedidosFilterField =
   | ''
   | 'invoiceNumber'

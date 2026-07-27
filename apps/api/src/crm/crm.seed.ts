@@ -377,15 +377,3 @@ export async function getCrmStatusIdByName(
   const row = await client.crmStatus.findUnique({ where: { name } });
   return row?.id ?? null;
 }
-
-export async function getDefaultCrmFunilId(client: Db): Promise<string> {
-  await ensureDefaultCrmFunis(client);
-  const row = await client.crmFunil.findFirst({
-    where: { name: 'Novo Lead' },
-    orderBy: { order: 'asc' },
-  });
-  if (!row) {
-    throw new Error('CRM funil seed missing: Novo Lead');
-  }
-  return row.id;
-}

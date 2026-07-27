@@ -100,10 +100,6 @@ export class SpotIntegrationService {
     return Math.max(0, Math.trunc(this.toNumber(value, fallback)));
   }
 
-  private toDecimal(value: unknown): Prisma.Decimal {
-    return new Prisma.Decimal(this.toNumber(value, 0));
-  }
-
   private toOptionalDecimal(value: unknown): Prisma.Decimal | null {
     if (value === null || value === undefined || value === '') return null;
     const n = this.toNumber(value, NaN);

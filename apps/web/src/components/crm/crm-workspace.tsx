@@ -95,17 +95,15 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
       setLoadingData(true);
       setError(null);
       try {
-        const [funisData, cardsData, statusesData, channelsData, usersData] =
+        const [funisData, statusesData, channelsData, usersData] =
           await Promise.all([
-          listCrmFunis(),
-          listCrmCards(),
-          listCrmStatuses(),
-          listCrmChannels(),
-          listCrmUsuarios(),
-        ]);
+            listCrmFunis(),
+            listCrmStatuses(),
+            listCrmChannels(),
+            listCrmUsuarios(),
+          ]);
         if (!controller.signal.aborted) {
           setFunis(funisData);
-          setCards(cardsData);
           setStatuses(statusesData);
           setChannels(channelsData);
           setUsers(usersData);
@@ -115,7 +113,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
         if (!controller.signal.aborted) {
           setError(err instanceof Error ? err.message : 'Falha ao carregar CRM.');
           setFunis([]);
-          setCards([]);
           setStatuses([]);
           setChannels([]);
           setUsers([]);
@@ -128,6 +125,26 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
     void load();
     return () => controller.abort();
   }, [refreshToken]);
+
+  // Cards só no kanban/clientes — dashboard não precisa do dump.
+  useEffect(() => {
+    if (activeView !== 'kanban' && activeView !== 'clientes') return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const cardsData = await listCrmCards();
+        if (!controller.signal.aborted) setCards(cardsData);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (!controller.signal.aborted) {
+          setError(err instanceof Error ? err.message : 'Falha ao carregar cards.');
+          setCards([]);
+        }
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [refreshToken, activeView]);
 
   useEffect(() => {
     if (activeView !== 'dashboard') return;

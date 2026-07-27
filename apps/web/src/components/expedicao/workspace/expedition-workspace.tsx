@@ -67,24 +67,23 @@ export function ExpeditionWorkspace(props: {
     data.orders.find((o) => o.id === selectedOrderId) ?? null;
 
   const { displayOrder, detailLoading, detailError, refetchDetail } =
-    useExpeditionSelectedPedido(selectedInList, () => void data.refreshAll());
+    useExpeditionSelectedPedido(selectedInList);
 
   const handleAfterAction = async () => {
     await refetchDetail();
     setSelectedOrderId((current) => {
       if (current && data.orders.some((o) => o.id === current)) return current;
-      return data.orders[0]?.id ?? null;
+      return null;
     });
   };
 
   useEffect(() => {
     if (data.ordersLoading) return;
-    if (selectedOrderId && data.orders.some((o) => o.id === selectedOrderId)) {
-      return;
-    }
-    if (data.orders.length > 0) {
-      setSelectedOrderId(data.orders[0].id);
-    } else {
+    // Não auto-seleciona o 1º pedido: detalhe + stock só após clique do usuário.
+    if (
+      selectedOrderId &&
+      !data.orders.some((o) => o.id === selectedOrderId)
+    ) {
       setSelectedOrderId(null);
     }
   }, [data.orders, data.ordersLoading, selectedOrderId]);
@@ -420,7 +419,6 @@ export function ExpeditionWorkspace(props: {
                 search: '',
               }));
               await data.refetchFromStart();
-              window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
                 setMobileDetailOpen(true);
@@ -441,7 +439,6 @@ export function ExpeditionWorkspace(props: {
               data.setStatusFilter('all');
               data.setPage(1);
               await data.refetchFromStart();
-              window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
                 setMobileDetailOpen(true);
@@ -465,7 +462,6 @@ export function ExpeditionWorkspace(props: {
                 search: '',
               }));
               await data.refetchFromStart();
-              window.dispatchEvent(new Event('expedition-refresh'));
               if (created?.id) {
                 setSelectedOrderId(created.id);
                 setMobileDetailOpen(true);
@@ -481,7 +477,6 @@ export function ExpeditionWorkspace(props: {
             onClose={() => setWegImportOpen(false)}
             onImported={() => {
               void data.refetchFromStart();
-              window.dispatchEvent(new Event('expedition-refresh'));
             }}
           />
           <AdminOrderEditModal

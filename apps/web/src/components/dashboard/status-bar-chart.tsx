@@ -1,11 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import {
-  barHeight,
-  buildBarChartLayout,
-  chartDataMax,
-} from '@/src/components/dashboard/bar-chart-layout';
+import { buildBarChartLayout } from '@/src/components/dashboard/bar-chart-layout';
 import type { DashboardFluxo } from '@/src/components/dashboard/types';
 import { FLUXO_COLORS, FLUXO_LABELS, formatNumber } from '@/src/components/dashboard/utils';
 

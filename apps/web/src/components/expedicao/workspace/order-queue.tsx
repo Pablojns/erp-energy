@@ -260,7 +260,6 @@ export function OrderQueue(props: {
 
   const pullRefresh = usePullToRefresh({
     onRefresh: async () => {
-      onRefresh?.();
       await data.refreshAll();
     },
   });
@@ -806,7 +805,6 @@ export function OrderQueue(props: {
           onFinished={() => {
             setSelectedForSeparationIds(new Set());
             void data.refreshAll();
-            onRefresh?.();
           }}
         />
       ) : null}

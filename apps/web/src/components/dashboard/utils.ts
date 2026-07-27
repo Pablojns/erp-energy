@@ -4,18 +4,12 @@ import type {
   DateRange,
   FinanceiroDashboardData,
   MonthlyOrdersPoint,
-  MonthlyTableRow,
-  PeriodPreset,
   ProductListItem,
   StockMovementRow,
   StockSummaryData,
 } from '@/src/components/dashboard/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import {
-  normalizeDateRange,
-  previousPeriodRange,
-  formatPeriodShortLabel,
-} from '@/src/lib/period-range';
+import { normalizeDateRange } from '@/src/lib/period-range';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -31,39 +25,6 @@ export function startOfUtcMonth(d: Date): Date {
 
 export function endOfUtcMonth(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
-}
-
-export function resolvePeriodRange(
-  preset: PeriodPreset,
-  custom?: Partial<DateRange>,
-): DateRange {
-  if (preset === 'todos') {
-    return { dataInicio: '', dataFim: '' };
-  }
-
-  const now = new Date();
-
-  if (preset === 'personalizado' && custom?.dataInicio && custom?.dataFim) {
-    return normalizeDateRange({
-      dataInicio: custom.dataInicio,
-      dataFim: custom.dataFim,
-    });
-  }
-
-  if (preset === 'trimestre') {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
-    return { dataInicio: formatYmd(start), dataFim: formatYmd(now) };
-  }
-
-  if (preset === 'ano') {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), 11, 31));
-    return { dataInicio: formatYmd(start), dataFim: formatYmd(end) };
-  }
-
-  const start = startOfUtcMonth(now);
-  const end = endOfUtcMonth(now);
-  return { dataInicio: formatYmd(start), dataFim: formatYmd(end) };
 }
 
 export function buildPeriodQuery(range: DateRange): string {
@@ -105,15 +66,6 @@ export function formatPercent(value: number): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(Number(value) || 0)}%`;
-}
-
-export function formatLongDate(d: Date = new Date()): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(d);
 }
 
 export function formatShortMonth(d: Date): string {
@@ -312,72 +264,6 @@ export async function fetchMonthlyOrdersChart(
   return results
     .filter((r) => r.status === 'fulfilled')
     .map((r) => (r as PromiseFulfilledResult<MonthlyOrdersPoint>).value);
-}
-
-export function buildMonthlyTable(points: MonthlyOrdersPoint[]): MonthlyTableRow[] {
-  return points.map((p, i) => {
-    const prev = i > 0 ? Number(points[i - 1].value) || 0 : 0;
-    return {
-      ...p,
-      variationPct: computeVariationPct(Number(p.value) || 0, prev),
-    };
-  });
-}
-
-export async function fetchPeriodComparison(range: DateRange): Promise<{
-  current: number;
-  previous: number;
-  currentLabel: string;
-  previousLabel: string;
-}> {
-  const norm = normalizeDateRange(range);
-  if (!norm.dataInicio.trim() || !norm.dataFim.trim()) {
-    throw new Error('Período inválido para comparação');
-  }
-
-  const prev = previousPeriodRange(norm);
-
-  const [currentData, previousData] = await Promise.all([
-    erpFetchJson<FinanceiroDashboardData>(
-      `api/financeiro/dashboard${buildPeriodQuery(norm)}`,
-    ),
-    erpFetchJson<FinanceiroDashboardData>(
-      `api/financeiro/dashboard${buildPeriodQuery(prev)}`,
-    ),
-  ]);
-
-  return {
-    current: Number(currentData.valorPedidosPeriodo) || 0,
-    previous: Number(previousData.valorPedidosPeriodo) || 0,
-    currentLabel: `${formatPeriodShortLabel(norm.dataInicio)} – ${formatPeriodShortLabel(norm.dataFim)}`,
-    previousLabel: `${formatPeriodShortLabel(prev.dataInicio)} – ${formatPeriodShortLabel(prev.dataFim)}`,
-  };
-}
-
-export async function fetchCurrentAndPreviousMonth(): Promise<{
-  current: number;
-  previous: number;
-}> {
-  const now = new Date();
-  const curStart = formatYmd(startOfUtcMonth(now));
-  const curEnd = formatYmd(endOfUtcMonth(now));
-  const prevDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const prevStart = formatYmd(startOfUtcMonth(prevDate));
-  const prevEnd = formatYmd(endOfUtcMonth(prevDate));
-
-  const [currentData, previousData] = await Promise.all([
-    erpFetchJson<FinanceiroDashboardData>(
-      `api/financeiro/dashboard?dataInicio=${curStart}&dataFim=${curEnd}`,
-    ),
-    erpFetchJson<FinanceiroDashboardData>(
-      `api/financeiro/dashboard?dataInicio=${prevStart}&dataFim=${prevEnd}`,
-    ),
-  ]);
-
-  return {
-    current: Number(currentData.valorPedidosPeriodo) || 0,
-    previous: Number(previousData.valorPedidosPeriodo) || 0,
-  };
 }
 
 export async function fetchProductsForCategories(): Promise<ProductListItem[]> {

@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -6,6 +7,36 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { requestContextMiddleware } from './common/logger/request-context.middleware';
 import { AppLogger } from './common/logger/app-logger';
+
+function getLanIpv4Addresses(): string[] {
+  const addresses: string[] = [];
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const net of entries ?? []) {
+      const family = String(net.family);
+      if ((family === 'IPv4' || family === '4') && !net.internal) {
+        addresses.push(net.address);
+      }
+    }
+  }
+  return addresses;
+}
+
+function printListenUrls(port: number): void {
+  const lan = getLanIpv4Addresses();
+  // console.log: banner legível no terminal (pino costuma sair em JSON)
+  console.log('');
+  console.log(`API listening on port ${port}`);
+  console.log(`  Local:   http://localhost:${port}`);
+  console.log(`  Local:   http://127.0.0.1:${port}`);
+  if (lan.length === 0) {
+    console.log('  Network: (nenhum IPv4 de rede encontrado)');
+  } else {
+    for (const ip of lan) {
+      console.log(`  Network: http://${ip}:${port}`);
+    }
+  }
+  console.log('');
+}
 
 async function bootstrap() {
   const startupLogger = new AppLogger('Bootstrap');
@@ -35,9 +66,14 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
-  await app.listen(process.env.PORT ?? 3001);
+  const port = Number(process.env.PORT ?? 3001);
+  await app.listen(port, '0.0.0.0');
+  const lan = getLanIpv4Addresses();
+  printListenUrls(port);
   startupLogger.info('API initialized', {
-    port: Number(process.env.PORT ?? 3001),
+    port,
+    local: `http://localhost:${port}`,
+    network: lan.map((ip) => `http://${ip}:${port}`),
   });
 }
 

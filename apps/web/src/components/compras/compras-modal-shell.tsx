@@ -37,26 +37,3 @@ export function ComprasModalShell(props: {
     </div>
   );
 }
-
-export function ComprasBadge(props: {
-  children: ReactNode;
-  tone?: 'info' | 'warning' | 'accent' | 'neutral' | 'danger';
-}) {
-  const tone = props.tone ?? 'neutral';
-  return (
-    <span className={`erp-badge erp-badge-${tone} inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset`}>
-      {props.children}
-    </span>
-  );
-}
-
-export function ComprasDetailField(props: { label: string; value: string; wide?: boolean }) {
-  return (
-    <div className={props.wide ? 'sm:col-span-2' : undefined}>
-      <p className="erp-label-caps">{props.label}</p>
-      <p className="mt-1 break-words rounded-xl border border-[var(--erp-border)] bg-[var(--erp-bg-muted)] px-3 py-2 text-sm text-[var(--erp-fg)]">
-        {props.value}
-      </p>
-    </div>
-  );
-}

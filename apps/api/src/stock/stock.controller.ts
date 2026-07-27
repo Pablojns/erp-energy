@@ -49,6 +49,15 @@ export class StockController {
     return this.stockService.listMovements(query);
   }
 
+  /** Manutenção: remove movimentações órfãs (pedido inexistente). Não roda no list. */
+  @Post('movements/clean-orphans')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('estoque', 'deletar_movimentacao')
+  async cleanOrphanMovements() {
+    const removed = await this.stockService.cleanOrphanStockMovements();
+    return { removed };
+  }
+
   @Post('movements')
   @HttpCode(HttpStatus.CREATED)
   createMovement(

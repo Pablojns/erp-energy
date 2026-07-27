@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { isWegItemAlreadyReceived } from '@/src/components/expedicao/shared/order-helpers';
-import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
+import type { OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export function ConcluirModal(props: {
   orderNumber: string;

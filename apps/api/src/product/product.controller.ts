@@ -17,6 +17,7 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
+import { ProductStockBatchDto } from './dto/product-stock-batch.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductService } from './product.service';
 
@@ -36,6 +37,12 @@ export class ProductController {
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productService.findAll(query);
+  }
+
+  /** Estoque disponível em lote — usado pela mesa de separação. */
+  @Post('stock-batch')
+  stockBatch(@Body() dto: ProductStockBatchDto) {
+    return this.productService.findStockBatch(dto);
   }
 
   @Get(':id')

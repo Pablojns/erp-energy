@@ -148,7 +148,7 @@ type OrderSerializeSource = {
   invoicedAt: Date | null;
   carrierId: string | null;
   companyEntityId?: string | null;
-  carrier?: { id: string; name: string } | null;
+  carrier?: { id?: string; name: string } | null;
   companyEntity?: { id: string; name: string; cnpj: string } | null;
   customer?: { deliveryAddress: string | null } | null;
   linkedOrderId: string | null;
@@ -397,14 +397,16 @@ export class OrderService {
 
       const orderBy = this.buildOrderBy(query);
 
-      const total = await this.prisma.client.order.count({ where });
-      const rows = await this.prisma.client.order.findMany({
-        where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy,
-        include: OrderService.orderInclude(),
-      });
+      const [total, rows] = await Promise.all([
+        this.prisma.client.order.count({ where }),
+        this.prisma.client.order.findMany({
+          where,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          orderBy,
+          include: OrderService.orderListInclude(),
+        }),
+      ]);
 
       return {
         data: rows.map((o) => this.serializeOrder(o)),
@@ -2242,10 +2244,42 @@ export class OrderService {
 
       const existingExit = await tx.orderExit.findUnique({
         where: { orderId: before.id },
-        select: { id: true },
+        select: {
+          id: true,
+          orderId: true,
+          invoiceNumber: true,
+          invoiceValue: true,
+          exitDate: true,
+          carrierName: true,
+          trackingCode: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
       if (existingExit) {
-        throw new ConflictException('Este pedido já possui saída registrada.');
+        const tracking = before.trackingCode?.trim() || null;
+        let exitRow = existingExit;
+        if (tracking && existingExit.trackingCode?.trim() !== tracking) {
+          exitRow = await tx.orderExit.update({
+            where: { id: existingExit.id },
+            data: { trackingCode: tracking },
+          });
+        }
+        const full = await this.loadOrderFull(tx, orderId);
+        return {
+          order: this.serializeOrder(full),
+          exit: {
+            id: exitRow.id,
+            orderId: exitRow.orderId,
+            invoiceNumber: exitRow.invoiceNumber,
+            invoiceValue: exitRow.invoiceValue.toString(),
+            exitDate: exitRow.exitDate.toISOString(),
+            carrierName: exitRow.carrierName,
+            trackingCode: exitRow.trackingCode,
+            createdAt: exitRow.createdAt.toISOString(),
+            updatedAt: exitRow.updatedAt.toISOString(),
+          },
+        };
       }
 
       let movedUnits = 0;
@@ -2357,7 +2391,7 @@ export class OrderService {
           invoiceValue: updated.totalValue,
           exitDate: new Date(),
           carrierName: before.carrier?.name ?? null,
-          trackingCode: null,
+          trackingCode: before.trackingCode?.trim() || null,
         },
       });
 
@@ -2557,11 +2591,21 @@ export class OrderService {
         );
       }
 
-      const data = OrderService.patchDataForStatus(to, {
-        shippedAt: before.shippedAt,
-        invoicedAt: before.invoicedAt,
-        invoiceStatus: before.invoiceStatus,
-      });
+      if (to === OrderStatus.NOVO) {
+        await OrderService.resetItemsOnReturnToNovo(tx, id);
+      }
+
+      const data: Prisma.OrderUncheckedUpdateInput = {
+        ...OrderService.patchDataForStatus(to, {
+          shippedAt: before.shippedAt,
+          invoicedAt: before.invoicedAt,
+          invoiceStatus: before.invoiceStatus,
+        }),
+      };
+      if (to === OrderStatus.NOVO) {
+        data.volumes = null;
+        data.shippedAt = null;
+      }
 
       const updated = await tx.order.update({
         where: { id },
@@ -2575,58 +2619,6 @@ export class OrderService {
         entity: 'Order',
         entityId: id,
         changes: { from, to, code: before.code },
-      });
-
-      return this.serializeOrder(updated);
-    });
-  }
-
-  private async transitionStrict(
-    orderId: string,
-    userId: string,
-    expectFrom: OrderStatus,
-    to: OrderStatus,
-  ) {
-    return this.prisma.client.$transaction(async (tx) => {
-      const before = await tx.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: {
-            select: {
-              id: true,
-              reservedQuantity: true,
-              productId: true,
-            },
-          },
-        },
-      });
-      if (!before) throw new NotFoundException('Pedido não encontrado.');
-      if (before.status !== expectFrom) {
-        throw new BadRequestException(
-          `Operação válida apenas com status ${expectFrom}. Atual: ${before.status}.`,
-        );
-      }
-
-      this.assertTransition(expectFrom, to);
-
-      const data = OrderService.patchDataForStatus(to, {
-        shippedAt: before.shippedAt,
-        invoicedAt: before.invoicedAt,
-        invoiceStatus: before.invoiceStatus,
-      });
-
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data,
-        include: OrderService.orderInclude(),
-      });
-
-      await this.audit.log({
-        userId,
-        action: 'ORDER_OPS_TRANSITION',
-        entity: 'Order',
-        entityId: orderId,
-        changes: { from: expectFrom, to, code: before.code },
       });
 
       return this.serializeOrder(updated);
@@ -2682,6 +2674,11 @@ export class OrderService {
         await OrderService.resetItemsForNewSeparationCycle(tx, id);
       }
 
+      // Voltar para NOVO por qualquer caminho limpa progresso/recebimento dos itens.
+      if (to === OrderStatus.NOVO) {
+        await OrderService.resetItemsOnReturnToNovo(tx, id);
+      }
+
       const data: Prisma.OrderUncheckedUpdateInput = {
         ...OrderService.patchDataForStatus(to, {
           shippedAt: before.shippedAt,
@@ -2691,6 +2688,10 @@ export class OrderService {
       };
       if (to === OrderStatus.EM_SEPARACAO) {
         data.invoiceNumber = null;
+      }
+      if (to === OrderStatus.NOVO) {
+        data.volumes = null;
+        data.shippedAt = null;
       }
 
       const updated = await tx.order.update({
@@ -3155,6 +3156,10 @@ export class OrderService {
     });
   }
 
+  /**
+   * Include completo — detalhe, mutações e findOne.
+   * Não usar em listagens paginadas (ver orderListInclude).
+   */
   private static orderInclude(): Prisma.OrderInclude {
     return {
       carrier: {
@@ -3211,6 +3216,53 @@ export class OrderService {
               reservedQty: true,
             },
           },
+        },
+      },
+    };
+  }
+
+  /**
+   * Include enxuto para listagens (fila / separação).
+   * Sem product stock, companyEntity, customer.address, exits —
+   * o detalhe carrega orderInclude completo sob demanda.
+   */
+  private static orderListInclude(): Prisma.OrderInclude {
+    return {
+      carrier: {
+        select: { id: true, name: true },
+      },
+      linkedOrder: {
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+        },
+      },
+      stockReservations: {
+        where: { releasedAt: null },
+        select: { id: true },
+        take: 1,
+      },
+      items: {
+        orderBy: { lineNumber: 'asc' },
+        select: {
+          id: true,
+          lineNumber: true,
+          sku: true,
+          description: true,
+          quantity: true,
+          reservedQuantity: true,
+          missingQty: true,
+          pickedQty: true,
+          invoicedQty: true,
+          availableAtAnalysis: true,
+          mercadoEletronicoItemStatus: true,
+          stockStatus: true,
+          unit: true,
+          ncm: true,
+          unitPrice: true,
+          totalPrice: true,
+          productId: true,
         },
       },
     };
@@ -3304,6 +3356,22 @@ export class OrderService {
         },
       });
     }
+  }
+
+  /**
+   * Reset completo ao voltar o pedido para NOVO (mudança de status geral):
+   * limpa pickedQty/invoicedQty e mercadoEletronicoItemStatus (Recebido → "-").
+   */
+  private static async resetItemsOnReturnToNovo(tx: Tx, orderId: string) {
+    await tx.orderItem.updateMany({
+      where: { orderId },
+      data: {
+        pickedQty: 0,
+        invoicedQty: 0,
+        missingQty: 0,
+        mercadoEletronicoItemStatus: null,
+      },
+    });
   }
 
   private static patchDataForStatus(

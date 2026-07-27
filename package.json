@@ -18,10 +18,5 @@
     "db:deploy": "corepack pnpm --filter @erp/database db:deploy",
     "db:studio": "corepack pnpm --filter @erp/database db:studio",
     "seed:test": "npx ts-node packages/database/prisma/seed-500.ts"
-  },
-  "dependencies": {
-    "form-data": "^4.0.5",
-    "node-fetch": "^3.3.2",
-    "xlsx": "^0.18.5"
   }
 }

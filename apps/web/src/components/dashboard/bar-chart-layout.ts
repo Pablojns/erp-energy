@@ -93,10 +93,6 @@ export function niceYMax(dataMax: number): number {
   return nice * pow;
 }
 
-export function yMaxFromValues(values: number[]): number {
-  return niceYMax(Math.max(...values, 0));
-}
-
 export function formatCompactCurrency(value: number): string {
   const v = Math.max(0, Number(value) || 0);
   if (v >= 1_000_000) {

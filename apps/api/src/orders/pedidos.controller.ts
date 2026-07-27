@@ -459,10 +459,11 @@ export class PedidosController {
   @Get(':numeroPed/etiqueta-correios')
   async etiquetaCorreios(
     @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const { buffer, filename } =
-      await this.pedidos.gerarEtiquetaCorreios(numeroPed);
+      await this.pedidos.gerarEtiquetaCorreios(numeroPed, user.id);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="etiqueta-${filename}.pdf"`,

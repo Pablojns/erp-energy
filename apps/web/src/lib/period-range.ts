@@ -42,13 +42,6 @@ export function normalizeDateRange(range: DateRangeInput): DateRangeInput {
   return { dataInicio, dataFim };
 }
 
-export function isPeriodRangeValid(range: DateRangeInput): boolean {
-  const dataInicio = range.dataInicio.trim();
-  const dataFim = range.dataFim.trim();
-  if (!dataInicio || !dataFim) return false;
-  return dataInicio <= dataFim;
-}
-
 /** Ajusta a outra ponta quando o usuário inverte De/Até ao editar. */
 export function adjustRangeOnDateChange(
   field: 'dataInicio' | 'dataFim',

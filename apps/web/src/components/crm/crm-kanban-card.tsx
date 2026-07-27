@@ -222,17 +222,3 @@ export function CrmKanbanCard(props: {
     </article>
   );
 }
-
-export function CrmKanbanCardPreview(props: { card: CrmCardDto }) {
-  const { card } = props;
-  return (
-    <article className="erp-module-card w-[260px] rotate-2 border-[color-mix(in_srgb,var(--erp-accent)_40%,transparent)] p-3.5 shadow-2xl">
-      <h3 className="line-clamp-2 text-base font-bold text-[var(--erp-fg)]">{card.name}</h3>
-      <span
-        className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${CRM_ORIGIN_BADGE_CLASS[card.origin]}`}
-      >
-        {CRM_ORIGIN_LABEL[card.origin]}
-      </span>
-    </article>
-  );
-}

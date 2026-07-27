@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
 import { OrderStatus, Prisma, StockMovementType } from '@erp/database';
 
@@ -42,29 +41,13 @@ type StockTx = Omit<
 >;
 
 @Injectable()
-export class StockService implements OnModuleInit {
+export class StockService {
   private readonly logger = new AppLogger(StockService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
-
-  async onModuleInit() {
-    try {
-      const removed = await this.cleanOrphanStockMovements();
-      if (removed > 0) {
-        this.logger.info('Orphan stock movements removed on startup', {
-          removed,
-        });
-      }
-    } catch (err: unknown) {
-      this.logger.warn('Failed to clean orphan stock movements on startup', {
-        fallbackUsed: true,
-        error: err,
-      });
-    }
-  }
 
   /** Reservas ativas de um produto (pedido, qty, data). */
   async listProductReservations(productId: string) {
@@ -562,25 +545,15 @@ export class StockService implements OnModuleInit {
 
 
   async listMovements(query: StockMovementQueryDto) {
-    await this.cleanOrphanStockMovements();
-
     const page =
-
       query.page !== undefined && query.page > 0 ? query.page : 1;
 
     const pageSize =
-
       query.pageSize !== undefined &&
-
       query.pageSize > 0 &&
-
       query.pageSize <= 100
-
         ? query.pageSize
-
         : 20;
-
-
 
     const where = this.buildMovementWhere(query);
 
