@@ -234,7 +234,8 @@ export const OrderInfoPanel = forwardRef<
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
   const canCancelCorreiosEtiqueta =
     isCorreiosOrder && Boolean(order.trackingCode?.trim());
-  const canEditTrackingCode = order.status === 'FINALIZADO';
+  /** Edição manual liberada para WEG e Site (corrige etiqueta emitida em duplicidade). */
+  const canEditTrackingCode = true;
 
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
@@ -537,6 +538,15 @@ export const OrderInfoPanel = forwardRef<
     if (!numeroPed) {
       setEtiquetaError('Número do pedido inválido.');
       return;
+    }
+
+    const existingTracking =
+      trackingCodeInput.trim() || order.trackingCode?.trim() || '';
+    if (existingTracking) {
+      const confirmed = window.confirm(
+        `Este pedido já possui uma etiqueta emitida (código: ${existingTracking}). Deseja gerar uma nova mesmo assim?`,
+      );
+      if (!confirmed) return;
     }
 
     setEmittingEtiqueta(true);

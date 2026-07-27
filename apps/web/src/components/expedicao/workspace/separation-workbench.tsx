@@ -278,6 +278,14 @@ export function SeparationWorkbench(props: {
       return;
     }
 
+    const existingTracking = order.trackingCode?.trim() || '';
+    if (existingTracking) {
+      const confirmed = window.confirm(
+        `Este pedido já possui uma etiqueta emitida (código: ${existingTracking}). Deseja gerar uma nova mesmo assim?`,
+      );
+      if (!confirmed) return;
+    }
+
     setPrintingEtiqueta(true);
     try {
       const useCorreiosEtiqueta = isCorreiosCarrier(order.carrierName);

@@ -946,29 +946,61 @@ export class CorreiosService {
 
   async cancelarPrePostagem(idPrePostagem: string) {
     const headers = await this.authHeader();
+    const markLocalCancelled = async () => {
+      await this.prisma.client.correiosEtiqueta.updateMany({
+        where: { prePostagemId: idPrePostagem },
+        data: { status: 'CANCELADA' },
+      });
+    };
+
     try {
       const { data } = await this.api.delete(
         `/prepostagem/v1/prepostagens/${idPrePostagem}`,
         { headers },
       );
-      await this.prisma.client.correiosEtiqueta.updateMany({
-        where: { prePostagemId: idPrePostagem },
-        data: { status: 'CANCELADA' },
-      });
+      await markLocalCancelled();
       return data;
     } catch (err: any) {
       const apiBody = err?.response?.data;
       this.logger.error(
         `Cancelamento Correios falhou — body: ${JSON.stringify(apiBody)}`,
       );
-      const msg =
+      const msg = String(
         apiBody?.msgs?.join?.(' ') ||
-        apiBody?.message ||
-        apiBody?.detail ||
-        apiBody?.resultadoCancelamento ||
-        'Não foi possível cancelar a pré-postagem nos Correios.';
+          apiBody?.message ||
+          apiBody?.detail ||
+          apiBody?.resultadoCancelamento ||
+          'Não foi possível cancelar a pré-postagem nos Correios.',
+      );
+      // Já cancelada nos Correios (PPN-145-5): objetivo atingido — sincroniza local.
+      if (this.isPrePostagemJaCanceladaError(apiBody, msg)) {
+        await markLocalCancelled();
+        return {
+          ok: true,
+          alreadyCancelled: true,
+          message:
+            'Pré-postagem já estava cancelada nos Correios; registro local atualizado.',
+        };
+      }
       throw new BadRequestException(msg);
     }
+  }
+
+  /** PPN-145-5 e equivalentes: pré-postagem já cancelada / não cancelável. */
+  private isPrePostagemJaCanceladaError(
+    apiBody: unknown,
+    message: string,
+  ): boolean {
+    const blob = `${JSON.stringify(apiBody ?? {})} ${message}`.toLowerCase();
+    return (
+      blob.includes('ppn-145-5') ||
+      blob.includes('ppn-145') ||
+      (blob.includes('cancelado') &&
+        (blob.includes('pré-postagem') ||
+          blob.includes('pre-postagem') ||
+          blob.includes('prepostagem') ||
+          blob.includes('status')))
+    );
   }
 
   async getRemetentePadrao() {

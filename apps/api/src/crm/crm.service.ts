@@ -966,20 +966,109 @@ export class CrmService {
     return this.serializeCard(updated, statusMap);
   }
 
-  private resolveDashboardPeriodStart(period?: string): Date | undefined {
-    if (!period || period === 'all') return undefined;
-    const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-    return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  private resolveDashboardRange(query: CrmDashboardQueryDto): {
+    start?: Date;
+    end?: Date;
+    period: string;
+    label: string;
+  } {
+    const period = query.period ?? 'month';
+    const now = new Date();
+    const endOfDay = (d: Date) => {
+      const x = new Date(d);
+      x.setHours(23, 59, 59, 999);
+      return x;
+    };
+    const startOfDay = (d: Date) => {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    };
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+
+    if (
+      (period === 'custom' || query.startDate || query.endDate) &&
+      query.startDate &&
+      query.endDate
+    ) {
+      const start = startOfDay(new Date(`${query.startDate}T00:00:00`));
+      const end = endOfDay(new Date(`${query.endDate}T00:00:00`));
+      return {
+        start,
+        end,
+        period: 'custom',
+        label: `${fmt(start)} a ${fmt(end)}`,
+      };
+    }
+
+    if (period === 'all') {
+      return { period: 'all', label: 'Todo o período' };
+    }
+
+    if (period === 'hoje') {
+      const start = startOfDay(now);
+      const end = endOfDay(now);
+      return { start, end, period, label: fmt(start) };
+    }
+
+    if (period === 'month') {
+      const start = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+      const end = endOfDay(now);
+      return { start, end, period, label: `${fmt(start)} a ${fmt(end)}` };
+    }
+
+    if (period === 'prev_month') {
+      const start = startOfDay(
+        new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      );
+      const end = endOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+      return { start, end, period, label: `${fmt(start)} a ${fmt(end)}` };
+    }
+
+    if (period === 'quarter') {
+      const q = Math.floor(now.getMonth() / 3);
+      const start = startOfDay(new Date(now.getFullYear(), q * 3, 1));
+      const end = endOfDay(now);
+      return { start, end, period, label: `${fmt(start)} a ${fmt(end)}` };
+    }
+
+    if (period === 'year') {
+      const start = startOfDay(new Date(now.getFullYear(), 0, 1));
+      const end = endOfDay(now);
+      return { start, end, period, label: `${fmt(start)} a ${fmt(end)}` };
+    }
+
+    const days =
+      period === '7d' ? 7 : period === '90d' ? 90 : 30; /* 30d default */
+    const start = startOfDay(
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+    );
+    const end = endOfDay(now);
+    return { start, end, period, label: `${fmt(start)} a ${fmt(end)}` };
+  }
+
+  private createdAtRangeFilter(start?: Date, end?: Date): Prisma.DateTimeFilter | undefined {
+    if (!start && !end) return undefined;
+    return {
+      ...(start ? { gte: start } : {}),
+      ...(end ? { lte: end } : {}),
+    };
   }
 
   async getDashboard(query: CrmDashboardQueryDto) {
     const originFilter =
       query.origin && query.origin !== 'TODOS' ? query.origin : undefined;
-    const periodStart = this.resolveDashboardPeriodStart(query.period);
+    const range = this.resolveDashboardRange(query);
+    const createdAt = this.createdAtRangeFilter(range.start, range.end);
 
     const where: Prisma.CrmCardWhereInput = {
       ...(originFilter ? { origin: originFilter } : {}),
-      ...(periodStart ? { createdAt: { gte: periodStart } } : {}),
+      ...(createdAt ? { createdAt } : {}),
     };
 
     const [funis, statusMap, { fechadoId, perdidoId }, leads, touchAgg] =
@@ -1005,7 +1094,13 @@ export class CrmService {
       ...where,
       ...(fechadoId
         ? { status: fechadoId }
-        : { status: { in: [...statusMap.values()].filter((s) => s.name === 'Fechado').map((s) => s.id) } }),
+        : {
+            status: {
+              in: [...statusMap.values()]
+                .filter((s) => s.name === 'Fechado')
+                .map((s) => s.id),
+            },
+          }),
     };
 
     const perdidoWhere: Prisma.CrmCardWhereInput = {
@@ -1031,6 +1126,32 @@ export class CrmService {
       ],
     };
 
+    const openStatusFilter: Prisma.CrmCardWhereInput =
+      fechadoId || perdidoId
+        ? {
+            status: {
+              notIn: [fechadoId, perdidoId].filter(Boolean) as string[],
+            },
+          }
+        : {};
+
+    const quoteWhere: Prisma.QuoteWhereInput = {
+      ...(createdAt
+        ? { OR: [{ createdAt }, { requestDate: createdAt }] }
+        : {}),
+    };
+
+    const propostaWhere: Prisma.CrmPropostaWhereInput = {
+      ...(createdAt ? { createdAt } : {}),
+      ...(originFilter
+        ? { card: { origin: originFilter } }
+        : {}),
+    };
+
+    const quoteProposalWhere: Prisma.QuoteProposalWhereInput = {
+      ...(createdAt ? { createdAt } : {}),
+    };
+
     const [
       fechados,
       valorFechadoAgg,
@@ -1038,6 +1159,17 @@ export class CrmService {
       fechadosSlim,
       motivosGroup,
       openSlim,
+      valorOrcamentosAgg,
+      qtdCrmPropostas,
+      qtdQuotePropostas,
+      valorOrcamentosCardsAgg,
+      emAndamentoAgg,
+      emAndamentoCount,
+      vendedorGroups,
+      cardsParaAtencao,
+      propostasHojeCrm,
+      propostasHojeQuote,
+      fechadosHoje,
     ] = await Promise.all([
       this.prisma.client.crmCard.count({ where: fechadoWhere }),
       this.prisma.client.crmCard.aggregate({
@@ -1057,17 +1189,10 @@ export class CrmService {
         },
         _count: { _all: true },
       }),
-      // leads sem contato: só cards abertos, campos mínimos + último TP
       this.prisma.client.crmCard.findMany({
         where: {
           ...where,
-          ...(fechadoId || perdidoId
-            ? {
-                status: {
-                  notIn: [fechadoId, perdidoId].filter(Boolean) as string[],
-                },
-              }
-            : {}),
+          ...openStatusFilter,
         },
         select: {
           id: true,
@@ -1078,6 +1203,78 @@ export class CrmService {
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
             take: 1,
             select: { date: true, createdAt: true, done: true },
+          },
+        },
+      }),
+      this.prisma.client.quote.aggregate({
+        where: quoteWhere,
+        _sum: { total: true },
+        _count: { _all: true },
+      }),
+      this.prisma.client.crmProposta.count({ where: propostaWhere }),
+      this.prisma.client.quoteProposal.count({ where: quoteProposalWhere }),
+      this.prisma.client.crmCard.aggregate({
+        where: orcamentoWhere,
+        _sum: { value: true },
+      }),
+      this.prisma.client.crmCard.aggregate({
+        where: { ...where, ...openStatusFilter },
+        _sum: { value: true },
+      }),
+      this.prisma.client.crmCard.count({
+        where: { ...where, ...openStatusFilter },
+      }),
+      this.prisma.client.crmCard.groupBy({
+        by: ['responsavelId'],
+        where,
+        _count: { _all: true },
+        _sum: { value: true },
+      }),
+      this.prisma.client.crmCard.findMany({
+        where: {
+          ...where,
+          ...openStatusFilter,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          value: true,
+          responsavelId: true,
+          responsavel: { select: { id: true, name: true } },
+          propostas: { select: { id: true }, take: 1 },
+        },
+      }),
+      this.prisma.client.crmProposta.count({
+        where: {
+          createdAt: {
+            gte: (() => {
+              const d = new Date();
+              d.setHours(0, 0, 0, 0);
+              return d;
+            })(),
+          },
+        },
+      }),
+      this.prisma.client.quoteProposal.count({
+        where: {
+          createdAt: {
+            gte: (() => {
+              const d = new Date();
+              d.setHours(0, 0, 0, 0);
+              return d;
+            })(),
+          },
+        },
+      }),
+      this.prisma.client.crmCard.count({
+        where: {
+          ...fechadoWhere,
+          closedAt: {
+            gte: (() => {
+              const d = new Date();
+              d.setHours(0, 0, 0, 0);
+              return d;
+            })(),
           },
         },
       }),
@@ -1116,24 +1313,30 @@ export class CrmService {
           origin,
         };
 
-        const [subsetLeads, subsetFechados, subsetValor, subsetOrcamentos, subsetCicloRows, subsetTouch] =
-          await Promise.all([
-            this.prisma.client.crmCard.count({ where: oWhere }),
-            this.prisma.client.crmCard.count({ where: oFechado }),
-            this.prisma.client.crmCard.aggregate({
-              where: oFechado,
-              _sum: { value: true },
-            }),
-            this.prisma.client.crmCard.count({ where: oOrc }),
-            this.prisma.client.crmCard.findMany({
-              where: oFechado,
-              select: { createdAt: true, closedAt: true },
-            }),
-            this.prisma.client.crmCard.aggregate({
-              where: oWhere,
-              _avg: { touchPoints: true },
-            }),
-          ]);
+        const [
+          subsetLeads,
+          subsetFechados,
+          subsetValor,
+          subsetOrcamentos,
+          subsetCicloRows,
+          subsetTouch,
+        ] = await Promise.all([
+          this.prisma.client.crmCard.count({ where: oWhere }),
+          this.prisma.client.crmCard.count({ where: oFechado }),
+          this.prisma.client.crmCard.aggregate({
+            where: oFechado,
+            _sum: { value: true },
+          }),
+          this.prisma.client.crmCard.count({ where: oOrc }),
+          this.prisma.client.crmCard.findMany({
+            where: oFechado,
+            select: { createdAt: true, closedAt: true },
+          }),
+          this.prisma.client.crmCard.aggregate({
+            where: oWhere,
+            _avg: { touchPoints: true },
+          }),
+        ]);
 
         const subsetValorFechado = Number(subsetValor._sum.value ?? 0);
         const subsetCiclos = subsetCicloRows
@@ -1199,9 +1402,118 @@ export class CrmService {
       nowDate.getFullYear(),
     );
 
+    const valorQuotes = Number(valorOrcamentosAgg._sum.total ?? 0);
+    const valorCardsOrc = Number(valorOrcamentosCardsAgg._sum.value ?? 0);
+    const valorOrcamentos = valorQuotes > 0 ? valorQuotes : valorCardsOrc;
+    const qtdPropostas = qtdCrmPropostas + qtdQuotePropostas;
+
+    const vendedorIds = vendedorGroups
+      .map((g) => g.responsavelId)
+      .filter((id): id is string => Boolean(id));
+    const vendedorUsers =
+      vendedorIds.length > 0
+        ? await this.prisma.client.user.findMany({
+            where: { id: { in: vendedorIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const vendedorName = new Map(vendedorUsers.map((u) => [u.id, u.name]));
+
+    const fechadosPorVendedor = await Promise.all(
+      vendedorGroups.map(async (g) => {
+        const responsavelId = g.responsavelId;
+        const fechadosV = await this.prisma.client.crmCard.count({
+          where: {
+            ...fechadoWhere,
+            responsavelId: responsavelId ?? null,
+          },
+        });
+        const valorV = await this.prisma.client.crmCard.aggregate({
+          where: {
+            ...fechadoWhere,
+            responsavelId: responsavelId ?? null,
+          },
+          _sum: { value: true },
+        });
+        const leadsV = g._count._all;
+        const valorFechadoV = Number(valorV._sum.value ?? 0);
+        return {
+          responsavelId: responsavelId ?? null,
+          nome: responsavelId
+            ? (vendedorName.get(responsavelId) ?? 'Vendedor')
+            : 'Sem responsável',
+          leads: leadsV,
+          fechados: fechadosV,
+          valorFechado: valorFechadoV,
+          taxaConversao: leadsV > 0 ? (fechadosV / leadsV) * 100 : 0,
+        };
+      }),
+    );
+    const porVendedor = fechadosPorVendedor.sort(
+      (a, b) => b.valorFechado - a.valorFechado || b.fechados - a.fechados,
+    );
+
+    const semProposta = cardsParaAtencao.filter((c) => c.propostas.length === 0);
+    const cutoff48h = Date.now() - 48 * 60 * 60 * 1000;
+    const semProposta48h = semProposta.filter(
+      (c) => c.createdAt.getTime() < cutoff48h,
+    );
+    const filaPorVendedor = new Map<
+      string,
+      { nome: string; count: number }
+    >();
+    for (const c of semProposta) {
+      const key = c.responsavelId ?? '__none__';
+      const nome = c.responsavel?.name ?? 'Sem responsável';
+      const prev = filaPorVendedor.get(key);
+      if (prev) prev.count += 1;
+      else filaPorVendedor.set(key, { nome, count: 1 });
+    }
+    const maiorFila = [...filaPorVendedor.values()].sort(
+      (a, b) => b.count - a.count,
+    )[0];
+
+    const funilBase = Math.max(orcamentos, 1);
+    const orcComProposta = await this.prisma.client.crmCard.count({
+      where: {
+        ...orcamentoWhere,
+        propostas: { some: {} },
+      },
+    });
+
+    const funil = [
+      {
+        id: 'orcamentos',
+        label: 'Orçamentos / oportunidades',
+        count: orcamentos,
+        valor: valorOrcamentos,
+        percent: 100,
+        hint: `${orcamentos} registros`,
+      },
+      {
+        id: 'propostas',
+        label: 'Com proposta gerada',
+        count: orcComProposta,
+        valor: null as number | null,
+        percent: (orcComProposta / funilBase) * 100,
+        hint: `${qtdPropostas} proposta(s) no período`,
+      },
+      {
+        id: 'fechados',
+        label: 'Pedidos / vendas fechadas',
+        count: fechados,
+        valor: valorFechado,
+        percent: taxaOrcamentoFechado,
+        hint: `${fechados} registros`,
+      },
+    ];
+
     return {
       filter: originFilter ?? 'TODOS',
-      period: query.period ?? 'all',
+      period: range.period,
+      periodLabel: range.label,
+      startDate: range.start?.toISOString() ?? null,
+      endDate: range.end?.toISOString() ?? null,
       resumo: {
         leads,
         orcamentos,
@@ -1218,6 +1530,33 @@ export class CrmService {
       porOrigem,
       motivosPerdaDistribuicao,
       metasMes,
+      completo: {
+        valorOrcamentos,
+        qtdOrcamentos: Math.max(
+          valorOrcamentosAgg._count._all,
+          orcamentos,
+        ),
+        qtdPropostas,
+        taxaConversao: taxaOrcamentoFechado,
+        ticketMedio,
+        tempoMedioDias: cicloMedioDias,
+        tempoMedioHoras: cicloMedioDias * 24,
+        emAndamento: {
+          count: emAndamentoCount,
+          valor: Number(emAndamentoAgg._sum.value ?? 0),
+        },
+        porVendedor,
+        funil,
+        atencao: {
+          orcamentosSemProposta48h: semProposta48h.length,
+          orcamentosSemProposta: semProposta.length,
+          propostasGeradasHoje: propostasHojeCrm + propostasHojeQuote,
+          fechadosHoje,
+          maiorFilaSemProposta: maiorFila
+            ? { nome: maiorFila.nome, count: maiorFila.count }
+            : null,
+        },
+      },
     };
   }
 

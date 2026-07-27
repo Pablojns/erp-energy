@@ -68,7 +68,9 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const [cards, setCards] = useState<CrmCardDto[]>([]);
   const [dashboard, setDashboard] = useState<CrmDashboardDto | null>(null);
   const [originFilter, setOriginFilter] = useState<CrmCardOrigin | 'TODOS'>('TODOS');
-  const [periodFilter, setPeriodFilter] = useState<CrmDashboardPeriod>('30d');
+  const [periodFilter, setPeriodFilter] = useState<CrmDashboardPeriod>('month');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [loadingData, setLoadingData] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,7 +155,13 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
     const load = async () => {
       setLoadingDashboard(true);
       try {
-        const data = await getCrmDashboard(originFilter, periodFilter);
+        const data = await getCrmDashboard(
+          originFilter,
+          periodFilter,
+          periodFilter === 'custom' && customStartDate && customEndDate
+            ? { startDate: customStartDate, endDate: customEndDate }
+            : undefined,
+        );
         if (!controller.signal.aborted) setDashboard(data);
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -168,7 +176,7 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
 
     void load();
     return () => controller.abort();
-  }, [activeView, originFilter, periodFilter, refreshToken]);
+  }, [activeView, originFilter, periodFilter, customStartDate, customEndDate, refreshToken]);
 
   const handleCardMoved = (updated: CrmCardDto) => {
     setCards((current) => {
@@ -335,9 +343,17 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
               loading={loadingDashboard}
               originFilter={originFilter}
               periodFilter={periodFilter}
+              customStartDate={customStartDate}
+              customEndDate={customEndDate}
               isAdmin={isAdmin}
               onOriginFilterChange={setOriginFilter}
               onPeriodFilterChange={setPeriodFilter}
+              onCustomRangeChange={(start, end) => {
+                setCustomStartDate(start);
+                setCustomEndDate(end);
+                setPeriodFilter('custom');
+              }}
+              onRefresh={() => setRefreshToken((n) => n + 1)}
               onEditMetas={() => setMetasModalOpen(true)}
             />
           ) : null}

@@ -105,11 +105,58 @@ export type CrmCardDto = {
   motivoPerdaMeta?: CrmMotivoPerdaDto;
 };
 
-export type CrmDashboardPeriod = '7d' | '30d' | '90d' | 'all';
+export type CrmDashboardPeriod =
+  | 'hoje'
+  | '7d'
+  | '30d'
+  | '90d'
+  | 'month'
+  | 'prev_month'
+  | 'quarter'
+  | 'year'
+  | 'custom'
+  | 'all';
+
+export type CrmDashboardCompletoDto = {
+  valorOrcamentos: number;
+  qtdOrcamentos: number;
+  qtdPropostas: number;
+  taxaConversao: number;
+  ticketMedio: number;
+  tempoMedioDias: number;
+  tempoMedioHoras: number;
+  emAndamento: { count: number; valor: number };
+  porVendedor: Array<{
+    responsavelId: string | null;
+    nome: string;
+    leads: number;
+    fechados: number;
+    valorFechado: number;
+    taxaConversao: number;
+  }>;
+  funil: Array<{
+    id: string;
+    label: string;
+    count: number;
+    valor: number | null;
+    percent: number;
+    hint: string;
+  }>;
+  atencao: {
+    orcamentosSemProposta48h: number;
+    orcamentosSemProposta: number;
+    propostasGeradasHoje: number;
+    fechadosHoje: number;
+    maiorFilaSemProposta: { nome: string; count: number } | null;
+  };
+};
 
 export type CrmDashboardDto = {
   filter: string;
-  period: CrmDashboardPeriod;
+  period: CrmDashboardPeriod | string;
+  periodLabel?: string;
+  startDate?: string | null;
+  endDate?: string | null;
   resumo: {
     leads: number;
     orcamentos: number;
@@ -139,6 +186,7 @@ export type CrmDashboardDto = {
     motivoName: string;
     count: number;
   }>;
+  completo?: CrmDashboardCompletoDto;
 };
 
 export type CrmTouchpointInput = {
@@ -432,11 +480,14 @@ export async function getCrmRelatorios(params: {
 
 export async function getCrmDashboard(
   origin?: CrmCardOrigin | 'TODOS',
-  period: CrmDashboardPeriod = 'all',
+  period: CrmDashboardPeriod = 'month',
+  range?: { startDate?: string; endDate?: string },
 ) {
   const params = new URLSearchParams();
   if (origin && origin !== 'TODOS') params.set('origin', origin);
-  if (period !== 'all') params.set('period', period);
+  if (period) params.set('period', period);
+  if (range?.startDate) params.set('startDate', range.startDate);
+  if (range?.endDate) params.set('endDate', range.endDate);
   const qs = params.toString();
   return erpFetchJson<CrmDashboardDto>(
     `${BASE}/dashboard${qs ? `?${qs}` : ''}`,

@@ -5,13 +5,28 @@ import type {
   CrmTouchpointDto,
 } from '@/src/services/api/crm-api';
 
-export type CrmDashboardPeriod = '7d' | '30d' | '90d' | 'all';
+export type CrmDashboardPeriod =
+  | 'hoje'
+  | '7d'
+  | '30d'
+  | '90d'
+  | 'month'
+  | 'prev_month'
+  | 'quarter'
+  | 'year'
+  | 'custom'
+  | 'all';
 
 export const CRM_DASHBOARD_PERIODS: Array<{
-  id: CrmDashboardPeriod;
+  id: Exclude<CrmDashboardPeriod, 'custom'>;
   label: string;
 }> = [
+  { id: 'hoje', label: 'Hoje' },
   { id: '7d', label: '7 dias' },
+  { id: 'month', label: 'Mês atual' },
+  { id: 'prev_month', label: 'Mês anterior' },
+  { id: 'quarter', label: 'Trimestre' },
+  { id: 'year', label: 'Ano' },
   { id: '30d', label: '30 dias' },
   { id: '90d', label: '90 dias' },
   { id: 'all', label: 'Tudo' },
@@ -20,7 +35,12 @@ export const CRM_DASHBOARD_PERIODS: Array<{
 export const CRM_ENTRY_PERIOD_OPTIONS: Array<{
   id: CrmDashboardPeriod;
   label: string;
-}> = CRM_DASHBOARD_PERIODS;
+}> = [
+  { id: '7d', label: '7 dias' },
+  { id: '30d', label: '30 dias' },
+  { id: '90d', label: '90 dias' },
+  { id: 'all', label: 'Tudo' },
+];
 
 const FOLLOW_UP_DAYS = 3;
 const NOTE_LINE_RE = /^\[(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]\s*(.+)$/;

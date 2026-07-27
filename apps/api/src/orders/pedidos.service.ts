@@ -1152,14 +1152,13 @@ export class PedidosService {
       select: { id: true },
     });
 
+    await this.prisma.client.order.update({
+      where: { id: order.id },
+      data: { trackingCode: code },
+    });
     if (exit) {
       await this.prisma.client.orderExit.update({
         where: { id: exit.id },
-        data: { trackingCode: code },
-      });
-    } else {
-      await this.prisma.client.order.update({
-        where: { id: order.id },
         data: { trackingCode: code },
       });
     }
@@ -1379,29 +1378,27 @@ export class PedidosService {
       await this.correiosService.buscarPrePostagemPorCodigoObjeto(trackingCode);
     const prePostagemId =
       typeof prePostagem?.id === 'string' ? prePostagem.id : null;
-    if (!prePostagemId) {
-      throw new NotFoundException(
-        'Pré-postagem não encontrada nos Correios para este rastreio.',
-      );
-    }
 
-    await this.correiosService.cancelarPrePostagem(prePostagemId);
+    if (prePostagemId) {
+      await this.correiosService.cancelarPrePostagem(prePostagemId);
+    }
 
     if (exit) {
       await this.prisma.client.orderExit.update({
         where: { id: exit.id },
         data: { trackingCode: null },
       });
-    } else {
-      await this.prisma.client.order.update({
-        where: { id: order.id },
-        data: { trackingCode: null },
-      });
     }
+    await this.prisma.client.order.update({
+      where: { id: order.id },
+      data: { trackingCode: null },
+    });
 
     return {
       ok: true,
-      message: 'Etiqueta Correios cancelada com sucesso.',
+      message: prePostagemId
+        ? 'Etiqueta Correios cancelada com sucesso.'
+        : 'Rastreio removido do pedido (pré-postagem não encontrada nos Correios).',
       codigoObjeto: trackingCode,
     };
   }

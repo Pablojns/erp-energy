@@ -735,6 +735,14 @@ export function CorreiosWorkspace() {
       return;
     }
 
+    const rastreioExistente = etiquetaCodigoRastreio.trim();
+    if (!forceNova && rastreioExistente) {
+      const confirmed = window.confirm(
+        `Este pedido já possui uma etiqueta emitida (código: ${rastreioExistente}). Deseja gerar uma nova mesmo assim?`,
+      );
+      if (!confirmed) return;
+    }
+
     setGerandoEtiqueta(true);
     setEtiquetaErro(null);
     try {
@@ -874,7 +882,9 @@ export function CorreiosWorkspace() {
   };
 
   const handleExcluirEtiqueta = async (row: CorreiosEtiquetaDto) => {
-    const confirmed = window.confirm('Deseja excluir esta etiqueta do histórico?');
+    const confirmed = window.confirm(
+      'Remover esta etiqueta apenas do sistema?\n\nNão chama a API dos Correios — use para registros duplicados ou já cancelados lá.',
+    );
     if (!confirmed) return;
 
     setEtiquetaAcaoId(row.id);
@@ -884,7 +894,7 @@ export function CorreiosWorkspace() {
       await loadEtiquetasEmitidas();
     } catch (error) {
       setEtiquetaErro(
-        error instanceof Error ? error.message : 'Falha ao excluir etiqueta.',
+        error instanceof Error ? error.message : 'Falha ao remover etiqueta.',
       );
     } finally {
       setEtiquetaAcaoId(null);
@@ -1775,12 +1785,12 @@ export function CorreiosWorkspace() {
                                     type="button"
                                     disabled={acaoLoading}
                                     onClick={() => void handleExcluirEtiqueta(row)}
-                                    title="Excluir"
-                                    aria-label="Excluir etiqueta do histórico"
+                                    title="Remover do sistema (sem chamar Correios)"
+                                    aria-label="Remover etiqueta do sistema"
                                     className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-50"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
-                                    Excluir
+                                    Remover do sistema
                                   </button>
                                 </div>
                               </td>
