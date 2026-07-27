@@ -23,6 +23,7 @@ import {
   parseCorreiosTrackingEvents,
   rastrearCorreios,
   rastrearCorreiosLote,
+  type CorreiosDeclaracaoItem,
 } from '@/src/services/api/correios-api';
 import { parseDeliveryAddress } from '@/src/components/cadastros/delivery-address';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
@@ -76,8 +77,53 @@ function latestTrackingDescription(data: unknown): string {
   return eventos[0]?.descricao ?? 'Sem eventos';
 }
 
+function normalizeTrackingCode(codigo: string): string {
+  return codigo.replace(/\s/g, '').toUpperCase();
+}
+
+function extractTrackingObjetos(data: unknown): unknown[] {
+  if (!data || typeof data !== 'object') return [];
+  if (Array.isArray(data)) return data;
+  const root = data as Record<string, unknown>;
+  if (Array.isArray(root.objetos)) return root.objetos;
+  if (Array.isArray(root.items)) return root.items;
+  if (Array.isArray(root.content)) return root.content;
+  // Resposta de um único objeto
+  if (root.codObjeto || root.codigo || root.eventos) return [root];
+  return [];
+}
+
 function isTrackingStatusEntregue(status: string): boolean {
   return status.toLowerCase().includes('entregue');
+}
+
+function emptyDeclaracaoItem(): CorreiosDeclaracaoItem {
+  return { conteudo: '', quantidade: '1', custoUnitario: '', valor: '' };
+}
+
+function parseDeclaracaoNumber(raw: string): number | null {
+  const normalized = raw.trim().replace(/\s/g, '').replace(',', '.');
+  if (!normalized) return null;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatDeclaracaoValor(value: number): string {
+  return value.toFixed(2).replace('.', ',');
+}
+
+/** Recalcula Valor Declarado = Quantidade × Custo Unitário. */
+function withAutoValorDeclarado(
+  item: CorreiosDeclaracaoItem,
+  patch: Partial<Pick<CorreiosDeclaracaoItem, 'quantidade' | 'custoUnitario'>>,
+): CorreiosDeclaracaoItem {
+  const next = { ...item, ...patch };
+  const qty = parseDeclaracaoNumber(next.quantidade);
+  const unit = parseDeclaracaoNumber(next.custoUnitario);
+  if (qty != null && unit != null && qty >= 0 && unit >= 0) {
+    next.valor = formatDeclaracaoValor(qty * unit);
+  }
+  return next;
 }
 
 function servicoIdFromLabel(servico: string): CorreiosServiceId {
@@ -149,6 +195,9 @@ export function CorreiosWorkspace() {
   const [etiquetaCodigoRastreio, setEtiquetaCodigoRastreio] = useState('');
   const [editingEtiquetaId, setEditingEtiquetaId] = useState<string | null>(null);
   const [hasExistingTracking, setHasExistingTracking] = useState(false);
+  const [declaracaoItens, setDeclaracaoItens] = useState<CorreiosDeclaracaoItem[]>([
+    emptyDeclaracaoItem(),
+  ]);
   const [buscandoPedidoEtiqueta, setBuscandoPedidoEtiqueta] = useState(false);
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [buscandoCepRemetente, setBuscandoCepRemetente] = useState(false);
@@ -199,32 +248,77 @@ export function CorreiosWorkspace() {
 
   const applyTrackingStatuses = useCallback(
     async (rows: TrackedOrderRow[]): Promise<TrackedOrderRow[]> => {
-      const codigos = [...new Set(rows.map((p) => p.trackingCode))];
+      const codigos = [
+        ...new Set(
+          rows
+            .map((p) => normalizeTrackingCode(p.trackingCode))
+            .filter(Boolean),
+        ),
+      ];
       if (codigos.length === 0) return rows;
 
-      const data = await rastrearCorreiosLote(codigos);
-      const objetos = (() => {
-        if (!data || typeof data !== 'object') return [];
-        const root = data as Record<string, unknown>;
-        return Array.isArray(root.objetos) ? root.objetos : [];
-      })();
-
       const statusByCode = new Map<string, string>();
-      for (const objeto of objetos) {
-        if (!objeto || typeof objeto !== 'object') continue;
-        const row = objeto as Record<string, unknown>;
-        const codigo = String(row.codObjeto ?? row.codigo ?? '')
-          .trim()
-          .toUpperCase();
-        if (!codigo) continue;
-        statusByCode.set(codigo, latestTrackingDescription(objeto));
+      const chunkSize = 20;
+      const errors: string[] = [];
+
+      for (let i = 0; i < codigos.length; i += chunkSize) {
+        const chunk = codigos.slice(i, i + chunkSize);
+        try {
+          const data = await rastrearCorreiosLote(chunk);
+          const objetos = extractTrackingObjetos(data);
+
+          for (const objeto of objetos) {
+            if (!objeto || typeof objeto !== 'object') continue;
+            const row = objeto as Record<string, unknown>;
+            const codigo = normalizeTrackingCode(
+              String(row.codObjeto ?? row.codigo ?? row.codigoObjeto ?? ''),
+            );
+            if (!codigo) continue;
+
+            const mensagem = String(
+              row.mensagem ?? row.message ?? row.msg ?? '',
+            ).trim();
+            const descricao = latestTrackingDescription(objeto);
+            if (descricao !== 'Sem eventos') {
+              statusByCode.set(codigo, descricao);
+            } else if (mensagem) {
+              statusByCode.set(codigo, mensagem);
+            } else {
+              statusByCode.set(codigo, 'Sem eventos');
+            }
+          }
+
+          // Códigos do chunk sem retorno explícito
+          for (const codigo of chunk) {
+            if (!statusByCode.has(codigo)) {
+              statusByCode.set(codigo, 'Sem eventos');
+            }
+          }
+        } catch (chunkError) {
+          const msg =
+            chunkError instanceof Error
+              ? chunkError.message
+              : 'Falha ao consultar rastreio.';
+          errors.push(msg);
+          for (const codigo of chunk) {
+            if (!statusByCode.has(codigo)) {
+              statusByCode.set(codigo, 'Erro ao consultar');
+            }
+          }
+        }
       }
 
-      return rows.map((row) => ({
-        ...row,
-        lastStatus:
-          statusByCode.get(row.trackingCode.toUpperCase()) ?? row.lastStatus,
-      }));
+      if (errors.length > 0 && statusByCode.size === 0) {
+        throw new Error(errors[0] ?? 'Falha ao atualizar status dos pedidos.');
+      }
+
+      return rows.map((row) => {
+        const code = normalizeTrackingCode(row.trackingCode);
+        return {
+          ...row,
+          lastStatus: statusByCode.get(code) ?? 'Erro ao consultar',
+        };
+      });
     },
     [],
   );
@@ -265,7 +359,7 @@ export function CorreiosWorkspace() {
           setPedidos((prev) =>
             prev.map((row) =>
               row.lastStatus === 'Consultando…'
-                ? { ...row, lastStatus: '—' }
+                ? { ...row, lastStatus: 'Erro ao consultar' }
                 : row,
             ),
           );
@@ -668,6 +762,7 @@ export function CorreiosWorkspace() {
         pesoGramas: Number(etiquetaPeso) || 300,
         valorDeclarado: Number(etiquetaValor.replace(',', '.')) || 0,
         servicoLabel: etiquetaServicoSelecionado.label,
+        itensDeclaracaoConteudo: declaracaoItens,
       });
 
       const idPrePostagem =
@@ -686,6 +781,7 @@ export function CorreiosWorkspace() {
 
       await gerarRotuloCorreios([idPrePostagem]);
       await loadEtiquetasEmitidas();
+      setDeclaracaoItens([emptyDeclaracaoItem()]);
       if (etiquetaNumeroPed.trim() && codigoNovo) {
         setEtiquetaCodigoRastreio(codigoNovo);
         setHasExistingTracking(true);
@@ -865,6 +961,13 @@ export function CorreiosWorkspace() {
       const updated = await applyTrackingStatuses(pedidos);
       setPedidos(updated);
     } catch (error) {
+      setPedidos((prev) =>
+        prev.map((row) =>
+          row.lastStatus === 'Consultando…'
+            ? { ...row, lastStatus: 'Erro ao consultar' }
+            : row,
+        ),
+      );
       setPedidosErro(
         error instanceof Error ? error.message : 'Falha ao atualizar status dos pedidos.',
       );
@@ -1363,6 +1466,134 @@ export function CorreiosWorkspace() {
             ) : null}
               </div>
             </div>
+
+            {!isAtualizarEtiquetaMode ? (
+              <div>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                      Declaração de Conteúdo (opcional)
+                    </h3>
+                    <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                      Preencha para registrar os itens na pré-postagem. A impressão da
+                      declaração fica disponível depois, na lista de etiquetas.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeclaracaoItens((prev) => [...prev, emptyDeclaracaoItem()])
+                    }
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--input-bg)] px-3 text-xs font-semibold text-[var(--text-primary)]"
+                  >
+                    + Adicionar item
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {declaracaoItens.map((item, index) => (
+                    <div
+                      key={`decl-item-${index}`}
+                      className="grid gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] p-3 md:grid-cols-12"
+                    >
+                      <label className="block text-sm md:col-span-4">
+                        <span className="mb-1 block text-[var(--text-secondary)]">
+                          Descrição do item
+                        </span>
+                        <input
+                          value={item.conteudo}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setDeclaracaoItens((prev) =>
+                              prev.map((row, i) =>
+                                i === index ? { ...row, conteudo: value } : row,
+                              ),
+                            );
+                          }}
+                          placeholder="Mín. 5 caracteres"
+                          className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        />
+                      </label>
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--text-secondary)]">Qtd.</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.quantidade}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setDeclaracaoItens((prev) =>
+                              prev.map((row, i) =>
+                                i === index
+                                  ? withAutoValorDeclarado(row, { quantidade: value })
+                                  : row,
+                              ),
+                            );
+                          }}
+                          className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        />
+                      </label>
+                      <label className="block text-sm md:col-span-2">
+                        <span className="mb-1 block text-[var(--text-secondary)]">
+                          Custo unitário (R$)
+                        </span>
+                        <input
+                          value={item.custoUnitario}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setDeclaracaoItens((prev) =>
+                              prev.map((row, i) =>
+                                i === index
+                                  ? withAutoValorDeclarado(row, {
+                                      custoUnitario: value,
+                                    })
+                                  : row,
+                              ),
+                            );
+                          }}
+                          placeholder="0,00"
+                          className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        />
+                      </label>
+                      <label className="block text-sm md:col-span-3">
+                        <span className="mb-1 block text-[var(--text-secondary)]">
+                          Valor declarado (R$)
+                        </span>
+                        <input
+                          value={item.valor}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setDeclaracaoItens((prev) =>
+                              prev.map((row, i) =>
+                                i === index ? { ...row, valor: value } : row,
+                              ),
+                            );
+                          }}
+                          placeholder="0,00"
+                          className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        />
+                      </label>
+                      <div className="flex items-end md:col-span-1">
+                        <button
+                          type="button"
+                          disabled={declaracaoItens.length <= 1}
+                          onClick={() =>
+                            setDeclaracaoItens((prev) =>
+                              prev.length <= 1
+                                ? prev
+                                : prev.filter((_, i) => i !== index),
+                            )
+                          }
+                          className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-40"
+                          title="Remover item"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {carregandoRemetente ? (

@@ -1620,6 +1620,9 @@ export class OrderService {
         items: before.items,
       });
 
+      // Novo ciclo: preserva itens já faturados por completo; libera só os pendentes.
+      await OrderService.resetItemsForNewSeparationCycle(tx, orderId);
+
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -2047,12 +2050,19 @@ export class OrderService {
 
       if (hadPriorPartial) {
         for (const it of before.items) {
+          const qty = Math.max(0, it.quantity);
           const confirmed = Math.max(0, it.invoicedQty ?? 0);
+          const fullyInvoiced = qty > 0 && confirmed >= qty;
+          const existing = it.mercadoEletronicoItemStatus?.trim() || null;
           await tx.orderItem.update({
             where: { id: it.id },
             data: {
-              pickedQty: confirmed,
-              missingQty: Math.max(0, it.quantity - confirmed),
+              pickedQty: fullyInvoiced ? qty : confirmed,
+              missingQty: Math.max(0, qty - confirmed),
+              // Completos mantêm OK; pendentes liberam para o próximo ciclo.
+              mercadoEletronicoItemStatus: fullyInvoiced
+                ? existing || 'OK'
+                : null,
             },
           });
         }
@@ -2669,6 +2679,7 @@ export class OrderService {
           invoiceNumber: before.invoiceNumber,
           items: before.items,
         });
+        await OrderService.resetItemsForNewSeparationCycle(tx, id);
       }
 
       const data: Prisma.OrderUncheckedUpdateInput = {
@@ -3239,6 +3250,60 @@ export class OrderService {
         createdBy: opts.userId,
       },
     });
+  }
+
+  /**
+   * Novo ciclo de separação — diferencia itens por progresso de faturamento:
+   *
+   * - invoicedQty >= quantity (já completo): mantém/define status "OK" e
+   *   pickedQty no total; UI mostra "Já recebido" e não exige reconfirmar.
+   * - invoicedQty < quantity (pendente): limpa status de recebimento e
+   *   deixa pickedQty no piso já faturado (em geral 0) para Confirmar de novo.
+   *
+   * Usado por send-to-picking e transição manual para EM_SEPARACAO.
+   */
+  private static async resetItemsForNewSeparationCycle(
+    tx: Tx,
+    orderId: string,
+  ) {
+    const items = await tx.orderItem.findMany({
+      where: { orderId },
+      select: {
+        id: true,
+        quantity: true,
+        invoicedQty: true,
+        mercadoEletronicoItemStatus: true,
+      },
+    });
+
+    for (const it of items) {
+      const qty = Math.max(0, it.quantity);
+      const floor = Math.max(0, it.invoicedQty ?? 0);
+      const fullyInvoiced = qty > 0 && floor >= qty;
+
+      if (fullyInvoiced) {
+        const existing = it.mercadoEletronicoItemStatus?.trim() || null;
+        await tx.orderItem.update({
+          where: { id: it.id },
+          data: {
+            pickedQty: qty,
+            missingQty: 0,
+            // Preserva OK/Recebido se já existir; senão marca OK pelo faturamento.
+            mercadoEletronicoItemStatus: existing || 'OK',
+          },
+        });
+        continue;
+      }
+
+      await tx.orderItem.update({
+        where: { id: it.id },
+        data: {
+          pickedQty: floor,
+          missingQty: Math.max(0, qty - floor),
+          mercadoEletronicoItemStatus: null,
+        },
+      });
+    }
   }
 
   private static patchDataForStatus(

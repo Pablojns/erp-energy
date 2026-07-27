@@ -382,6 +382,11 @@ export class CorreiosService {
       valorDeclarado?: number;
       descricaoConteudo: string;
     };
+    itensDeclaracaoConteudo?: Array<{
+      conteudo: string;
+      quantidade: string | number;
+      valor: string | number;
+    }>;
     numeroNotaFiscal?: string;
     historico?: {
       nomeDestinatario: string;
@@ -405,6 +410,34 @@ export class CorreiosService {
     const valorDeclarado = payload.objeto.valorDeclarado ?? 0;
     const valorItem = valorDeclarado > 0 ? valorDeclarado.toFixed(2) : '10.00';
     const numeroNotaFiscal = payload.numeroNotaFiscal?.replace(/\D/g, '') || '0';
+
+    const itensFromPayload = (payload.itensDeclaracaoConteudo ?? [])
+      .map((item) => {
+        const conteudo = String(item.conteudo ?? '').trim().slice(0, 200);
+        const quantidadeRaw = String(item.quantidade ?? '').trim();
+        const valorRaw = String(item.valor ?? '')
+          .trim()
+          .replace(',', '.');
+        const quantidade = /^\d+$/.test(quantidadeRaw) ? quantidadeRaw : '1';
+        const valorNum = Number(valorRaw);
+        const valor =
+          Number.isFinite(valorNum) && valorNum > 0
+            ? valorNum.toFixed(2)
+            : valorItem;
+        return { conteudo, quantidade, valor };
+      })
+      .filter((item) => item.conteudo.length >= 5);
+
+    const itensDeclaracaoConteudo =
+      itensFromPayload.length > 0
+        ? itensFromPayload
+        : [
+            {
+              conteudo: payload.objeto.descricaoConteudo.slice(0, 200),
+              quantidade: '1',
+              valor: valorItem,
+            },
+          ];
 
     const remetenteBase = await this.enrichEnderecoFromCep({
       cep: remetente.cep,
@@ -455,13 +488,7 @@ export class CorreiosService {
       numeroNotaFiscal,
       emiteDCe: 'S',
       cienteObjetoNaoProibido: '1',
-      itensDeclaracaoConteudo: [
-        {
-          conteudo: payload.objeto.descricaoConteudo.slice(0, 200),
-          quantidade: '1',
-          valor: valorItem,
-        },
-      ],
+      itensDeclaracaoConteudo,
     };
 
     let data: Record<string, unknown>;

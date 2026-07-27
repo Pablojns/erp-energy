@@ -207,6 +207,14 @@ export async function getCorreiosRemetentePadrao() {
   return erpFetchJson<CorreiosRemetentePadraoDto>('correios/remetente-padrao');
 }
 
+export type CorreiosDeclaracaoItem = {
+  conteudo: string;
+  quantidade: string;
+  /** Custo unitário (UI) — usado para calcular valor automaticamente. */
+  custoUnitario: string;
+  valor: string;
+};
+
 export type CorreiosManualLabelInput = {
   remetente: {
     nome: string;
@@ -233,6 +241,8 @@ export type CorreiosManualLabelInput = {
   pesoGramas: number;
   valorDeclarado: number;
   servicoLabel: string;
+  /** Itens opcionais da Declaração de Conteúdo (só na emissão nova). */
+  itensDeclaracaoConteudo?: CorreiosDeclaracaoItem[];
 };
 
 export type CorreiosEtiquetaDto = {
@@ -285,6 +295,17 @@ export async function atualizarEtiquetaCorreios(
 }
 
 export async function criarPrePostagemManual(input: CorreiosManualLabelInput) {
+  const itens = (input.itensDeclaracaoConteudo ?? [])
+    .map((item) => ({
+      conteudo: item.conteudo.trim(),
+      quantidade: item.quantidade.trim(),
+      valor: item.valor.trim().replace(',', '.'),
+    }))
+    .filter((item) => item.conteudo.length >= 5);
+
+  const descricaoFallback =
+    itens[0]?.conteudo ?? 'Envio manual';
+
   return erpFetchJson<Record<string, unknown>>('correios/prepostagem', {
     method: 'POST',
     body: JSON.stringify({
@@ -318,8 +339,9 @@ export async function criarPrePostagemManual(input: CorreiosManualLabelInput) {
         largura: 11,
         altura: 2,
         valorDeclarado: input.valorDeclarado,
-        descricaoConteudo: 'Envio manual',
+        descricaoConteudo: descricaoFallback,
       },
+      ...(itens.length > 0 ? { itensDeclaracaoConteudo: itens } : {}),
       historico: {
         nomeDestinatario: input.destinatarioNome,
         cepDestino: onlyDigits(input.cep),
