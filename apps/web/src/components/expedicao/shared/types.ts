@@ -97,6 +97,8 @@ export type OrderDto = {
   invoiceStatus: InvoiceStatus;
   orderDate: string | null;
   requestedDeliveryDate: string | null;
+  /** Momento em que o pedido entrou na fila de separação. */
+  sentToSeparationAt?: string | null;
   totalValue: string;
   createdAt: string;
   updatedAt?: string | null;

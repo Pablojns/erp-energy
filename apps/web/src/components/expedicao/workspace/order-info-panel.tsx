@@ -12,9 +12,17 @@ import {
 } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/order-clickable-status-badge';
+import {
+  ExistingEtiquetaChoiceModal,
+  type ExistingEtiquetaChoice,
+} from '@/src/components/expedicao/workspace/existing-etiqueta-choice-modal';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import {
+  normalizeInvoiceNumberDigits,
+  numeroPedFromOrder,
+  pedidoApiUrl,
+} from '@/src/services/api/pedidos-normalize';
 import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
 
 type CarrierOption = {
@@ -214,6 +222,9 @@ export const OrderInfoPanel = forwardRef<
   const [emittingEtiqueta, setEmittingEtiqueta] = useState(false);
   const [cancellingEtiqueta, setCancellingEtiqueta] = useState(false);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
+  const [existingEtiquetaModalOpen, setExistingEtiquetaModalOpen] = useState(false);
+  const [existingEtiquetaCode, setExistingEtiquetaCode] = useState('');
+  const [exitingWithExistingEtiqueta, setExitingWithExistingEtiqueta] = useState(false);
   const [trackingCodeInput, setTrackingCodeInput] = useState(order.trackingCode ?? '');
   const [savingTrackingCode, setSavingTrackingCode] = useState(false);
   const [trackingCodeError, setTrackingCodeError] = useState<string | null>(null);
@@ -463,6 +474,7 @@ export const OrderInfoPanel = forwardRef<
       });
       lastSavedNotaVendaRef.current = trimmed;
       onNotaRemessaSaved?.(persisted);
+      onStatusChanged?.();
     } catch {
       setNotaVendaInput(previous);
       setNotaVendaError('Não foi possível salvar.');
@@ -533,20 +545,11 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const handleEmitEtiqueta = async () => {
+  const emitEtiquetaPdf = async () => {
     const numeroPed = numeroPedFromOrder(order);
     if (!numeroPed) {
       setEtiquetaError('Número do pedido inválido.');
       return;
-    }
-
-    const existingTracking =
-      trackingCodeInput.trim() || order.trackingCode?.trim() || '';
-    if (existingTracking) {
-      const confirmed = window.confirm(
-        `Este pedido já possui uma etiqueta emitida (código: ${existingTracking}). Deseja gerar uma nova mesmo assim?`,
-      );
-      if (!confirmed) return;
     }
 
     setEmittingEtiqueta(true);
@@ -584,6 +587,67 @@ export const OrderInfoPanel = forwardRef<
     } finally {
       setEmittingEtiqueta(false);
     }
+  };
+
+  const exitWithExistingEtiqueta = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed) {
+      setEtiquetaError('Número do pedido inválido.');
+      return;
+    }
+
+    setExitingWithExistingEtiqueta(true);
+    setEtiquetaError(null);
+    try {
+      const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
+      const remessa = order.notaRemessa?.trim() || '';
+      const body = invoiceDigits
+        ? { invoiceNumber: invoiceDigits }
+        : remessa
+          ? {}
+          : { invoiceNumber: existingEtiquetaCode || order.trackingCode?.trim() || '' };
+
+      if (!invoiceDigits && !remessa && !body.invoiceNumber) {
+        throw new Error(
+          'Informe a Nota de Venda/Remessa ou mantenha o código de rastreio para registrar a saída.',
+        );
+      }
+
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      onStatusChanged?.();
+    } catch (err) {
+      setEtiquetaError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível registrar a saída com a etiqueta existente.',
+      );
+    } finally {
+      setExitingWithExistingEtiqueta(false);
+    }
+  };
+
+  const handleEmitEtiqueta = async () => {
+    const existingTracking =
+      trackingCodeInput.trim() || order.trackingCode?.trim() || '';
+    if (existingTracking) {
+      setExistingEtiquetaCode(existingTracking);
+      setExistingEtiquetaModalOpen(true);
+      return;
+    }
+    await emitEtiquetaPdf();
+  };
+
+  const handleExistingEtiquetaChoice = (choice: ExistingEtiquetaChoice) => {
+    setExistingEtiquetaModalOpen(false);
+    if (choice === 'cancel') return;
+    if (choice === 'exit-existing') {
+      void exitWithExistingEtiqueta();
+      return;
+    }
+    void emitEtiquetaPdf();
   };
 
   const handleCancelCorreiosEtiqueta = async () => {
@@ -1113,6 +1177,13 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       </div>
+
+      <ExistingEtiquetaChoiceModal
+        open={existingEtiquetaModalOpen}
+        trackingCode={existingEtiquetaCode}
+        busy={emittingEtiqueta || exitingWithExistingEtiqueta}
+        onChoice={handleExistingEtiquetaChoice}
+      />
     </div>
   );
 });

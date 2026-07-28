@@ -67,6 +67,7 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     invoiceStatus: (raw.invoiceStatus as OrderDto['invoiceStatus']) ?? 'NOT_FOUND',
     orderDate: toIsoString(raw.orderDate),
     requestedDeliveryDate: toIsoString(raw.requestedDeliveryDate),
+    sentToSeparationAt: toIsoString(raw.sentToSeparationAt),
     totalValue: decimalToString(raw.totalValue),
     createdAt: toIsoString(raw.createdAt) ?? new Date().toISOString(),
     itemCount: Number(raw.itemCount ?? items.length),
@@ -87,16 +88,46 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
 
 /** Item serializado (GET /api/pedidos/:id/itens ou em `items` do pedido). */
 export function normalizeItemFromApi(it: Record<string, unknown>): OrderItemDto {
-  const pq = it.product && typeof it.product === 'object'
-    ? (it.product as Record<string, unknown>).stockQty
-    : it.stockQtyOnHand;
-  const pr = it.product && typeof it.product === 'object'
-    ? (it.product as Record<string, unknown>).reservedQty
-    : it.reservedQtyProduct;
+  const productObj =
+    it.product && typeof it.product === 'object'
+      ? (it.product as Record<string, unknown>)
+      : null;
+
+  const explicitAvailable =
+    it.availableQty !== undefined && it.availableQty !== null
+      ? Number(it.availableQty)
+      : it.stockAvailable !== undefined && it.stockAvailable !== null
+        ? Number(it.stockAvailable)
+        : null;
+
+  const pq =
+    productObj && productObj.stockQty !== undefined && productObj.stockQty !== null
+      ? productObj.stockQty
+      : it.stockQtyOnHand;
+  const pr =
+    productObj &&
+    productObj.reservedQty !== undefined &&
+    productObj.reservedQty !== null
+      ? productObj.reservedQty
+      : it.reservedQtyProduct;
   const stockQty = pq !== undefined && pq !== null ? Number(pq) : null;
   const reservedQtyP = pr !== undefined && pr !== null ? Number(pr) : null;
+  const computedAvailable =
+    stockQty !== null && reservedQtyP !== null
+      ? stockQty - reservedQtyP
+      : stockQty;
   const availableQty =
-    stockQty !== null && reservedQtyP !== null ? stockQty - reservedQtyP : stockQty;
+    explicitAvailable !== null && Number.isFinite(explicitAvailable)
+      ? explicitAvailable
+      : computedAvailable;
+
+  const productAvailable =
+    productObj &&
+    productObj.stockQty !== undefined &&
+    productObj.stockQty !== null
+      ? Number(productObj.stockQty) -
+        Number(productObj.reservedQty ?? 0)
+      : undefined;
 
   return {
     id: String(it.id),
@@ -130,21 +161,24 @@ export function normalizeItemFromApi(it: Record<string, unknown>): OrderItemDto 
       availableQty !== null
         ? availableQty >= Number(it.quantity ?? 0)
         : false,
-    product:
-      it.product && typeof it.product === 'object'
-        ? {
-            id: String((it.product as Record<string, unknown>).id),
-            name: String((it.product as Record<string, unknown>).name ?? ''),
-            sku: String((it.product as Record<string, unknown>).sku ?? ''),
-            stockQty: Number((it.product as Record<string, unknown>).stockQty ?? 0),
-            reservedQty: Number(
-              (it.product as Record<string, unknown>).reservedQty ?? 0,
-            ),
-            availableQty:
-              Number((it.product as Record<string, unknown>).stockQty ?? 0) -
-              Number((it.product as Record<string, unknown>).reservedQty ?? 0),
-          }
-        : null,
+    product: productObj
+      ? {
+          id: String(productObj.id ?? ''),
+          name: String(productObj.name ?? ''),
+          sku: String(productObj.sku ?? ''),
+          stockQty:
+            productObj.stockQty !== undefined && productObj.stockQty !== null
+              ? Number(productObj.stockQty)
+              : 0,
+          reservedQty:
+            productObj.reservedQty !== undefined && productObj.reservedQty !== null
+              ? Number(productObj.reservedQty)
+              : 0,
+          ...(productAvailable !== undefined
+            ? { availableQty: productAvailable }
+            : {}),
+        }
+      : null,
   };
 }
 

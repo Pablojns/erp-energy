@@ -144,6 +144,7 @@ type OrderSerializeSource = {
   total: Prisma.Decimal;
   totalValue: Prisma.Decimal;
   reservedAt: Date | null;
+  sentToSeparationAt?: Date | null;
   shippedAt: Date | null;
   invoicedAt: Date | null;
   carrierId: string | null;
@@ -1606,14 +1607,15 @@ export class OrderService {
         },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
-      if (
-        before.status !== OrderStatus.RESERVADO &&
-        before.status !== OrderStatus.PARCIAL
-      ) {
-        throw new BadRequestException(
-          `Envie para separação apenas com status RESERVADO ou PARCIAL. Atual: ${before.status}.`,
-        );
-      }
+    if (
+      before.status !== OrderStatus.RESERVADO &&
+      before.status !== OrderStatus.PARCIAL &&
+      before.status !== OrderStatus.NOVO
+    ) {
+      throw new BadRequestException(
+        `Envie para separação apenas com status NOVO, RESERVADO ou PARCIAL. Atual: ${before.status}.`,
+      );
+    }
 
       await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
         orderId,
@@ -2092,6 +2094,7 @@ export class OrderService {
               : InvoiceStatus.NOT_FOUND,
             invoicedAt: restoredInvoice ? before.invoicedAt : null,
             volumes: null,
+            sentToSeparationAt: null,
           },
           include: OrderService.orderInclude(),
         });
@@ -2188,6 +2191,7 @@ export class OrderService {
             : InvoiceStatus.NOT_FOUND,
           invoicedAt: nextInvoice ? before.invoicedAt : null,
           volumes: null,
+          sentToSeparationAt: null,
         },
         include: OrderService.orderInclude(),
       });
@@ -3133,6 +3137,8 @@ export class OrderService {
         return [{ orderDate: dir }, { createdAt: 'desc' }];
       case 'requestedDeliveryDate':
         return [{ requestedDeliveryDate: dir }, { createdAt: 'desc' }];
+      case 'sentToSeparationAt':
+        return [{ sentToSeparationAt: dir }, { createdAt: dir }];
       case 'code':
         return [{ code: dir }];
       case 'externalOrderNumber':
@@ -3398,6 +3404,12 @@ export class OrderService {
     }
     if (to === OrderStatus.RESERVADO) {
       data.reservedAt = new Date();
+    }
+    if (to === OrderStatus.EM_SEPARACAO) {
+      data.sentToSeparationAt = new Date();
+    }
+    if (to === OrderStatus.NOVO) {
+      data.sentToSeparationAt = null;
     }
 
     return data;
@@ -3920,6 +3932,7 @@ export class OrderService {
       total: row.total.toString(),
       totalValue: row.totalValue.toString(),
       reservedAt: row.reservedAt?.toISOString() ?? null,
+      sentToSeparationAt: row.sentToSeparationAt?.toISOString() ?? null,
       shippedAt: row.shippedAt?.toISOString() ?? null,
       invoicedAt: row.invoicedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),

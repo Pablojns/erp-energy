@@ -16,7 +16,10 @@ export function resolveInitialItemAvailable(item: OrderItemDto): number | null {
   if (item.availableQty !== null && item.availableQty !== undefined) {
     return item.availableQty;
   }
-  if (item.product?.availableQty !== undefined) {
+  if (
+    item.product?.availableQty !== undefined &&
+    item.product.availableQty !== null
+  ) {
     return item.product.availableQty;
   }
   if (item.stockAvailable !== null && item.stockAvailable !== undefined) {
@@ -29,6 +32,13 @@ export function resolveInitialItemAvailable(item: OrderItemDto): number | null {
     item.reservedQtyProduct !== undefined
   ) {
     return item.stockQtyOnHand - item.reservedQtyProduct;
+  }
+  if (
+    item.product &&
+    typeof item.product.stockQty === 'number' &&
+    Number.isFinite(item.product.stockQty)
+  ) {
+    return item.product.stockQty - (item.product.reservedQty ?? 0);
   }
   return null;
 }

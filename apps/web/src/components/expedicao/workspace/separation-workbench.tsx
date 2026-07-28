@@ -12,6 +12,10 @@ import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-moda
 import { SeparationStepper } from '@/src/components/expedicao/workspace/separation-stepper';
 import { resolveSeparationWorkflowStep } from '@/src/components/expedicao/shared/separation-workflow';
 import { SeparationItemsTable } from '@/src/components/expedicao/workspace/separation-items-table';
+import {
+  ExistingEtiquetaChoiceModal,
+  type ExistingEtiquetaChoice,
+} from '@/src/components/expedicao/workspace/existing-etiqueta-choice-modal';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
@@ -60,6 +64,8 @@ export function SeparationWorkbench(props: {
   const [exitGenerated, setExitGenerated] = useState(false);
   const [printingEtiqueta, setPrintingEtiqueta] = useState(false);
   const [readyForEtiqueta, setReadyForEtiqueta] = useState(false);
+  const [existingEtiquetaModalOpen, setExistingEtiquetaModalOpen] = useState(false);
+  const [existingEtiquetaCode, setExistingEtiquetaCode] = useState('');
   const [carrierSaving, setCarrierSaving] = useState(false);
   const [volumesInput, setVolumesInput] = useState(
     order != null && order.volumes != null ? String(order.volumes) : '',
@@ -271,24 +277,35 @@ export function SeparationWorkbench(props: {
     }
   };
 
-  const handleImprimirEtiquetaAndExit = async () => {
-    const numeroPed = numeroPedFromOrder(order);
+  const registerExitAfterEtiqueta = async (current: OrderDto) => {
+    const numeroPed = numeroPedFromOrder(current);
+    if (!numeroPed) {
+      data.setToast({ variant: 'err', message: 'Número do pedido inválido.' });
+      return false;
+    }
+    const invoiceDigits = normalizeInvoiceNumberDigits(current.invoiceNumber);
+    if (invoiceDigits) {
+      await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
+        method: 'POST',
+        body: JSON.stringify({ invoiceNumber: invoiceDigits }),
+      });
+    } else {
+      const ok = await data.attachRemessaExit(current.id);
+      if (!ok) return false;
+    }
+    return true;
+  };
+
+  const emitEtiquetaAndExit = async (current: OrderDto) => {
+    const numeroPed = numeroPedFromOrder(current);
     if (!numeroPed) {
       data.setToast({ variant: 'err', message: 'Número do pedido inválido.' });
       return;
     }
 
-    const existingTracking = order.trackingCode?.trim() || '';
-    if (existingTracking) {
-      const confirmed = window.confirm(
-        `Este pedido já possui uma etiqueta emitida (código: ${existingTracking}). Deseja gerar uma nova mesmo assim?`,
-      );
-      if (!confirmed) return;
-    }
-
     setPrintingEtiqueta(true);
     try {
-      const useCorreiosEtiqueta = isCorreiosCarrier(order.carrierName);
+      const useCorreiosEtiqueta = isCorreiosCarrier(current.carrierName);
       const etiquetaEndpoint = useCorreiosEtiqueta
         ? 'etiqueta-correios'
         : 'etiqueta';
@@ -320,19 +337,10 @@ export function SeparationWorkbench(props: {
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-      const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
-      if (invoiceDigits) {
-        await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
-          method: 'POST',
-          body: JSON.stringify({ invoiceNumber: invoiceDigits }),
-        });
-      } else {
-        const ok = await data.attachRemessaExit(order.id);
-        if (!ok) return;
-      }
+      const ok = await registerExitAfterEtiqueta(current);
+      if (!ok) return;
 
       setExitGenerated(true);
-      // onAfterAction já faz refresh da lista + detalhe (coalescido).
       onAfterAction?.();
       data.setToast({
         variant: 'ok',
@@ -349,20 +357,71 @@ export function SeparationWorkbench(props: {
     }
   };
 
-  const orderStatus = order.status as string;
+  const exitWithExistingEtiqueta = async (current: OrderDto) => {
+    setPrintingEtiqueta(true);
+    try {
+      const ok = await registerExitAfterEtiqueta(current);
+      if (!ok) return;
+      setExitGenerated(true);
+      onAfterAction?.();
+      data.setToast({
+        variant: 'ok',
+        message: 'Saída confirmada com a etiqueta já emitida.',
+      });
+    } catch (err) {
+      data.setToast({
+        variant: 'err',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Falha ao registrar saída com a etiqueta existente.',
+      });
+    } finally {
+      setPrintingEtiqueta(false);
+    }
+  };
+
+  const handleImprimirEtiquetaAndExit = async () => {
+    if (!order) return;
+    const existingTracking = order.trackingCode?.trim() || '';
+    if (existingTracking) {
+      setExistingEtiquetaCode(existingTracking);
+      setExistingEtiquetaModalOpen(true);
+      return;
+    }
+    await emitEtiquetaAndExit(order);
+  };
+
+  const handleExistingEtiquetaChoice = (choice: ExistingEtiquetaChoice) => {
+    if (!order) return;
+    setExistingEtiquetaModalOpen(false);
+    if (choice === 'cancel') return;
+    if (choice === 'exit-existing') {
+      void exitWithExistingEtiqueta(order);
+      return;
+    }
+    void emitEtiquetaAndExit(order);
+  };
+
+  const orderStatus = order?.status as string | undefined;
   const isSiteCorreiosOrder =
-    order.source === 'SITE' && isCorreiosCarrier(order.carrierName);
+    !!order &&
+    order.source === 'SITE' &&
+    isCorreiosCarrier(order.carrierName);
   const canGenerateExit =
-    order.status === 'SEPARADO' ||
-    order.status === 'AGUARDANDO_NF' ||
-    order.status === 'NF_ATRELADA';
+    !!order &&
+    (order.status === 'SEPARADO' ||
+      order.status === 'AGUARDANDO_NF' ||
+      order.status === 'NF_ATRELADA');
+  const hasInvoice = Boolean(order?.invoiceNumber?.trim());
   const canGerarNfFlask =
+    !!order &&
     mode === 'separation' &&
+    !hasInvoice &&
     (order.status === 'SEPARADO' ||
       order.status === 'AGUARDANDO_NF' ||
       orderStatus === 'NF_PENDENTE');
   const canAttachNf = canGerarNfFlask;
-  const hasInvoice = Boolean(order.invoiceNumber?.trim());
   // SITE + Correios: etiqueta sem exigir NF.
   // Demais (incl. WEG + Correios): NF obrigatória; libera após NF em NF_ATRELADA
   // ou quando já há NF no pedido pós-separação (planilha / atrelamento).
@@ -843,6 +902,13 @@ export function SeparationWorkbench(props: {
           </div>
         </div>
       ) : null}
+
+      <ExistingEtiquetaChoiceModal
+        open={existingEtiquetaModalOpen}
+        trackingCode={existingEtiquetaCode}
+        busy={printingEtiqueta}
+        onChoice={handleExistingEtiquetaChoice}
+      />
     </div>
   );
 }

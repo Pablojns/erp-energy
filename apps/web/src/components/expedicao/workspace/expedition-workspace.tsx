@@ -8,6 +8,7 @@ import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-mo
 import { NewSiteOrderModal } from '@/src/components/expedicao/workspace/new-site-order-modal';
 import { NewVendaExternaModal } from '@/src/components/expedicao/workspace/new-venda-externa-modal';
 import { WegImportModal } from '@/src/components/expedicao/workspace/weg-import-modal';
+import { BatchSeparationModal } from '@/src/components/expedicao/workspace/batch-separation-modal';
 import { DeleteOrderModal } from '@/src/components/expedicao/workspace/delete-order-modal';
 import { OrderQueue } from '@/src/components/expedicao/workspace/order-queue';
 import { SeparationWorkbench } from '@/src/components/expedicao/workspace/separation-workbench';
@@ -50,6 +51,7 @@ export function ExpeditionWorkspace(props: {
   const [siteOrderOpen, setSiteOrderOpen] = useState(false);
   const [vendaExternaOpen, setVendaExternaOpen] = useState(false);
   const [wegImportOpen, setWegImportOpen] = useState(false);
+  const [batchSeparationOpen, setBatchSeparationOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<'WEG' | 'SITE' | 'VENDA_EXTERNA'>(
     businessContext === 'SITE' ? 'SITE' : 'WEG',
   );
@@ -252,6 +254,13 @@ export function ExpeditionWorkspace(props: {
               : sourceFilter === 'SITE'
                 ? 'Novo Pedido Site'
                 : 'Nova Venda Externa'}
+          </button>
+          <button
+            type="button"
+            className={secondaryBtnClass}
+            onClick={() => setBatchSeparationOpen(true)}
+          >
+            Separação em Lote
           </button>
         </div>
 
@@ -479,6 +488,28 @@ export function ExpeditionWorkspace(props: {
               void data.refetchFromStart();
             }}
           />
+          {batchSeparationOpen ? (
+            <BatchSeparationModal
+              source={
+                sourceFilter === 'WEG'
+                  ? 'WEG_MERCADO_ELETRONICO'
+                  : sourceFilter === 'SITE'
+                    ? 'SITE'
+                    : 'VENDA_EXTERNA'
+              }
+              businessContext={
+                businessContext === 'ALL' ? undefined : businessContext
+              }
+              onClose={() => setBatchSeparationOpen(false)}
+              onSent={() => {
+                void data.refetchFromStart();
+                data.setToast({
+                  variant: 'ok',
+                  message: 'Pedidos enviados para separação.',
+                });
+              }}
+            />
+          ) : null}
           <AdminOrderEditModal
             isOpen={Boolean(adminEditOrder)}
             order={adminEditOrder}

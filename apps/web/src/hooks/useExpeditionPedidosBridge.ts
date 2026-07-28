@@ -43,9 +43,11 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const [searchDebounced, setSearchDebounced] = useState(
     () => opts.initialSearch?.trim() ?? '',
   );
-  const [sortBy, setSortBy] = useState(DEFAULT_PEDIDOS_SORT_BY);
+  const [sortBy, setSortBy] = useState(
+    mode === 'separation' ? 'sentToSeparationAt' : DEFAULT_PEDIDOS_SORT_BY,
+  );
   const [sortOrder, setSortOrder] = useState<PedidosSortOrder>(
-    DEFAULT_PEDIDOS_SORT_ORDER,
+    mode === 'separation' ? 'asc' : DEFAULT_PEDIDOS_SORT_ORDER,
   );
   const [filterValueDebounced, setFilterValueDebounced] = useState('');
   const [banner, setBanner] = useState<BannerState | null>(null);

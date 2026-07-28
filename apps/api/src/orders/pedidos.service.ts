@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CarrierResolverService } from './carrier-resolver.service';
 import { OrderService } from './order.service';
+import { WEG_TAB_ORDER_SOURCES } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -304,6 +305,219 @@ export class PedidosService {
     return this.orders.findOne(orderId);
   }
 
+  /**
+   * Resumo agregado por produto (SKU) de pedidos NOVO ainda não enviados à separação.
+   */
+  async separacaoLoteResumo(opts?: {
+    source?: string;
+    businessContext?: string;
+  }) {
+    const src = opts?.source?.trim();
+    const businessContext = opts?.businessContext?.trim();
+
+    const andClauses: Prisma.OrderWhereInput[] = [
+      { status: OrderStatus.NOVO },
+    ];
+
+    if (src && src !== 'all') {
+      if (src === OrderSource.WEG_MERCADO_ELETRONICO) {
+        andClauses.push({ source: { in: [...WEG_TAB_ORDER_SOURCES] } });
+      } else if (
+        src === OrderSource.SITE ||
+        src === OrderSource.VENDA_EXTERNA ||
+        src === OrderSource.MANUAL ||
+        src === OrderSource.ECOMMERCE
+      ) {
+        andClauses.push({ source: src });
+      }
+    }
+
+    if (businessContext === 'WEG' || businessContext === 'SITE') {
+      type CtxInternals = {
+        buildBusinessContextOrderWhere(
+          context: 'WEG' | 'SITE',
+        ): Promise<Prisma.OrderWhereInput>;
+      };
+      const ctx = this.orders as unknown as CtxInternals;
+      andClauses.push(
+        await ctx.buildBusinessContextOrderWhere(businessContext),
+      );
+    }
+
+    const rows = await this.prisma.client.order.findMany({
+      where: { AND: andClauses },
+      select: {
+        id: true,
+        code: true,
+        externalOrderNumber: true,
+        orderDate: true,
+        requestedDeliveryDate: true,
+        status: true,
+        items: {
+          select: {
+            sku: true,
+            description: true,
+            quantity: true,
+            invoicedQty: true,
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                stockQty: true,
+                reservedQty: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ orderDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    type AggOrder = {
+      id: string;
+      displayNumber: string;
+      qty: number;
+      orderDate: string | null;
+      requestedDeliveryDate: string | null;
+      status: OrderStatus;
+    };
+    type AggProduct = {
+      sku: string;
+      productName: string;
+      totalQty: number;
+      orderCount: number;
+      stockAvailable: number | null;
+      orders: AggOrder[];
+    };
+
+    const bySku = new Map<string, AggProduct>();
+
+    for (const order of rows) {
+      const displayNumber = (
+        order.externalOrderNumber?.trim() ||
+        order.code ||
+        order.id
+      ).replace(/^#/, '');
+
+      const qtyBySku = new Map<
+        string,
+        {
+          qty: number;
+          productName: string;
+          sku: string;
+          stockAvailable: number | null;
+        }
+      >();
+
+      for (const item of order.items) {
+        const pending = Math.max(0, item.quantity - (item.invoicedQty ?? 0));
+        if (pending <= 0) continue;
+
+        const rawSku = (item.sku || item.product?.sku || '').trim();
+        const skuKey = rawSku
+          ? rawSku.toUpperCase()
+          : `__NOSKU__${item.description.trim().toUpperCase() || order.id}`;
+        const displaySku = rawSku || '(sem SKU)';
+        const productName =
+          item.product?.name?.trim() ||
+          item.description?.trim() ||
+          displaySku;
+        const stockAvailable = item.product
+          ? Math.max(0, item.product.stockQty - item.product.reservedQty)
+          : null;
+
+        const prev = qtyBySku.get(skuKey);
+        if (prev) {
+          prev.qty += pending;
+          if (prev.stockAvailable === null && stockAvailable !== null) {
+            prev.stockAvailable = stockAvailable;
+          }
+        } else {
+          qtyBySku.set(skuKey, {
+            qty: pending,
+            productName,
+            sku: displaySku,
+            stockAvailable,
+          });
+        }
+      }
+
+      for (const [skuKey, entry] of qtyBySku) {
+        let agg = bySku.get(skuKey);
+        if (!agg) {
+          agg = {
+            sku: entry.sku,
+            productName: entry.productName,
+            totalQty: 0,
+            orderCount: 0,
+            stockAvailable: entry.stockAvailable,
+            orders: [],
+          };
+          bySku.set(skuKey, agg);
+        } else if (
+          agg.stockAvailable === null &&
+          entry.stockAvailable !== null
+        ) {
+          agg.stockAvailable = entry.stockAvailable;
+        }
+        agg.totalQty += entry.qty;
+        agg.orderCount += 1;
+        agg.orders.push({
+          id: order.id,
+          displayNumber,
+          qty: entry.qty,
+          orderDate: order.orderDate?.toISOString() ?? null,
+          requestedDeliveryDate:
+            order.requestedDeliveryDate?.toISOString() ?? null,
+          status: order.status,
+        });
+      }
+    }
+
+    const products = [...bySku.values()].sort((a, b) =>
+      a.productName.localeCompare(b.productName, 'pt-BR', {
+        sensitivity: 'base',
+      }),
+    );
+
+    const missingSkus = [
+      ...new Set(
+        products
+          .filter(
+            (p) =>
+              p.stockAvailable === null &&
+              p.sku &&
+              p.sku !== '(sem SKU)',
+          )
+          .map((p) => p.sku),
+      ),
+    ];
+    if (missingSkus.length > 0) {
+      const stockRows = await this.prisma.client.product.findMany({
+        where: {
+          OR: missingSkus.map((sku) => ({
+            sku: { equals: sku, mode: 'insensitive' as const },
+          })),
+        },
+        select: { sku: true, stockQty: true, reservedQty: true },
+      });
+      const stockBySku = new Map(
+        stockRows.map((row) => [
+          row.sku.trim().toUpperCase(),
+          Math.max(0, row.stockQty - row.reservedQty),
+        ]),
+      );
+      for (const product of products) {
+        if (product.stockAvailable !== null) continue;
+        const avail = stockBySku.get(product.sku.trim().toUpperCase());
+        if (avail !== undefined) product.stockAvailable = avail;
+      }
+    }
+
+    return { products };
+  }
+
   list(query: Parameters<OrderService['findMany']>[0]) {
     const q = query as OrderQueryDto;
     const search = q.search?.trim();
@@ -577,7 +791,10 @@ export class PedidosService {
       ],
     });
 
-    const orderBy = internals.buildOrderBy(query);
+    const orderBy = [
+      { sentToSeparationAt: 'asc' as const },
+      { createdAt: 'asc' as const },
+    ];
     const [total, rows] = await Promise.all([
       this.prisma.client.order.count({ where }),
       this.prisma.client.order.findMany({
@@ -1007,16 +1224,14 @@ export class PedidosService {
     if (!externalOrderNumber) {
       throw new NotFoundException('Pedido não encontrado.');
     }
-    const res = await this.orders.findMany({
-      externalOrderNumber,
-      page: 1,
-      pageSize: 1,
-      sortBy: 'createdAt',
-      sortOrder: 'desc',
-    } as never);
-    const first = res?.data?.[0];
-    if (!first) throw new NotFoundException('Pedido não encontrado.');
-    return first;
+    // Detalhe completo (product.stockQty) via findOne — não usar list include enxuto.
+    const order = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    return this.orders.findOne(order.id);
   }
 
   async listItems(numeroPed: string) {
@@ -1035,6 +1250,17 @@ export class PedidosService {
     return this.prisma.client.orderItem.findMany({
       where: { orderId: order.id },
       orderBy: { lineNumber: 'asc' },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            stockQty: true,
+            reservedQty: true,
+          },
+        },
+      },
     });
   }
 
@@ -1054,7 +1280,12 @@ export class PedidosService {
   async updateStatuses(numeroPed: string, dto: PedidosUpdateStatusDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroPed.trim() },
-      select: { id: true },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        items: { select: { pickedQty: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
@@ -1078,9 +1309,6 @@ export class PedidosService {
     if (dto.notaRemessa !== undefined) {
       data.notaRemessa = dto.notaRemessa.trim() || null;
     }
-    if (dto.invoiceNumber !== undefined) {
-      data.invoiceNumber = dto.invoiceNumber.trim() || null;
-    }
     if (dto.notaRemessaConfirmada !== undefined) {
       (data as Prisma.OrderUpdateInput & { notaRemessaConfirmada?: boolean }).notaRemessaConfirmada =
         dto.notaRemessaConfirmada;
@@ -1088,9 +1316,68 @@ export class PedidosService {
     if (dto.volumes !== undefined) {
       (data as Prisma.OrderUpdateInput & { volumes?: number }).volumes = dto.volumes;
     }
-    return this.prisma.client.order.update({
-      where: { id: order.id },
-      data,
+
+    const nextInvoice =
+      dto.invoiceNumber !== undefined
+        ? dto.invoiceNumber.trim() || null
+        : undefined;
+    if (nextInvoice !== undefined) {
+      data.invoiceNumber = nextInvoice;
+      if (nextInvoice) {
+        data.invoiceStatus = InvoiceStatus.INVOICED;
+        data.invoicedAt = new Date();
+      }
+    }
+
+    return this.prisma.client.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: order.id },
+        data,
+      });
+
+      // Campo "Nota Fiscal" manual: registra no histórico (novos e parciais).
+      if (nextInvoice !== undefined) {
+        const previous = order.invoiceNumber?.trim() || null;
+        if (nextInvoice && nextInvoice !== previous) {
+          const pickedQtyAtTime = order.items.reduce(
+            (sum, it) => sum + (it.pickedQty ?? 0),
+            0,
+          );
+          if (previous && previous !== nextInvoice) {
+            const prevLogged = await tx.orderInvoiceHistory.findFirst({
+              where: { orderId: order.id, invoiceNumber: previous },
+              select: { id: true },
+            });
+            if (!prevLogged) {
+              await tx.orderInvoiceHistory.create({
+                data: {
+                  orderId: order.id,
+                  invoiceNumber: previous,
+                  pickedQtyAtTime,
+                  createdBy: userId,
+                },
+              });
+            }
+          }
+          const alreadyLogged = await tx.orderInvoiceHistory.findFirst({
+            where: { orderId: order.id, invoiceNumber: nextInvoice },
+            select: { id: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (!alreadyLogged) {
+            await tx.orderInvoiceHistory.create({
+              data: {
+                orderId: order.id,
+                invoiceNumber: nextInvoice,
+                pickedQtyAtTime,
+                createdBy: userId,
+              },
+            });
+          }
+        }
+      }
+
+      return updated;
     });
   }
 
@@ -1329,9 +1616,13 @@ export class PedidosService {
 
     const nfRaw =
       order.invoiceNumber?.trim() || order.notaRemessa?.trim() || '';
-    if (!nfRaw) return;
-
-    const nfDigits = this.normalizeInvoiceNumberDigits(nfRaw) || nfRaw;
+    // SITE/Correios sem NF: ainda registra saída usando o rastreio como referência.
+    const nfDigits =
+      this.normalizeInvoiceNumberDigits(nfRaw) ||
+      nfRaw ||
+      tracking ||
+      '';
+    if (!nfDigits) return;
 
     await this.orders.generateExitFromInvoice(orderId, userId, {
       invoiceNumber: nfDigits,
@@ -2216,7 +2507,13 @@ export class PedidosService {
   async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroPed.trim() },
-      select: { id: true, notaRemessa: true, notaRemessaConfirmada: true },
+      select: {
+        id: true,
+        notaRemessa: true,
+        notaRemessaConfirmada: true,
+        invoiceNumber: true,
+        trackingCode: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
@@ -2225,6 +2522,19 @@ export class PedidosService {
       const remessa = order.notaRemessa?.trim();
       if (remessa) {
         nf = this.normalizeInvoiceNumberDigits(remessa) || remessa;
+      }
+    }
+    if (!nf) {
+      const currentInvoice = order.invoiceNumber?.trim();
+      if (currentInvoice) {
+        nf = this.normalizeInvoiceNumberDigits(currentInvoice) || currentInvoice;
+      }
+    }
+    // Pedidos travados com etiqueta já emitida (mesmo sem NF): usa o rastreio como referência.
+    if (!nf) {
+      const tracking = order.trackingCode?.trim();
+      if (tracking) {
+        nf = tracking;
       }
     }
     if (!nf) {

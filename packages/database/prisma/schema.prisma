@@ -344,6 +344,8 @@ model Order {
   total                   Decimal             @db.Decimal(12, 2)
   totalValue              Decimal             @db.Decimal(12, 2)
   reservedAt              DateTime?
+  /// Momento em que o pedido entrou na fila de Separação (EM_SEPARACAO)
+  sentToSeparationAt      DateTime?
   shippedAt               DateTime?
   invoicedAt              DateTime?
   carrierId               String?             @db.Uuid
@@ -377,6 +379,7 @@ model Order {
   @@index([createdAt])
   @@index([orderDate])
   @@index([requestedDeliveryDate])
+  @@index([sentToSeparationAt])
   @@index([customerId])
   @@index([carrierId])
   @@index([companyEntityId])

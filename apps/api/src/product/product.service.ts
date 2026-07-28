@@ -299,7 +299,15 @@ export class ProductService {
    * Usado pela mesa de separação no lugar de N GETs products/:id.
    */
   async findStockBatch(dto: ProductStockBatchDto) {
-    const ids = [...new Set((dto.ids ?? []).map((id) => id.trim()).filter(Boolean))];
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const ids = [
+      ...new Set(
+        (dto.ids ?? [])
+          .map((id) => id.trim())
+          .filter((id) => Boolean(id) && uuidRe.test(id)),
+      ),
+    ];
     const skus = [
       ...new Set(
         (dto.skus ?? [])
@@ -328,11 +336,9 @@ export class ProductService {
       });
     }
 
+    // Inclui inativos: Qtd Estoque na expedição deve refletir o catálogo interno.
     const rows = await this.prisma.client.product.findMany({
-      where: {
-        isActive: true,
-        OR: or,
-      },
+      where: { OR: or },
       select: {
         id: true,
         sku: true,

@@ -215,6 +215,18 @@ export class PedidosController {
     return this.pedidos.filaSeparacao();
   }
 
+  /**
+   * GET /api/pedidos/separacao-lote-resumo
+   * Demanda agregada por SKU dos pedidos NOVO (ainda não enviados à separação).
+   */
+  @Get('separacao-lote-resumo')
+  separacaoLoteResumo(
+    @Query('source') source?: string,
+    @Query('businessContext') businessContext?: string,
+  ) {
+    return this.pedidos.separacaoLoteResumo({ source, businessContext });
+  }
+
   @Get('importacoes-log')
   listImportacoesLog(
     @CurrentUser() user: AuthUser,

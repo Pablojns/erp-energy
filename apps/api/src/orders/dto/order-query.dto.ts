@@ -27,6 +27,7 @@ const SORT_FIELDS = [
   'createdAt',
   'orderDate',
   'requestedDeliveryDate',
+  'sentToSeparationAt',
   'code',
   'externalOrderNumber',
   'totalValue',
