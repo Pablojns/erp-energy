@@ -107,7 +107,6 @@ export function CrmImportModal(props: {
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
     >
       <div
         className="h-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto"

@@ -1380,12 +1380,7 @@ export function ComprasDetailModal(props: {
 
       {lightboxImage && row ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/80"
-            onClick={() => setLightboxImage(null)}
-            aria-label="Fechar visualização"
-          />
+          <div className="absolute inset-0 bg-black/80" aria-hidden />
           <div className="relative max-h-[90vh] max-w-4xl">
             <button
               type="button"

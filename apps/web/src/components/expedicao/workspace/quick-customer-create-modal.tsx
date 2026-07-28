@@ -307,13 +307,7 @@ export function QuickCustomerCreateModal(props: {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        aria-label="Fechar cadastro de cliente"
-        onClick={onClose}
-        disabled={saving}
-      />
+      <div className="absolute inset-0 bg-[var(--color-overlay)]" aria-hidden />
       <section
         role="dialog"
         aria-modal

@@ -330,7 +330,6 @@ export function CrmSettingsModal(props: {
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
     >
       <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
         <GlassCard className="border-gray-200 p-4 shadow-2xl sm:p-5">

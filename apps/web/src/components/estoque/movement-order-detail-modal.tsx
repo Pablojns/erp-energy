@@ -152,7 +152,6 @@ export function MovementOrderDetailModal(props: {
       role="dialog"
       aria-modal="true"
       aria-labelledby="movement-detail-title"
-      onClick={onClose}
     >
       <div
         className="relative flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-2xl"

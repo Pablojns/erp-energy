@@ -130,7 +130,6 @@ export function CrmPropostaFormModal(props: {
     <div
       role="presentation"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4"
-      onClick={onClose}
     >
       <div
         className="flex max-h-[90vh] w-full max-w-5xl flex-col"

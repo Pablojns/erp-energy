@@ -47,12 +47,7 @@ export function CrmOrcamentoSendProposalModal(props: {
 
   return (
     <div className="erp-modal-overlay">
-      <button
-        type="button"
-        className="erp-modal-backdrop"
-        onClick={props.onClose}
-        aria-label="Fechar"
-      />
+      <div className="erp-modal-backdrop" aria-hidden />
       <section className="erp-modal-panel relative w-full max-w-md">
         <button
           type="button"

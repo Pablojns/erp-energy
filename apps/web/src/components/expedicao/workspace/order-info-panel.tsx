@@ -963,7 +963,6 @@ export const OrderInfoPanel = forwardRef<
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="nf-historico-modal-title"
-                onClick={() => setNfHistoricoModalOpen(false)}
               >
                 <div
                   className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"

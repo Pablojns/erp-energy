@@ -157,7 +157,6 @@ export function EstoqueExportModal(props: {
     <div
       role="presentation"
       className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-      onClick={() => !exporting && onClose()}
     >
       <div
         className="flex h-[92dvh] w-full max-w-3xl flex-col sm:h-auto sm:max-h-[90vh]"

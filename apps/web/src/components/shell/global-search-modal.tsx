@@ -105,9 +105,6 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
   return (
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center bg-black/55 p-4 pt-[12vh] backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
       role="presentation"
     >
       <div

@@ -146,13 +146,7 @@ export function WegImportModal(props: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        aria-label="Fechar"
-        onClick={handleClose}
-        disabled={uploading}
-      />
+      <div className="absolute inset-0 bg-[var(--color-overlay)]" aria-hidden />
 
       <div
         className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-xl"

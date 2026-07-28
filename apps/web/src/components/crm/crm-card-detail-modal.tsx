@@ -290,7 +290,6 @@ export function CrmCardDetailModal(props: {
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      onClick={onClose}
     >
       <div
         className="h-[90dvh] max-h-[90dvh] w-full max-w-4xl overflow-y-auto sm:h-auto sm:max-h-[92vh]"

@@ -68,13 +68,7 @@ export function DeleteOrderModal(props: {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        aria-label="Fechar"
-        onClick={handleClose}
-        disabled={deleting}
-      />
+      <div className="absolute inset-0 bg-[var(--color-overlay)]" aria-hidden />
       <div
         className="relative w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-xl sm:p-6"
         role="dialog"

@@ -42,12 +42,7 @@ export function CrmOrcamentoProductImage(props: {
 
       {open ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/80"
-            onClick={() => setOpen(false)}
-            aria-label="Fechar visualização"
-          />
+          <div className="absolute inset-0 bg-black/80" aria-hidden />
           <div className="relative z-10 max-h-[90vh] w-full max-w-[min(100%,500px)]">
             <button
               type="button"

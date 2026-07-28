@@ -588,13 +588,7 @@ export function NewSiteOrderModal(props: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        aria-label="Fechar"
-        onClick={onClose}
-        disabled={saving}
-      />
+      <div className="absolute inset-0 bg-[var(--color-overlay)]" aria-hidden />
 
       <div
         className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-xl"

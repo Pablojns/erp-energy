@@ -3902,7 +3902,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => setProductModalOpen(false)}
         >
           <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
             <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none p-3 shadow-2xl sm:max-h-[90vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
@@ -4032,7 +4031,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => setMoveModalOpen(false)}
         >
           <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
             <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none border-gray-200 p-3 shadow-[0_0_48px_-12px_rgba(56,189,248,0.25)] sm:max-h-[92vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
@@ -4200,7 +4198,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={cancelMovementDelete}
         >
           <div
             className="h-auto w-full max-w-md"
@@ -4245,7 +4242,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={cancelProductDelete}
         >
           <div
             className="h-auto w-full max-w-md"
@@ -4295,7 +4291,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={closeReserveModal}
         >
           <div
             className="h-auto w-full max-w-md"
@@ -4493,7 +4488,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => setSupplierFilterModalOpen(false)}
         >
           <div
             className="h-auto w-full max-w-md"
@@ -4580,7 +4574,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => setCategoryFilterModalOpen(false)}
         >
           <div
             className="h-auto w-full max-w-md"
@@ -4683,7 +4676,6 @@ export function EstoqueWorkspace() {
         <div
           role="presentation"
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => setReservationsModalOpen(false)}
         >
           <div
             className="h-auto w-full max-w-2xl"

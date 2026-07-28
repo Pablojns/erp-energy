@@ -376,12 +376,7 @@ export function AdminOrderEditModal(props: {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        aria-label="Fechar"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-[var(--color-overlay)]" aria-hidden />
       <div className="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-5 py-4">
           <div>

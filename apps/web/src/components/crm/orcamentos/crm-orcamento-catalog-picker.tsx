@@ -13,12 +13,7 @@ export function CrmOrcamentoCatalogPickerModal(props: {
 
   return (
     <div className="erp-modal-overlay">
-      <button
-        type="button"
-        className="erp-modal-backdrop"
-        onClick={props.onClose}
-        aria-label="Fechar"
-      />
+      <div className="erp-modal-backdrop" aria-hidden />
       <section className="erp-modal-panel catalog-search-modal relative flex max-h-[80vh] w-full max-w-5xl flex-col overflow-hidden">
         <button
           type="button"

@@ -219,13 +219,7 @@ export function CompanyEntitiesPanel() {
 
       {editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            aria-label="Fechar"
-            onClick={() => setEditing(null)}
-            disabled={saving}
-          />
+          <div className="absolute inset-0 bg-black/60" aria-hidden />
           <div className="erp-modal-panel relative w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
