@@ -26,6 +26,8 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
+import { EstoqueBulkEntradaModal } from '@/src/components/estoque/estoque-bulk-entrada-modal';
+import { EstoqueExportModal } from '@/src/components/estoque/estoque-export-modal';
 import { MovementOrderDetailModal } from '@/src/components/estoque/movement-order-detail-modal';
 import {
   ErpFilterBar,
@@ -755,6 +757,12 @@ export function EstoqueWorkspace() {
   const [dashboardDateTo, setDashboardDateTo] = useState('');
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
+  const [bulkEntradaOpen, setBulkEntradaOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportModalMode, setExportModalMode] = useState<'all' | 'selected'>(
+    'all',
+  );
 
   const [productPage, setProductPage] = useState(1);
   const [productSearch, setProductSearch] = useState('');
@@ -944,6 +952,9 @@ export function EstoqueWorkspace() {
     setMovementDetailId(null);
     setSupplierFilterModalOpen(false);
     setCategoryFilterModalOpen(false);
+    setBulkEntradaOpen(false);
+    setExportMenuOpen(false);
+    setExportModalOpen(false);
   }, []);
 
   useCloseOverlaysOnRouteChange(closeAllModals);
@@ -3502,10 +3513,54 @@ export function EstoqueWorkspace() {
               <h3 className="text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
                 Visão Geral do Estoque - Lista de SKUs
               </h3>
-              <GlowButton variant="primary" onClick={openCreateProduct}>
-                <Plus className="h-4 w-4" />
-                Cadastrar item
-              </GlowButton>
+              <div className="flex flex-wrap items-center gap-2">
+                <GlowButton
+                  variant="secondary"
+                  onClick={() => setBulkEntradaOpen(true)}
+                >
+                  <PackagePlus className="h-4 w-4" />
+                  Entrada em Massa
+                </GlowButton>
+                <div className="relative">
+                  <GlowButton
+                    variant="secondary"
+                    onClick={() => setExportMenuOpen((v) => !v)}
+                  >
+                    <Download className="h-4 w-4" />
+                    Exportar
+                  </GlowButton>
+                  {exportMenuOpen ? (
+                    <div className="absolute right-0 z-20 mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
+                      <button
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--input-bg)]"
+                        onClick={() => {
+                          setExportMenuOpen(false);
+                          setExportModalMode('all');
+                          setExportModalOpen(true);
+                        }}
+                      >
+                        Exportar tudo
+                      </button>
+                      <button
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--input-bg)]"
+                        onClick={() => {
+                          setExportMenuOpen(false);
+                          setExportModalMode('selected');
+                          setExportModalOpen(true);
+                        }}
+                      >
+                        Exportar selecionados
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <GlowButton variant="primary" onClick={openCreateProduct}>
+                  <Plus className="h-4 w-4" />
+                  Cadastrar item
+                </GlowButton>
+              </div>
             </div>
             <div className="shrink-0">
             <ErpFilterBar<InventoryFilterPreset>
@@ -4709,6 +4764,45 @@ export function EstoqueWorkspace() {
           </div>
         </div>
       ) : null}
+
+      <EstoqueBulkEntradaModal
+        open={bulkEntradaOpen}
+        businessContext={businessContext}
+        onClose={() => setBulkEntradaOpen(false)}
+        onError={(message) => {
+          setBannerSuccess(null);
+          setBannerError(message);
+        }}
+        onDone={async (created) => {
+          setBannerError(null);
+          setBannerSuccess(
+            created === 1
+              ? 'Entrada em massa registrada (1 produto).'
+              : `Entrada em massa registrada (${created} produtos).`,
+          );
+          await loadSummary();
+          await loadMovements();
+          if (tab === 'inventory' || tab === 'dashboard') {
+            await reloadProductsForTab();
+          }
+        }}
+      />
+
+      <EstoqueExportModal
+        open={exportModalOpen}
+        mode={exportModalMode}
+        businessContext={businessContext}
+        includeInactive={isAdmin && showInactive}
+        onClose={() => setExportModalOpen(false)}
+        onError={(message) => {
+          setBannerSuccess(null);
+          setBannerError(message);
+        }}
+        onSuccess={(message) => {
+          setBannerError(null);
+          setBannerSuccess(message);
+        }}
+      />
 
       <MovementOrderDetailModal
         movementId={movementDetailId}
