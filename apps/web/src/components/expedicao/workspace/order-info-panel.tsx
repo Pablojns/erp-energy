@@ -320,6 +320,7 @@ export const OrderInfoPanel = forwardRef<
   const [editNfNumber, setEditNfNumber] = useState('');
   const [editNfValue, setEditNfValue] = useState('');
   const [editNfPickedQty, setEditNfPickedQty] = useState('');
+  const [editNfDate, setEditNfDate] = useState('');
   const [savingNfHistory, setSavingNfHistory] = useState(false);
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
@@ -424,6 +425,7 @@ export const OrderInfoPanel = forwardRef<
     setEditNfNumber(row.invoiceNumber);
     setEditNfValue(row.invoiceValue ?? '');
     setEditNfPickedQty(String(row.pickedQtyAtTime ?? 0));
+    setEditNfDate(row.createdAt.slice(0, 10));
   };
 
   const saveEditNfHistory = async () => {
@@ -438,6 +440,10 @@ export const OrderInfoPanel = forwardRef<
       window.alert('Quantidade separada inválida.');
       return;
     }
+    if (!editNfDate.trim()) {
+      window.alert('Informe a data da NF.');
+      return;
+    }
     setSavingNfHistory(true);
     try {
       const updated = await erpFetchJson<NfHistoricoItem>(
@@ -448,6 +454,7 @@ export const OrderInfoPanel = forwardRef<
             invoiceNumber,
             invoiceValue: editNfValue.trim() || null,
             pickedQtyAtTime: picked,
+            createdAt: editNfDate.trim(),
           }),
         },
       );
@@ -458,6 +465,7 @@ export const OrderInfoPanel = forwardRef<
               invoiceNumber: updated.invoiceNumber,
               invoiceValue: updated.invoiceValue ?? null,
               pickedQtyAtTime: updated.pickedQtyAtTime,
+              createdAt: updated.createdAt,
             }
           : row;
       setNfHistorico((prev) => prev.map(mergeRow));
@@ -1359,6 +1367,16 @@ export const OrderInfoPanel = forwardRef<
                           className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
                           value={editNfPickedQty}
                           onChange={(e) => setEditNfPickedQty(e.target.value)}
+                          disabled={savingNfHistory}
+                        />
+                      </label>
+                      <label className="block text-xs text-[var(--text-secondary)]">
+                        Data de saída
+                        <input
+                          type="date"
+                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                          value={editNfDate}
+                          onChange={(e) => setEditNfDate(e.target.value)}
                           disabled={savingNfHistory}
                         />
                       </label>

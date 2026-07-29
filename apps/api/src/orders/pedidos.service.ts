@@ -1079,7 +1079,7 @@ export class PedidosService {
       if (dto.items?.length) {
         const existingById = new Map(before.items.map((it) => [it.id, it]));
         let nextLine =
-          before.items.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 1;
+          before.items.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 10;
 
         for (const item of dto.items) {
           const isCreate = !item.id || !existingById.has(item.id);
@@ -1100,7 +1100,7 @@ export class PedidosService {
             ).toDecimalPlaces(2);
             const totalPrice = unitPrice.mul(quantity).toDecimalPlaces(2);
             const lineNumber = item.lineNumber ?? nextLine;
-            nextLine = Math.max(nextLine, lineNumber + 1);
+            nextLine = Math.max(nextLine, lineNumber + 10);
 
             let productId = item.productId?.trim() || null;
             if (productId) {
@@ -1195,7 +1195,90 @@ export class PedidosService {
           });
         }
       }
+
+      if (dto.invoiceHistory !== undefined) {
+        const existingRows = await tx.orderInvoiceHistory.findMany({
+          where: { orderId: before.id },
+          select: { id: true },
+        });
+        const existingIds = new Set(existingRows.map((r) => r.id));
+        const keepIds = new Set<string>();
+
+        const normalized = dto.invoiceHistory
+          .map((row) => ({
+            id: row.id?.trim() || null,
+            invoiceNumber: row.invoiceNumber.trim(),
+            invoiceValue:
+              row.invoiceValue != null && String(row.invoiceValue).trim() !== ''
+                ? decimalFromStringOrZero(String(row.invoiceValue).trim())
+                : null,
+            createdAt:
+              row.createdAt?.trim()
+                ? this.parseNfHistoryDate(row.createdAt)
+                : new Date(),
+          }))
+          .filter((row) => row.invoiceNumber.length > 0);
+
+        for (const row of normalized) {
+          if (row.id && existingIds.has(row.id)) {
+            keepIds.add(row.id);
+            await tx.orderInvoiceHistory.update({
+              where: { id: row.id },
+              data: {
+                invoiceNumber: row.invoiceNumber,
+                invoiceValue: row.invoiceValue,
+                createdAt: row.createdAt,
+              },
+            });
+          } else {
+            const created = await tx.orderInvoiceHistory.create({
+              data: {
+                orderId: before.id,
+                invoiceNumber: row.invoiceNumber,
+                invoiceValue: row.invoiceValue,
+                pickedQtyAtTime: 0,
+                createdAt: row.createdAt,
+                createdBy: userId,
+              },
+            });
+            keepIds.add(created.id);
+          }
+        }
+
+        const toDelete = [...existingIds].filter((id) => !keepIds.has(id));
+        if (toDelete.length > 0) {
+          await tx.orderInvoiceHistory.deleteMany({
+            where: { id: { in: toDelete } },
+          });
+        }
+
+        // NF corrente = a mais recente por createdAt (ou última da lista).
+        const currentNf =
+          [...normalized].sort(
+            (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+          )[0]?.invoiceNumber ?? null;
+
+        await tx.order.update({
+          where: { id: before.id },
+          data: {
+            invoiceNumber: currentNf,
+            ...(currentNf
+              ? {
+                  invoiceStatus: InvoiceStatus.INVOICED,
+                  invoicedAt: new Date(),
+                }
+              : {
+                  invoiceStatus: InvoiceStatus.NOT_FOUND,
+                  invoicedAt: null,
+                }),
+          },
+        });
+      }
     });
+
+    if (dto.invoiceHistory !== undefined) {
+      await this.recalculateInvoicedQtyFromHistory(before.id);
+    }
 
     const qtyOrSkuChanged = Boolean(
       dto.items?.some((item) => {
@@ -2484,6 +2567,18 @@ export class PedidosService {
     };
   }
 
+  private parseNfHistoryDate(raw: string): Date {
+    const trimmed = raw.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return isoDateStringToUtcDate(trimmed);
+    }
+    const d = new Date(trimmed);
+    if (Number.isNaN(d.getTime())) {
+      throw new BadRequestException('Data da NF inválida.');
+    }
+    return d;
+  }
+
   async updateNfHistorico(
     userId: string,
     historyId: string,
@@ -2491,6 +2586,7 @@ export class PedidosService {
       invoiceNumber?: string;
       invoiceValue?: string | null;
       pickedQtyAtTime?: number;
+      createdAt?: string;
     },
   ) {
     const before = await this.prisma.client.orderInvoiceHistory.findUnique({
@@ -2533,6 +2629,9 @@ export class PedidosService {
         );
       }
     }
+    if (dto.createdAt !== undefined && dto.createdAt.trim()) {
+      data.createdAt = this.parseNfHistoryDate(dto.createdAt);
+    }
 
     const updated = await this.prisma.client.$transaction(async (tx) => {
       const row = await tx.orderInvoiceHistory.update({
@@ -2552,7 +2651,11 @@ export class PedidosService {
       }
 
       // Sincroniza OrderExit com o mesmo número antigo, se existir.
-      if (dto.invoiceNumber !== undefined || dto.invoiceValue !== undefined) {
+      if (
+        dto.invoiceNumber !== undefined ||
+        dto.invoiceValue !== undefined ||
+        dto.createdAt !== undefined
+      ) {
         const exit = await tx.orderExit.findUnique({
           where: { orderId: before.orderId },
         });
@@ -2575,6 +2678,9 @@ export class PedidosService {
                     ),
                   }
                 : {}),
+              ...(dto.createdAt !== undefined && dto.createdAt.trim()
+                ? { exitDate: this.parseNfHistoryDate(dto.createdAt) }
+                : {}),
             },
           });
         }
@@ -2596,11 +2702,13 @@ export class PedidosService {
           invoiceNumber: before.invoiceNumber,
           invoiceValue: before.invoiceValue?.toString() ?? null,
           pickedQtyAtTime: before.pickedQtyAtTime,
+          createdAt: before.createdAt.toISOString(),
         },
         after: {
           invoiceNumber: updated.invoiceNumber,
           invoiceValue: updated.invoiceValue?.toString() ?? null,
           pickedQtyAtTime: updated.pickedQtyAtTime,
+          createdAt: updated.createdAt.toISOString(),
         },
       },
     });

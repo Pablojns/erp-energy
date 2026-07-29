@@ -24,6 +24,12 @@ export class UpdateNfHistoricoDto {
   @IsInt()
   @Min(0)
   pickedQtyAtTime?: number;
+
+  /** Data de saída / registro (YYYY-MM-DD ou ISO datetime). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  createdAt?: string;
 }
 
 export class SearchNfHistoricoDto {

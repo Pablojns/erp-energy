@@ -111,6 +111,15 @@ export function AdminOrderEditModal(props: {
   const [mercadoEletronicoStatus, setMercadoEletronicoStatus] = useState('');
   const [contaAzulStatus, setContaAzulStatus] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [invoiceHistory, setInvoiceHistory] = useState<
+    Array<{
+      key: string;
+      id?: string;
+      invoiceNumber: string;
+      invoiceValue: string;
+      createdAt: string;
+    }>
+  >([]);
   const [totalValue, setTotalValue] = useState('');
   const [carrierId, setCarrierId] = useState('');
   const [companyEntityId, setCompanyEntityId] = useState('');
@@ -206,6 +215,21 @@ export function AdminOrderEditModal(props: {
     setMercadoEletronicoStatus(order.mercadoEletronicoStatus ?? '');
     setContaAzulStatus(order.contaAzulStatus ?? '');
     setInvoiceNumber(order.invoiceNumber ?? '');
+    setInvoiceHistory(
+      order.invoiceNumber?.trim()
+        ? [
+            {
+              key: `seed-${order.id}`,
+              invoiceNumber: order.invoiceNumber.trim(),
+              invoiceValue: order.totalValue ?? '',
+              createdAt: (order.updatedAt ?? new Date().toISOString()).slice(
+                0,
+                10,
+              ),
+            },
+          ]
+        : [],
+    );
     setTotalValue(order.totalValue ?? '');
     setCarrierId(order.carrierId ?? '');
     setCompanyEntityId(order.companyEntityId ?? '');
@@ -226,6 +250,38 @@ export function AdminOrderEditModal(props: {
     setPickerOpen(false);
     setPickingIndex(null);
     setPickingMode('replace');
+
+    const numero = numeroPedFromOrder(order);
+    if (numero) {
+      void erpFetchJson<{
+        historico: Array<{
+          id: string;
+          invoiceNumber: string;
+          invoiceValue?: string | null;
+          createdAt: string;
+        }>;
+      }>(pedidoApiUrl(numero, 'nf-historico'))
+        .then((res) => {
+          const rows = Array.isArray(res.historico) ? res.historico : [];
+          if (rows.length === 0) return;
+          setInvoiceHistory(
+            rows.map((row) => ({
+              key: row.id,
+              id: row.id,
+              invoiceNumber: row.invoiceNumber,
+              invoiceValue: row.invoiceValue ?? '',
+              createdAt: row.createdAt.slice(0, 10),
+            })),
+          );
+          const latest = [...rows].sort((a, b) =>
+            b.createdAt.localeCompare(a.createdAt),
+          )[0];
+          if (latest) setInvoiceNumber(latest.invoiceNumber);
+        })
+        .catch(() => {
+          /* mantém seed do invoiceNumber do pedido */
+        });
+    }
   }, [isOpen, order]);
 
   useEffect(() => {
@@ -293,7 +349,7 @@ export function AdminOrderEditModal(props: {
     if (pickingMode === 'add') {
       setItems((prev) => {
         const nextLine =
-          prev.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 1;
+          prev.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 10;
         const next = [
           ...prev,
           {
@@ -352,6 +408,20 @@ export function AdminOrderEditModal(props: {
     setSaving(true);
     setError(null);
     try {
+      const cleanedInvoices = invoiceHistory
+        .map((row) => ({
+          ...(row.id ? { id: row.id } : {}),
+          invoiceNumber: row.invoiceNumber.trim(),
+          invoiceValue: row.invoiceValue.trim() || null,
+          createdAt: row.createdAt.trim() || undefined,
+        }))
+        .filter((row) => row.invoiceNumber.length > 0);
+
+      const currentInvoice =
+        [...cleanedInvoices].sort((a, b) =>
+          String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
+        )[0]?.invoiceNumber ?? '';
+
       const headerPayload = {
         receiverName,
         unloadingPoint,
@@ -366,7 +436,8 @@ export function AdminOrderEditModal(props: {
         priority: Number(priority),
         mercadoEletronicoStatus,
         contaAzulStatus,
-        invoiceNumber,
+        invoiceNumber: isWegOrder ? currentInvoice : invoiceNumber,
+        ...(isWegOrder ? { invoiceHistory: cleanedInvoices } : {}),
         totalValue,
         carrierId: carrierId.trim() || null,
         companyEntityId: companyEntityId.trim() || null,
@@ -414,6 +485,13 @@ export function AdminOrderEditModal(props: {
           body: JSON.stringify({ items: siteItems }),
         });
       } else {
+        const lineNumbers = items.map((it) => it.lineNumber);
+        if (lineNumbers.some((n) => !Number.isInteger(n) || n < 1)) {
+          throw new Error('Número de linha inválido. Use inteiros ≥ 1.');
+        }
+        if (new Set(lineNumbers).size !== lineNumbers.length) {
+          throw new Error('Números de linha duplicados. Cada linha deve ser única.');
+        }
         await erpFetchJson(pedidoApiUrl(numeroPed, 'admin'), {
           method: 'PATCH',
           body: JSON.stringify({
@@ -638,10 +716,112 @@ export function AdminOrderEditModal(props: {
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Status CA</span>
                   <input className={fieldClass()} value={contaAzulStatus} onChange={(e) => setContaAzulStatus(e.target.value)} />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Nota de venda</span>
-                  <input className={fieldClass()} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-                </label>
+                <div className="block sm:col-span-2 lg:col-span-3">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">
+                      Notas Fiscais
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="rounded-lg border border-[var(--border-color)] px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-60"
+                      onClick={() => {
+                        setInvoiceHistory((prev) => [
+                          ...prev,
+                          {
+                            key: `new-${Date.now()}`,
+                            invoiceNumber: '',
+                            invoiceValue: '',
+                            createdAt: new Date().toISOString().slice(0, 10),
+                          },
+                        ]);
+                      }}
+                    >
+                      + Adicionar NF
+                    </button>
+                  </div>
+                  {invoiceHistory.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-[var(--border-color)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                      Nenhuma NF cadastrada. Adicione uma ou mais notas — elas vão para o histórico do pedido.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {invoiceHistory.map((row, idx) => (
+                        <div
+                          key={row.key}
+                          className="grid grid-cols-1 gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-2 sm:grid-cols-[1.2fr_1fr_auto_auto]"
+                        >
+                          <label className="block text-[11px] text-[var(--text-secondary)]">
+                            Número
+                            <input
+                              className={`${fieldClass()} mt-0.5`}
+                              value={row.invoiceNumber}
+                              disabled={busy}
+                              placeholder="Nº da NF"
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setInvoiceHistory((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = { ...row, invoiceNumber: value };
+                                  return next;
+                                });
+                                setInvoiceNumber(value);
+                              }}
+                            />
+                          </label>
+                          <label className="block text-[11px] text-[var(--text-secondary)]">
+                            Valor (R$)
+                            <input
+                              className={`${fieldClass()} mt-0.5`}
+                              value={row.invoiceValue}
+                              disabled={busy}
+                              placeholder="0.00"
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setInvoiceHistory((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = { ...row, invoiceValue: value };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </label>
+                          <label className="block text-[11px] text-[var(--text-secondary)]">
+                            Data
+                            <input
+                              type="date"
+                              className={`${fieldClass()} mt-0.5`}
+                              value={row.createdAt}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setInvoiceHistory((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = { ...row, createdAt: value };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </label>
+                          <div className="flex items-end">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="rounded-lg border border-rose-200 px-2.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                              onClick={() => {
+                                setInvoiceHistory((prev) =>
+                                  prev.filter((_, i) => i !== idx),
+                                );
+                              }}
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <label className="mt-3 block">
@@ -785,7 +965,21 @@ export function AdminOrderEditModal(props: {
                         it.isNew ? 'bg-emerald-50/40' : ''
                       }`}
                     >
-                      <td className="px-2 py-2">{it.lineNumber}</td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={1}
+                          step={10}
+                          className={`${fieldClass()} w-20`}
+                          value={it.lineNumber}
+                          disabled={busy}
+                          onChange={(e) => {
+                            const n = Number.parseInt(e.target.value, 10);
+                            if (!Number.isFinite(n)) return;
+                            updateItemField(idx, { lineNumber: n });
+                          }}
+                        />
+                      </td>
                       <td className="px-2 py-2">
                         {it.isNew ? (
                           <span className="font-mono text-xs">{it.sku || '—'}</span>

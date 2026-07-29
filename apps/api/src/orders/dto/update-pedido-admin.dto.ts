@@ -58,6 +58,28 @@ export class UpdatePedidoAdminItemDto {
   mercadoEletronicoItemStatus?: string;
 }
 
+/** Entrada de NF no histórico (editável no modal admin). */
+export class UpdatePedidoAdminInvoiceHistoryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  id?: string;
+
+  @IsString()
+  @MaxLength(64)
+  invoiceNumber!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  invoiceValue?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  createdAt?: string;
+}
+
 export class UpdatePedidoAdminDto {
   @IsOptional()
   @IsString()
@@ -118,6 +140,16 @@ export class UpdatePedidoAdminDto {
   @IsString()
   @MaxLength(32)
   invoiceNumber?: string;
+
+  /**
+   * Lista completa de NFs do histórico do pedido (fonte OrderInvoiceHistory).
+   * Quando enviada, sincroniza create/update/delete e atualiza invoiceNumber corrente.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdatePedidoAdminInvoiceHistoryDto)
+  invoiceHistory?: UpdatePedidoAdminInvoiceHistoryDto[];
 
   @IsOptional()
   @IsString()
