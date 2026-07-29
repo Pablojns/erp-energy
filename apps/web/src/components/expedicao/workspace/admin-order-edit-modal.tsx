@@ -55,6 +55,7 @@ type EditItemRow = {
   unitPrice: string;
   pickedQty: number;
   mercadoEletronicoItemStatus: string;
+  isNew?: boolean;
 };
 
 function fieldClass() {
@@ -63,6 +64,21 @@ function fieldClass() {
 
 function readOnlyFieldClass() {
   return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
+}
+
+function calcItemsTotal(rows: EditItemRow[]): string {
+  const sum = rows.reduce((acc, it) => {
+    const qty = Number(it.quantity) || 0;
+    const price = Number(String(it.unitPrice).replace(',', '.')) || 0;
+    return acc + qty * price;
+  }, 0);
+  return sum.toFixed(2);
+}
+
+let newItemSeq = 0;
+function nextTempItemId() {
+  newItemSeq += 1;
+  return `new-${Date.now()}-${newItemSeq}`;
 }
 
 export function AdminOrderEditModal(props: {
@@ -101,6 +117,7 @@ export function AdminOrderEditModal(props: {
   const [items, setItems] = useState<EditItemRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingIndex, setPickingIndex] = useState<number | null>(null);
+  const [pickingMode, setPickingMode] = useState<'replace' | 'add'>('replace');
 
   const stockLookupItems = useMemo((): OrderItemDto[] => {
     if (!isOpen || !order || order.source !== 'SITE') return [];
@@ -208,6 +225,7 @@ export function AdminOrderEditModal(props: {
     setError(null);
     setPickerOpen(false);
     setPickingIndex(null);
+    setPickingMode('replace');
   }, [isOpen, order]);
 
   useEffect(() => {
@@ -233,7 +251,9 @@ export function AdminOrderEditModal(props: {
   if (!numeroPed) return null;
 
   const isSiteOrder = order.source === 'SITE';
+  const isWegOrder = order.source === 'WEG_MERCADO_ELETRONICO';
   const siteItemsEditable = canEditSiteOrderItems(order, 'orders');
+  const canAddWegItem = isWegOrder;
   const isSimpleCustomerLayout =
     isSiteOrder || order.source === 'VENDA_EXTERNA';
   const orderNumberDisplay = order.externalOrderNumber ?? order.code;
@@ -255,12 +275,47 @@ export function AdminOrderEditModal(props: {
 
   const openPickerFor = (idx: number) => {
     if (!siteItemsEditable) return;
+    setPickingMode('replace');
     setPickingIndex(idx);
     setPickerOpen(true);
     setError(null);
   };
 
+  const openAddItemPicker = () => {
+    if (!canAddWegItem) return;
+    setPickingMode('add');
+    setPickingIndex(null);
+    setPickerOpen(true);
+    setError(null);
+  };
+
   const handleInventorySelect = (product: InventoryProductOption) => {
+    if (pickingMode === 'add') {
+      setItems((prev) => {
+        const nextLine =
+          prev.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 1;
+        const next = [
+          ...prev,
+          {
+            id: nextTempItemId(),
+            lineNumber: nextLine,
+            productId: product.id,
+            sku: product.sku,
+            description: product.name,
+            quantity: '1',
+            unitPrice: product.price ?? '0',
+            pickedQty: 0,
+            mercadoEletronicoItemStatus: '',
+            isNew: true,
+          },
+        ];
+        setTotalValue(calcItemsTotal(next));
+        return next;
+      });
+      setPickingMode('replace');
+      return;
+    }
+
     if (pickingIndex == null) return;
     setItems((prev) => {
       const next = [...prev];
@@ -273,9 +328,24 @@ export function AdminOrderEditModal(props: {
         description: product.name,
         unitPrice: product.price ?? current.unitPrice,
       };
+      if (isWegOrder) setTotalValue(calcItemsTotal(next));
       return next;
     });
     setPickingIndex(null);
+  };
+
+  const updateItemField = (
+    idx: number,
+    patch: Partial<EditItemRow>,
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const current = next[idx];
+      if (!current) return prev;
+      next[idx] = { ...current, ...patch };
+      if (isWegOrder) setTotalValue(calcItemsTotal(next));
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -348,14 +418,23 @@ export function AdminOrderEditModal(props: {
           method: 'PATCH',
           body: JSON.stringify({
             ...headerPayload,
-            items: items.map((it) => ({
-              id: it.id,
-              lineNumber: it.lineNumber,
-              sku: it.sku,
-              description: it.description,
-              quantity: Number(it.quantity),
-              mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
-            })),
+            items: items.map((it) => {
+              const qty = Number(it.quantity);
+              const unitPrice = Number(String(it.unitPrice).replace(',', '.'));
+              const base = {
+                lineNumber: it.lineNumber,
+                sku: it.sku,
+                description: it.description,
+                quantity: qty,
+                mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
+                ...(it.productId ? { productId: it.productId } : {}),
+                ...(Number.isFinite(unitPrice) ? { unitPrice } : {}),
+              };
+              if (it.isNew || it.id.startsWith('new-')) {
+                return base;
+              }
+              return { id: it.id, ...base };
+            }),
           }),
         });
       }
@@ -582,6 +661,21 @@ export function AdminOrderEditModal(props: {
               Clique no produto para trocar o item do estoque. Quantidade editável abaixo.
             </p>
           ) : null}
+          {canAddWegItem ? (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[var(--text-secondary)]">
+                Adicione produtos do estoque interno. O total do pedido é recalculado automaticamente.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={openAddItemPicker}
+                className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-card)] disabled:opacity-60"
+              >
+                + Adicionar Item
+              </button>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
             <table className="min-w-full text-sm">
               <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
@@ -590,6 +684,9 @@ export function AdminOrderEditModal(props: {
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">Item</th>
                   <th className="px-2 py-2 text-center">Qtd</th>
+                  {isWegOrder ? (
+                    <th className="px-2 py-2 text-right">Preço un.</th>
+                  ) : null}
                   {isSiteOrder ? (
                     <>
                       <th className="px-2 py-2 text-center whitespace-nowrap">Qtd Separada</th>
@@ -647,9 +744,7 @@ export function AdminOrderEditModal(props: {
                               value={it.quantity}
                               disabled={busy}
                               onChange={(e) => {
-                                const next = [...items];
-                                next[idx] = { ...it, quantity: e.target.value };
-                                setItems(next);
+                                updateItemField(idx, { quantity: e.target.value });
                               }}
                             />
                           ) : (
@@ -684,29 +779,40 @@ export function AdminOrderEditModal(props: {
                   }
 
                   return (
-                    <tr key={it.id} className="border-t border-[var(--border-color)]">
+                    <tr
+                      key={it.id}
+                      className={`border-t border-[var(--border-color)] ${
+                        it.isNew ? 'bg-emerald-50/40' : ''
+                      }`}
+                    >
                       <td className="px-2 py-2">{it.lineNumber}</td>
                       <td className="px-2 py-2">
-                        <input
-                          className={fieldClass()}
-                          value={it.sku}
-                          onChange={(e) => {
-                            const next = [...items];
-                            next[idx] = { ...it, sku: e.target.value };
-                            setItems(next);
-                          }}
-                        />
+                        {it.isNew ? (
+                          <span className="font-mono text-xs">{it.sku || '—'}</span>
+                        ) : (
+                          <input
+                            className={fieldClass()}
+                            value={it.sku}
+                            onChange={(e) =>
+                              updateItemField(idx, { sku: e.target.value })
+                            }
+                          />
+                        )}
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          className={fieldClass()}
-                          value={it.description}
-                          onChange={(e) => {
-                            const next = [...items];
-                            next[idx] = { ...it, description: e.target.value };
-                            setItems(next);
-                          }}
-                        />
+                        {it.isNew ? (
+                          <span className="text-xs font-medium" title={it.description}>
+                            {it.description || '—'}
+                          </span>
+                        ) : (
+                          <input
+                            className={fieldClass()}
+                            value={it.description}
+                            onChange={(e) =>
+                              updateItemField(idx, { description: e.target.value })
+                            }
+                          />
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <input
@@ -715,26 +821,29 @@ export function AdminOrderEditModal(props: {
                           className={`${fieldClass()} w-20`}
                           value={it.quantity}
                           disabled={busy}
-                          onChange={(e) => {
-                            const next = [...items];
-                            next[idx] = { ...it, quantity: e.target.value };
-                            setItems(next);
-                          }}
+                          onChange={(e) =>
+                            updateItemField(idx, { quantity: e.target.value })
+                          }
                         />
                       </td>
+                      {isWegOrder ? (
+                        <td className="px-2 py-2 text-right font-mono text-xs">
+                          {Number(String(it.unitPrice).replace(',', '.')).toLocaleString(
+                            'pt-BR',
+                            { style: 'currency', currency: 'BRL' },
+                          )}
+                        </td>
+                      ) : null}
                       {!isSimpleCustomerLayout ? (
                         <td className="px-2 py-2">
                           <select
                             className={fieldClass()}
                             value={it.mercadoEletronicoItemStatus}
-                            onChange={(e) => {
-                              const next = [...items];
-                              next[idx] = {
-                                ...it,
+                            onChange={(e) =>
+                              updateItemField(idx, {
                                 mercadoEletronicoItemStatus: e.target.value,
-                              };
-                              setItems(next);
-                            }}
+                              })
+                            }
                           >
                             {ITEM_STATUS_OPTIONS.map((opt) => (
                               <option key={opt || 'empty'} value={opt}>
@@ -773,6 +882,7 @@ export function AdminOrderEditModal(props: {
         onClose={() => {
           setPickerOpen(false);
           setPickingIndex(null);
+          setPickingMode('replace');
         }}
         onSelect={handleInventorySelect}
       />

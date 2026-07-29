@@ -5406,6 +5406,14 @@ button.exp-wb-chip:hover {
   width: 52px;
 }
 
+.exp-pedidos-col-filler,
+.exp-pedidos-th--filler,
+.exp-pedidos-td--filler {
+  width: auto;
+  padding: 0;
+  border: none;
+}
+
 .exp-pedidos-th {
   height: 32px;
   min-height: 32px;

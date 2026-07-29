@@ -1,17 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Columns3, List, MoreVertical, Plus, Search } from 'lucide-react';
 import { CrmCardDetailModal } from '@/src/components/crm/crm-card-detail-modal';
 import { CrmClientesList } from '@/src/components/crm/crm-clientes-list';
 import { CrmCreateCardModal } from '@/src/components/crm/crm-create-card-modal';
 import { CrmCreateFunilModal } from '@/src/components/crm/crm-create-funil-modal';
-import { CrmDashboard } from '@/src/components/crm/crm-dashboard';
 import { CrmKanbanBoard } from '@/src/components/crm/crm-kanban-board';
 import { CrmKanbanListView } from '@/src/components/crm/crm-kanban-list-view';
 import { CrmMetasModal } from '@/src/components/crm/crm-metas-modal';
 import { CrmOrcamentos } from '@/src/components/crm/orcamentos/crm-orcamentos';
-import { CrmRelatorios } from '@/src/components/crm/crm-relatorios';
 import { CrmSettingsModal } from '@/src/components/crm/crm-settings-modal';
 import { CrmMobileNav, CrmSidebar, type CrmView } from '@/src/components/crm/crm-sidebar';
 import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
@@ -33,6 +32,31 @@ import {
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
 import { listQuotes } from '@/src/services/api/quotes-api';
+
+const CrmDashboard = dynamic(
+  () => import('@/src/components/crm/crm-dashboard').then((m) => m.CrmDashboard),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[12rem] items-center justify-center text-sm text-[var(--erp-fg-muted)]">
+        Carregando dashboard…
+      </div>
+    ),
+  },
+);
+
+const CrmRelatorios = dynamic(
+  () =>
+    import('@/src/components/crm/crm-relatorios').then((m) => m.CrmRelatorios),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[12rem] items-center justify-center text-sm text-[var(--erp-fg-muted)]">
+        Carregando relatórios…
+      </div>
+    ),
+  },
+);
 
 function normalizeKanbanQuoteSearch(raw: string): string | null {
   const trimmed = raw.trim();

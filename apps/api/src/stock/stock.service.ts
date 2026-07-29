@@ -163,67 +163,139 @@ export class StockService {
       ? this.calendarDayEnd(query.endDate)
       : new Date();
 
-    const movements = await this.prisma.client.stockMovement.findMany({
-      where: {
-        movementDate: {
-          gte: periodStart,
-          lte: periodEnd,
-        },
-      },
-      select: {
-        movementDate: true,
-        movementType: true,
-        quantity: true,
-        productId: true,
-        product: {
-          select: { sku: true, name: true },
-        },
-      },
-    });
+    const startIso = query.startDate ?? this.toIsoDate(periodStart);
+    const endIso = query.endDate ?? this.toIsoDate(periodEnd);
+    const inboundTypes = [...ENTRADA_SUMMARY_TYPES];
+    const outboundTypes = [...SAIDA_SUMMARY_TYPES];
+    const volumeTypes = [...inboundTypes, ...outboundTypes];
+    const inboundSql = Prisma.join(
+      inboundTypes.map((t) => Prisma.sql`${t}`),
+    );
+    const outboundSql = Prisma.join(
+      outboundTypes.map((t) => Prisma.sql`${t}`),
+    );
+    const volumeSql = Prisma.join(
+      volumeTypes.map((t) => Prisma.sql`${t}`),
+    );
 
-    let periodInboundCount = 0;
-    let periodOutboundCount = 0;
+    const [periodCounts, dailyRows, topMovedRows, movedInPeriod, criticalRows, topInboundMovements] =
+      await Promise.all([
+        this.prisma.client.$queryRaw<
+          [{ inboundCount: bigint; outboundCount: bigint }]
+        >`
+          SELECT
+            COUNT(*) FILTER (WHERE "movementType"::text IN (${inboundSql}))::bigint AS "inboundCount",
+            COUNT(*) FILTER (WHERE "movementType"::text IN (${outboundSql}))::bigint AS "outboundCount"
+          FROM "StockMovement"
+          WHERE "movementDate" >= ${periodStart}
+            AND "movementDate" <= ${periodEnd}
+        `,
+        this.prisma.client.$queryRaw<
+          Array<{ day: Date; inbound: bigint; outbound: bigint }>
+        >`
+          SELECT
+            (timezone('America/Sao_Paulo', "movementDate"))::date AS day,
+            COALESCE(SUM(CASE WHEN "movementType"::text IN (${inboundSql}) THEN quantity ELSE 0 END), 0)::bigint AS inbound,
+            COALESCE(SUM(CASE WHEN "movementType"::text IN (${outboundSql}) THEN quantity ELSE 0 END), 0)::bigint AS outbound
+          FROM "StockMovement"
+          WHERE "movementDate" >= ${periodStart}
+            AND "movementDate" <= ${periodEnd}
+          GROUP BY 1
+          ORDER BY 1
+        `,
+        this.prisma.client.$queryRaw<
+          Array<{
+            productId: string;
+            sku: string;
+            name: string;
+            totalVolume: bigint;
+          }>
+        >`
+          SELECT
+            m."productId",
+            p.sku,
+            p.name,
+            SUM(m.quantity)::bigint AS "totalVolume"
+          FROM "StockMovement" m
+          INNER JOIN "Product" p ON p.id = m."productId"
+          WHERE m."movementDate" >= ${periodStart}
+            AND m."movementDate" <= ${periodEnd}
+            AND m."movementType"::text IN (${volumeSql})
+          GROUP BY m."productId", p.sku, p.name
+          ORDER BY "totalVolume" DESC
+          LIMIT 10
+        `,
+        this.prisma.client.stockMovement.groupBy({
+          by: ['productId'],
+          where: {
+            movementDate: {
+              gte: periodStart,
+              lte: periodEnd,
+            },
+          },
+        }),
+        this.prisma.client.$queryRaw<
+          Array<{
+            id: string;
+            sku: string;
+            name: string;
+            stockQty: number;
+            minStock: number;
+            deficit: number;
+          }>
+        >`
+          SELECT
+            id,
+            sku,
+            name,
+            "stockQty",
+            "minStock",
+            ("minStock" - "stockQty")::int AS deficit
+          FROM "Product"
+          WHERE "isActive" = true AND "stockQty" < "minStock"
+          ORDER BY ("minStock" - "stockQty") DESC
+          LIMIT 10
+        `,
+        this.prisma.client.stockMovement.findMany({
+          where: {
+            movementType: StockMovementType.INBOUND,
+            movementDate: {
+              gte: periodStart,
+              lte: periodEnd,
+            },
+          },
+          orderBy: { quantity: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            movementDate: true,
+            quantity: true,
+            product: {
+              select: { sku: true, name: true },
+            },
+            movedBy: {
+              select: { name: true },
+            },
+          },
+        }),
+      ]);
+
+    const periodInboundCount = Number(periodCounts[0]?.inboundCount ?? BigInt(0));
+    const periodOutboundCount = Number(periodCounts[0]?.outboundCount ?? BigInt(0));
+
     const dailyMap = new Map<string, { inbound: number; outbound: number }>();
-    const productVolume = new Map<
-      string,
-      {
-        sku: string;
-        name: string;
-        totalVolume: number;
-      }
-    >();
-
-    for (const day of this.iterateIsoDates(
-      query.startDate ?? this.toIsoDate(periodStart),
-      query.endDate ?? this.toIsoDate(periodEnd),
-    )) {
+    for (const day of this.iterateIsoDates(startIso, endIso)) {
       dailyMap.set(day, { inbound: 0, outbound: 0 });
     }
-
-    for (const m of movements) {
-      const dayKey = this.toIsoDate(m.movementDate);
-      const daily = dailyMap.get(dayKey);
-      if (this.isInboundSummaryType(m.movementType)) {
-        periodInboundCount += 1;
-        if (daily) daily.inbound += m.quantity;
-        const cur = productVolume.get(m.productId) ?? {
-          sku: m.product.sku,
-          name: m.product.name,
-          totalVolume: 0,
-        };
-        cur.totalVolume += m.quantity;
-        productVolume.set(m.productId, cur);
-      } else if (this.isOutboundSummaryType(m.movementType)) {
-        periodOutboundCount += 1;
-        if (daily) daily.outbound += m.quantity;
-        const cur = productVolume.get(m.productId) ?? {
-          sku: m.product.sku,
-          name: m.product.name,
-          totalVolume: 0,
-        };
-        cur.totalVolume += m.quantity;
-        productVolume.set(m.productId, cur);
-      }
+    for (const row of dailyRows) {
+      const dayKey =
+        row.day instanceof Date
+          ? this.toIsoDate(row.day)
+          : String(row.day).slice(0, 10);
+      dailyMap.set(dayKey, {
+        inbound: Number(row.inbound),
+        outbound: Number(row.outbound),
+      });
     }
 
     const dailyFlow = [...dailyMap.entries()].map(([date, v]) => ({
@@ -232,25 +304,12 @@ export class StockService {
       outbound: v.outbound,
     }));
 
-    const topMoved = [...productVolume.entries()]
-      .map(([productId, x]) => ({
-        productId,
-        sku: x.sku,
-        name: x.name,
-        totalVolume: x.totalVolume,
-      }))
-      .sort((a, b) => b.totalVolume - a.totalVolume)
-      .slice(0, 10);
-
-    const movedInPeriod = await this.prisma.client.stockMovement.groupBy({
-      by: ['productId'],
-      where: {
-        movementDate: {
-          gte: periodStart,
-          lte: periodEnd,
-        },
-      },
-    });
+    const topMoved = topMovedRows.map((row) => ({
+      productId: row.productId,
+      sku: row.sku,
+      name: row.name,
+      totalVolume: Number(row.totalVolume),
+    }));
 
     const movedIds = movedInPeriod.map((r) => r.productId);
     const stagnantProducts = await this.prisma.client.product.findMany({
@@ -268,56 +327,8 @@ export class StockService {
       },
     });
 
-    const criticalRows = await this.prisma.client.$queryRaw<
-      Array<{
-        id: string;
-        sku: string;
-        name: string;
-        stockQty: number;
-        minStock: number;
-        deficit: number;
-      }>
-    >`
-      SELECT
-        id,
-        sku,
-        name,
-        "stockQty",
-        "minStock",
-        ("minStock" - "stockQty")::int AS deficit
-      FROM "Product"
-      WHERE "isActive" = true AND "stockQty" < "minStock"
-      ORDER BY ("minStock" - "stockQty") DESC
-      LIMIT 10
-    `;
-
-    const topInboundMovements = await this.prisma.client.stockMovement.findMany({
-      where: {
-        movementType: StockMovementType.INBOUND,
-        movementDate: {
-          gte: periodStart,
-          lte: periodEnd,
-        },
-      },
-      orderBy: { quantity: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        movementDate: true,
-        quantity: true,
-        product: {
-          select: { sku: true, name: true },
-        },
-        movedBy: {
-          select: { name: true },
-        },
-      },
-    });
-
-    const stockTrend = this.buildStockTrendForPeriod(
-      query.startDate ?? this.toIsoDate(periodStart),
-      query.endDate ?? this.toIsoDate(periodEnd),
-      movements,
+    const stockTrend = this.buildStockTrendFromDailyFlow(
+      dailyFlow,
       totalUnitsOnHand,
     );
 
@@ -374,14 +385,6 @@ export class StockService {
     return new Date(Date.UTC(y, m - 1, d + 1, 2, 59, 59, 999));
   }
 
-  private isInboundSummaryType(type: StockMovementType): boolean {
-    return ENTRADA_SUMMARY_TYPES.includes(type);
-  }
-
-  private isOutboundSummaryType(type: StockMovementType): boolean {
-    return SAIDA_SUMMARY_TYPES.includes(type);
-  }
-
   private iterateIsoDates(startDate: string, endDate: string): string[] {
     const days: string[] = [];
     const [sy, sm, sd] = startDate.split('-').map(Number);
@@ -395,28 +398,14 @@ export class StockService {
     return days;
   }
 
-  private buildStockTrendForPeriod(
-    startDate: string,
-    endDate: string,
-    movements: Array<{
-      movementDate: Date;
-      movementType: StockMovementType;
-      quantity: number;
-    }>,
+  private buildStockTrendFromDailyFlow(
+    dailyFlow: Array<{ date: string; inbound: number; outbound: number }>,
     currentTotal: number,
   ): Array<{ date: string; value: number }> {
-    const deltas = new Map<string, number>();
-    for (const m of movements) {
-      const key = this.toIsoDate(m.movementDate);
-      const sign = this.isInboundSummaryType(m.movementType)
-        ? 1
-        : this.isOutboundSummaryType(m.movementType)
-          ? -1
-          : 0;
-      deltas.set(key, (deltas.get(key) ?? 0) + sign * m.quantity);
-    }
-
-    const days = this.iterateIsoDates(startDate, endDate);
+    const deltas = new Map(
+      dailyFlow.map((d) => [d.date, d.inbound - d.outbound] as const),
+    );
+    const days = dailyFlow.map((d) => d.date);
     let stockAtEnd = currentTotal;
     for (let i = days.length - 1; i >= 0; i -= 1) {
       const day = days[i];

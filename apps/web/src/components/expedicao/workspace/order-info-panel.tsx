@@ -39,10 +39,23 @@ type CarrierOption = {
 type NfHistoricoItem = {
   id: string;
   invoiceNumber: string;
+  invoiceValue?: string | null;
   pickedQtyAtTime: number;
   createdAt: string;
   createdBy: string | null;
+  orderId?: string;
+  orderNumber?: string;
+  orderCode?: string;
+  deliveryCnpj?: string | null;
+  customerName?: string | null;
 };
+
+function formatMoneyBrl(value: string | null | undefined): string {
+  if (value == null || value === '') return '—';
+  const n = Number(String(value).replace(',', '.'));
+  if (!Number.isFinite(n)) return String(value);
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 function formatNfHistoricoDetail(row: NfHistoricoItem): string {
   const when = new Date(row.createdAt).toLocaleString('pt-BR', {
@@ -52,7 +65,9 @@ function formatNfHistoricoDetail(row: NfHistoricoItem): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-  return `NF ${row.invoiceNumber} — ${when} — ${row.pickedQtyAtTime} un. separadas`;
+  const valor = formatMoneyBrl(row.invoiceValue);
+  const pedido = row.orderNumber ? ` · Pedido ${row.orderNumber}` : '';
+  return `NF ${row.invoiceNumber} — ${valor} — ${when} — ${row.pickedQtyAtTime} un.${pedido}`;
 }
 
 function parseVolumesInput(raw: string): number | null {
@@ -294,6 +309,18 @@ export const OrderInfoPanel = forwardRef<
   const [nfHistorico, setNfHistorico] = useState<NfHistoricoItem[]>([]);
   const [nfHistoricoLoading, setNfHistoricoLoading] = useState(false);
   const [nfHistoricoModalOpen, setNfHistoricoModalOpen] = useState(false);
+  const [nfHistoricoSearch, setNfHistoricoSearch] = useState('');
+  const [nfHistoricoSearchLoading, setNfHistoricoSearchLoading] = useState(false);
+  const [nfHistoricoSearchResults, setNfHistoricoSearchResults] = useState<
+    NfHistoricoItem[] | null
+  >(null);
+  const [editingNfHistory, setEditingNfHistory] = useState<NfHistoricoItem | null>(
+    null,
+  );
+  const [editNfNumber, setEditNfNumber] = useState('');
+  const [editNfValue, setEditNfValue] = useState('');
+  const [editNfPickedQty, setEditNfPickedQty] = useState('');
+  const [savingNfHistory, setSavingNfHistory] = useState(false);
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
 
@@ -340,6 +367,9 @@ export const OrderInfoPanel = forwardRef<
 
   useEffect(() => {
     setNfHistoricoModalOpen(false);
+    setNfHistoricoSearch('');
+    setNfHistoricoSearchResults(null);
+    setEditingNfHistory(null);
   }, [order.id]);
 
   useEffect(() => {
@@ -366,6 +396,90 @@ export const OrderInfoPanel = forwardRef<
       cancelled = true;
     };
   }, [order.id, order.invoiceNumber, order.code, order.externalOrderNumber]);
+
+  const runNfHistoricoSearch = async () => {
+    const q = nfHistoricoSearch.trim();
+    if (!q) {
+      setNfHistoricoSearchResults(null);
+      return;
+    }
+    setNfHistoricoSearchLoading(true);
+    try {
+      const res = await erpFetchJson<{ historico: NfHistoricoItem[] }>(
+        `api/pedidos/nf-historico/search?q=${encodeURIComponent(q)}`,
+      );
+      setNfHistoricoSearchResults(Array.isArray(res.historico) ? res.historico : []);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Falha ao buscar no histórico de NFs.',
+      );
+      setNfHistoricoSearchResults([]);
+    } finally {
+      setNfHistoricoSearchLoading(false);
+    }
+  };
+
+  const openEditNfHistory = (row: NfHistoricoItem) => {
+    setEditingNfHistory(row);
+    setEditNfNumber(row.invoiceNumber);
+    setEditNfValue(row.invoiceValue ?? '');
+    setEditNfPickedQty(String(row.pickedQtyAtTime ?? 0));
+  };
+
+  const saveEditNfHistory = async () => {
+    if (!editingNfHistory) return;
+    const invoiceNumber = editNfNumber.trim();
+    if (!invoiceNumber) {
+      window.alert('Informe o número da NF.');
+      return;
+    }
+    const picked = Number.parseInt(editNfPickedQty.trim(), 10);
+    if (!Number.isInteger(picked) || picked < 0) {
+      window.alert('Quantidade separada inválida.');
+      return;
+    }
+    setSavingNfHistory(true);
+    try {
+      const updated = await erpFetchJson<NfHistoricoItem>(
+        `api/pedidos/nf-historico/${editingNfHistory.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            invoiceNumber,
+            invoiceValue: editNfValue.trim() || null,
+            pickedQtyAtTime: picked,
+          }),
+        },
+      );
+      const mergeRow = (row: NfHistoricoItem): NfHistoricoItem =>
+        row.id === updated.id
+          ? {
+              ...row,
+              invoiceNumber: updated.invoiceNumber,
+              invoiceValue: updated.invoiceValue ?? null,
+              pickedQtyAtTime: updated.pickedQtyAtTime,
+            }
+          : row;
+      setNfHistorico((prev) => prev.map(mergeRow));
+      setNfHistoricoSearchResults((prev) =>
+        prev ? prev.map(mergeRow) : prev,
+      );
+      if (
+        order.invoiceNumber?.trim() === editingNfHistory.invoiceNumber.trim()
+      ) {
+        setNotaVendaInput(invoiceNumber);
+        lastSavedNotaVendaRef.current = invoiceNumber;
+        onNotaRemessaSaved?.(invoiceNumber);
+      }
+      setEditingNfHistory(null);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Não foi possível salvar a NF.',
+      );
+    } finally {
+      setSavingNfHistory(false);
+    }
+  };
 
   const deleteNfHistoricoItem = async (row: NfHistoricoItem) => {
     const numeroPed = numeroPedFromOrder(order);
@@ -1097,11 +1211,11 @@ export const OrderInfoPanel = forwardRef<
               className="exp-wb-nf-history mt-2 w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-3 text-left transition hover:bg-[var(--input-bg)]/70 disabled:cursor-default disabled:opacity-80"
               style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
               onClick={() => {
-                if (!nfHistoricoLoading && nfHistorico.length > 0) {
+                if (!nfHistoricoLoading) {
                   setNfHistoricoModalOpen(true);
                 }
               }}
-              disabled={nfHistoricoLoading || nfHistorico.length === 0}
+              disabled={nfHistoricoLoading}
               aria-label="Abrir histórico de notas fiscais"
             >
               <p className="text-sm font-semibold text-[var(--text-primary)]">
@@ -1110,7 +1224,9 @@ export const OrderInfoPanel = forwardRef<
               {nfHistoricoLoading ? (
                 <p className="mt-2 text-xs text-[var(--text-secondary)]">Carregando…</p>
               ) : nfHistorico.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--text-secondary)]">Nenhuma NF registrada.</p>
+                <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                  Nenhuma NF neste pedido — clique para buscar no sistema.
+                </p>
               ) : (
                 <>
                   <ul className="mt-2 flex flex-col gap-1">
@@ -1127,7 +1243,7 @@ export const OrderInfoPanel = forwardRef<
                     className="mt-2"
                     style={{ fontSize: 11, color: 'gray', cursor: 'pointer' }}
                   >
-                    Clique para ver os detalhes
+                    Clique para ver, buscar e editar
                   </p>
                 </>
               )}
@@ -1141,7 +1257,7 @@ export const OrderInfoPanel = forwardRef<
                 aria-labelledby="nf-historico-modal-title"
               >
                 <div
-                  className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"
+                  className="w-full max-w-lg rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1154,39 +1270,171 @@ export const OrderInfoPanel = forwardRef<
                     <button
                       type="button"
                       className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                      onClick={() => setNfHistoricoModalOpen(false)}
+                      onClick={() => {
+                        setNfHistoricoModalOpen(false);
+                        setEditingNfHistory(null);
+                        setNfHistoricoSearchResults(null);
+                        setNfHistoricoSearch('');
+                      }}
                       aria-label="Fechar"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  <ul className="mt-3 max-h-[60vh] space-y-2 overflow-y-auto">
-                    {nfHistorico.map((row) => (
-                      <li
-                        key={row.id}
-                        className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-primary)]"
-                      >
-                        <span className="min-w-0 flex-1">{formatNfHistoricoDetail(row)}</span>
-                        {!isFinalized ? (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded-lg border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                            title={`Remover NF ${row.invoiceNumber}`}
-                            aria-label={`Remover NF ${row.invoiceNumber} do histórico`}
-                            disabled={deletingNfHistoryId === row.id || clearingNfHistorico}
-                            onClick={() => void deleteNfHistoricoItem(row)}
-                          >
-                            {deletingNfHistoryId === row.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        ) : null}
+
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                      placeholder="Buscar NF, pedido ou CNPJ…"
+                      value={nfHistoricoSearch}
+                      onChange={(e) => setNfHistoricoSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void runNfHistoricoSearch();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={nfHistoricoSearchLoading}
+                      onClick={() => void runNfHistoricoSearch()}
+                    >
+                      {nfHistoricoSearchLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      Buscar
+                    </button>
+                  </div>
+                  {nfHistoricoSearchResults ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
+                      onClick={() => {
+                        setNfHistoricoSearchResults(null);
+                        setNfHistoricoSearch('');
+                      }}
+                    >
+                      Voltar ao histórico deste pedido
+                    </button>
+                  ) : (
+                    <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                      Exibindo NFs deste pedido. Use a busca para pesquisar em todo o sistema.
+                    </p>
+                  )}
+
+                  {editingNfHistory ? (
+                    <div className="mt-3 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/50 p-3">
+                      <p className="text-xs font-semibold text-[var(--text-primary)]">
+                        Editar NF
+                        {editingNfHistory.orderNumber
+                          ? ` · Pedido ${editingNfHistory.orderNumber}`
+                          : ''}
+                      </p>
+                      <label className="block text-xs text-[var(--text-secondary)]">
+                        Número da NF
+                        <input
+                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                          value={editNfNumber}
+                          onChange={(e) => setEditNfNumber(e.target.value)}
+                          disabled={savingNfHistory}
+                        />
+                      </label>
+                      <label className="block text-xs text-[var(--text-secondary)]">
+                        Valor (R$)
+                        <input
+                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                          value={editNfValue}
+                          onChange={(e) => setEditNfValue(e.target.value)}
+                          disabled={savingNfHistory}
+                          placeholder="0.00"
+                        />
+                      </label>
+                      <label className="block text-xs text-[var(--text-secondary)]">
+                        Qtd. separada no momento
+                        <input
+                          type="number"
+                          min={0}
+                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                          value={editNfPickedQty}
+                          onChange={(e) => setEditNfPickedQty(e.target.value)}
+                          disabled={savingNfHistory}
+                        />
+                      </label>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[var(--border-color)] px-3 py-1.5 text-xs"
+                          disabled={savingNfHistory}
+                          onClick={() => setEditingNfHistory(null)}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          disabled={savingNfHistory}
+                          onClick={() => void saveEditNfHistory()}
+                        >
+                          {savingNfHistory ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <ul className="mt-3 max-h-[50vh] space-y-2 overflow-y-auto">
+                    {(nfHistoricoSearchResults ?? nfHistorico).length === 0 ? (
+                      <li className="text-sm text-[var(--text-secondary)]">
+                        Nenhum registro encontrado.
                       </li>
-                    ))}
+                    ) : (
+                      (nfHistoricoSearchResults ?? nfHistorico).map((row) => (
+                        <li
+                          key={row.id}
+                          className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-primary)]"
+                        >
+                          <span className="min-w-0 flex-1">{formatNfHistoricoDetail(row)}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                              title={`Editar NF ${row.invoiceNumber}`}
+                              aria-label={`Editar NF ${row.invoiceNumber}`}
+                              disabled={savingNfHistory}
+                              onClick={() => openEditNfHistory(row)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            {!isFinalized && !nfHistoricoSearchResults ? (
+                              <button
+                                type="button"
+                                className="rounded-lg border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                                title={`Remover NF ${row.invoiceNumber}`}
+                                aria-label={`Remover NF ${row.invoiceNumber} do histórico`}
+                                disabled={
+                                  deletingNfHistoryId === row.id || clearingNfHistorico
+                                }
+                                onClick={() => void deleteNfHistoricoItem(row)}
+                              >
+                                {deletingNfHistoryId === row.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))
+                    )}
                   </ul>
-                  {!isFinalized && nfHistorico.length > 0 ? (
+                  {!isFinalized &&
+                  !nfHistoricoSearchResults &&
+                  nfHistorico.length > 0 ? (
                     <div className="mt-3 flex justify-end">
                       <button
                         type="button"

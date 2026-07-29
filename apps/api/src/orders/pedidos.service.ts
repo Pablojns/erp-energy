@@ -170,18 +170,57 @@ export class PedidosService {
         throw new NotFoundException('Pedido não encontrado.');
       }
 
+      // Preload produtos (evita N+1 findFirst/findUnique por linha)
+      const missingSkus = [
+        ...new Set(
+          order.items
+            .filter((l) => !l.productId)
+            .map((l) => l.sku.trim())
+            .filter(Boolean),
+        ),
+      ];
+      const knownIds = [
+        ...new Set(
+          order.items
+            .map((l) => l.productId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const productOr: Prisma.ProductWhereInput[] = [];
+      if (knownIds.length > 0) productOr.push({ id: { in: knownIds } });
+      for (const sku of missingSkus) {
+        productOr.push({
+          sku: { equals: sku, mode: Prisma.QueryMode.insensitive },
+        });
+      }
+      const preloaded =
+        productOr.length === 0
+          ? []
+          : await tx.product.findMany({
+              where: { OR: productOr },
+              select: {
+                id: true,
+                sku: true,
+                stockQty: true,
+                reservedQty: true,
+                isActive: true,
+              },
+            });
+      const productById = new Map(preloaded.map((p) => [p.id, p]));
+      const productBySku = new Map(
+        preloaded.map((p) => [p.sku.toLowerCase(), p]),
+      );
+
+      const movements: Prisma.StockMovementCreateManyInput[] = [];
+      const orderRef = orderStockReference(order);
+
       for (const line of order.items) {
         const qty = line.quantity;
         let productId = line.productId;
         let skuNorm = line.sku.trim();
 
         if (!productId) {
-          const found = await tx.product.findFirst({
-            where: {
-              sku: { equals: line.sku.trim(), mode: Prisma.QueryMode.insensitive },
-              isActive: true,
-            },
-          });
+          const found = productBySku.get(line.sku.trim().toLowerCase());
           if (found) {
             productId = found.id;
             skuNorm = found.sku;
@@ -205,7 +244,7 @@ export class PedidosService {
           continue;
         }
 
-        const pRow = await tx.product.findUnique({ where: { id: productId } });
+        const pRow = productById.get(productId);
         if (!pRow?.isActive) {
           await tx.orderItem.update({
             where: { id: line.id },
@@ -220,6 +259,8 @@ export class PedidosService {
         }
 
         const physicalAvailable = Math.max(0, pRow.stockQty - pRow.reservedQty);
+        // Atualiza reserved em memória para linhas seguintes do mesmo SKU
+        pRow.reservedQty += qty;
         const missing = Math.max(0, qty - physicalAvailable);
         let stockStatus: OrderItemStockStatus;
         if (missing <= 0) {
@@ -255,17 +296,18 @@ export class PedidosService {
           createdById: userId,
         });
 
-        const orderRef = orderStockReference(order);
-        await tx.stockMovement.create({
-          data: {
-            productId,
-            movementType: StockMovementType.RESERVA,
-            quantity: qty,
-            reference: orderRef,
-            notes: `Reserva pedido site ${orderRef}`,
-            movedById: userId,
-          },
+        movements.push({
+          productId,
+          movementType: StockMovementType.RESERVA,
+          quantity: qty,
+          reference: orderRef,
+          notes: `Reserva pedido site ${orderRef}`,
+          movedById: userId,
         });
+      }
+
+      if (movements.length > 0) {
+        await tx.stockMovement.createMany({ data: movements });
       }
 
       const statusRows = await tx.orderItem.findMany({
@@ -543,6 +585,10 @@ export class PedidosService {
       filterField,
       filterValue,
     });
+  }
+
+  expeditionDashboard() {
+    return this.orders.expeditionDashboard();
   }
 
   /** Pedidos a partir desta data entram no fluxo automático de Separação. */
@@ -1031,32 +1077,138 @@ export class PedidosService {
       }
 
       if (dto.items?.length) {
+        const existingById = new Map(before.items.map((it) => [it.id, it]));
+        let nextLine =
+          before.items.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 1;
+
         for (const item of dto.items) {
-          const itemData: Prisma.OrderItemUpdateInput = {};
+          const isCreate = !item.id || !existingById.has(item.id);
+          if (isCreate) {
+            const sku = (item.sku ?? '').trim();
+            const description = (item.description ?? '').trim() || sku;
+            const quantity = item.quantity ?? 1;
+            if (!sku) {
+              throw new BadRequestException(
+                'SKU obrigatório ao adicionar item ao pedido.',
+              );
+            }
+            if (!Number.isInteger(quantity) || quantity < 1) {
+              throw new BadRequestException('Quantidade inválida no novo item.');
+            }
+            const unitPrice = new Prisma.Decimal(
+              item.unitPrice != null ? String(item.unitPrice) : '0',
+            ).toDecimalPlaces(2);
+            const totalPrice = unitPrice.mul(quantity).toDecimalPlaces(2);
+            const lineNumber = item.lineNumber ?? nextLine;
+            nextLine = Math.max(nextLine, lineNumber + 1);
+
+            let productId = item.productId?.trim() || null;
+            if (productId) {
+              const product = await tx.product.findUnique({
+                where: { id: productId },
+                select: { id: true, isActive: true },
+              });
+              if (!product?.isActive) {
+                throw new BadRequestException(
+                  `Produto inválido ou inativo para o SKU ${sku}.`,
+                );
+              }
+            }
+
+            await tx.orderItem.create({
+              data: {
+                orderId: before.id,
+                lineNumber,
+                sku,
+                description,
+                quantity,
+                unitPrice,
+                totalPrice,
+                discount: new Prisma.Decimal('0.00'),
+                reservedQuantity: 0,
+                missingQty: 0,
+                pickedQty: 0,
+                invoicedQty: 0,
+                productId,
+                mercadoEletronicoItemStatus: item.mercadoEletronicoItemStatus
+                  ? normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus)
+                  : null,
+                stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+              },
+            });
+            continue;
+          }
+
+          const itemData: Prisma.OrderItemUncheckedUpdateInput = {};
           if (item.lineNumber !== undefined) itemData.lineNumber = item.lineNumber;
           if (item.sku !== undefined) itemData.sku = item.sku.trim();
           if (item.description !== undefined) {
             itemData.description = item.description.trim();
           }
           if (item.quantity !== undefined) itemData.quantity = item.quantity;
+          if (item.productId !== undefined) {
+            itemData.productId = item.productId?.trim() || null;
+          }
+          if (item.unitPrice !== undefined) {
+            const unitPrice = new Prisma.Decimal(String(item.unitPrice)).toDecimalPlaces(2);
+            itemData.unitPrice = unitPrice;
+            const qty =
+              item.quantity ??
+              existingById.get(item.id!)?.quantity ??
+              1;
+            itemData.totalPrice = unitPrice.mul(qty).toDecimalPlaces(2);
+          } else if (item.quantity !== undefined) {
+            const prev = existingById.get(item.id!);
+            if (prev) {
+              itemData.totalPrice = prev.unitPrice
+                .mul(item.quantity)
+                .toDecimalPlaces(2);
+            }
+          }
           if (item.mercadoEletronicoItemStatus !== undefined) {
             itemData.mercadoEletronicoItemStatus =
               normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus);
           }
           if (Object.keys(itemData).length === 0) continue;
-          await tx.orderItem.update({ where: { id: item.id }, data: itemData });
+          await tx.orderItem.update({ where: { id: item.id! }, data: itemData });
+        }
+
+        // Recalcula totais do pedido a partir dos itens quando houver mudança de linhas
+        // e o cliente não enviou totalValue explícito.
+        if (dto.totalValue === undefined) {
+          const lines = await tx.orderItem.findMany({
+            where: { orderId: before.id },
+            select: { totalPrice: true },
+          });
+          const sum = lines.reduce(
+            (acc, row) => acc.add(row.totalPrice),
+            new Prisma.Decimal(0),
+          );
+          const totalDec = sum.toDecimalPlaces(2);
+          await tx.order.update({
+            where: { id: before.id },
+            data: {
+              subtotal: totalDec,
+              total: totalDec,
+              totalValue: totalDec,
+            },
+          });
         }
       }
     });
 
     const qtyOrSkuChanged = Boolean(
       dto.items?.some((item) => {
+        if (!item.id) return true;
         const prev = before.items.find((it) => it.id === item.id);
         if (!prev) return true;
         if (item.quantity !== undefined && item.quantity !== prev.quantity) {
           return true;
         }
         if (item.sku !== undefined && item.sku.trim() !== prev.sku) {
+          return true;
+        }
+        if (item.productId !== undefined && item.productId !== prev.productId) {
           return true;
         }
         return false;
@@ -2246,10 +2398,221 @@ export class PedidosService {
       historico: rows.map((row) => ({
         id: row.id,
         invoiceNumber: row.invoiceNumber,
+        invoiceValue: row.invoiceValue?.toString() ?? null,
         pickedQtyAtTime: row.pickedQtyAtTime,
         createdAt: row.createdAt.toISOString(),
         createdBy: row.createdBy,
       })),
+    };
+  }
+
+  /**
+   * Busca global no histórico de NFs por número da NF, número do pedido ou CNPJ.
+   */
+  async searchNfHistorico(qRaw?: string) {
+    const q = (qRaw ?? '').trim();
+    if (!q) {
+      return { historico: [] as Array<Record<string, unknown>> };
+    }
+
+    const digits = q.replace(/\D/g, '');
+    const or: Prisma.OrderInvoiceHistoryWhereInput[] = [
+      { invoiceNumber: { contains: q, mode: 'insensitive' } },
+      {
+        order: {
+          OR: [
+            { externalOrderNumber: { contains: q, mode: 'insensitive' } },
+            { code: { contains: q, mode: 'insensitive' } },
+            ...(digits.length >= 8
+              ? [
+                  {
+                    deliveryCnpj: {
+                      contains: digits,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    customerDocument: {
+                      contains: digits,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                ]
+              : []),
+          ],
+        },
+      },
+    ];
+
+    const rows = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { OR: or },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        order: {
+          select: {
+            id: true,
+            code: true,
+            externalOrderNumber: true,
+            deliveryCnpj: true,
+            customerDocument: true,
+            customerName: true,
+            totalValue: true,
+          },
+        },
+      },
+    });
+
+    return {
+      historico: rows.map((row) => ({
+        id: row.id,
+        orderId: row.orderId,
+        invoiceNumber: row.invoiceNumber,
+        invoiceValue:
+          row.invoiceValue?.toString() ??
+          row.order.totalValue?.toString() ??
+          null,
+        pickedQtyAtTime: row.pickedQtyAtTime,
+        createdAt: row.createdAt.toISOString(),
+        createdBy: row.createdBy,
+        orderNumber: row.order.externalOrderNumber ?? row.order.code,
+        orderCode: row.order.code,
+        deliveryCnpj:
+          row.order.deliveryCnpj ?? row.order.customerDocument ?? null,
+        customerName: row.order.customerName,
+      })),
+    };
+  }
+
+  async updateNfHistorico(
+    userId: string,
+    historyId: string,
+    dto: {
+      invoiceNumber?: string;
+      invoiceValue?: string | null;
+      pickedQtyAtTime?: number;
+    },
+  ) {
+    const before = await this.prisma.client.orderInvoiceHistory.findUnique({
+      where: { id: historyId },
+      include: {
+        order: {
+          select: {
+            id: true,
+            code: true,
+            externalOrderNumber: true,
+            invoiceNumber: true,
+          },
+        },
+      },
+    });
+    if (!before) {
+      throw new NotFoundException('Registro de histórico de NF não encontrado.');
+    }
+
+    const data: Prisma.OrderInvoiceHistoryUpdateInput = {};
+    const nextInvoice =
+      dto.invoiceNumber !== undefined
+        ? dto.invoiceNumber.trim()
+        : before.invoiceNumber;
+    if (!nextInvoice) {
+      throw new BadRequestException('Número da NF não pode ficar vazio.');
+    }
+    if (dto.invoiceNumber !== undefined) {
+      data.invoiceNumber = nextInvoice;
+    }
+    if (dto.pickedQtyAtTime !== undefined) {
+      data.pickedQtyAtTime = dto.pickedQtyAtTime;
+    }
+    if (dto.invoiceValue !== undefined) {
+      if (dto.invoiceValue == null || String(dto.invoiceValue).trim() === '') {
+        data.invoiceValue = null;
+      } else {
+        data.invoiceValue = decimalFromStringOrZero(
+          String(dto.invoiceValue).trim(),
+        );
+      }
+    }
+
+    const updated = await this.prisma.client.$transaction(async (tx) => {
+      const row = await tx.orderInvoiceHistory.update({
+        where: { id: historyId },
+        data,
+      });
+
+      // Se a NF editada era a corrente do pedido, sincroniza o campo do pedido.
+      if (
+        dto.invoiceNumber !== undefined &&
+        before.order.invoiceNumber?.trim() === before.invoiceNumber.trim()
+      ) {
+        await tx.order.update({
+          where: { id: before.orderId },
+          data: { invoiceNumber: nextInvoice },
+        });
+      }
+
+      // Sincroniza OrderExit com o mesmo número antigo, se existir.
+      if (dto.invoiceNumber !== undefined || dto.invoiceValue !== undefined) {
+        const exit = await tx.orderExit.findUnique({
+          where: { orderId: before.orderId },
+        });
+        if (
+          exit &&
+          exit.invoiceNumber.trim() === before.invoiceNumber.trim()
+        ) {
+          await tx.orderExit.update({
+            where: { id: exit.id },
+            data: {
+              ...(dto.invoiceNumber !== undefined
+                ? { invoiceNumber: nextInvoice }
+                : {}),
+              ...(dto.invoiceValue !== undefined &&
+              dto.invoiceValue != null &&
+              String(dto.invoiceValue).trim() !== ''
+                ? {
+                    invoiceValue: decimalFromStringOrZero(
+                      String(dto.invoiceValue).trim(),
+                    ),
+                  }
+                : {}),
+            },
+          });
+        }
+      }
+
+      return row;
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_INVOICE_HISTORY_UPDATED',
+      entity: 'OrderInvoiceHistory',
+      entityId: historyId,
+      changes: {
+        orderId: before.orderId,
+        orderNumber:
+          before.order.externalOrderNumber ?? before.order.code,
+        before: {
+          invoiceNumber: before.invoiceNumber,
+          invoiceValue: before.invoiceValue?.toString() ?? null,
+          pickedQtyAtTime: before.pickedQtyAtTime,
+        },
+        after: {
+          invoiceNumber: updated.invoiceNumber,
+          invoiceValue: updated.invoiceValue?.toString() ?? null,
+          pickedQtyAtTime: updated.pickedQtyAtTime,
+        },
+      },
+    });
+
+    return {
+      id: updated.id,
+      orderId: updated.orderId,
+      invoiceNumber: updated.invoiceNumber,
+      invoiceValue: updated.invoiceValue?.toString() ?? null,
+      pickedQtyAtTime: updated.pickedQtyAtTime,
+      createdAt: updated.createdAt.toISOString(),
+      createdBy: updated.createdBy,
     };
   }
 
@@ -2438,6 +2801,7 @@ export class PedidosService {
       historico: rows.map((r) => ({
         id: r.id,
         invoiceNumber: r.invoiceNumber,
+        invoiceValue: r.invoiceValue?.toString() ?? null,
         pickedQtyAtTime: r.pickedQtyAtTime,
         createdAt: r.createdAt.toISOString(),
         createdBy: r.createdBy,
@@ -2905,13 +3269,52 @@ export class PedidosService {
             totalValue: totalDec,
           };
 
-          // Resolve unitPrice via Product.sku quando existir.
-          const skus = items.map((r) => r.sku);
-          const products = await tx.product.findMany({
-            where: { sku: { in: skus } },
-            select: { sku: true, price: true },
-          });
-          const bySku = new Map(products.map((p) => [p.sku, p.price]));
+          // Resolve unitPrice + productId via Product.sku/internalCode (1 query em lote).
+          const skus = [
+            ...new Set(
+              items.map((r) => r.sku.trim()).filter(Boolean),
+            ),
+          ];
+          const productOr: Prisma.ProductWhereInput[] = [];
+          for (const sku of skus) {
+            productOr.push({
+              sku: { equals: sku, mode: Prisma.QueryMode.insensitive },
+            });
+            productOr.push({
+              internalCode: {
+                equals: sku,
+                mode: Prisma.QueryMode.insensitive,
+              },
+            });
+          }
+          const products =
+            productOr.length === 0
+              ? []
+              : await tx.product.findMany({
+                  where: { OR: productOr, isActive: true },
+                  select: {
+                    id: true,
+                    sku: true,
+                    internalCode: true,
+                    price: true,
+                  },
+                });
+          const priceBySku = new Map<string, Prisma.Decimal>();
+          const productIdBySku = new Map<string, string>();
+          for (const p of products) {
+            priceBySku.set(p.sku, p.price);
+            priceBySku.set(p.sku.toLowerCase(), p.price);
+            productIdBySku.set(p.sku.toLowerCase(), p.id);
+            if (p.internalCode?.trim()) {
+              productIdBySku.set(p.internalCode.trim().toLowerCase(), p.id);
+            }
+          }
+          const resolveProductId = (sku: string) =>
+            productIdBySku.get(sku.trim().toLowerCase()) ?? null;
+          const resolvePrice = (sku: string) =>
+            priceBySku.get(sku) ??
+            priceBySku.get(sku.toLowerCase()) ??
+            new Prisma.Decimal('0.00');
 
           const carrierId = await this.carrierResolver.resolveCarrierId(
             orderData.deliveryCnpj,
@@ -2954,10 +3357,10 @@ export class PedidosService {
             for (const r of items) {
               const sku = r.sku.trim();
               const nome = r.nome_produto.trim() || sku;
-              const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
+              const unitPrice = resolvePrice(sku);
               const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
               const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
-              const productId = await this.findProductIdBySku(tx, sku);
+              const productId = resolveProductId(sku);
               await tx.orderItem.upsert({
                 where: {
                   orderId_lineNumber: { orderId: created.id, lineNumber: r.seq },
@@ -3024,10 +3427,10 @@ export class PedidosService {
           for (const r of items) {
             const sku = r.sku.trim();
             const nome = r.nome_produto.trim() || sku;
-            const unitPrice = bySku.get(sku) ?? new Prisma.Decimal('0.00');
+            const unitPrice = resolvePrice(sku);
             const totalPrice = unitPrice.mul(r.quantidade).toDecimalPlaces(2);
             const meItemStatus = normalizePlanilhaItemStatus(r.status_item);
-            const productId = await this.findProductIdBySku(tx, sku);
+            const productId = resolveProductId(sku);
             await tx.orderItem.upsert({
               where: { orderId_lineNumber: { orderId: existing.id, lineNumber: r.seq } },
               create: {
@@ -3707,31 +4110,6 @@ export class PedidosService {
     );
 
     return this.orders.findOne(counterpartId);
-  }
-
-  private async findProductIdBySku(
-    tx: Prisma.TransactionClient,
-    sku: string,
-  ): Promise<string | null> {
-    const normalized = sku.trim();
-    if (!normalized) return null;
-
-    const found = await tx.product.findFirst({
-      where: {
-        OR: [
-          { sku: { equals: normalized, mode: Prisma.QueryMode.insensitive } },
-          {
-            internalCode: {
-              equals: normalized,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        ],
-        isActive: true,
-      },
-      select: { id: true },
-    });
-    return found?.id ?? null;
   }
 
   private serializeOrderExit(row: Prisma.OrderExitGetPayload<{

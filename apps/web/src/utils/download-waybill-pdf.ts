@@ -1,5 +1,6 @@
-import { jsPDF } from 'jspdf';
 import type { PedidoParaImpressao } from '@/src/utils/print-waybill';
+
+type JsPdfDoc = InstanceType<typeof import('jspdf').jsPDF>;
 
 function formatDateBr(iso: string): string {
   try {
@@ -9,7 +10,7 @@ function formatDateBr(iso: string): string {
   }
 }
 
-function drawPedidoPage(doc: jsPDF, pedido: PedidoParaImpressao, pageIndex: number) {
+function drawPedidoPage(doc: JsPdfDoc, pedido: PedidoParaImpressao, pageIndex: number) {
   if (pageIndex > 0) doc.addPage();
 
   const margin = 14;
@@ -97,9 +98,12 @@ function drawPedidoPage(doc: jsPDF, pedido: PedidoParaImpressao, pageIndex: numb
   doc.text('Assinatura do Recebedor', pageW - margin - 27.5, y, { align: 'center' });
 }
 
-export function downloadWaybillPdf(pedidos: PedidoParaImpressao[]): void {
+export async function downloadWaybillPdf(
+  pedidos: PedidoParaImpressao[],
+): Promise<void> {
   if (pedidos.length === 0) return;
 
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   pedidos.forEach((pedido, index) => drawPedidoPage(doc, pedido, index));
 

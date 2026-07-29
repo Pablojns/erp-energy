@@ -24,11 +24,17 @@ import {
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CategorySelect } from '@/src/components/estoque/category-select';
 import { EstoqueBulkEditModal } from '@/src/components/estoque/estoque-bulk-edit-modal';
 import { EstoqueBulkEntradaModal } from '@/src/components/estoque/estoque-bulk-entrada-modal';
-import { EstoqueExportModal } from '@/src/components/estoque/estoque-export-modal';
+import { EstoqueInventoryFilterModals } from '@/src/components/estoque/estoque-inventory-filter-modals';
+import {
+  emptyProductForm,
+  EstoqueProductFormModal,
+  type ProductFormState,
+} from '@/src/components/estoque/estoque-product-form-modal';
+import { EstoqueReserveModal } from '@/src/components/estoque/estoque-reserve-modal';
 import { MovementOrderDetailModal } from '@/src/components/estoque/movement-order-detail-modal';
+import dynamic from 'next/dynamic';
 import {
   ErpFilterBar,
   type FilterBadgeItem,
@@ -45,6 +51,14 @@ import {
   type TableColumn,
   type TableRow,
 } from '@/src/components/ui/data-table-premium';
+
+const EstoqueExportModal = dynamic(
+  () =>
+    import('@/src/components/estoque/estoque-export-modal').then(
+      (m) => m.EstoqueExportModal,
+    ),
+  { ssr: false },
+);
 import { EmptyState } from '@/src/components/ui/empty-state';
 import {
   CardGridSkeleton,
@@ -67,12 +81,6 @@ type MovementUserOption = {
   id: string;
   name: string;
   email: string;
-};
-
-type CadastroOption = {
-  id: string;
-  name: string;
-  isActive: boolean;
 };
 
 type MovementsSummary = {
@@ -716,28 +724,6 @@ const movementColumnsBase: TableColumn[] = [
   { key: 'user', header: 'Responsável' },
 ];
 
-type ProductFormState = {
-  sku: string;
-  name: string;
-  categoryId: string;
-  price: string;
-  cost: string;
-  minStock: string;
-  supplierId: string;
-  supplierSku: string;
-};
-
-const emptyForm: ProductFormState = {
-  sku: '',
-  name: '',
-  categoryId: '',
-  price: '',
-  cost: '',
-  minStock: '0',
-  supplierId: '',
-  supplierSku: '',
-};
-
 export function EstoqueWorkspace() {
   const { user } = useNavPermissions();
   const { context: businessContext } = useBusinessContext();
@@ -779,8 +765,6 @@ export function EstoqueWorkspace() {
   const [inventoryCategoryFilterId, setInventoryCategoryFilterId] = useState('');
   const [supplierFilterModalOpen, setSupplierFilterModalOpen] = useState(false);
   const [categoryFilterModalOpen, setCategoryFilterModalOpen] = useState(false);
-  const [supplierFilterSearch, setSupplierFilterSearch] = useState('');
-  const [categoryFilterSearch, setCategoryFilterSearch] = useState('');
   const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(null);
   const [productReservations, setProductReservations] = useState<ProductReservationRow[]>([]);
   const [productReservationsLoading, setProductReservationsLoading] = useState(false);
@@ -827,17 +811,6 @@ export function EstoqueWorkspace() {
     null,
   );
   const [reserveOpen, setReserveOpen] = useState(false);
-  const [reserveStep, setReserveStep] = useState<'form' | 'confirm'>('form');
-  const [reserveReceivers, setReserveReceivers] = useState<CadastroOption[]>(
-    [],
-  );
-  const [reserveForm, setReserveForm] = useState({
-    receiverId: '',
-    quantity: '',
-    notes: '',
-  });
-  const [reserveSaving, setReserveSaving] = useState(false);
-  const [reserveError, setReserveError] = useState<string | null>(null);
 
   const inventoryListScrollRef = useRef<HTMLDivElement>(null);
   const inventoryListScrollTopRef = useRef(0);
@@ -872,7 +845,8 @@ export function EstoqueWorkspace() {
     'create',
   );
   const [editingProduct, setEditingProduct] = useState<ProductDto | null>(null);
-  const [form, setForm] = useState<ProductFormState>(emptyForm);
+  const [productModalInitialForm, setProductModalInitialForm] =
+    useState<ProductFormState>(emptyProductForm);
   const [formSaving, setFormSaving] = useState(false);
 
   const [productCategories, setProductCategories] = useState<ProductCategoryDto[]>(
@@ -958,7 +932,6 @@ export function EstoqueWorkspace() {
     setProductActiveTarget(null);
     setProductActiveStep(1);
     setReserveOpen(false);
-    setReserveStep('form');
     setMovementDetailId(null);
     setSupplierFilterModalOpen(false);
     setCategoryFilterModalOpen(false);
@@ -1336,7 +1309,7 @@ export function EstoqueWorkspace() {
     setBannerSuccess(null);
     setProductModalMode('create');
     setEditingProduct(null);
-    setForm(emptyForm);
+    setProductModalInitialForm(emptyProductForm);
     setProductModalOpen(true);
   };
 
@@ -1345,7 +1318,7 @@ export function EstoqueWorkspace() {
     setBannerSuccess(null);
     setProductModalMode('edit');
     setEditingProduct(p);
-    setForm({
+    setProductModalInitialForm({
       sku: p.sku,
       name: p.name,
       categoryId: p.categoryId ?? '',
@@ -1363,7 +1336,7 @@ export function EstoqueWorkspace() {
     return n;
   };
 
-  const saveProduct = async () => {
+  const saveProduct = async (form: ProductFormState) => {
     setFormSaving(true);
     setBannerSuccess(null);
     setBannerError(null);
@@ -2031,91 +2004,16 @@ export function EstoqueWorkspace() {
     </div>
   );
 
-  const openReserveModal = async () => {
+  const openReserveModal = () => {
     if (!selectedInventoryProduct) return;
-    setReserveError(null);
-    setReserveStep('form');
-    setReserveForm({ receiverId: '', quantity: '', notes: '' });
-    try {
-      const rows = await erpFetchJson<CadastroOption[]>('cadastros/receivers');
-      setReserveReceivers(rows.filter((r) => r.isActive));
-    } catch {
-      setReserveReceivers([]);
-    }
     setReserveOpen(true);
   };
 
-  const closeReserveModal = () => {
-    if (reserveSaving) return;
-    setReserveOpen(false);
-    setReserveStep('form');
-    setReserveError(null);
-  };
-
-  const requestReserveConfirm = () => {
-    setReserveError(null);
-    if (!selectedInventoryProduct) {
-      setReserveError('Selecione um produto.');
-      return;
-    }
-    if (!reserveForm.receiverId.trim()) {
-      setReserveError('Selecione o recebedor.');
-      return;
-    }
-    const qty = Number.parseInt(reserveForm.quantity.trim(), 10);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      setReserveError('Informe uma quantidade válida.');
-      return;
-    }
-    setReserveStep('confirm');
-  };
-
-  const executeReserveSave = async () => {
-    if (!selectedInventoryProduct) return;
-    const receiver = reserveReceivers.find((r) => r.id === reserveForm.receiverId);
-    if (!receiver) {
-      setReserveError('Recebedor inválido.');
-      setReserveStep('form');
-      return;
-    }
-    const qty = Number.parseInt(reserveForm.quantity.trim(), 10);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      setReserveError('Informe uma quantidade válida.');
-      setReserveStep('form');
-      return;
-    }
-
-    setReserveSaving(true);
-    setReserveError(null);
-    try {
-      const notesParts = [
-        `Reserva para ${receiver.name}`,
-        reserveForm.notes.trim(),
-      ].filter(Boolean);
-
-      await erpFetchJson('stock/movements', {
-        method: 'POST',
-        body: JSON.stringify({
-          productId: selectedInventoryProduct.id,
-          movementType: 'RESERVE',
-          quantity: qty,
-          reference: receiver.name,
-          notes: notesParts.join(' — '),
-        }),
-      });
-      closeReserveModal();
-      setBannerSuccess('Reserva registrada com sucesso.');
-      await loadSummary();
-      await loadMovements();
-      await reloadProductsForTab();
-    } catch (e) {
-      setReserveError(
-        e instanceof Error ? e.message : 'Falha ao registrar reserva.',
-      );
-      setReserveStep('form');
-    } finally {
-      setReserveSaving(false);
-    }
+  const handleReserveSuccess = async (message: string) => {
+    setBannerSuccess(message);
+    await loadSummary();
+    await loadMovements();
+    await reloadProductsForTab();
   };
 
   const movementTableColumns: TableColumn[] = useMemo(() => {
@@ -2225,24 +2123,6 @@ export function EstoqueWorkspace() {
       productCategories.find((c) => c.id === inventoryCategoryFilterId) ?? null
     );
   }, [inventoryCategoryFilterId, productCategories]);
-
-  const filteredSupplierOptions = useMemo(() => {
-    const q = supplierFilterSearch.trim().toLowerCase();
-    const sorted = [...suppliers].sort((a, b) =>
-      a.name.localeCompare(b.name, 'pt-BR'),
-    );
-    if (!q) return sorted;
-    return sorted.filter((s) => s.name.toLowerCase().includes(q));
-  }, [suppliers, supplierFilterSearch]);
-
-  const filteredCategoryOptions = useMemo(() => {
-    const q = categoryFilterSearch.trim().toLowerCase();
-    const sorted = [...productCategories]
-      .filter((c) => c.active)
-      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-    if (!q) return sorted;
-    return sorted.filter((c) => c.name.toLowerCase().includes(q));
-  }, [productCategories, categoryFilterSearch]);
 
   const inventoryFilterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
@@ -2907,7 +2787,7 @@ export function EstoqueWorkspace() {
         </button>
         <button
           type="button"
-          onClick={() => void openReserveModal()}
+          onClick={openReserveModal}
           className="inline-flex h-[44px] min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-[var(--color-text-inverse)]"
         >
           <Bookmark className="h-4 w-4" />
@@ -3638,10 +3518,7 @@ export function EstoqueWorkspace() {
               <div className="flex flex-col gap-1.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSupplierFilterSearch('');
-                    setSupplierFilterModalOpen(true);
-                  }}
+                  onClick={() => setSupplierFilterModalOpen(true)}
                   className={inventoryFilterPickerButtonClass(
                     Boolean(inventorySupplierFilterId),
                   )}
@@ -3654,10 +3531,7 @@ export function EstoqueWorkspace() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setCategoryFilterSearch('');
-                    setCategoryFilterModalOpen(true);
-                  }}
+                  onClick={() => setCategoryFilterModalOpen(true)}
                   className={inventoryFilterPickerButtonClass(
                     Boolean(inventoryCategoryFilterId),
                   )}
@@ -3942,134 +3816,18 @@ export function EstoqueWorkspace() {
         </div>
       ) : null}
 
-      {productModalOpen ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-        >
-          <div className="h-[100dvh] w-screen max-w-none sm:h-auto sm:w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <GlassCard className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none p-3 shadow-2xl sm:max-h-[90vh] sm:h-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:p-6">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                {productModalMode === 'create' ? 'Novo produto' : 'Editar produto'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setProductModalOpen(false)}
-                className="rounded-lg px-2 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              >
-                Fechar
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">
-              SKU é o identificador principal. Campos com * são obrigatórios.
-            </p>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block text-xs text-gray-500 sm:col-span-2">
-                Nome *
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-              <label className="block text-xs text-gray-500 sm:col-span-1">
-                SKU *
-                <input
-                  value={form.sku}
-                  onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-              <label className="block text-xs text-gray-500 sm:col-span-1">
-                SKU do fornecedor
-                <input
-                  value={form.supplierSku}
-                  onChange={(e) => setForm((f) => ({ ...f, supplierSku: e.target.value }))}
-                  placeholder="Código no catálogo do fornecedor"
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-              <label className="block text-xs text-gray-500 sm:col-span-2">
-                Fornecedor
-                <select
-                  value={form.supplierId}
-                  onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                >
-                  <option value="">Selecione...</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="sm:col-span-2">
-                <CategorySelect
-                  categories={productCategories}
-                  value={form.categoryId}
-                  onChange={(categoryId) =>
-                    setForm((f) => ({ ...f, categoryId }))
-                  }
-                  onRefreshCategories={loadCategories}
-                  onError={(msg) => setBannerError(msg)}
-                  disabled={formSaving}
-                />
-              </div>
-              <label className="block text-xs text-gray-500 sm:col-span-1">
-                Preço (R$) *
-                <input
-                  value={form.price}
-                  onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-              <label className="block text-xs text-gray-500 sm:col-span-1">
-                Custo (R$)
-                <input
-                  value={form.cost}
-                  onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-              <label className="block text-xs text-gray-500 sm:col-span-2">
-                Estoque mínimo *
-                <input
-                  value={form.minStock}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, minStock: e.target.value }))
-                  }
-                  className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-base text-[var(--text-primary)] outline-none"
-                />
-              </label>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <GlowButton
-                variant="secondary"
-                onClick={() => setProductModalOpen(false)}
-              >
-                Cancelar
-              </GlowButton>
-              <GlowButton
-                variant="primary"
-                disabled={formSaving}
-                onClick={() => void saveProduct()}
-              >
-                {formSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Salvando
-                  </>
-                ) : (
-                  'Salvar'
-                )}
-              </GlowButton>
-            </div>
-            </GlassCard>
-          </div>
-        </div>
-      ) : null}
+      <EstoqueProductFormModal
+        open={productModalOpen}
+        mode={productModalMode}
+        initialForm={productModalInitialForm}
+        suppliers={suppliers}
+        categories={productCategories}
+        saving={formSaving}
+        onClose={() => setProductModalOpen(false)}
+        onSave={(form) => void saveProduct(form)}
+        onRefreshCategories={loadCategories}
+        onError={setBannerError}
+      />
 
       {moveModalOpen ? (
         <div
@@ -4434,139 +4192,12 @@ export function EstoqueWorkspace() {
         </div>
       ) : null}
 
-      {reserveOpen && selectedInventoryProduct ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-        >
-          <div
-            className="h-auto w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
-              {reserveStep === 'form' ? (
-                <>
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                    Reservar estoque
-                  </h2>
-                  <div className="mt-3 rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5">
-                    <p className="text-xs text-[var(--text-secondary)]">Produto</p>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">
-                      {selectedInventoryProduct.name}
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      SKU {selectedInventoryProduct.sku}
-                    </p>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Recebedor *
-                      <div className="mt-1.5">
-                        <PremiumSelect
-                          value={reserveForm.receiverId}
-                          onChange={(receiverId) =>
-                            setReserveForm((f) => ({ ...f, receiverId }))
-                          }
-                          options={reserveReceivers.map((r) => ({
-                            value: r.id,
-                            label: r.name,
-                          }))}
-                          placeholder="Selecione o recebedor…"
-                        />
-                      </div>
-                    </label>
-                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Quantidade *
-                      <input
-                        type="number"
-                        min={1}
-                        value={reserveForm.quantity}
-                        onChange={(e) =>
-                          setReserveForm((f) => ({
-                            ...f,
-                            quantity: e.target.value,
-                          }))
-                        }
-                        className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none"
-                      />
-                    </label>
-                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Observação (opcional)
-                      <textarea
-                        value={reserveForm.notes}
-                        onChange={(e) =>
-                          setReserveForm((f) => ({ ...f, notes: e.target.value }))
-                        }
-                        rows={2}
-                        className="mt-1.5 w-full resize-none rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-base text-[var(--text-primary)] outline-none"
-                      />
-                    </label>
-                  </div>
-                  {reserveError ? (
-                    <p className="mt-3 text-sm text-rose-500">{reserveError}</p>
-                  ) : null}
-                  <div className="mt-6 flex justify-end gap-2">
-                    <GlowButton variant="secondary" onClick={closeReserveModal}>
-                      Cancelar
-                    </GlowButton>
-                    <GlowButton variant="primary" onClick={requestReserveConfirm}>
-                      Continuar
-                    </GlowButton>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                    Confirmar reserva
-                  </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-                    Você está reservando{' '}
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {reserveForm.quantity.trim()}
-                    </span>{' '}
-                    unidade(s) de{' '}
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {selectedInventoryProduct.name}
-                    </span>{' '}
-                    para{' '}
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {reserveReceivers.find((r) => r.id === reserveForm.receiverId)
-                        ?.name ?? '—'}
-                    </span>
-                    . Confirmar?
-                  </p>
-                  {reserveError ? (
-                    <p className="mt-3 text-sm text-rose-500">{reserveError}</p>
-                  ) : null}
-                  <div className="mt-6 flex justify-end gap-2">
-                    <GlowButton
-                      variant="secondary"
-                      disabled={reserveSaving}
-                      onClick={() => setReserveStep('form')}
-                    >
-                      Voltar
-                    </GlowButton>
-                    <GlowButton
-                      variant="primary"
-                      disabled={reserveSaving}
-                      onClick={() => void executeReserveSave()}
-                    >
-                      {reserveSaving ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Salvando
-                        </>
-                      ) : (
-                        'Confirmar'
-                      )}
-                    </GlowButton>
-                  </div>
-                </>
-              )}
-            </GlassCard>
-          </div>
-        </div>
-      ) : null}
+      <EstoqueReserveModal
+        open={reserveOpen}
+        product={selectedInventoryProduct}
+        onClose={() => setReserveOpen(false)}
+        onSuccess={handleReserveSuccess}
+      />
 
       {moveConfirmOpen ? (
         <div
@@ -4631,193 +4262,32 @@ export function EstoqueWorkspace() {
         </div>
       ) : null}
 
-      {supplierFilterModalOpen ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-        >
-          <div
-            className="h-auto w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                  Filtrar por fornecedor
-                </h2>
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)]"
-                  aria-label="Fechar"
-                  onClick={() => setSupplierFilterModalOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="relative mt-3">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-                <input
-                  autoFocus
-                  value={supplierFilterSearch}
-                  onChange={(e) => setSupplierFilterSearch(e.target.value)}
-                  placeholder="Buscar fornecedor..."
-                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none"
-                />
-              </div>
-              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInventorySupplierFilterId('');
-                    setProductPage(1);
-                    setSupplierFilterModalOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                    !inventorySupplierFilterId
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
-                      : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
-                  }`}
-                >
-                  Todos os fornecedores
-                </button>
-                {filteredSupplierOptions.map((supplier) => {
-                  const active = inventorySupplierFilterId === supplier.id;
-                  return (
-                    <button
-                      key={supplier.id}
-                      type="button"
-                      onClick={() => {
-                        setInventorySupplierFilterId(supplier.id);
-                        setProductPage(1);
-                        setSupplierFilterModalOpen(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                        active
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
-                          : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
-                      }`}
-                    >
-                      <span className="truncate font-medium">{supplier.name}</span>
-                      {active ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                          ativo
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-                {filteredSupplierOptions.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-[var(--text-muted)]">
-                    Nenhum fornecedor encontrado.
-                  </p>
-                ) : null}
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-      ) : null}
-
-      {categoryFilterModalOpen ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-        >
-          <div
-            className="h-auto w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                  Filtrar por categoria
-                </h2>
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)]"
-                  aria-label="Fechar"
-                  onClick={() => setCategoryFilterModalOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="relative mt-3">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-                <input
-                  autoFocus
-                  value={categoryFilterSearch}
-                  onChange={(e) => setCategoryFilterSearch(e.target.value)}
-                  placeholder="Buscar categoria..."
-                  className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] py-2.5 pl-10 pr-3 text-sm text-[var(--text-primary)] outline-none"
-                />
-              </div>
-              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInventoryCategoryFilterId('');
-                    setProductPage(1);
-                    setCategoryFilterModalOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                    !inventoryCategoryFilterId
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
-                      : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
-                  }`}
-                >
-                  Todas as categorias
-                </button>
-                {filteredCategoryOptions.map((category) => {
-                  const active = inventoryCategoryFilterId === category.id;
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      onClick={() => {
-                        setInventoryCategoryFilterId(category.id);
-                        setProductPage(1);
-                        setCategoryFilterModalOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                        active
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--text-primary)]'
-                          : 'border-[var(--border-color)] hover:bg-[var(--input-bg)]'
-                      }`}
-                      style={
-                        category.color && !active
-                          ? { borderColor: `${category.color}44` }
-                          : undefined
-                      }
-                    >
-                      {category.color ? (
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/25"
-                          style={{ backgroundColor: category.color }}
-                          aria-hidden
-                        />
-                      ) : (
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-gray-500" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {category.name}
-                      </span>
-                      {active ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                          ativo
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-                {filteredCategoryOptions.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-[var(--text-muted)]">
-                    Nenhuma categoria encontrada.
-                  </p>
-                ) : null}
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-      ) : null}
+      <EstoqueInventoryFilterModals
+        supplierModalOpen={supplierFilterModalOpen}
+        categoryModalOpen={categoryFilterModalOpen}
+        suppliers={suppliers}
+        categories={productCategories}
+        selectedSupplierId={inventorySupplierFilterId}
+        selectedCategoryId={inventoryCategoryFilterId}
+        onSelectSupplier={(id) => {
+          setInventorySupplierFilterId(id);
+          setProductPage(1);
+        }}
+        onSelectCategory={(id) => {
+          setInventoryCategoryFilterId(id);
+          setProductPage(1);
+        }}
+        onClearSupplier={() => {
+          setInventorySupplierFilterId('');
+          setProductPage(1);
+        }}
+        onClearCategory={() => {
+          setInventoryCategoryFilterId('');
+          setProductPage(1);
+        }}
+        onCloseSupplier={() => setSupplierFilterModalOpen(false)}
+        onCloseCategory={() => setCategoryFilterModalOpen(false)}
+      />
 
       {reservationsModalOpen && selectedInventoryProduct ? (
         <div

@@ -1,16 +1,15 @@
-import { jsPDF } from 'jspdf';
-
 export type ColetaListaItem = {
   productName: string;
   totalQty: number;
 };
 
-export function downloadColetaListaPdf(opts: {
+export async function downloadColetaListaPdf(opts: {
   items: ColetaListaItem[];
   orderCount: number;
   generatedAt?: Date;
-}) {
+}): Promise<void> {
   const { items, orderCount, generatedAt = new Date() } = opts;
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const margin = 14;
   const pageW = doc.internal.pageSize.getWidth();
@@ -56,3 +55,4 @@ export function downloadColetaListaPdf(opts: {
     .replace(/[:T]/g, '-');
   doc.save(`lista-coleta-${stamp}.pdf`);
 }
+

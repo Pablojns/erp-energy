@@ -96,27 +96,27 @@ export class DashboardService {
       : faturadoWhere;
 
     const [
-      valorPedidosPeriodoAgg,
+      periodAgg,
       valorFaturadoPeriodoAgg,
       valorPedidosHistoricoAgg,
       valorFaturadoHistoricoAgg,
-      ticketMedioAgg,
-      totalPedidosMes,
       totalPedidosTodos,
       pedidosConcluidos,
       pedidosAtrasados,
-      fluxoCounts,
+      fluxoGroup,
       topRecebedoresRaw,
       topTransportadorasRaw,
       pedidosSemNF,
       atividadesRecentes,
       pedidosUrgentes,
       pedidosAtrasadosAlerta,
-      finalizedForSla,
+      slaRows,
     ] = await Promise.all([
       this.prisma.client.order.aggregate({
         where: periodWhere,
         _sum: { totalValue: true },
+        _avg: { totalValue: true },
+        _count: { _all: true },
       }),
       this.prisma.client.order.aggregate({
         where: faturadoPeriodWhere,
@@ -129,20 +129,14 @@ export class DashboardService {
         where: faturadoWhere,
         _sum: { totalValue: true },
       }),
-      this.prisma.client.order.aggregate({
-        where: periodWhere,
-        _avg: { totalValue: true },
-      }),
-      this.prisma.client.order.count({ where: periodWhere }),
       this.prisma.client.order.count(),
       this.prisma.client.order.count({ where: finalizedInPeriodWhere }),
       this.prisma.client.order.count({ where: delayedInPeriodWhere }),
-      Promise.all(
-        FLUXO_STATUSES.map(async (status) => ({
-          status,
-          total: await this.prisma.client.order.count({ where: { status } }),
-        })),
-      ),
+      this.prisma.client.order.groupBy({
+        by: ['status'],
+        where: { status: { in: FLUXO_STATUSES } },
+        _count: { _all: true },
+      }),
       this.prisma.client.order.groupBy({
         by: ['receiverName'],
         where: {
@@ -189,15 +183,34 @@ export class DashboardService {
           status: { notIn: DELAYED_EXCLUDED },
         },
       }),
-      this.prisma.client.order.findMany({
-        where: finalizedInPeriodWhere,
-        select: {
-          requestedDeliveryDate: true,
-          shippedAt: true,
-          updatedAt: true,
-        },
-      }),
+      this.prisma.client.$queryRaw<
+        [{ eligible: bigint; onTime: bigint }]
+      >`
+        SELECT
+          COUNT(*) FILTER (WHERE "requestedDeliveryDate" IS NOT NULL)::bigint AS eligible,
+          COUNT(*) FILTER (
+            WHERE "requestedDeliveryDate" IS NOT NULL
+              AND COALESCE("shippedAt", "updatedAt") <= (
+                date_trunc('day', "requestedDeliveryDate" AT TIME ZONE 'UTC')
+                + interval '1 day'
+                - interval '1 millisecond'
+              )
+          )::bigint AS "onTime"
+        FROM "Order"
+        WHERE status = ${OrderStatus.FINALIZADO}::"OrderStatus"
+          ${
+            range
+              ? Prisma.sql`AND "orderDate" >= ${range.start} AND "orderDate" <= ${range.end}`
+              : Prisma.empty
+          }
+      `,
     ]);
+
+    const totalPedidosMes = periodAgg._count._all;
+    const fluxoCounts = fluxoGroup.map((row) => ({
+      status: row.status,
+      total: row._count._all,
+    }));
 
     const fluxo: Record<
       'NOVO' | 'EM_SEPARACAO' | 'AGUARDANDO_NF' | 'FINALIZADO' | 'PARCIAL' | 'CANCELADO',
@@ -216,15 +229,18 @@ export class DashboardService {
       }
     }
 
-    const taxaSLA = this.calcTaxaSla(finalizedForSla);
+    const eligible = Number(slaRows[0]?.eligible ?? BigInt(0));
+    const onTime = Number(slaRows[0]?.onTime ?? BigInt(0));
+    const taxaSLA =
+      eligible === 0 ? 100 : Math.round((onTime / eligible) * 1000) / 10;
 
     return {
       financeiro: {
-        valorPedidosPeriodo: decimalToNumber(valorPedidosPeriodoAgg._sum.totalValue),
+        valorPedidosPeriodo: decimalToNumber(periodAgg._sum.totalValue),
         valorFaturadoPeriodo: decimalToNumber(valorFaturadoPeriodoAgg._sum.totalValue),
         valorPedidosHistorico: decimalToNumber(valorPedidosHistoricoAgg._sum.totalValue),
         valorFaturadoHistorico: decimalToNumber(valorFaturadoHistoricoAgg._sum.totalValue),
-        ticketMedio: decimalToNumber(ticketMedioAgg._avg.totalValue),
+        ticketMedio: decimalToNumber(periodAgg._avg.totalValue),
         totalPedidosMes,
         totalPedidosTodos,
         pedidosConcluidos,
@@ -286,30 +302,5 @@ export class DashboardService {
     }
 
     return { start, end };
-  }
-
-  private calcTaxaSla(
-    orders: Array<{
-      requestedDeliveryDate: Date | null;
-      shippedAt: Date | null;
-      updatedAt: Date;
-    }>,
-  ): number {
-    if (orders.length === 0) return 0;
-
-    let onTime = 0;
-    let eligible = 0;
-
-    for (const order of orders) {
-      if (!order.requestedDeliveryDate) continue;
-      eligible += 1;
-      const completion = order.shippedAt ?? order.updatedAt;
-      if (completion.getTime() <= endOfUtcDay(order.requestedDeliveryDate).getTime()) {
-        onTime += 1;
-      }
-    }
-
-    if (eligible === 0) return 100;
-    return Math.round((onTime / eligible) * 1000) / 10;
   }
 }

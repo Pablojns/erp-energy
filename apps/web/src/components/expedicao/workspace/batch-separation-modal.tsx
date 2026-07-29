@@ -255,7 +255,7 @@ export function BatchSeparationModal(props: {
   const handlePrint = () => {
     const snapshot = sentBatch;
     if (!snapshot || snapshot.items.length === 0) return;
-    downloadColetaListaPdf({
+    void downloadColetaListaPdf({
       items: snapshot.items,
       orderCount: snapshot.orderIds.length,
     });

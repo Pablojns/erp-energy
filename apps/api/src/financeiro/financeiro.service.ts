@@ -93,42 +93,108 @@ export class FinanceiroService {
       },
     });
 
-    let synced = 0;
+    if (orders.length === 0) {
+      return { synced: 0 };
+    }
+
+    const orderIds = orders.map((o) => o.id);
+    const existingRows = await this.prisma.client.financeiroNF.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        orderId: true,
+        dataPagamento: true,
+        observacao: true,
+        invoiceNumber: true,
+        valor: true,
+        dataEmissao: true,
+        status: true,
+      },
+    });
+    const existingByOrderId = new Map(
+      existingRows.map((row) => [row.orderId, row]),
+    );
+
+    const toCreate: Prisma.FinanceiroNFCreateManyInput[] = [];
+    const toUpdate: Array<{
+      orderId: string;
+      invoiceNumber: string;
+      valor: Prisma.Decimal;
+      dataEmissao: Date;
+      status: string;
+    }> = [];
+
     for (const order of orders) {
       const invoiceNumber = order.invoiceNumber?.trim();
       if (!invoiceNumber) continue;
 
       const dataEmissao = order.invoicedAt ?? order.updatedAt;
-      const existing = await this.prisma.client.financeiroNF.findUnique({
-        where: { orderId: order.id },
-      });
-
+      const existing = existingByOrderId.get(order.id);
       const dataPagamento = existing?.dataPagamento ?? null;
-      const observacao = existing?.observacao ?? null;
       const status = computeStatus(dataEmissao, dataPagamento);
 
-      await this.prisma.client.financeiroNF.upsert({
-        where: { orderId: order.id },
-        create: {
+      if (!existing) {
+        toCreate.push({
           orderId: order.id,
           invoiceNumber,
           valor: order.totalValue,
           dataEmissao,
           dataPagamento,
-          observacao,
+          observacao: null,
           status,
-        },
-        update: {
-          invoiceNumber,
-          valor: order.totalValue,
-          dataEmissao,
-          status,
-        },
+        });
+        continue;
+      }
+
+      const sameInvoice = existing.invoiceNumber === invoiceNumber;
+      const sameValor =
+        decimalToNumber(existing.valor) === decimalToNumber(order.totalValue);
+      const sameEmissao =
+        existing.dataEmissao.getTime() === dataEmissao.getTime();
+      const sameStatus = existing.status === status;
+      if (sameInvoice && sameValor && sameEmissao && sameStatus) {
+        continue;
+      }
+
+      toUpdate.push({
+        orderId: order.id,
+        invoiceNumber,
+        valor: order.totalValue,
+        dataEmissao,
+        status,
       });
-      synced += 1;
     }
 
-    return { synced };
+    if (toCreate.length > 0) {
+      const chunkSize = 500;
+      for (let i = 0; i < toCreate.length; i += chunkSize) {
+        await this.prisma.client.financeiroNF.createMany({
+          data: toCreate.slice(i, i + chunkSize),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    if (toUpdate.length > 0) {
+      const chunkSize = 50;
+      for (let i = 0; i < toUpdate.length; i += chunkSize) {
+        const chunk = toUpdate.slice(i, i + chunkSize);
+        await this.prisma.client.$transaction(
+          chunk.map((row) =>
+            this.prisma.client.financeiroNF.update({
+              where: { orderId: row.orderId },
+              data: {
+                invoiceNumber: row.invoiceNumber,
+                valor: row.valor,
+                dataEmissao: row.dataEmissao,
+                status: row.status,
+              },
+            }),
+          ),
+        );
+      }
+    }
+
+    return { synced: toCreate.length + toUpdate.length };
   }
 
   async getDashboard(dataInicio?: string, dataFim?: string) {
@@ -225,41 +291,43 @@ export class FinanceiroService {
   async getNFsEmAberto(page = 1, pageSize = 20) {
     const safePage = Math.max(1, page);
     const safePageSize = Math.min(100, Math.max(1, pageSize));
+    const where: Prisma.FinanceiroNFWhereInput = {
+      status: { in: [NF_STATUS.ABERTO, NF_STATUS.ATRASADO] },
+    };
 
-    const rows = await this.prisma.client.financeiroNF.findMany({
-      where: {
-        status: { in: [NF_STATUS.ABERTO, NF_STATUS.ATRASADO] },
-      },
-      include: {
-        order: {
-          select: {
-            id: true,
-            code: true,
-            externalOrderNumber: true,
-            receiverName: true,
-            customerName: true,
+    const [total, rows] = await Promise.all([
+      this.prisma.client.financeiroNF.count({ where }),
+      this.prisma.client.financeiroNF.findMany({
+        where,
+        // diasEmAberto DESC ≡ dataEmissao ASC (mais antiga = mais dias em aberto)
+        orderBy: { dataEmissao: 'asc' },
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
+        include: {
+          order: {
+            select: {
+              id: true,
+              code: true,
+              externalOrderNumber: true,
+              receiverName: true,
+              customerName: true,
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
 
-    const mapped = rows
-      .map((nf) => ({
-        id: nf.id,
-        invoiceNumber: nf.invoiceNumber,
-        pedido: nf.order.externalOrderNumber ?? nf.order.code,
-        recebedor: nf.order.receiverName ?? nf.order.customerName,
-        valor: decimalToNumber(nf.valor),
-        dataEmissao: nf.dataEmissao.toISOString(),
-        diasEmAberto: diasEmAberto(nf.dataEmissao),
-        status: nf.status,
-        observacao: nf.observacao,
-      }))
-      .sort((a, b) => b.diasEmAberto - a.diasEmAberto);
-
-    const total = mapped.length;
-    const start = (safePage - 1) * safePageSize;
-    const data = mapped.slice(start, start + safePageSize);
+    const data = rows.map((nf) => ({
+      id: nf.id,
+      invoiceNumber: nf.invoiceNumber,
+      pedido: nf.order.externalOrderNumber ?? nf.order.code,
+      recebedor: nf.order.receiverName ?? nf.order.customerName,
+      valor: decimalToNumber(nf.valor),
+      dataEmissao: nf.dataEmissao.toISOString(),
+      diasEmAberto: diasEmAberto(nf.dataEmissao),
+      status: nf.status,
+      observacao: nf.observacao,
+    }));
 
     return {
       data,

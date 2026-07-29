@@ -675,13 +675,15 @@
   }
 
   .exp-queue-row-receiver {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
+    max-width: 65%;
     font-size: 0.75rem;
     color: var(--text-primary);
   }
 
   .exp-queue-row-date {
+    flex: 0 0 auto;
     font-size: 0.6875rem;
     color: var(--text-secondary);
   }
@@ -690,6 +692,7 @@
     display: flex !important;
     flex-shrink: 0;
     gap: 0.3rem;
+    margin-left: auto;
   }
 
   .exp-queue-row-back .exp-queue-card-admin-icon-btn {

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { Download, Loader2, Search, X } from 'lucide-react';
 import { GlassCard } from '@/src/components/shell/glass-card';
 import { GlowButton } from '@/src/components/shell/glow-button';
@@ -30,7 +29,11 @@ function toExportRows(products: EstoqueBulkProduct[]) {
   }));
 }
 
-function downloadProductsXlsx(products: EstoqueBulkProduct[], filename: string) {
+async function downloadProductsXlsx(
+  products: EstoqueBulkProduct[],
+  filename: string,
+) {
+  const XLSX = await import('xlsx');
   const rows = toExportRows(products);
   const sheet = XLSX.utils.json_to_sheet(rows);
   const book = XLSX.utils.book_new();
@@ -119,7 +122,7 @@ export function EstoqueExportModal(props: {
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
 
-  const exportNow = () => {
+  const exportNow = async () => {
     const rows =
       mode === 'all'
         ? products
@@ -139,7 +142,7 @@ export function EstoqueExportModal(props: {
         mode === 'all'
           ? `estoque-completo-${stamp}.xlsx`
           : `estoque-selecionados-${stamp}.xlsx`;
-      downloadProductsXlsx(rows, filename);
+      await downloadProductsXlsx(rows, filename);
       onSuccess(`Excel gerado com ${rows.length} produto(s).`);
       onClose();
     } catch (e) {

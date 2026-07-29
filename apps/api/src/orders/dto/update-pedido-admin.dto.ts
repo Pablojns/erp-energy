@@ -3,6 +3,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -14,8 +15,10 @@ import {
 import { ORDER_STATUS_VALUES } from '../order-domain';
 
 export class UpdatePedidoAdminItemDto {
+  /** Ausente ou inválido → cria novo OrderItem. */
+  @IsOptional()
   @IsUUID('4')
-  id!: string;
+  id?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -38,6 +41,16 @@ export class UpdatePedidoAdminItemDto {
   @IsInt()
   @Min(1)
   quantity?: number;
+
+  @IsOptional()
+  @IsUUID('4')
+  productId?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  unitPrice?: number;
 
   @IsOptional()
   @IsString()

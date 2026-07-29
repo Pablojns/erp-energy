@@ -4,10 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { GlassCard } from '@/src/components/shell/glass-card';
-import { isOrderOverdue, orderMatchesParcialFilter } from '@/src/components/expedicao/shared/order-helpers';
-import type { OrderDto, PaginatedOrders, StatusFilterId } from '@/src/components/expedicao/shared/types';
+import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { pedidosListFetchInit } from '@/src/services/api/pedidos-normalize';
 
 type MetricCard = {
   label: string;
@@ -16,10 +14,26 @@ type MetricCard = {
   filter: StatusFilterId;
 };
 
+type ExpeditionDashboardDto = {
+  totalPedidos: number;
+  todayCount: number;
+  atrasados: number;
+  emSeparacao: number;
+  concluidos: number;
+  urgentes: number;
+  aguardandoEstoque: number;
+  aguardandoNf: number;
+  parciais: number;
+  cancelados: number;
+  byStatusLast7Days: Array<{ status: string; count: number }>;
+  topUnloadingPoints: Array<{ label: string; value: number }>;
+  topReceiversPending: Array<{ name: string; count: number }>;
+};
+
 const PIE_COLORS = ['#5b5ef4', '#22c55e', '#f59e0b', '#ef4444', '#38bdf8', '#a78bfa'];
 
 export function ExpeditionDashboardView() {
-  const [orders, setOrders] = useState<OrderDto[]>([]);
+  const [data, setData] = useState<ExpeditionDashboardDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,19 +43,10 @@ export function ExpeditionDashboardView() {
       setLoading(true);
       setError(null);
       try {
-        const acc: OrderDto[] = [];
-        let page = 1;
-        let totalPages = 1;
-        do {
-          const res = await erpFetchJson<PaginatedOrders>(
-            `api/pedidos?page=${page}&pageSize=50&status=all&sortBy=orderDate&sortOrder=desc`,
-            pedidosListFetchInit,
-          );
-          acc.push(...res.data);
-          totalPages = res.meta.totalPages;
-          page += 1;
-        } while (page <= totalPages);
-        if (!cancelled) setOrders(acc);
+        const res = await erpFetchJson<ExpeditionDashboardDto>(
+          'api/pedidos/dashboard',
+        );
+        if (!cancelled) setData(res);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Falha ao carregar dashboard.');
@@ -56,125 +61,105 @@ export function ExpeditionDashboardView() {
     };
   }, []);
 
-  const todayCount = useMemo(() => {
-    const now = new Date();
-    return orders.filter((o) => {
-      const d = new Date(o.orderDate ?? o.createdAt);
-      return (
-        d.getDate() === now.getDate() &&
-        d.getMonth() === now.getMonth() &&
-        d.getFullYear() === now.getFullYear()
-      );
-    }).length;
-  }, [orders]);
-
-  const topMetrics: MetricCard[] = useMemo(
-    () => [
-      { label: 'Total Pedidos', value: orders.length, hint: `${todayCount} hoje`, filter: 'all' },
+  const topMetrics: MetricCard[] = useMemo(() => {
+    if (!data) return [];
+    return [
+      {
+        label: 'Total Pedidos',
+        value: data.totalPedidos,
+        hint: `${data.todayCount} hoje`,
+        filter: 'all',
+      },
       {
         label: 'Atrasados',
-        value: orders.filter(isOrderOverdue).length,
+        value: data.atrasados,
         hint: '⚠ urgente',
         filter: 'atrasado',
       },
       {
         label: 'Em Separação',
-        value: orders.filter((o) => o.status === 'EM_SEPARACAO').length,
+        value: data.emSeparacao,
         hint: 'em andamento',
         filter: 'em_separacao',
       },
       {
         label: 'Concluídos',
-        value: orders.filter((o) => o.status === 'FINALIZADO' || o.status === 'EXPEDIDO').length,
+        value: data.concluidos,
         hint: 'hoje',
         filter: 'finalizado',
       },
       {
         label: 'Urgentes',
-        value: orders.filter((o) => o.priority <= 2).length,
+        value: data.urgentes,
         hint: 'prioridade alta',
         filter: 'urgente',
       },
-    ],
-    [orders, todayCount],
-  );
+    ];
+  }, [data]);
 
-  const smallMetrics: MetricCard[] = useMemo(
-    () => [
+  const smallMetrics: MetricCard[] = useMemo(() => {
+    if (!data) return [];
+    return [
       {
         label: 'Aguardando Estoque',
-        value: orders.filter((o) => (o.unidadesFaltantes ?? 0) > 0).length,
+        value: data.aguardandoEstoque,
         hint: 'com ruptura',
         filter: 'aguardando_estoque',
       },
       {
         label: 'Aguardando NF',
-        value: orders.filter((o) => o.status === 'AGUARDANDO_NF' || o.status === 'NF_ATRELADA').length,
+        value: data.aguardandoNf,
         hint: 'pendentes',
         filter: 'aguardando_nf',
       },
       {
         label: 'Parciais',
-        value: orders.filter((o) => orderMatchesParcialFilter(o)).length,
+        value: data.parciais,
         hint: 'em revisão',
         filter: 'parcial',
       },
       {
         label: 'Cancelados',
-        value: orders.filter((o) => o.status === 'CANCELADO').length,
+        value: data.cancelados,
         hint: 'histórico',
         filter: 'cancelado',
       },
-    ],
-    [orders],
-  );
+    ];
+  }, [data]);
 
   const barSeries = useMemo(() => {
-    const from = new Date();
-    from.setDate(from.getDate() - 7);
-    const statuses = ['NOVO', 'PARCIAL', 'EM_SEPARACAO', 'AGUARDANDO_NF', 'FINALIZADO', 'CANCELADO'] as const;
-    const rows = statuses.map((status) => ({
-      status,
-      count: orders.filter((o) => {
-        const d = new Date(o.orderDate ?? o.createdAt);
-        return d >= from && o.status === status;
-      }).length,
-    }));
+    const rows = data?.byStatusLast7Days ?? [];
     const max = Math.max(...rows.map((x) => x.count), 1);
     return { rows, max };
-  }, [orders]);
+  }, [data]);
 
   const pointPie = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const o of orders) {
-      const key = o.unloadingPoint?.trim() || 'Sem ponto';
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const total = sorted.reduce((acc, [, n]) => acc + n, 0) || 1;
+    const sorted = data?.topUnloadingPoints ?? [];
+    const total = sorted.reduce((acc, s) => acc + s.value, 0) || 1;
     let cursor = 0;
-    const segments = sorted.map(([label, value], i) => {
+    const segments = sorted.map((s, i) => {
       const start = cursor;
-      const frac = value / total;
+      const frac = s.value / total;
       cursor += frac * 100;
       const end = cursor;
-      return { label, value, color: PIE_COLORS[i % PIE_COLORS.length], start, end };
+      return {
+        label: s.label,
+        value: s.value,
+        color: PIE_COLORS[i % PIE_COLORS.length],
+        start,
+        end,
+      };
     });
     const gradient = `conic-gradient(${segments
       .map((s) => `${s.color} ${s.start}% ${s.end}%`)
       .join(', ')})`;
     return { segments, gradient };
-  }, [orders]);
+  }, [data]);
 
-  const topReceivers = useMemo(() => {
-    const pending = orders.filter((o) => o.status !== 'FINALIZADO' && o.status !== 'CANCELADO');
-    const map = new Map<string, number>();
-    for (const o of pending) {
-      const key = o.receiverName?.trim() || 'Sem recebedor';
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [orders]);
+  const topReceivers = useMemo(
+    () => (data?.topReceiversPending ?? []).map((r) => [r.name, r.count] as const),
+    [data],
+  );
 
   if (loading) {
     return (
@@ -201,7 +186,6 @@ export function ExpeditionDashboardView() {
 
   return (
     <div className="space-y-4 px-2 pt-2 sm:px-4 sm:pt-4">
-      {/* Mobile (<768px) — compacto: linha 1 (Urgentes/Parciais) + grid 2x2 */}
       <div className="exp-dash-mobile-only hidden flex-col gap-2.5">
         <div className="exp-dash-mobile-row1 flex gap-2.5">
           {mUrgentes ? (

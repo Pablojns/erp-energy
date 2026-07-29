@@ -1,12 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { fetchPurchaseRequests } from './compras-api';
-import { ComprasDashboard } from './compras-dashboard';
 import { ComprasDetailModal } from './compras-detail-modal';
-import { ComprasKanbanBoard } from './compras-kanban-board';
 import { ComprasNewRequestModal } from './compras-new-request-modal';
 import {
   ComprasPeriodFilter,
@@ -14,6 +13,30 @@ import {
 import { ComprasResolveModal } from './compras-resolve-modal';
 import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
 import { TYPE_FILTER_OPTIONS } from './compras-types';
+
+const ComprasDashboard = dynamic(
+  () => import('./compras-dashboard').then((m) => m.ComprasDashboard),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="erp-module-panel flex min-h-[12rem] flex-1 items-center justify-center text-sm text-[var(--text-secondary)]">
+        Carregando dashboard…
+      </div>
+    ),
+  },
+);
+
+const ComprasKanbanBoard = dynamic(
+  () => import('./compras-kanban-board').then((m) => m.ComprasKanbanBoard),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[12rem] flex-1 items-center justify-center text-sm text-[var(--text-secondary)]">
+        Carregando kanban…
+      </div>
+    ),
+  },
+);
 
 const COMPRAS_FILTERS_STORAGE_KEY = 'erp.compras.filters';
 

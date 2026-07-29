@@ -58,7 +58,7 @@ export function TopNavigation({ user }: TopNavigationProps) {
 
   return (
     <header className="erp-header fixed left-0 right-0 top-0 z-50 backdrop-saturate-150">
-      <div className="mx-auto flex max-w-[1600px] items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4 sm:py-3 lg:gap-5 lg:px-6">
+      <div className="flex w-full items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4 sm:py-3 lg:gap-5 lg:px-6">
         <Link
           href="/app"
           className="erp-focus-ring group relative flex shrink-0 items-center rounded-2xl px-1 py-0.5 outline-none transition duration-300"

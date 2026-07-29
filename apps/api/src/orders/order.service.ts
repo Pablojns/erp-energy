@@ -33,7 +33,6 @@ import {
 import { CarrierResolverService } from './carrier-resolver.service';
 import { AppLogger } from '../common/logger/app-logger';
 import {
-  findActiveReservationByOrderItem,
   markOrderItemReservationReleased,
   markStockReservationReleased,
   orderNumberFromOrder,
@@ -281,6 +280,177 @@ export class OrderService {
       );
       return { ...EMPTY_EXPEDITION_SUMMARY };
     }
+  }
+
+  /**
+   * Dashboard da expedição — agregações SQL (sem carregar todos os pedidos).
+   */
+  async expeditionDashboard() {
+    const todayUtc = OrderService.startOfUtcDay(new Date());
+    const tomorrowUtc = new Date(todayUtc);
+    tomorrowUtc.setUTCDate(tomorrowUtc.getUTCDate() + 1);
+    const last7 = new Date(todayUtc);
+    last7.setUTCDate(last7.getUTCDate() - 7);
+
+    const delayedArm: Prisma.OrderWhereInput = {
+      requestedDeliveryDate: { lt: todayUtc },
+      status: { notIn: DELAYED_EXCLUDED_STATUSES },
+    };
+
+    const [
+      totalPedidos,
+      todayCount,
+      atrasados,
+      emSeparacao,
+      concluidos,
+      urgentes,
+      aguardandoEstoque,
+      aguardandoNf,
+      parciais,
+      cancelados,
+      byStatusLast7,
+      topPoints,
+      topReceivers,
+    ] = await Promise.all([
+      this.prisma.client.order.count(),
+      this.prisma.client.order.count({
+        where: {
+          OR: [
+            { orderDate: { gte: todayUtc, lt: tomorrowUtc } },
+            {
+              AND: [
+                { orderDate: null },
+                { createdAt: { gte: todayUtc, lt: tomorrowUtc } },
+              ],
+            },
+          ],
+        },
+      }),
+      this.prisma.client.order.count({ where: delayedArm }),
+      this.prisma.client.order.count({
+        where: { status: OrderStatus.EM_SEPARACAO },
+      }),
+      this.prisma.client.order.count({
+        where: {
+          status: { in: [OrderStatus.FINALIZADO, OrderStatus.EXPEDIDO] },
+        },
+      }),
+      this.prisma.client.order.count({
+        where: { priority: { lte: 2 } },
+      }),
+      this.countStockRuptureOrders({}),
+      this.prisma.client.order.count({
+        where: {
+          status: {
+            in: [OrderStatus.AGUARDANDO_NF, OrderStatus.NF_ATRELADA],
+          },
+        },
+      }),
+      this.countParcialOrders(),
+      this.prisma.client.order.count({
+        where: { status: OrderStatus.CANCELADO },
+      }),
+      this.prisma.client.order.groupBy({
+        by: ['status'],
+        where: {
+          OR: [
+            { orderDate: { gte: last7 } },
+            {
+              AND: [{ orderDate: null }, { createdAt: { gte: last7 } }],
+            },
+          ],
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.client.order.groupBy({
+        by: ['unloadingPoint'],
+        _count: { _all: true },
+        orderBy: { _count: { unloadingPoint: 'desc' } },
+        take: 8,
+      }),
+      this.prisma.client.order.groupBy({
+        by: ['receiverName'],
+        where: {
+          status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO] },
+          receiverName: { not: null },
+          NOT: { receiverName: '' },
+        },
+        _count: { _all: true },
+        orderBy: { _count: { receiverName: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    const statusOrder = [
+      'NOVO',
+      'PARCIAL',
+      'EM_SEPARACAO',
+      'AGUARDANDO_NF',
+      'FINALIZADO',
+      'CANCELADO',
+    ] as const;
+    const statusMap = new Map(
+      byStatusLast7.map((r) => [r.status, r._count._all]),
+    );
+    const byStatusLast7Days = statusOrder.map((status) => ({
+      status,
+      count: statusMap.get(status as OrderStatus) ?? 0,
+    }));
+
+    const topUnloadingPoints = topPoints
+      .map((r) => ({
+        label: r.unloadingPoint?.trim() || 'Sem ponto',
+        value: r._count._all,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    const topReceiversPending = topReceivers.map((r) => ({
+      name: r.receiverName?.trim() || 'Sem recebedor',
+      count: r._count._all,
+    }));
+
+    return {
+      totalPedidos,
+      todayCount,
+      atrasados,
+      emSeparacao,
+      concluidos,
+      urgentes,
+      aguardandoEstoque,
+      aguardandoNf,
+      parciais,
+      cancelados,
+      byStatusLast7Days,
+      topUnloadingPoints,
+      topReceiversPending,
+    };
+  }
+
+  /** Status PARCIAL ou envio parcial (algum picked > 0 e nem todos completos). */
+  private async countParcialOrders(): Promise<number> {
+    const rows = await this.prisma.client.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "Order" o
+      WHERE o.status = 'PARCIAL'::"OrderStatus"
+         OR (
+           o.status NOT IN (
+             'FINALIZADO'::"OrderStatus",
+             'CANCELADO'::"OrderStatus",
+             'EXPEDIDO'::"OrderStatus"
+           )
+           AND EXISTS (
+             SELECT 1 FROM "OrderItem" i
+             WHERE i."orderId" = o.id AND i."pickedQty" > 0
+           )
+           AND EXISTS (
+             SELECT 1 FROM "OrderItem" i2
+             WHERE i2."orderId" = o.id
+               AND NOT (i2."pickedQty" >= i2.quantity AND i2.quantity > 0)
+           )
+         )
+    `;
+    return Number(rows[0]?.count ?? BigInt(0));
   }
 
   /** Pedidos com unidades faltantes (missingQty > 0), respeitando filtros. */
@@ -2286,16 +2456,32 @@ export class OrderService {
         };
       }
 
+      const productIdByItem = await this.resolveOrderItemProductIdsBatch(
+        tx,
+        before.items,
+      );
+      const reservations = await tx.stockReservation.findMany({
+        where: {
+          orderItemId: { in: before.items.map((i) => i.id) },
+          releasedAt: null,
+        },
+      });
+      const reservationByItem = new Map(
+        reservations.map((r) => [r.orderItemId, r]),
+      );
+
       let movedUnits = 0;
+      const movements: Prisma.StockMovementCreateManyInput[] = [];
+      const releaseReservationIds: string[] = [];
 
       for (const it of before.items) {
-        const productId = await this.resolveOrderItemProductId(tx, it);
+        const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
         const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
-        const reservation = await findActiveReservationByOrderItem(tx, it.id);
+        const reservation = reservationByItem.get(it.id);
         const reservationQty = reservation?.quantity ?? 0;
         const decReserved = Math.min(reservationQty, qtyOut);
 
@@ -2318,22 +2504,20 @@ export class OrderService {
 
         movedUnits += qtyOut;
 
-        await tx.stockMovement.create({
-          data: {
-            productId,
-            movementType: StockMovementType.SAIDA_EXPEDICAO,
-            quantity: qtyOut,
-            reference: before.code,
-            invoiceNumber: inv,
-            notes: `Saída pedido ${before.code} · NF ${inv}`,
-            movedById: userId,
-          },
+        movements.push({
+          productId,
+          movementType: StockMovementType.SAIDA_EXPEDICAO,
+          quantity: qtyOut,
+          reference: before.code,
+          invoiceNumber: inv,
+          notes: `Saída pedido ${before.code} · NF ${inv}`,
+          movedById: userId,
         });
 
         if (reservation) {
           const remaining = reservationQty - decReserved;
           if (remaining <= 0) {
-            await markStockReservationReleased(tx, reservation.id);
+            releaseReservationIds.push(reservation.id);
           } else {
             await tx.stockReservation.update({
               where: { id: reservation.id },
@@ -2354,6 +2538,16 @@ export class OrderService {
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
+        });
+      }
+
+      if (movements.length > 0) {
+        await tx.stockMovement.createMany({ data: movements });
+      }
+      if (releaseReservationIds.length > 0) {
+        await tx.stockReservation.updateMany({
+          where: { id: { in: releaseReservationIds } },
+          data: { releasedAt: new Date() },
         });
       }
 
@@ -2446,16 +2640,32 @@ export class OrderService {
         throw new BadRequestException('Pedido sem número de NF.');
       }
 
+      const productIdByItem = await this.resolveOrderItemProductIdsBatch(
+        tx,
+        before.items,
+      );
+      const reservations = await tx.stockReservation.findMany({
+        where: {
+          orderItemId: { in: before.items.map((i) => i.id) },
+          releasedAt: null,
+        },
+      });
+      const reservationByItem = new Map(
+        reservations.map((r) => [r.orderItemId, r]),
+      );
+
       let movedUnits = 0;
+      const movements: Prisma.StockMovementCreateManyInput[] = [];
+      const releaseReservationIds: string[] = [];
 
       for (const it of before.items) {
-        const productId = await this.resolveOrderItemProductId(tx, it);
+        const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
         const qtyOut = OrderService.resolveExitQuantity(it);
         if (qtyOut <= 0) continue;
 
-        const r = await findActiveReservationByOrderItem(tx, it.id);
+        const r = reservationByItem.get(it.id);
         const reservationQty = r?.quantity ?? 0;
         const decReserved = Math.min(reservationQty, qtyOut);
 
@@ -2478,22 +2688,20 @@ export class OrderService {
 
         movedUnits += qtyOut;
 
-        await tx.stockMovement.create({
-          data: {
-            productId,
-            movementType: StockMovementType.SAIDA_EXPEDICAO,
-            quantity: qtyOut,
-            reference: before.code,
-            invoiceNumber: inv,
-            notes: `Saída expedição pedido ${before.code} · NF ${inv}`,
-            movedById: userId,
-          },
+        movements.push({
+          productId,
+          movementType: StockMovementType.SAIDA_EXPEDICAO,
+          quantity: qtyOut,
+          reference: before.code,
+          invoiceNumber: inv,
+          notes: `Saída expedição pedido ${before.code} · NF ${inv}`,
+          movedById: userId,
         });
 
         if (r) {
           const remaining = reservationQty - decReserved;
           if (remaining <= 0) {
-            await markStockReservationReleased(tx, r.id);
+            releaseReservationIds.push(r.id);
           } else {
             await tx.stockReservation.update({
               where: { id: r.id },
@@ -2514,6 +2722,16 @@ export class OrderService {
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
+        });
+      }
+
+      if (movements.length > 0) {
+        await tx.stockMovement.createMany({ data: movements });
+      }
+      if (releaseReservationIds.length > 0) {
+        await tx.stockReservation.updateMany({
+          where: { id: { in: releaseReservationIds } },
+          data: { releasedAt: new Date() },
         });
       }
 
@@ -3453,33 +3671,68 @@ export class OrderService {
     tx: Tx,
     item: { id: string; sku: string; productId: string | null },
   ): Promise<string | null> {
-    if (item.productId) return item.productId;
+    const map = await this.resolveOrderItemProductIdsBatch(tx, [item]);
+    return map.get(item.id) ?? null;
+  }
 
-    const normalized = item.sku.trim();
-    if (!normalized) return null;
+  /** Resolve productId de várias linhas em 1–2 queries (evita N+1 no exit). */
+  private async resolveOrderItemProductIdsBatch(
+    tx: Tx,
+    items: Array<{ id: string; sku: string; productId: string | null }>,
+  ): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    const missing: Array<{ id: string; sku: string }> = [];
 
-    const found = await tx.product.findFirst({
-      where: {
-        OR: [
-          { sku: { equals: normalized, mode: Prisma.QueryMode.insensitive } },
-          {
-            internalCode: {
-              equals: normalized,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        ],
-        isActive: true,
-      },
-      select: { id: true },
+    for (const item of items) {
+      if (item.productId) {
+        result.set(item.id, item.productId);
+      } else if (item.sku.trim()) {
+        missing.push({ id: item.id, sku: item.sku.trim() });
+      }
+    }
+
+    if (missing.length === 0) return result;
+
+    const or: Prisma.ProductWhereInput[] = [];
+    for (const m of missing) {
+      or.push({
+        sku: { equals: m.sku, mode: Prisma.QueryMode.insensitive },
+      });
+      or.push({
+        internalCode: { equals: m.sku, mode: Prisma.QueryMode.insensitive },
+      });
+    }
+
+    const found = await tx.product.findMany({
+      where: { OR: or, isActive: true },
+      select: { id: true, sku: true, internalCode: true },
     });
-    if (!found) return null;
+    const byKey = new Map<string, string>();
+    for (const p of found) {
+      byKey.set(p.sku.toLowerCase(), p.id);
+      if (p.internalCode?.trim()) {
+        byKey.set(p.internalCode.trim().toLowerCase(), p.id);
+      }
+    }
 
-    await tx.orderItem.update({
-      where: { id: item.id },
-      data: { productId: found.id },
-    });
-    return found.id;
+    const linkUpdates: Array<{ id: string; productId: string }> = [];
+    for (const m of missing) {
+      const productId = byKey.get(m.sku.toLowerCase());
+      if (!productId) continue;
+      result.set(m.id, productId);
+      linkUpdates.push({ id: m.id, productId });
+    }
+
+    await Promise.all(
+      linkUpdates.map((u) =>
+        tx.orderItem.update({
+          where: { id: u.id },
+          data: { productId: u.productId },
+        }),
+      ),
+    );
+
+    return result;
   }
 
   private async nextOrderCode(tx: Tx): Promise<string> {
@@ -3509,117 +3762,133 @@ export class OrderService {
     }>,
   ) {
     const sorted = [...items].sort((a, b) => a.lineNumber - b.lineNumber);
+    const productMap = await this.loadProductsForLines(tx, sorted);
+
+    const availableByProduct = new Map<string, number>();
+    for (const p of productMap.byId.values()) {
+      availableByProduct.set(p.id, Math.max(0, p.stockQty - p.reservedQty));
+    }
+
+    const updateById = new Map<string, Prisma.OrderItemUncheckedUpdateInput>();
+    const releaseItemIds: string[] = [];
+    const reservationUpserts: Array<{
+      orderItemId: string;
+      productId: string;
+      sku: string;
+      quantity: number;
+    }> = [];
+    const movements: Prisma.StockMovementCreateManyInput[] = [];
+    const reservedDelta = new Map<string, number>();
+    const statusResults: OrderItemStockStatus[] = [];
 
     for (const line of sorted) {
       let productId = line.productId;
       let skuNorm = line.sku.trim();
-      let linked = productId
-        ? await tx.product.findUnique({ where: { id: productId } })
-        : null;
+      let linked = productId ? productMap.byId.get(productId) : undefined;
 
       if (!productId) {
-        const found = await tx.product.findFirst({
-          where: {
-            sku: { equals: line.sku.trim(), mode: Prisma.QueryMode.insensitive },
-            isActive: true,
-          },
-        });
+        const found = productMap.bySkuLower.get(line.sku.trim().toLowerCase());
         if (found) {
           productId = found.id;
           skuNorm = found.sku;
           linked = found;
-          await tx.orderItem.update({
-            where: { id: line.id },
-            data: { productId },
-          });
         }
       }
 
       if (!productId || !linked?.isActive) {
-        await tx.orderItem.update({
-          where: { id: line.id },
-          data: {
-            reservedQuantity: 0,
-            missingQty: line.quantity,
-            availableAtAnalysis: null,
-            stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
-          },
+        updateById.set(line.id, {
+          reservedQuantity: 0,
+          missingQty: line.quantity,
+          availableAtAnalysis: null,
+          stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
         });
-        await markOrderItemReservationReleased(tx, line.id);
+        releaseItemIds.push(line.id);
+        statusResults.push(OrderItemStockStatus.SKU_NAO_ENCONTRADO);
         continue;
       }
 
-      const pRow = await tx.product.findUnique({ where: { id: productId } });
-      if (!pRow) {
-        await tx.orderItem.update({
-          where: { id: line.id },
-          data: {
-            reservedQuantity: 0,
-            missingQty: line.quantity,
-            stockStatus: OrderItemStockStatus.SKU_NAO_ENCONTRADO,
-          },
-        });
-        await markOrderItemReservationReleased(tx, line.id);
-        continue;
-      }
-
-      const available = pRow.stockQty - pRow.reservedQty;
+      const available = availableByProduct.get(productId) ?? 0;
       const take = Math.min(line.quantity, Math.max(0, available));
       const missing = line.quantity - take;
+      availableByProduct.set(productId, available - take);
 
       let st: OrderItemStockStatus;
       if (take >= line.quantity) st = OrderItemStockStatus.COMPLETO;
       else if (take <= 0) st = OrderItemStockStatus.SEM_ESTOQUE;
       else st = OrderItemStockStatus.PARCIAL;
+      statusResults.push(st);
 
-      await tx.orderItem.update({
-        where: { id: line.id },
-        data: {
-          availableAtAnalysis: available,
-          missingQty: missing,
-          reservedQuantity: take,
-          stockStatus: st,
-        },
+      updateById.set(line.id, {
+        productId,
+        availableAtAnalysis: available,
+        missingQty: missing,
+        reservedQuantity: take,
+        stockStatus: st,
       });
 
       if (take > 0) {
-        await tx.product.update({
-          where: { id: productId },
-          data: { reservedQty: { increment: take } },
-        });
-
-        await upsertStockReservation(tx, {
-          orderId,
+        reservedDelta.set(
+          productId,
+          (reservedDelta.get(productId) ?? 0) + take,
+        );
+        reservationUpserts.push({
           orderItemId: line.id,
           productId,
           sku: skuNorm,
           quantity: take,
-          orderNumber: orderCode,
-          createdById: userId,
         });
-
-        await tx.stockMovement.create({
-          data: {
-            productId,
-            movementType: StockMovementType.RESERVA,
-            quantity: take,
-            reference: orderCode,
-            notes: `Reserva flexível pedido ${orderCode}`,
-            movedById: userId,
-          },
+        movements.push({
+          productId,
+          movementType: StockMovementType.RESERVA,
+          quantity: take,
+          reference: orderCode,
+          notes: `Reserva flexível pedido ${orderCode}`,
+          movedById: userId,
         });
       } else {
-        await markOrderItemReservationReleased(tx, line.id);
+        releaseItemIds.push(line.id);
       }
     }
 
-    const statusRows = await tx.orderItem.findMany({
-      where: { orderId },
-      select: { stockStatus: true },
-    });
+    await Promise.all(
+      [...updateById.entries()].map(([id, data]) =>
+        tx.orderItem.update({ where: { id }, data }),
+      ),
+    );
+
+    if (releaseItemIds.length > 0) {
+      await tx.stockReservation.updateMany({
+        where: { orderItemId: { in: releaseItemIds }, releasedAt: null },
+        data: { releasedAt: new Date() },
+      });
+    }
+
+    for (const [productId, delta] of reservedDelta) {
+      await tx.product.update({
+        where: { id: productId },
+        data: { reservedQty: { increment: delta } },
+      });
+    }
+
+    for (const row of reservationUpserts) {
+      await upsertStockReservation(tx, {
+        orderId,
+        orderItemId: row.orderItemId,
+        productId: row.productId,
+        sku: row.sku,
+        quantity: row.quantity,
+        orderNumber: orderCode,
+        createdById: userId,
+      });
+    }
+
+    if (movements.length > 0) {
+      await tx.stockMovement.createMany({ data: movements });
+    }
+
     const allCompleto =
-      statusRows.length > 0 &&
-      statusRows.every((r) => r.stockStatus === OrderItemStockStatus.COMPLETO);
+      statusResults.length > 0 &&
+      statusResults.every((s) => s === OrderItemStockStatus.COMPLETO);
     const nextStatus = allCompleto
       ? OrderStatus.RESERVADO
       : OrderStatus.PARCIAL;
@@ -3631,6 +3900,109 @@ export class OrderService {
         reservedAt: new Date(),
       },
     });
+  }
+
+  /** Carrega produtos por id/SKU em lote (evita N+1 no reserve). */
+  private async loadProductsForLines(
+    tx: Tx,
+    lines: Array<{ productId: string | null; sku: string }>,
+  ): Promise<{
+    byId: Map<
+      string,
+      {
+        id: string;
+        sku: string;
+        stockQty: number;
+        reservedQty: number;
+        isActive: boolean;
+      }
+    >;
+    bySkuLower: Map<
+      string,
+      {
+        id: string;
+        sku: string;
+        stockQty: number;
+        reservedQty: number;
+        isActive: boolean;
+      }
+    >;
+  }> {
+    const ids = [
+      ...new Set(
+        lines.map((l) => l.productId).filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const skus = [
+      ...new Set(
+        lines
+          .filter((l) => !l.productId)
+          .map((l) => l.sku.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    const or: Prisma.ProductWhereInput[] = [];
+    if (ids.length > 0) or.push({ id: { in: ids } });
+    for (const sku of skus) {
+      or.push({
+        sku: { equals: sku, mode: Prisma.QueryMode.insensitive },
+      });
+      or.push({
+        internalCode: { equals: sku, mode: Prisma.QueryMode.insensitive },
+      });
+    }
+
+    const rows =
+      or.length === 0
+        ? []
+        : await tx.product.findMany({
+            where: { OR: or },
+            select: {
+              id: true,
+              sku: true,
+              stockQty: true,
+              reservedQty: true,
+              isActive: true,
+              internalCode: true,
+            },
+          });
+
+    const byId = new Map<
+      string,
+      {
+        id: string;
+        sku: string;
+        stockQty: number;
+        reservedQty: number;
+        isActive: boolean;
+      }
+    >();
+    const bySkuLower = new Map<
+      string,
+      {
+        id: string;
+        sku: string;
+        stockQty: number;
+        reservedQty: number;
+        isActive: boolean;
+      }
+    >();
+    for (const r of rows) {
+      const slim = {
+        id: r.id,
+        sku: r.sku,
+        stockQty: r.stockQty,
+        reservedQty: r.reservedQty,
+        isActive: r.isActive,
+      };
+      byId.set(r.id, slim);
+      bySkuLower.set(r.sku.toLowerCase(), slim);
+      if (r.internalCode?.trim()) {
+        bySkuLower.set(r.internalCode.trim().toLowerCase(), slim);
+      }
+    }
+    return { byId, bySkuLower };
   }
 
   private async releaseReservations(

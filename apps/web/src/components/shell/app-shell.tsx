@@ -15,7 +15,7 @@ export function AppShell({ user, children }: AppShellProps) {
       <div className="erp-app-bg relative min-h-screen-safe w-full">
         <div className="erp-app-vignette" aria-hidden />
         <TopNavigation user={user} />
-        <main className="relative mx-auto w-full max-w-[1600px] px-3 pb-[72px] pt-[64px] sm:px-4 sm:pb-[84px] sm:pt-[108px] lg:px-8 lg:pb-16 lg:pt-[116px]">
+        <main className="relative w-full px-3 pb-[72px] pt-[64px] sm:px-4 sm:pb-[84px] sm:pt-[108px] lg:px-6 lg:pb-16 lg:pt-[116px]">
           {children}
         </main>
         <BottomNavigation />

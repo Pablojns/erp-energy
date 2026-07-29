@@ -39,6 +39,7 @@ import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
+import { UpdateNfHistoricoDto } from './dto/update-nf-historico.dto';
 import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
 import { UpdateSitePedidoItemsDto } from './dto/update-site-pedido-items.dto';
 import { GenerateRomaneioDto } from './dto/generate-romaneio.dto';
@@ -74,6 +75,33 @@ export class PedidosController {
     // Para filtros específicos da planilha: use `externalOrderNumber`, `receiverName`, `unloadingPoint`.
     // Controller de "pedidos" é apenas um alias REST.
     return this.pedidos.list(query);
+  }
+
+  /**
+   * GET /api/pedidos/dashboard
+   * KPIs agregados da expedição (sem paginar todos os pedidos).
+   */
+  @Get('dashboard')
+  dashboard() {
+    return this.pedidos.expeditionDashboard();
+  }
+
+  /**
+   * GET /api/pedidos/nf-historico/search?q=
+   * Busca global no histórico de NFs (NF, pedido ou CNPJ).
+   */
+  @Get('nf-historico/search')
+  searchNfHistorico(@Query('q') q?: string) {
+    return this.pedidos.searchNfHistorico(q);
+  }
+
+  @Patch('nf-historico/:historyId')
+  updateNfHistorico(
+    @CurrentUser() user: AuthUser,
+    @Param('historyId') historyId: string,
+    @Body() dto: UpdateNfHistoricoDto,
+  ) {
+    return this.pedidos.updateNfHistorico(user.id, historyId, dto);
   }
 
   @Post()

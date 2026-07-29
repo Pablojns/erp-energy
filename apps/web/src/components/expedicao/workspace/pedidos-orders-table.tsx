@@ -50,10 +50,13 @@ export const PEDIDOS_TABLE_COLUMN_DEFINITIONS: ColumnDefinition[] = [
 
 const PEDIDOS_TABLE_ID = 'expedicao-pedidos';
 
-/** Larguras fixas (px) — colunas opcionais compartilham o espaço restante. */
+/** Larguras fixas (px) — o filler no fim absorve o espaço restante. */
 const FIXED_COL_WIDTH_PX: Partial<Record<string, number>> = {
   pedido: 90,
   status: 110,
+  recebedor: 160,
+  pontoDescarga: 140,
+  transportadora: 120,
   nf: 44,
   dataPedido: 52,
   dataEntrega: 52,
@@ -181,6 +184,7 @@ export function PedidosOrdersTable({
               }
               return <col key={col.key} />;
             })}
+            <col className="exp-pedidos-col-filler" />
             {hasActions ? <col style={{ width: '52px' }} /> : null}
           </colgroup>
           <thead>
@@ -198,6 +202,7 @@ export function PedidosOrdersTable({
                   <span className="block truncate">{col.label}</span>
                 </th>
               ))}
+              <th className="exp-pedidos-th exp-pedidos-th--filler" aria-hidden />
               {hasActions ? (
                 <th className="exp-pedidos-th text-right" scope="col">
                   Ações
@@ -259,6 +264,7 @@ export function PedidosOrdersTable({
                       )}
                     </td>
                   ))}
+                  <td className="exp-pedidos-td exp-pedidos-td--filler" aria-hidden />
                   {hasActions ? (
                     <td
                       className="exp-pedidos-td text-right"

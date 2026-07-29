@@ -487,7 +487,7 @@ export function OrderQueue(props: {
     const pedidos = data.orders
       .filter((o) => selectedForPrintIds.has(o.id))
       .map(mapOrderToPedidoParaImpressao);
-    downloadWaybillPdf(pedidos);
+    void downloadWaybillPdf(pedidos);
   };
 
   const renderOrderCard = (o: OrderDto) => (
