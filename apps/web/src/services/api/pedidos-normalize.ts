@@ -210,6 +210,28 @@ export function normalizeInvoiceNumberDigits(raw: string | null | undefined): st
   return part.replace(/\D/g, '');
 }
 
+/** NF válida (ignora placeholders como "-" da planilha WEG). */
+export function hasValidInvoiceNumber(raw: string | null | undefined): boolean {
+  return normalizeInvoiceNumberDigits(raw).length > 0;
+}
+
+/** Nota de remessa preenchida e confirmada — libera etiqueta/saída como NF. */
+export function hasConfirmedRemessa(order: {
+  notaRemessa?: string | null;
+  notaRemessaConfirmada?: boolean | null;
+}): boolean {
+  return Boolean(order.notaRemessa?.trim()) && Boolean(order.notaRemessaConfirmada);
+}
+
+/** Documento fiscal para etiqueta: NF de venda ou remessa confirmada. */
+export function hasFiscalDocForEtiqueta(order: {
+  invoiceNumber?: string | null;
+  notaRemessa?: string | null;
+  notaRemessaConfirmada?: boolean | null;
+}): boolean {
+  return hasValidInvoiceNumber(order.invoiceNumber) || hasConfirmedRemessa(order);
+}
+
 export function numeroPedFromOrder(order: {
   externalOrderNumber?: string | null;
   code?: string;

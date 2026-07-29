@@ -24,6 +24,7 @@ import {
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
+  hasFiscalDocForEtiqueta,
   normalizeInvoiceNumberDigits,
   numeroPedFromOrder,
   pedidoApiUrl,
@@ -317,6 +318,7 @@ export const OrderInfoPanel = forwardRef<
   const [editingNfHistory, setEditingNfHistory] = useState<NfHistoricoItem | null>(
     null,
   );
+  const [addingNf, setAddingNf] = useState(false);
   const [editNfNumber, setEditNfNumber] = useState('');
   const [editNfValue, setEditNfValue] = useState('');
   const [editNfPickedQty, setEditNfPickedQty] = useState('');
@@ -328,7 +330,7 @@ export const OrderInfoPanel = forwardRef<
   const canEmitEtiqueta =
     order.status === 'FINALIZADO' ||
     (isCorreiosCarrier(order.carrierName) &&
-      Boolean(order.invoiceNumber?.trim()) &&
+      hasFiscalDocForEtiqueta(order) &&
       (order.status === 'NF_ATRELADA' ||
         order.status === 'AGUARDANDO_NF' ||
         order.status === 'SEPARADO'));
@@ -371,6 +373,7 @@ export const OrderInfoPanel = forwardRef<
     setNfHistoricoSearch('');
     setNfHistoricoSearchResults(null);
     setEditingNfHistory(null);
+    setAddingNf(false);
   }, [order.id]);
 
   useEffect(() => {
@@ -385,7 +388,15 @@ export const OrderInfoPanel = forwardRef<
       pedidoApiUrl(numeroPed, 'nf-historico'),
     )
       .then((res) => {
-        if (!cancelled) setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
+        if (!cancelled) {
+          const rows = Array.isArray(res.historico) ? res.historico : [];
+          setNfHistorico(
+            rows.filter(
+              (row) =>
+                normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
+            ),
+          );
+        }
       })
       .catch(() => {
         if (!cancelled) setNfHistorico([]);
@@ -421,6 +432,7 @@ export const OrderInfoPanel = forwardRef<
   };
 
   const openEditNfHistory = (row: NfHistoricoItem) => {
+    setAddingNf(false);
     setEditingNfHistory(row);
     setEditNfNumber(row.invoiceNumber);
     setEditNfValue(row.invoiceValue ?? '');
@@ -428,8 +440,22 @@ export const OrderInfoPanel = forwardRef<
     setEditNfDate(row.createdAt.slice(0, 10));
   };
 
+  const openAddNfHistory = () => {
+    setEditingNfHistory(null);
+    setAddingNf(true);
+    setEditNfNumber('');
+    setEditNfValue('');
+    setEditNfPickedQty('0');
+    setEditNfDate(new Date().toISOString().slice(0, 10));
+    setNfHistoricoSearchResults(null);
+  };
+
+  const closeNfForm = () => {
+    setEditingNfHistory(null);
+    setAddingNf(false);
+  };
+
   const saveEditNfHistory = async () => {
-    if (!editingNfHistory) return;
     const invoiceNumber = editNfNumber.trim();
     if (!invoiceNumber) {
       window.alert('Informe o número da NF.');
@@ -444,8 +470,38 @@ export const OrderInfoPanel = forwardRef<
       window.alert('Informe a data da NF.');
       return;
     }
+
+    const numeroPed = numeroPedFromOrder(order);
+    if (!numeroPed && addingNf) {
+      window.alert('Pedido sem número para vincular a NF.');
+      return;
+    }
+
     setSavingNfHistory(true);
     try {
+      if (addingNf) {
+        const res = await erpFetchJson<{
+          currentInvoiceNumber: string | null;
+          historico: NfHistoricoItem[];
+        }>(pedidoApiUrl(numeroPed!, 'nf-historico'), {
+          method: 'POST',
+          body: JSON.stringify({
+            invoiceNumber,
+            invoiceValue: editNfValue.trim() || null,
+            pickedQtyAtTime: picked,
+            createdAt: editNfDate.trim(),
+          }),
+        });
+        setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
+        const nextInvoice = res.currentInvoiceNumber ?? invoiceNumber;
+        setNotaVendaInput(nextInvoice);
+        lastSavedNotaVendaRef.current = nextInvoice;
+        onNotaRemessaSaved?.(nextInvoice);
+        closeNfForm();
+        return;
+      }
+
+      if (!editingNfHistory) return;
       const updated = await erpFetchJson<NfHistoricoItem>(
         `api/pedidos/nf-historico/${editingNfHistory.id}`,
         {
@@ -479,7 +535,7 @@ export const OrderInfoPanel = forwardRef<
         lastSavedNotaVendaRef.current = invoiceNumber;
         onNotaRemessaSaved?.(invoiceNumber);
       }
-      setEditingNfHistory(null);
+      closeNfForm();
     } catch (err) {
       window.alert(
         err instanceof Error ? err.message : 'Não foi possível salvar a NF.',
@@ -763,6 +819,32 @@ export const OrderInfoPanel = forwardRef<
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+      // Após etiqueta: registra saída quando o pedido ainda está no fluxo de separação
+      // (Correios já tenta no backend; POST /saida é idempotente).
+      const canRegisterExit =
+        order.status === 'SEPARADO' ||
+        order.status === 'AGUARDANDO_NF' ||
+        order.status === 'NF_ATRELADA';
+      if (canRegisterExit) {
+        const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
+        const remessa = order.notaRemessa?.trim() || '';
+        const body = invoiceDigits
+          ? { invoiceNumber: invoiceDigits }
+          : remessa
+            ? {}
+            : {
+                invoiceNumber:
+                  order.trackingCode?.trim() || existingEtiquetaCode || '',
+              };
+        if (invoiceDigits || remessa || body.invoiceNumber) {
+          await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+        }
+      }
+
       onStatusChanged?.();
     } catch (err) {
       setEtiquetaError(
@@ -787,7 +869,7 @@ export const OrderInfoPanel = forwardRef<
       const remessa = order.notaRemessa?.trim() || '';
       const body = invoiceDigits
         ? { invoiceNumber: invoiceDigits }
-        : remessa
+        : remessa || order.notaRemessaConfirmada
           ? {}
           : { invoiceNumber: existingEtiquetaCode || order.trackingCode?.trim() || '' };
 
@@ -1233,7 +1315,7 @@ export const OrderInfoPanel = forwardRef<
                 <p className="mt-2 text-xs text-[var(--text-secondary)]">Carregando…</p>
               ) : nfHistorico.length === 0 ? (
                 <p className="mt-2 text-xs text-[var(--text-secondary)]">
-                  Nenhuma NF neste pedido — clique para buscar no sistema.
+                  Nenhuma NF vinculada a este pedido.
                 </p>
               ) : (
                 <>
@@ -1251,7 +1333,7 @@ export const OrderInfoPanel = forwardRef<
                     className="mt-2"
                     style={{ fontSize: 11, color: 'gray', cursor: 'pointer' }}
                   >
-                    Clique para ver, buscar e editar
+                    Clique para ver e editar
                   </p>
                 </>
               )}
@@ -1265,22 +1347,27 @@ export const OrderInfoPanel = forwardRef<
                 aria-labelledby="nf-historico-modal-title"
               >
                 <div
-                  className="w-full max-w-lg rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"
+                  className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-lg"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <h3
-                      id="nf-historico-modal-title"
-                      className="text-base font-semibold text-[var(--text-primary)]"
-                    >
-                      Histórico de Notas Fiscais
-                    </h3>
+                  <div className="flex shrink-0 items-start justify-between gap-3">
+                    <div>
+                      <h3
+                        id="nf-historico-modal-title"
+                        className="text-base font-semibold text-[var(--text-primary)]"
+                      >
+                        Histórico de Notas Fiscais
+                      </h3>
+                      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                        Notas vinculadas a este pedido. Clique em Editar para corrigir número, valor ou data.
+                      </p>
+                    </div>
                     <button
                       type="button"
                       className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       onClick={() => {
                         setNfHistoricoModalOpen(false);
-                        setEditingNfHistory(null);
+                        closeNfForm();
                         setNfHistoricoSearchResults(null);
                         setNfHistoricoSearch('');
                       }}
@@ -1290,35 +1377,45 @@ export const OrderInfoPanel = forwardRef<
                     </button>
                   </div>
 
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      className="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                      placeholder="Buscar NF, pedido ou CNPJ…"
-                      value={nfHistoricoSearch}
-                      onChange={(e) => setNfHistoricoSearch(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          void runNfHistoricoSearch();
-                        }
-                      }}
-                    />
+                  <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                      disabled={nfHistoricoSearchLoading}
-                      onClick={() => void runNfHistoricoSearch()}
+                      className="inline-flex items-center rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={savingNfHistory || isFinalized}
+                      onClick={openAddNfHistory}
                     >
-                      {nfHistoricoSearchLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : null}
-                      Buscar
+                      + Adicionar Nota Fiscal
                     </button>
+                    <div className="flex min-w-0 flex-1 gap-2">
+                      <input
+                        className="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        placeholder="Buscar NF, pedido ou CNPJ (global)…"
+                        value={nfHistoricoSearch}
+                        onChange={(e) => setNfHistoricoSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void runNfHistoricoSearch();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-60"
+                        disabled={nfHistoricoSearchLoading}
+                        onClick={() => void runNfHistoricoSearch()}
+                      >
+                        {nfHistoricoSearchLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        Buscar
+                      </button>
+                    </div>
                   </div>
                   {nfHistoricoSearchResults ? (
                     <button
                       type="button"
-                      className="mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
+                      className="mt-2 shrink-0 self-start text-xs font-medium text-[var(--accent)] hover:underline"
                       onClick={() => {
                         setNfHistoricoSearchResults(null);
                         setNfHistoricoSearch('');
@@ -1326,66 +1423,70 @@ export const OrderInfoPanel = forwardRef<
                     >
                       Voltar ao histórico deste pedido
                     </button>
-                  ) : (
-                    <p className="mt-2 text-xs text-[var(--text-secondary)]">
-                      Exibindo NFs deste pedido. Use a busca para pesquisar em todo o sistema.
-                    </p>
-                  )}
+                  ) : null}
 
-                  {editingNfHistory ? (
-                    <div className="mt-3 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/50 p-3">
+                  {addingNf || editingNfHistory ? (
+                    <div className="mt-3 shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/50 p-3">
                       <p className="text-xs font-semibold text-[var(--text-primary)]">
-                        Editar NF
-                        {editingNfHistory.orderNumber
-                          ? ` · Pedido ${editingNfHistory.orderNumber}`
-                          : ''}
+                        {addingNf
+                          ? 'Nova Nota Fiscal'
+                          : `Editar NF${
+                              editingNfHistory?.orderNumber
+                                ? ` · Pedido ${editingNfHistory.orderNumber}`
+                                : ''
+                            }`}
                       </p>
-                      <label className="block text-xs text-[var(--text-secondary)]">
-                        Número da NF
-                        <input
-                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
-                          value={editNfNumber}
-                          onChange={(e) => setEditNfNumber(e.target.value)}
-                          disabled={savingNfHistory}
-                        />
-                      </label>
-                      <label className="block text-xs text-[var(--text-secondary)]">
-                        Valor (R$)
-                        <input
-                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
-                          value={editNfValue}
-                          onChange={(e) => setEditNfValue(e.target.value)}
-                          disabled={savingNfHistory}
-                          placeholder="0.00"
-                        />
-                      </label>
-                      <label className="block text-xs text-[var(--text-secondary)]">
-                        Qtd. separada no momento
-                        <input
-                          type="number"
-                          min={0}
-                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
-                          value={editNfPickedQty}
-                          onChange={(e) => setEditNfPickedQty(e.target.value)}
-                          disabled={savingNfHistory}
-                        />
-                      </label>
-                      <label className="block text-xs text-[var(--text-secondary)]">
-                        Data de saída
-                        <input
-                          type="date"
-                          className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
-                          value={editNfDate}
-                          onChange={(e) => setEditNfDate(e.target.value)}
-                          disabled={savingNfHistory}
-                        />
-                      </label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <label className="block text-xs text-[var(--text-secondary)] sm:col-span-1">
+                          Número da NF
+                          <input
+                            className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                            value={editNfNumber}
+                            onChange={(e) => setEditNfNumber(e.target.value)}
+                            disabled={savingNfHistory}
+                            autoFocus
+                          />
+                        </label>
+                        <label className="block text-xs text-[var(--text-secondary)]">
+                          Valor (R$)
+                          <input
+                            className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                            value={editNfValue}
+                            onChange={(e) => setEditNfValue(e.target.value)}
+                            disabled={savingNfHistory}
+                            placeholder="0.00"
+                          />
+                        </label>
+                        <label className="block text-xs text-[var(--text-secondary)]">
+                          Data de saída
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                            value={editNfDate}
+                            onChange={(e) => setEditNfDate(e.target.value)}
+                            disabled={savingNfHistory}
+                          />
+                        </label>
+                      </div>
+                      {!addingNf ? (
+                        <label className="block text-xs text-[var(--text-secondary)]">
+                          Qtd. separada no momento
+                          <input
+                            type="number"
+                            min={0}
+                            className="mt-1 w-full max-w-[140px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                            value={editNfPickedQty}
+                            onChange={(e) => setEditNfPickedQty(e.target.value)}
+                            disabled={savingNfHistory}
+                          />
+                        </label>
+                      ) : null}
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
                           className="rounded-lg border border-[var(--border-color)] px-3 py-1.5 text-xs"
                           disabled={savingNfHistory}
-                          onClick={() => setEditingNfHistory(null)}
+                          onClick={closeNfForm}
                         >
                           Cancelar
                         </button>
@@ -1404,28 +1505,43 @@ export const OrderInfoPanel = forwardRef<
                     </div>
                   ) : null}
 
-                  <ul className="mt-3 max-h-[50vh] space-y-2 overflow-y-auto">
+                  <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
                     {(nfHistoricoSearchResults ?? nfHistorico).length === 0 ? (
-                      <li className="text-sm text-[var(--text-secondary)]">
-                        Nenhum registro encontrado.
+                      <li className="rounded-lg border border-dashed border-[var(--border-color)] px-3 py-4 text-center text-sm text-[var(--text-secondary)]">
+                        Nenhuma NF neste histórico.
+                        {!isFinalized ? ' Use “+ Adicionar Nota Fiscal”.' : null}
                       </li>
                     ) : (
                       (nfHistoricoSearchResults ?? nfHistorico).map((row) => (
                         <li
                           key={row.id}
-                          className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2 text-sm text-[var(--text-primary)]"
+                          className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 px-3 py-2.5 text-sm text-[var(--text-primary)]"
                         >
-                          <span className="min-w-0 flex-1">{formatNfHistoricoDetail(row)}</span>
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left hover:opacity-90"
+                            onClick={() => openEditNfHistory(row)}
+                            title="Clique para editar"
+                          >
+                            <span className="block font-mono text-sm font-semibold">
+                              NF {row.invoiceNumber}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">
+                              {formatMoneyBrl(row.invoiceValue)} ·{' '}
+                              {new Date(row.createdAt).toLocaleDateString('pt-BR')} ·{' '}
+                              {row.pickedQtyAtTime} un.
+                              {row.orderNumber ? ` · Pedido ${row.orderNumber}` : ''}
+                            </span>
+                          </button>
                           <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
-                              className="rounded-lg border border-[var(--border-color)] p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                              title={`Editar NF ${row.invoiceNumber}`}
-                              aria-label={`Editar NF ${row.invoiceNumber}`}
+                              className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-50"
                               disabled={savingNfHistory}
                               onClick={() => openEditNfHistory(row)}
                             >
                               <Pencil className="h-3.5 w-3.5" />
+                              Editar
                             </button>
                             {!isFinalized && !nfHistoricoSearchResults ? (
                               <button
@@ -1453,7 +1569,7 @@ export const OrderInfoPanel = forwardRef<
                   {!isFinalized &&
                   !nfHistoricoSearchResults &&
                   nfHistorico.length > 0 ? (
-                    <div className="mt-3 flex justify-end">
+                    <div className="mt-3 flex shrink-0 justify-end">
                       <button
                         type="button"
                         className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"

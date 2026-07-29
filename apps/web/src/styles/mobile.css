@@ -858,7 +858,7 @@
     flex-wrap: nowrap !important;
     overflow-x: visible !important;
     gap: 0.25rem !important;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .exp-wb-stepper-pill {

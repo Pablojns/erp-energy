@@ -1758,7 +1758,10 @@ export class PedidosService {
     const prePostagem = await this.correiosService.criarPrePostagem({
       remetente,
       destinatario,
-      numeroNotaFiscal: order.invoiceNumber?.trim() || undefined,
+      numeroNotaFiscal:
+        this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '') ||
+        order.notaRemessa?.trim() ||
+        undefined,
       objeto: {
         codigoServico,
         pesoGramas: 0,
@@ -1849,12 +1852,15 @@ export class PedidosService {
       order.status === OrderStatus.NF_ATRELADA;
     if (!canExit) return;
 
-    const nfRaw =
-      order.invoiceNumber?.trim() || order.notaRemessa?.trim() || '';
-    // SITE/Correios sem NF: ainda registra saída usando o rastreio como referência.
+    const invoiceDigits = this.normalizeInvoiceNumberDigits(
+      order.invoiceNumber ?? '',
+    );
+    const remessa = order.notaRemessa?.trim() || '';
+    // Preferir NF válida; senão remessa; senão rastreio. Nunca usar placeholder "-".
     const nfDigits =
-      this.normalizeInvoiceNumberDigits(nfRaw) ||
-      nfRaw ||
+      invoiceDigits ||
+      this.normalizeInvoiceNumberDigits(remessa) ||
+      remessa ||
       tracking ||
       '';
     if (!nfDigits) return;
@@ -2098,7 +2104,11 @@ export class PedidosService {
       order.externalOrderNumber?.trim() || order.code?.trim() || trimmed;
     const receiver = order.receiverName?.trim() || '—';
     const unloading = order.unloadingPoint?.trim() || '—';
-    const nf = order.invoiceNumber?.trim() || '—';
+    const nfDigits = this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '');
+    const nf =
+      nfDigits ||
+      order.notaRemessa?.trim() ||
+      '—';
 
     const CM = 72 / 2.54;
     const labelW = 10 * CM;
@@ -2486,6 +2496,126 @@ export class PedidosService {
         createdAt: row.createdAt.toISOString(),
         createdBy: row.createdBy,
       })),
+    };
+  }
+
+  async createNfHistorico(
+    userId: string,
+    numeroPed: string,
+    dto: {
+      invoiceNumber: string;
+      invoiceValue?: string | null;
+      pickedQtyAtTime?: number;
+      createdAt?: string;
+    },
+  ) {
+    const order = await this.prisma.client.order.findFirst({
+      where: {
+        OR: [
+          { externalOrderNumber: numeroPed.trim() },
+          { code: numeroPed.trim() },
+        ],
+      },
+      select: {
+        id: true,
+        code: true,
+        externalOrderNumber: true,
+        invoiceNumber: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    const invoiceNumber = dto.invoiceNumber.trim();
+    if (!invoiceNumber) {
+      throw new BadRequestException('Informe o número da NF.');
+    }
+
+    const createdAt =
+      dto.createdAt?.trim()
+        ? this.parseNfHistoryDate(dto.createdAt)
+        : new Date();
+    const invoiceValue =
+      dto.invoiceValue != null && String(dto.invoiceValue).trim() !== ''
+        ? decimalFromStringOrZero(String(dto.invoiceValue).trim())
+        : null;
+    const pickedQtyAtTime = Math.max(0, dto.pickedQtyAtTime ?? 0);
+
+    const created = await this.prisma.client.$transaction(async (tx) => {
+      const row = await tx.orderInvoiceHistory.create({
+        data: {
+          orderId: order.id,
+          invoiceNumber,
+          invoiceValue,
+          pickedQtyAtTime,
+          createdAt,
+          createdBy: userId,
+        },
+      });
+
+      // Atualiza NF corrente se o pedido ainda não tiver, ou se a nova for mais recente.
+      const shouldSetCurrent =
+        !order.invoiceNumber?.trim() ||
+        createdAt.getTime() >= Date.now() - 1000;
+      if (shouldSetCurrent || !order.invoiceNumber?.trim()) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            invoiceNumber,
+            invoiceStatus: InvoiceStatus.INVOICED,
+            invoicedAt: createdAt,
+          },
+        });
+      } else {
+        // Se a data informada for mais recente que a NF corrente no histórico, promove.
+        const currentHist = await tx.orderInvoiceHistory.findFirst({
+          where: {
+            orderId: order.id,
+            invoiceNumber: order.invoiceNumber.trim(),
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        });
+        if (!currentHist || createdAt.getTime() >= currentHist.createdAt.getTime()) {
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              invoiceNumber,
+              invoiceStatus: InvoiceStatus.INVOICED,
+              invoicedAt: createdAt,
+            },
+          });
+        }
+      }
+
+      return row;
+    });
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_INVOICE_HISTORY_CREATED',
+      entity: 'OrderInvoiceHistory',
+      entityId: created.id,
+      changes: {
+        orderId: order.id,
+        orderNumber: order.externalOrderNumber ?? order.code,
+        invoiceNumber: created.invoiceNumber,
+        invoiceValue: created.invoiceValue?.toString() ?? null,
+        createdAt: created.createdAt.toISOString(),
+      },
+    });
+
+    const refreshed = await this.listNfHistorico(numeroPed);
+    return {
+      ...refreshed,
+      created: {
+        id: created.id,
+        invoiceNumber: created.invoiceNumber,
+        invoiceValue: created.invoiceValue?.toString() ?? null,
+        pickedQtyAtTime: created.pickedQtyAtTime,
+        createdAt: created.createdAt.toISOString(),
+        createdBy: created.createdBy,
+      },
     };
   }
 
@@ -2997,9 +3127,12 @@ export class PedidosService {
       }
     }
     if (!nf) {
-      const currentInvoice = order.invoiceNumber?.trim();
-      if (currentInvoice) {
-        nf = this.normalizeInvoiceNumberDigits(currentInvoice) || currentInvoice;
+      // Só aceita NF com dígitos válidos (ignora placeholder "-" da planilha).
+      const invoiceDigits = this.normalizeInvoiceNumberDigits(
+        order.invoiceNumber ?? '',
+      );
+      if (invoiceDigits) {
+        nf = invoiceDigits;
       }
     }
     // Pedidos travados com etiqueta já emitida (mesmo sem NF): usa o rastreio como referência.

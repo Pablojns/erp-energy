@@ -25,7 +25,7 @@ import {
 } from '@/src/components/expedicao/workspace/weg-buyer-customer-selector';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { normalizeInvoiceNumberDigits, numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 const ORDER_STATUSES = [
   'NOVO',
@@ -214,9 +214,15 @@ export function AdminOrderEditModal(props: {
     setPriority(String(order.priority));
     setMercadoEletronicoStatus(order.mercadoEletronicoStatus ?? '');
     setContaAzulStatus(order.contaAzulStatus ?? '');
-    setInvoiceNumber(order.invoiceNumber ?? '');
+    setInvoiceNumber(
+      order.invoiceNumber?.trim() &&
+        normalizeInvoiceNumberDigits(order.invoiceNumber)
+        ? order.invoiceNumber
+        : '',
+    );
     setInvoiceHistory(
-      order.invoiceNumber?.trim()
+      order.invoiceNumber?.trim() &&
+        normalizeInvoiceNumberDigits(order.invoiceNumber)
         ? [
             {
               key: `seed-${order.id}`,
@@ -262,7 +268,9 @@ export function AdminOrderEditModal(props: {
         }>;
       }>(pedidoApiUrl(numero, 'nf-historico'))
         .then((res) => {
-          const rows = Array.isArray(res.historico) ? res.historico : [];
+          const rows = (Array.isArray(res.historico) ? res.historico : []).filter(
+            (row) => normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
+          );
           if (rows.length === 0) return;
           setInvoiceHistory(
             rows.map((row) => ({
@@ -415,7 +423,11 @@ export function AdminOrderEditModal(props: {
           invoiceValue: row.invoiceValue.trim() || null,
           createdAt: row.createdAt.trim() || undefined,
         }))
-        .filter((row) => row.invoiceNumber.length > 0);
+        .filter(
+          (row) =>
+            row.invoiceNumber.length > 0 &&
+            normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
+        );
 
       const currentInvoice =
         [...cleanedInvoices].sort((a, b) =>
@@ -436,8 +448,8 @@ export function AdminOrderEditModal(props: {
         priority: Number(priority),
         mercadoEletronicoStatus,
         contaAzulStatus,
-        invoiceNumber: isWegOrder ? currentInvoice : invoiceNumber,
-        ...(isWegOrder ? { invoiceHistory: cleanedInvoices } : {}),
+        invoiceNumber: currentInvoice || invoiceNumber,
+        invoiceHistory: cleanedInvoices,
         totalValue,
         carrierId: carrierId.trim() || null,
         companyEntityId: companyEntityId.trim() || null,

@@ -40,6 +40,7 @@ import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderCarrierDto } from './dto/update-order-carrier.dto';
 import { UpdatePedidoAdminDto } from './dto/update-pedido-admin.dto';
 import { UpdateNfHistoricoDto } from './dto/update-nf-historico.dto';
+import { CreateNfHistoricoDto } from './dto/create-nf-historico.dto';
 import { UpdatePedidoVolumesDto } from './dto/update-pedido-volumes.dto';
 import { UpdateSitePedidoItemsDto } from './dto/update-site-pedido-items.dto';
 import { GenerateRomaneioDto } from './dto/generate-romaneio.dto';
@@ -577,6 +578,15 @@ export class PedidosController {
   @Get(':numeroPed/nf-historico')
   listNfHistorico(@Param('numeroPed') numeroPed: string) {
     return this.pedidos.listNfHistorico(numeroPed);
+  }
+
+  @Post(':numeroPed/nf-historico')
+  createNfHistorico(
+    @CurrentUser() user: AuthUser,
+    @Param('numeroPed') numeroPed: string,
+    @Body() dto: CreateNfHistoricoDto,
+  ) {
+    return this.pedidos.createNfHistorico(user.id, numeroPed, dto);
   }
 
   @Delete(':numeroPed/nf-historico/:historyId')

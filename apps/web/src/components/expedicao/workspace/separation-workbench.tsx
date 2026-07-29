@@ -20,6 +20,9 @@ import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
+  hasConfirmedRemessa,
+  hasFiscalDocForEtiqueta,
+  hasValidInvoiceNumber,
   normalizeInvoiceNumberDigits,
   numeroPedFromOrder,
   pedidoApiUrl,
@@ -285,15 +288,25 @@ export function SeparationWorkbench(props: {
     }
     const invoiceDigits = normalizeInvoiceNumberDigits(current.invoiceNumber);
     if (invoiceDigits) {
-      await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
-        method: 'POST',
-        body: JSON.stringify({ invoiceNumber: invoiceDigits }),
-      });
-    } else {
-      const ok = await data.attachRemessaExit(current.id);
-      if (!ok) return false;
+      try {
+        await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
+          method: 'POST',
+          body: JSON.stringify({ invoiceNumber: invoiceDigits }),
+        });
+        return true;
+      } catch (err) {
+        data.setToast({
+          variant: 'err',
+          message:
+            err instanceof Error ? err.message : 'Falha ao registrar saída.',
+        });
+        return false;
+      }
     }
-    return true;
+    // Remessa confirmada, placeholder de NF ("-") ou só rastreio: POST vazio
+    // deixa o backend resolver remessa → NF → tracking.
+    const ok = await data.attachRemessaExit(current.id);
+    return ok;
   };
 
   const emitEtiquetaAndExit = async (current: OrderDto) => {
@@ -413,18 +426,18 @@ export function SeparationWorkbench(props: {
     (order.status === 'SEPARADO' ||
       order.status === 'AGUARDANDO_NF' ||
       order.status === 'NF_ATRELADA');
-  const hasInvoice = Boolean(order?.invoiceNumber?.trim());
+  const hasRemessaDoc = order ? hasConfirmedRemessa(order) : false;
+  const hasFiscalDoc = order ? hasFiscalDocForEtiqueta(order) : false;
   const canGerarNfFlask =
     !!order &&
     mode === 'separation' &&
-    !hasInvoice &&
+    !hasFiscalDoc &&
     (order.status === 'SEPARADO' ||
       order.status === 'AGUARDANDO_NF' ||
       orderStatus === 'NF_PENDENTE');
   const canAttachNf = canGerarNfFlask;
   // SITE + Correios: etiqueta sem exigir NF.
-  // Demais (incl. WEG + Correios): NF obrigatória; libera após NF em NF_ATRELADA
-  // ou quando já há NF no pedido pós-separação (planilha / atrelamento).
+  // Demais: NF de venda OU Nota de Remessa confirmada liberam etiqueta → saída.
   const canPrintEtiquetaAndExit =
     mode === 'separation' &&
     order.status !== 'FINALIZADO' &&
@@ -435,7 +448,7 @@ export function SeparationWorkbench(props: {
         orderStatus === 'NF_PENDENTE' ||
         order.status === 'NF_ATRELADA' ||
         readyForEtiqueta
-      : hasInvoice &&
+      : hasFiscalDoc &&
         (order.status === 'NF_ATRELADA' ||
           readyForEtiqueta ||
           order.status === 'SEPARADO' ||
@@ -445,7 +458,8 @@ export function SeparationWorkbench(props: {
   const canRemessaExit =
     mode === 'separation' &&
     canGenerateExit &&
-    Boolean(order.notaRemessa?.trim());
+    hasRemessaDoc &&
+    !canPrintEtiquetaAndExit;
   const shouldShowConcludeAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
   const shouldShowSaveAction = mode === 'separation' && !canGenerateExit && !exitGenerated;
 
@@ -793,10 +807,12 @@ export function SeparationWorkbench(props: {
                   isCorreiosCarrier(order.carrierName)
                 ) {
                   setReadyForEtiqueta(true);
-                } else if (!order.invoiceNumber?.trim()) {
+                } else if (hasFiscalDocForEtiqueta(order)) {
+                  // NF de venda ou remessa confirmada → libera etiqueta/saída.
+                  setReadyForEtiqueta(true);
+                } else if (!hasValidInvoiceNumber(order.invoiceNumber)) {
                   openNfFlaskModal();
                 } else {
-                  // WEG (e demais) com NF já atrelada/planilha → libera etiqueta.
                   setReadyForEtiqueta(true);
                 }
               })
