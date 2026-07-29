@@ -3231,6 +3231,484 @@ export class PedidosService {
     );
   }
 
+  private static readonly VINCULO_VALUE_TOLERANCE = 0.08; // 8%
+  private static readonly VINCULO_SKU_MAJORITY = 0.5;
+
+  private normalizeReceiverName(value: string | null | undefined): string | null {
+    if (!value) return null;
+    const normalized = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, ' ');
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private decimalToNumber(value: Prisma.Decimal | number | string | null | undefined): number {
+    if (value === null || value === undefined) return 0;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private orderDisplayRef(order: {
+    externalOrderNumber: string | null;
+    code: string;
+  }): string {
+    return (order.externalOrderNumber?.trim() || order.code || '').replace(/^#/, '');
+  }
+
+  private resolveOrderCnpjDigits(order: {
+    deliveryCnpj: string | null;
+    customerDocument: string | null;
+  }): string | null {
+    return (
+      this.normalizeCnpjDigits(order.deliveryCnpj) ||
+      this.normalizeCnpjDigits(order.customerDocument)
+    );
+  }
+
+  private skuOverlapRatio(
+    a: Map<string, number>,
+    b: Map<string, number>,
+  ): { matched: number; ratio: number; totalA: number; totalB: number } {
+    let matched = 0;
+    for (const sku of a.keys()) {
+      if (b.has(sku)) matched += 1;
+    }
+    const totalA = a.size;
+    const totalB = b.size;
+    const denom = Math.max(totalA, totalB, 1);
+    return { matched, ratio: matched / denom, totalA, totalB };
+  }
+
+  private valueWithinTolerance(
+    a: number,
+    b: number,
+    tolerance = PedidosService.VINCULO_VALUE_TOLERANCE,
+  ): { ok: boolean; diffPct: number | null } {
+    const max = Math.max(Math.abs(a), Math.abs(b));
+    if (max <= 0) {
+      return { ok: a === b, diffPct: 0 };
+    }
+    const diffPct = Math.abs(a - b) / max;
+    return { ok: diffPct <= tolerance, diffPct };
+  }
+
+  /**
+   * Sugestões flexíveis de vínculo (nunca aplica automaticamente).
+   * Critérios: mesmo CNPJ + (mesmo recebedor OU valor ±8%) + maioria de SKUs (≥50%).
+   */
+  async listSugestoesVinculoUrgente(numeroPed: string) {
+    const base = await this.resolveOrderForVinculo(numeroPed);
+    if (!base) throw new NotFoundException('Pedido não encontrado.');
+
+    const isUrgent =
+      base.isUrgentManual && base.source === OrderSource.MANUAL;
+    const isCounterpart =
+      base.source === OrderSource.WEG_MERCADO_ELETRONICO ||
+      base.source === OrderSource.VENDA_EXTERNA;
+
+    if (!isUrgent && !isCounterpart) {
+      return { suggestions: [] as const, role: 'none' as const };
+    }
+
+    // Já vinculado: nada a sugerir.
+    if (isCounterpart && base.linkedOrderId) {
+      return { suggestions: [] as const, role: 'counterpart' as const };
+    }
+    if (isUrgent) {
+      const alreadyLinked = await this.prisma.client.order.count({
+        where: { linkedOrderId: base.id },
+      });
+      if (alreadyLinked > 0) {
+        return { suggestions: [] as const, role: 'urgent' as const };
+      }
+    }
+
+    const baseCnpj = this.resolveOrderCnpjDigits(base);
+    const baseItems = this.aggregateSkuQuantities(base.items);
+    const baseTotal = this.decimalToNumber(base.totalValue);
+    const baseReceiver = this.normalizeReceiverName(base.receiverName);
+    if (!baseCnpj || baseItems.size === 0) {
+      return {
+        suggestions: [] as const,
+        role: isUrgent ? ('urgent' as const) : ('counterpart' as const),
+      };
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const candidates = isUrgent
+      ? await this.prisma.client.order.findMany({
+          where: {
+            linkedOrderId: null,
+            source: {
+              in: [OrderSource.WEG_MERCADO_ELETRONICO, OrderSource.VENDA_EXTERNA],
+            },
+            createdAt: { gte: thirtyDaysAgo },
+            OR: [
+              { deliveryCnpj: { not: null } },
+              { customerDocument: { not: null } },
+            ],
+          },
+          select: {
+            id: true,
+            code: true,
+            source: true,
+            externalOrderNumber: true,
+            customerDocument: true,
+            deliveryCnpj: true,
+            receiverName: true,
+            totalValue: true,
+            status: true,
+            items: {
+              select: {
+                sku: true,
+                description: true,
+                quantity: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+        })
+      : await this.prisma.client.order.findMany({
+          where: {
+            isUrgentManual: true,
+            linkedOrderId: null,
+            source: OrderSource.MANUAL,
+            createdAt: { gte: thirtyDaysAgo },
+            customerDocument: { not: null },
+            // Ainda não recebeu vínculo de outro pedido
+            linkedFrom: { none: {} },
+          },
+          select: {
+            id: true,
+            code: true,
+            source: true,
+            externalOrderNumber: true,
+            customerDocument: true,
+            deliveryCnpj: true,
+            receiverName: true,
+            totalValue: true,
+            status: true,
+            items: {
+              select: {
+                sku: true,
+                description: true,
+                quantity: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+        });
+
+    const suggestions = [];
+    for (const candidate of candidates) {
+      if (candidate.id === base.id) continue;
+      const candCnpj = this.resolveOrderCnpjDigits(candidate);
+      if (!candCnpj || candCnpj !== baseCnpj) continue;
+
+      // Exato já seria auto-vinculado na importação — ainda assim pode aparecer
+      // se o ME/VE chegou antes ou veio de venda externa. Não filtramos exact out:
+      // o usuário confirma. Mas se for EXATO e counterpart, preferimos score alto.
+
+      const candItems = this.aggregateSkuQuantities(candidate.items);
+      const overlap = this.skuOverlapRatio(baseItems, candItems);
+      const skuMajority =
+        overlap.ratio >= PedidosService.VINCULO_SKU_MAJORITY;
+
+      const candTotal = this.decimalToNumber(candidate.totalValue);
+      const valueCmp = this.valueWithinTolerance(baseTotal, candTotal);
+      const candReceiver = this.normalizeReceiverName(candidate.receiverName);
+      const receiverMatch =
+        Boolean(baseReceiver) &&
+        Boolean(candReceiver) &&
+        baseReceiver === candReceiver;
+
+      // CNPJ obrigatório; precisa maioria de SKUs; e (recebedor OU valor).
+      if (!skuMajority) continue;
+      if (!receiverMatch && !valueCmp.ok) continue;
+
+      // Pula se for match 100% exato de SKU+qty — o auto já cuida na importação;
+      // ainda assim sugerimos para venda externa / casos sem auto.
+      const reasons: string[] = ['mesmo CNPJ'];
+      if (receiverMatch) reasons.push('mesmo recebedor');
+      if (valueCmp.ok) {
+        const pct = valueCmp.diffPct != null
+          ? ` (±${(valueCmp.diffPct * 100).toFixed(1)}%)`
+          : '';
+        reasons.push(`valor similar${pct}`);
+      }
+      reasons.push(
+        `${overlap.matched}/${Math.max(overlap.totalA, overlap.totalB)} SKUs coincidem`,
+      );
+
+      let score = 40; // CNPJ
+      if (receiverMatch) score += 25;
+      if (valueCmp.ok) score += 20;
+      score += Math.round(overlap.ratio * 15);
+      if (this.skuQuantityMapsMatch(baseItems, candItems)) score += 10;
+
+      const itemRows = this.buildSideBySideItems(base.items, candidate.items);
+
+      suggestions.push({
+        orderId: candidate.id,
+        displayNumber: this.orderDisplayRef(candidate),
+        source: candidate.source,
+        status: candidate.status,
+        customerDocument: candidate.customerDocument,
+        deliveryCnpj: candidate.deliveryCnpj,
+        receiverName: candidate.receiverName,
+        totalValue: candidate.totalValue.toString(),
+        reasons,
+        score,
+        skuOverlap: {
+          matched: overlap.matched,
+          totalBase: overlap.totalA,
+          totalCandidate: overlap.totalB,
+          ratio: overlap.ratio,
+        },
+        valueDiffPct: valueCmp.diffPct,
+        items: itemRows,
+      });
+    }
+
+    suggestions.sort((a, b) => b.score - a.score || a.displayNumber.localeCompare(b.displayNumber));
+
+    return {
+      role: isUrgent ? ('urgent' as const) : ('counterpart' as const),
+      base: {
+        id: base.id,
+        displayNumber: this.orderDisplayRef(base),
+        source: base.source,
+        status: base.status,
+        customerDocument: base.customerDocument,
+        deliveryCnpj: base.deliveryCnpj,
+        receiverName: base.receiverName,
+        totalValue: base.totalValue.toString(),
+        items: base.items.map((it) => ({
+          sku: it.sku,
+          description: it.description,
+          quantity: it.quantity,
+        })),
+      },
+      suggestions: suggestions.slice(0, 10),
+    };
+  }
+
+  private buildSideBySideItems(
+    baseItems: Array<{ sku: string; description: string; quantity: number }>,
+    candItems: Array<{ sku: string; description: string; quantity: number }>,
+  ) {
+    const baseMap = new Map<
+      string,
+      { description: string; quantity: number }
+    >();
+    for (const it of baseItems) {
+      const sku = this.normalizeSkuKey(it.sku);
+      if (!sku) continue;
+      const prev = baseMap.get(sku);
+      if (prev) prev.quantity += it.quantity;
+      else
+        baseMap.set(sku, {
+          description: it.description,
+          quantity: it.quantity,
+        });
+    }
+    const candMap = new Map<
+      string,
+      { description: string; quantity: number }
+    >();
+    for (const it of candItems) {
+      const sku = this.normalizeSkuKey(it.sku);
+      if (!sku) continue;
+      const prev = candMap.get(sku);
+      if (prev) prev.quantity += it.quantity;
+      else
+        candMap.set(sku, {
+          description: it.description,
+          quantity: it.quantity,
+        });
+    }
+
+    const skus = [...new Set([...baseMap.keys(), ...candMap.keys()])].sort();
+    return skus.map((sku) => {
+      const b = baseMap.get(sku);
+      const c = candMap.get(sku);
+      let match: 'exact' | 'qty_diff' | 'only_base' | 'only_candidate';
+      if (b && c) {
+        match = b.quantity === c.quantity ? 'exact' : 'qty_diff';
+      } else if (b) {
+        match = 'only_base';
+      } else {
+        match = 'only_candidate';
+      }
+      return {
+        sku,
+        description: b?.description || c?.description || sku,
+        baseQty: b?.quantity ?? 0,
+        candidateQty: c?.quantity ?? 0,
+        match,
+      };
+    });
+  }
+
+  private async resolveOrderForVinculo(numeroPed: string) {
+    const key = decodeURIComponent(numeroPed).trim().replace(/^#/, '');
+    if (!key) return null;
+    return this.prisma.client.order.findFirst({
+      where: {
+        OR: [{ externalOrderNumber: key }, { code: key }],
+      },
+      select: {
+        id: true,
+        code: true,
+        source: true,
+        status: true,
+        isUrgentManual: true,
+        linkedOrderId: true,
+        externalOrderNumber: true,
+        customerDocument: true,
+        deliveryCnpj: true,
+        receiverName: true,
+        totalValue: true,
+        items: {
+          select: { sku: true, description: true, quantity: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Confirma vínculo manual urgente ↔ ME/venda externa.
+   * Sempre exige escolha humana — nunca chamado pelo matching automático.
+   */
+  async confirmarVinculoUrgente(
+    numeroPed: string,
+    candidateOrderId: string,
+    userId: string,
+  ) {
+    const base = await this.resolveOrderForVinculo(numeroPed);
+    if (!base) throw new NotFoundException('Pedido não encontrado.');
+
+    const candidate = await this.prisma.client.order.findUnique({
+      where: { id: candidateOrderId },
+      select: {
+        id: true,
+        code: true,
+        source: true,
+        status: true,
+        isUrgentManual: true,
+        linkedOrderId: true,
+        externalOrderNumber: true,
+        notaRemessa: true,
+        carrierId: true,
+        customerDocument: true,
+        deliveryCnpj: true,
+      },
+    });
+    if (!candidate) {
+      throw new NotFoundException('Pedido candidato não encontrado.');
+    }
+
+    const baseIsUrgent =
+      base.isUrgentManual && base.source === OrderSource.MANUAL;
+    const candIsUrgent =
+      candidate.isUrgentManual && candidate.source === OrderSource.MANUAL;
+    const baseIsCounterpart =
+      base.source === OrderSource.WEG_MERCADO_ELETRONICO ||
+      base.source === OrderSource.VENDA_EXTERNA;
+    const candIsCounterpart =
+      candidate.source === OrderSource.WEG_MERCADO_ELETRONICO ||
+      candidate.source === OrderSource.VENDA_EXTERNA;
+
+    let urgentId: string;
+    let counterpartId: string;
+    let urgentNota: string | null;
+    let urgentCarrier: string | null;
+    let counterpartNumber: string;
+
+    if (baseIsUrgent && candIsCounterpart) {
+      urgentId = base.id;
+      counterpartId = candidate.id;
+      // nota/carrier do urgente
+      const urgentFull = await this.prisma.client.order.findUnique({
+        where: { id: urgentId },
+        select: { notaRemessa: true, carrierId: true },
+      });
+      urgentNota = urgentFull?.notaRemessa ?? null;
+      urgentCarrier = urgentFull?.carrierId ?? null;
+      counterpartNumber = this.orderDisplayRef(candidate);
+    } else if (candIsUrgent && baseIsCounterpart) {
+      urgentId = candidate.id;
+      counterpartId = base.id;
+      urgentNota = candidate.notaRemessa;
+      urgentCarrier = candidate.carrierId;
+      counterpartNumber = this.orderDisplayRef(base);
+    } else {
+      throw new BadRequestException(
+        'Vínculo permitido apenas entre pedido urgente (manual) e ME/venda externa.',
+      );
+    }
+
+    const counterpart = await this.prisma.client.order.findUnique({
+      where: { id: counterpartId },
+      select: { id: true, linkedOrderId: true, status: true },
+    });
+    if (!counterpart) {
+      throw new NotFoundException('Pedido de requisição não encontrado.');
+    }
+    if (counterpart.linkedOrderId) {
+      throw new BadRequestException(
+        'O pedido de requisição já está vinculado a outro envio urgente.',
+      );
+    }
+
+    const already = await this.prisma.client.order.count({
+      where: { linkedOrderId: urgentId },
+    });
+    if (already > 0) {
+      throw new BadRequestException(
+        'Este envio urgente já possui um pedido vinculado.',
+      );
+    }
+
+    const updated = await this.prisma.client.order.update({
+      where: { id: counterpartId },
+      data: {
+        linkedOrderId: urgentId,
+        status: OrderStatus.AGUARDANDO_NF,
+        ...(urgentNota ? { notaRemessa: urgentNota } : {}),
+        ...(urgentCarrier ? { carrierId: urgentCarrier } : {}),
+      },
+    });
+    void updated;
+
+    await this.audit.log({
+      userId,
+      action: 'ORDER_URGENT_LINK_CONFIRMED',
+      entity: 'Order',
+      entityId: counterpartId,
+      changes: {
+        linkedOrderId: urgentId,
+        confirmedManually: true,
+        fromNumeroPed: numeroPed,
+        candidateOrderId,
+      },
+    });
+
+    await this.notifyUrgentOrderLinked(
+      counterpartNumber,
+      counterpartId,
+      urgentId,
+    );
+
+    return this.orders.findOne(counterpartId);
+  }
+
   private async findProductIdBySku(
     tx: Prisma.TransactionClient,
     sku: string,

@@ -2596,7 +2596,7 @@ export class OrderService {
       }
 
       if (to === OrderStatus.NOVO) {
-        await OrderService.resetItemsOnReturnToNovo(tx, id);
+        await OrderService.hardResetOrderOnReturnToNovo(tx, id);
       }
 
       const data: Prisma.OrderUncheckedUpdateInput = {
@@ -2609,6 +2609,10 @@ export class OrderService {
       if (to === OrderStatus.NOVO) {
         data.volumes = null;
         data.shippedAt = null;
+        data.invoiceNumber = null;
+        data.invoiceStatus = InvoiceStatus.NOT_FOUND;
+        data.invoicedAt = null;
+        data.trackingCode = null;
       }
 
       const updated = await tx.order.update({
@@ -2678,9 +2682,9 @@ export class OrderService {
         await OrderService.resetItemsForNewSeparationCycle(tx, id);
       }
 
-      // Voltar para NOVO por qualquer caminho limpa progresso/recebimento dos itens.
+      // Voltar para NOVO: limpeza total (saída, NF, rastreio, itens).
       if (to === OrderStatus.NOVO) {
-        await OrderService.resetItemsOnReturnToNovo(tx, id);
+        await OrderService.hardResetOrderOnReturnToNovo(tx, id);
       }
 
       const data: Prisma.OrderUncheckedUpdateInput = {
@@ -2696,6 +2700,10 @@ export class OrderService {
       if (to === OrderStatus.NOVO) {
         data.volumes = null;
         data.shippedAt = null;
+        data.invoiceNumber = null;
+        data.invoiceStatus = InvoiceStatus.NOT_FOUND;
+        data.invoicedAt = null;
+        data.trackingCode = null;
       }
 
       const updated = await tx.order.update({
@@ -3365,10 +3373,13 @@ export class OrderService {
   }
 
   /**
-   * Reset completo ao voltar o pedido para NOVO (mudança de status geral):
-   * limpa pickedQty/invoicedQty e mercadoEletronicoItemStatus (Recebido → "-").
+   * Reset total e incondicional ao voltar o pedido para NOVO (mudança manual de status).
+   * Diferente de resetItemsForNewSeparationCycle (reenvio à separação), que preserva
+   * itens já faturados em ciclos parciais.
    */
-  private static async resetItemsOnReturnToNovo(tx: Tx, orderId: string) {
+  private static async hardResetOrderOnReturnToNovo(tx: Tx, orderId: string) {
+    await tx.orderExit.deleteMany({ where: { orderId } });
+    await tx.orderInvoiceHistory.deleteMany({ where: { orderId } });
     await tx.orderItem.updateMany({
       where: { orderId },
       data: {

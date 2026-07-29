@@ -33,6 +33,7 @@ import { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
 import { CreateVendaExternaPedidoDto } from './dto/create-venda-externa-pedido.dto';
 import { PedidosAttachNfDto } from './dto/pedidos-attach-nf.dto';
+import { ConfirmarVinculoUrgenteDto } from './dto/confirmar-vinculo-urgente.dto';
 import { PedidosUpdateItemDto } from './dto/pedidos-update-item.dto';
 import { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
 import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
@@ -225,6 +226,28 @@ export class PedidosController {
     @Query('businessContext') businessContext?: string,
   ) {
     return this.pedidos.separacaoLoteResumo({ source, businessContext });
+  }
+
+  /**
+   * Sugestões de vínculo urgente ↔ ME/venda externa (nunca aplica sozinho).
+   */
+  @Get(':numeroPed/sugestoes-vinculo')
+  sugestoesVinculo(@Param('numeroPed') numeroPed: string) {
+    return this.pedidos.listSugestoesVinculoUrgente(numeroPed);
+  }
+
+  @Post(':numeroPed/confirmar-vinculo-urgente')
+  @RequirePermission('expedicao', 'editar_pedido')
+  confirmarVinculoUrgente(
+    @Param('numeroPed') numeroPed: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmarVinculoUrgenteDto,
+  ) {
+    return this.pedidos.confirmarVinculoUrgente(
+      numeroPed,
+      dto.candidateOrderId,
+      user.id,
+    );
   }
 
   @Get('importacoes-log')
