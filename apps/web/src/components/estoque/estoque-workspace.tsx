@@ -3,8 +3,8 @@
 /* eslint-disable react-hooks/set-state-in-effect -- carregamento sob montagem, aba e debounce de busca */
 import {
   ArrowRightLeft,
-  BarChart3,
   Ban,
+  BarChart3,
   Bookmark,
   ClipboardList,
   Download,
@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Settings,
   SlidersHorizontal,
   Trash2,
   Undo2,
@@ -26,6 +25,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CategorySelect } from '@/src/components/estoque/category-select';
+import { EstoqueBulkEditModal } from '@/src/components/estoque/estoque-bulk-edit-modal';
 import { EstoqueBulkEntradaModal } from '@/src/components/estoque/estoque-bulk-entrada-modal';
 import { EstoqueExportModal } from '@/src/components/estoque/estoque-export-modal';
 import { MovementOrderDetailModal } from '@/src/components/estoque/movement-order-detail-modal';
@@ -758,6 +758,10 @@ export function EstoqueWorkspace() {
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
   const [bulkEntradaOpen, setBulkEntradaOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportModalMode, setExportModalMode] = useState<'all' | 'selected'>(
@@ -769,7 +773,6 @@ export function EstoqueWorkspace() {
   const [productSearchDebounced, setProductSearchDebounced] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
-  const [productMenuOpenId, setProductMenuOpenId] = useState<string | null>(null);
   const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>('all');
   const [inventorySupplierFilterId, setInventorySupplierFilterId] = useState('');
@@ -815,7 +818,11 @@ export function EstoqueWorkspace() {
   const [movementDeleting, setMovementDeleting] = useState(false);
   const [productDeleteTarget, setProductDeleteTarget] =
     useState<ProductDto | null>(null);
+  const [productDeleteStep, setProductDeleteStep] = useState<1 | 2>(1);
   const [productDeleting, setProductDeleting] = useState(false);
+  const [productActiveTarget, setProductActiveTarget] =
+    useState<ProductDto | null>(null);
+  const [productActiveStep, setProductActiveStep] = useState<1 | 2>(1);
   const [cancelingReserveId, setCancelingReserveId] = useState<string | null>(
     null,
   );
@@ -947,12 +954,16 @@ export function EstoqueWorkspace() {
     setMovementDeleteTarget(null);
     setMovementDeleteStep('idle');
     setProductDeleteTarget(null);
+    setProductDeleteStep(1);
+    setProductActiveTarget(null);
+    setProductActiveStep(1);
     setReserveOpen(false);
     setReserveStep('form');
     setMovementDetailId(null);
     setSupplierFilterModalOpen(false);
     setCategoryFilterModalOpen(false);
     setBulkEntradaOpen(false);
+    setBulkEditOpen(false);
     setExportMenuOpen(false);
     setExportModalOpen(false);
   }, []);
@@ -965,6 +976,7 @@ export function EstoqueWorkspace() {
       !moveModalOpen &&
       movementDeleteStep === 'idle' &&
       !productDeleteTarget &&
+      !productActiveTarget &&
       !reserveOpen &&
       !movementDetailId
     )
@@ -974,7 +986,7 @@ export function EstoqueWorkspace() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [productModalOpen, moveModalOpen, movementDeleteStep, productDeleteTarget, reserveOpen, movementDetailId, closeAllModals]);
+  }, [productModalOpen, moveModalOpen, movementDeleteStep, productDeleteTarget, productActiveTarget, reserveOpen, movementDetailId, closeAllModals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -992,13 +1004,6 @@ export function EstoqueWorkspace() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!productMenuOpenId) return;
-    const onClick = () => setProductMenuOpenId(null);
-    document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
-  }, [productMenuOpenId]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -1449,12 +1454,14 @@ export function EstoqueWorkspace() {
   };
 
   const inactivateProduct = async (p: ProductDto) => {
+    setProductDeleteStep(1);
     setProductDeleteTarget(p);
   };
 
   const cancelProductDelete = () => {
     if (productDeleting) return;
     setProductDeleteTarget(null);
+    setProductDeleteStep(1);
   };
 
   const executeProductDelete = async () => {
@@ -1468,7 +1475,11 @@ export function EstoqueWorkspace() {
       if (selectedInventoryId === productDeleteTarget.id) {
         setSelectedInventoryId(null);
       }
-      setProductMenuOpenId(null);
+      setBulkSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(productDeleteTarget.id);
+        return next;
+      });
       cancelProductDelete();
       setBannerSuccess(
         `Produto "${productDeleteTarget.name}" excluído com sucesso.`,
@@ -1484,8 +1495,20 @@ export function EstoqueWorkspace() {
     }
   };
 
-  const toggleProductActive = async (p: ProductDto) => {
-    setProductMenuOpenId(null);
+  const requestToggleProductActive = (p: ProductDto) => {
+    setProductActiveStep(1);
+    setProductActiveTarget(p);
+  };
+
+  const cancelToggleProductActive = () => {
+    if (togglingProductId) return;
+    setProductActiveTarget(null);
+    setProductActiveStep(1);
+  };
+
+  const executeToggleProductActive = async () => {
+    if (!productActiveTarget) return;
+    const p = productActiveTarget;
     setBannerSuccess(null);
     setBannerError(null);
     setTogglingProductId(p.id);
@@ -1499,6 +1522,8 @@ export function EstoqueWorkspace() {
           ? `Produto "${p.name}" desativado.`
           : `Produto "${p.name}" reativado.`,
       );
+      setProductActiveTarget(null);
+      setProductActiveStep(1);
       await loadSummary();
       await reloadProductsForTab();
     } catch (e) {
@@ -1508,6 +1533,15 @@ export function EstoqueWorkspace() {
     } finally {
       setTogglingProductId(null);
     }
+  };
+
+  const toggleBulkProduct = (productId: string) => {
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
   };
 
   const openMoveModal = async (kind: MovementKind, presetProduct?: ProductDto) => {
@@ -3516,6 +3550,17 @@ export function EstoqueWorkspace() {
               <div className="flex flex-wrap items-center gap-2">
                 <GlowButton
                   variant="secondary"
+                  disabled={bulkSelectedIds.size === 0}
+                  onClick={() => setBulkEditOpen(true)}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Editar em Massa
+                  {bulkSelectedIds.size > 0
+                    ? ` (${bulkSelectedIds.size})`
+                    : ''}
+                </GlowButton>
+                <GlowButton
+                  variant="secondary"
                   onClick={() => setBulkEntradaOpen(true)}
                 >
                   <PackagePlus className="h-4 w-4" />
@@ -3741,25 +3786,72 @@ export function EstoqueWorkspace() {
                 >
                   <div className={p.isActive ? '' : 'opacity-50'}>
                     <div className="flex items-start justify-between gap-2">
-                      <p className={`text-xs ${selectedInventoryId === p.id ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>#{p.sku}</p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0"
+                          checked={bulkSelectedIds.has(p.id)}
+                          aria-label={`Selecionar ${p.name}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleBulkProduct(p.id);
+                          }}
+                        />
+                        <p className={`truncate text-xs ${selectedInventoryId === p.id ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>#{p.sku}</p>
+                      </div>
                       <div className="flex items-center gap-1">
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)]">
-                          <Package className="h-3.5 w-3.5" />
-                        </span>
                         <button
                           type="button"
-                          aria-label={`Configurações de ${p.name}`}
+                          aria-label={`Editar ${p.name}`}
+                          title="Editar"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditProduct(p);
+                          }}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:text-[var(--accent)]"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            aria-label={`Excluir ${p.name}`}
+                            title="Excluir"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              inactivateProduct(p);
+                            }}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:text-rose-500"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label={
+                            p.isActive
+                              ? `Desativar ${p.name}`
+                              : `Reativar ${p.name}`
+                          }
+                          title={p.isActive ? 'Desativar' : 'Reativar'}
                           disabled={togglingProductId === p.id}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setProductMenuOpenId((cur) => (cur === p.id ? null : p.id));
+                            requestToggleProductActive(p);
                           }}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--input-bg)] transition ${
+                            p.isActive
+                              ? 'text-[var(--text-secondary)] hover:text-amber-500'
+                              : 'text-emerald-500 hover:text-emerald-400'
+                          }`}
                         >
                           {togglingProductId === p.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : p.isActive ? (
+                            <Ban className="h-3.5 w-3.5" />
                           ) : (
-                            <Settings className="h-3.5 w-3.5" />
+                            <Undo2 className="h-3.5 w-3.5" />
                           )}
                         </button>
                       </div>
@@ -3800,54 +3892,6 @@ export function EstoqueWorkspace() {
                       <span className="text-[var(--text-secondary)]">Corredor A-23</span>
                     </div>
                   </div>
-                  {productMenuOpenId === p.id ? (
-                    <div
-                      className="absolute right-2 top-10 z-20 min-w-[170px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] p-1 shadow-xl"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProductMenuOpenId(null);
-                          openEditProduct(p);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-[var(--text-primary)] transition hover:bg-[var(--input-bg)]"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Editar item
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void toggleProductActive(p)}
-                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition hover:bg-[var(--input-bg)] ${p.isActive ? 'text-amber-400' : 'text-emerald-400'}`}
-                      >
-                        {p.isActive ? (
-                          <>
-                            <Ban className="h-3.5 w-3.5" />
-                            Desativar produto
-                          </>
-                        ) : (
-                          <>
-                            <Undo2 className="h-3.5 w-3.5" />
-                            Reativar produto
-                          </>
-                        )}
-                      </button>
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProductMenuOpenId(null);
-                            inactivateProduct(p);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-rose-400 transition hover:bg-[var(--input-bg)]"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Excluir produto
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               ))}
                 </div>
@@ -4249,15 +4293,28 @@ export function EstoqueWorkspace() {
           >
             <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                Excluir produto
+                {productDeleteStep === 1
+                  ? 'Excluir produto'
+                  : 'Confirmar exclusão'}
               </h2>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                Você está excluindo o produto{' '}
-                <span className="font-semibold text-[var(--text-primary)]">
-                  {productDeleteTarget.name}
-                </span>{' '}
-                (SKU {productDeleteTarget.sku}). Esta ação não pode ser desfeita.
-                Confirmar?
+                {productDeleteStep === 1 ? (
+                  <>
+                    Deseja excluir o produto{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {productDeleteTarget.name}
+                    </span>{' '}
+                    (SKU {productDeleteTarget.sku})?
+                  </>
+                ) : (
+                  <>
+                    Confirma a exclusão definitiva de{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {productDeleteTarget.name}
+                    </span>
+                    ? Esta ação não pode ser desfeita.
+                  </>
+                )}
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <GlowButton
@@ -4267,20 +4324,110 @@ export function EstoqueWorkspace() {
                 >
                   Cancelar
                 </GlowButton>
+                {productDeleteStep === 1 ? (
+                  <GlowButton
+                    variant="primary"
+                    onClick={() => setProductDeleteStep(2)}
+                  >
+                    Continuar
+                  </GlowButton>
+                ) : (
+                  <GlowButton
+                    variant="primary"
+                    disabled={productDeleting}
+                    onClick={() => void executeProductDelete()}
+                  >
+                    {productDeleting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Excluindo
+                      </>
+                    ) : (
+                      'Confirmar exclusão'
+                    )}
+                  </GlowButton>
+                )}
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : null}
+
+      {productActiveTarget ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+        >
+          <div
+            className="h-auto w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlassCard className="border-gray-200 p-3 shadow-2xl sm:p-6">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                {productActiveTarget.isActive
+                  ? productActiveStep === 1
+                    ? 'Desativar produto'
+                    : 'Confirmar desativação'
+                  : productActiveStep === 1
+                    ? 'Reativar produto'
+                    : 'Confirmar reativação'}
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                {productActiveStep === 1 ? (
+                  <>
+                    Deseja{' '}
+                    {productActiveTarget.isActive ? 'desativar' : 'reativar'} o
+                    produto{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {productActiveTarget.name}
+                    </span>{' '}
+                    (SKU {productActiveTarget.sku})?
+                  </>
+                ) : (
+                  <>
+                    Confirma{' '}
+                    {productActiveTarget.isActive
+                      ? 'a desativação'
+                      : 'a reativação'}{' '}
+                    de{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">
+                      {productActiveTarget.name}
+                    </span>
+                    ?
+                  </>
+                )}
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
                 <GlowButton
-                  variant="primary"
-                  disabled={productDeleting}
-                  onClick={() => void executeProductDelete()}
+                  variant="secondary"
+                  disabled={togglingProductId === productActiveTarget.id}
+                  onClick={cancelToggleProductActive}
                 >
-                  {productDeleting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Excluindo
-                    </>
-                  ) : (
-                    'Confirmar'
-                  )}
+                  Cancelar
                 </GlowButton>
+                {productActiveStep === 1 ? (
+                  <GlowButton
+                    variant="primary"
+                    onClick={() => setProductActiveStep(2)}
+                  >
+                    Continuar
+                  </GlowButton>
+                ) : (
+                  <GlowButton
+                    variant="primary"
+                    disabled={togglingProductId === productActiveTarget.id}
+                    onClick={() => void executeToggleProductActive()}
+                  >
+                    {togglingProductId === productActiveTarget.id ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Salvando
+                      </>
+                    ) : (
+                      'Confirmar'
+                    )}
+                  </GlowButton>
+                )}
               </div>
             </GlassCard>
           </div>
@@ -4691,6 +4838,9 @@ export function EstoqueWorkspace() {
                     {selectedInventoryProduct.name} · SKU{' '}
                     {selectedInventoryProduct.sku}
                   </p>
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">
+                    Clique num pedido para ver os detalhes na Expedição.
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -4728,13 +4878,19 @@ export function EstoqueWorkspace() {
                       {productReservations.map((r, idx) => (
                         <tr
                           key={r.id}
-                          className={`border-b border-[var(--border-color)] ${
+                          className={`cursor-pointer border-b border-[var(--border-color)] transition hover:bg-[var(--accent)]/10 ${
                             idx % 2 === 0
                               ? 'bg-[var(--bg-card)]'
                               : 'bg-[var(--input-bg)]'
                           }`}
+                          onClick={() => {
+                            setReservationsModalOpen(false);
+                            router.push(
+                              `/app/expedicao/pedidos?search=${encodeURIComponent(r.orderNumber)}`,
+                            );
+                          }}
                         >
-                          <td className="px-2 py-1.5 font-medium text-[var(--text-primary)]">
+                          <td className="px-2 py-1.5 font-medium text-[var(--accent)] underline-offset-2 hover:underline">
                             {r.orderNumber}
                           </td>
                           <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
@@ -4777,6 +4933,32 @@ export function EstoqueWorkspace() {
           if (tab === 'inventory' || tab === 'dashboard') {
             await reloadProductsForTab();
           }
+        }}
+      />
+
+      <EstoqueBulkEditModal
+        open={bulkEditOpen}
+        products={inventoryProducts
+          .filter((p) => bulkSelectedIds.has(p.id))
+          .map((p) => ({ id: p.id, sku: p.sku, name: p.name }))}
+        categories={productCategories}
+        suppliers={suppliers}
+        onClose={() => setBulkEditOpen(false)}
+        onRefreshCategories={async () => {
+          await loadCategories();
+        }}
+        onError={(message) => {
+          setBannerSuccess(null);
+          setBannerError(message);
+        }}
+        onSuccess={(message) => {
+          setBannerError(null);
+          setBannerSuccess(message);
+        }}
+        onDone={async () => {
+          setBulkSelectedIds(new Set());
+          await loadSummary();
+          await reloadProductsForTab();
         }}
       />
 

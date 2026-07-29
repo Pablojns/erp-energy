@@ -1,7 +1,7 @@
 'use client';
 
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CalendarDays, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AlertTriangle, CalendarDays, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -16,6 +16,11 @@ import {
   ExistingEtiquetaChoiceModal,
   type ExistingEtiquetaChoice,
 } from '@/src/components/expedicao/workspace/existing-etiqueta-choice-modal';
+import {
+  UrgentLinkSuggestionModal,
+  type VinculoSugestao,
+  type VinculoSugestoesResponse,
+} from '@/src/components/expedicao/workspace/urgent-link-suggestion-modal';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
@@ -164,6 +169,63 @@ export const OrderInfoPanel = forwardRef<
   const cnpj = displayOrDash(order.deliveryCnpj ?? order.customerDocument);
   const address = formatDeliveryAddressDisplay(order.deliveryAddress);
   const receiver = displayOrDash(order.receiverName);
+
+  const [vinculoSuggestions, setVinculoSuggestions] = useState<VinculoSugestao[]>(
+    [],
+  );
+  const [vinculoBaseTotal, setVinculoBaseTotal] = useState(order.totalValue);
+  const [vinculoLoading, setVinculoLoading] = useState(false);
+  const [vinculoError, setVinculoError] = useState<string | null>(null);
+  const [reviewSuggestion, setReviewSuggestion] =
+    useState<VinculoSugestao | null>(null);
+  const [discardedSuggestionIds, setDiscardedSuggestionIds] = useState<
+    Set<string>
+  >(() => new Set());
+
+  const canFetchVinculoSuggestions =
+    Boolean(order.isUrgentManual && order.source === 'MANUAL') ||
+    ((order.source === 'WEG_MERCADO_ELETRONICO' ||
+      order.source === 'VENDA_EXTERNA') &&
+      !order.linkedOrderId);
+
+  const loadVinculoSuggestions = useCallback(async () => {
+    if (!canFetchVinculoSuggestions) {
+      setVinculoSuggestions([]);
+      return;
+    }
+    const key = numeroPedFromOrder(order) || order.code;
+    if (!key) return;
+    setVinculoLoading(true);
+    setVinculoError(null);
+    try {
+      const res = await erpFetchJson<VinculoSugestoesResponse>(
+        pedidoApiUrl(key, 'sugestoes-vinculo'),
+      );
+      setVinculoBaseTotal(res.base?.totalValue ?? order.totalValue);
+      setVinculoSuggestions(
+        Array.isArray(res.suggestions) ? res.suggestions : [],
+      );
+    } catch (err) {
+      setVinculoSuggestions([]);
+      setVinculoError(
+        err instanceof Error ? err.message : 'Falha ao buscar sugestões.',
+      );
+    } finally {
+      setVinculoLoading(false);
+    }
+  }, [canFetchVinculoSuggestions, order, order.totalValue]);
+
+  useEffect(() => {
+    setDiscardedSuggestionIds(new Set());
+    void loadVinculoSuggestions();
+  }, [order.id, loadVinculoSuggestions]);
+
+  const visibleVinculoSuggestions = useMemo(
+    () =>
+      vinculoSuggestions.filter((s) => !discardedSuggestionIds.has(s.orderId)),
+    [vinculoSuggestions, discardedSuggestionIds],
+  );
+  const topVinculoSuggestion = visibleVinculoSuggestions[0] ?? null;
 
   const separationTotals = useMemo(() => {
     let ordered = 0;
@@ -710,6 +772,56 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       ) : null}
+      {topVinculoSuggestion ? (
+        <div className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">
+                Possível correspondência encontrada: Pedido #
+                {topVinculoSuggestion.displayNumber}
+              </p>
+              <p className="mt-0.5 text-sky-800">
+                {topVinculoSuggestion.reasons.join(', ')}. Confirmar vínculo?
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-sky-700 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-800"
+                  onClick={() => setReviewSuggestion(topVinculoSuggestion)}
+                >
+                  Revisar e confirmar
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-sky-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
+                  onClick={() =>
+                    setDiscardedSuggestionIds((prev) => {
+                      const next = new Set(prev);
+                      next.add(topVinculoSuggestion.orderId);
+                      return next;
+                    })
+                  }
+                >
+                  Descartar
+                </button>
+                {visibleVinculoSuggestions.length > 1 ? (
+                  <span className="self-center text-[10px] text-sky-700">
+                    +{visibleVinculoSuggestions.length - 1} outra(s)
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : vinculoLoading && canFetchVinculoSuggestions ? (
+        <p className="text-[11px] text-[var(--text-muted)]">
+          Buscando possíveis vínculos…
+        </p>
+      ) : null}
+      {vinculoError ? (
+        <p className="text-[11px] text-rose-500">{vinculoError}</p>
+      ) : null}
       <div className="exp-wb-order-header-meta">
         <div className="pedido-header-row1 exp-wb-order-header-meta--row">
           <p className="pedido-numero exp-wb-order-number m-0 shrink-0 text-[13px] font-semibold">
@@ -1184,6 +1296,31 @@ export const OrderInfoPanel = forwardRef<
         busy={emittingEtiqueta || exitingWithExistingEtiqueta}
         onChoice={handleExistingEtiquetaChoice}
       />
+
+      {reviewSuggestion ? (
+        <UrgentLinkSuggestionModal
+          numeroPed={numeroPedFromOrder(order) || order.code}
+          baseLabel={numero}
+          suggestion={reviewSuggestion}
+          baseTotalValue={vinculoBaseTotal}
+          baseReceiver={order.receiverName}
+          onClose={() => setReviewSuggestion(null)}
+          onDiscard={() => {
+            setDiscardedSuggestionIds((prev) => {
+              const next = new Set(prev);
+              next.add(reviewSuggestion.orderId);
+              return next;
+            });
+            setReviewSuggestion(null);
+          }}
+          onConfirmed={async () => {
+            setReviewSuggestion(null);
+            setVinculoSuggestions([]);
+            onStatusChanged?.();
+          }}
+          onError={(message) => setVinculoError(message)}
+        />
+      ) : null}
     </div>
   );
 });
