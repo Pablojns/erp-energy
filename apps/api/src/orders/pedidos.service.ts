@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -61,6 +67,8 @@ const EXPEDITION_STOCK_LOCK = 94821001;
 
 @Injectable()
 export class PedidosService {
+  private readonly logger = new Logger(PedidosService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly orders: OrderService,
@@ -1208,10 +1216,7 @@ export class PedidosService {
           .map((row) => ({
             id: row.id?.trim() || null,
             invoiceNumber: row.invoiceNumber.trim(),
-            invoiceValue:
-              row.invoiceValue != null && String(row.invoiceValue).trim() !== ''
-                ? decimalFromStringOrZero(String(row.invoiceValue).trim())
-                : null,
+            invoiceValue: this.parseNfInvoiceValue(row.invoiceValue),
             createdAt:
               row.createdAt?.trim()
                 ? this.parseNfHistoryDate(row.createdAt)
@@ -1735,7 +1740,7 @@ export class PedidosService {
       if (prePostagemId && podeReimprimir) {
         const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
         // Reimpressão: garante saída se ainda não existir (mesmo fluxo NF → etiqueta → saída).
-        await this.ensureSaidaAposEtiquetaCorreios(
+        await this.ensureSaidaAposEtiqueta(
           order.id,
           userId,
           trackingExistente,
@@ -1800,7 +1805,7 @@ export class PedidosService {
     }
 
     // Após emissão bem-sucedida: registra OrderExit automaticamente (NF → etiqueta → saída).
-    await this.ensureSaidaAposEtiquetaCorreios(
+    await this.ensureSaidaAposEtiqueta(
       order.id,
       userId,
       codigoRastreio || trackingExistente,
@@ -1810,13 +1815,13 @@ export class PedidosService {
   }
 
   /**
-   * Garante OrderExit após etiqueta Correios (espelha o POST /saida do fluxo ERP).
+   * Garante OrderExit após emissão de etiqueta (Correios ou interna do ERP).
    * Idempotente: se a saída já existir, só sincroniza o rastreio.
    */
-  private async ensureSaidaAposEtiquetaCorreios(
+  private async ensureSaidaAposEtiqueta(
     orderId: string,
     userId: string | undefined,
-    codigoRastreio: string,
+    codigoRastreio = '',
   ) {
     const tracking = codigoRastreio.trim();
     const existing = await this.prisma.client.orderExit.findUnique({
@@ -1842,6 +1847,7 @@ export class PedidosService {
         status: true,
         invoiceNumber: true,
         notaRemessa: true,
+        items: { select: { quantity: true, pickedQty: true } },
       },
     });
     if (!order) return;
@@ -1850,7 +1856,17 @@ export class PedidosService {
       order.status === OrderStatus.SEPARADO ||
       order.status === OrderStatus.AGUARDANDO_NF ||
       order.status === OrderStatus.NF_ATRELADA;
-    if (!canExit) return;
+    const separacaoCompleta =
+      order.items.length > 0 &&
+      order.items.every(
+        (it) => it.quantity > 0 && (it.pickedQty ?? 0) >= it.quantity,
+      );
+    if (
+      !canExit &&
+      (order.status !== OrderStatus.EM_SEPARACAO || !separacaoCompleta)
+    ) {
+      return;
+    }
 
     const invoiceDigits = this.normalizeInvoiceNumberDigits(
       order.invoiceNumber ?? '',
@@ -1865,15 +1881,31 @@ export class PedidosService {
       '';
     if (!nfDigits) return;
 
-    await this.orders.generateExitFromInvoice(orderId, userId, {
-      invoiceNumber: nfDigits,
-    });
+    try {
+      // Separação 100% conferida ainda em EM_SEPARACAO: conclui a separação para
+      // que a etiqueta emitida registre a saída no mesmo clique.
+      if (!canExit) {
+        await this.orders.markPicked(orderId, userId);
+      }
 
-    if (tracking) {
-      await this.prisma.client.orderExit.updateMany({
-        where: { orderId },
-        data: { trackingCode: tracking },
+      await this.orders.generateExitFromInvoice(orderId, userId, {
+        invoiceNumber: nfDigits,
       });
+
+      if (tracking) {
+        await this.prisma.client.orderExit.updateMany({
+          where: { orderId },
+          data: { trackingCode: tracking },
+        });
+      }
+    } catch (err) {
+      // A etiqueta já foi gerada: não invalida a impressão. O motivo real da
+      // falha volta ao usuário no POST /saida disparado pela tela.
+      this.logger.warn(
+        `Saída automática após etiqueta falhou (pedido ${orderId}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 
@@ -2083,6 +2115,7 @@ export class PedidosService {
 
   async gerarEtiquetaPdf(
     numeroPed: string,
+    userId?: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
     const trimmed = numeroPed.trim();
     const order = await this.prisma.client.order.findFirst({
@@ -2105,10 +2138,10 @@ export class PedidosService {
     const receiver = order.receiverName?.trim() || '—';
     const unloading = order.unloadingPoint?.trim() || '—';
     const nfDigits = this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '');
-    const nf =
-      nfDigits ||
-      order.notaRemessa?.trim() ||
-      '—';
+    const remessaRef = order.notaRemessa?.trim() || '';
+    // Sem NF de venda, a Nota de Remessa é a referência impressa na etiqueta.
+    const docLabel = nfDigits ? 'NF' : remessaRef ? 'REMESSA' : 'NF';
+    const nf = nfDigits || remessaRef || '—';
 
     const CM = 72 / 2.54;
     const labelW = 10 * CM;
@@ -2141,7 +2174,7 @@ export class PedidosService {
         });
         doc.font('Helvetica').text(pedidoNum, { lineBreak: false });
 
-        const nfText = `NF: ${nf}`;
+        const nfText = `${docLabel}: ${nf}`;
         doc.fontSize(13).font('Helvetica-Bold');
         const nfW = doc.widthOfString(nfText);
         doc.text(nfText, labelW - pad - nfW, y - 1, { lineBreak: false });
@@ -2181,6 +2214,9 @@ export class PedidosService {
 
       doc.end();
     });
+
+    // Mesmo fluxo da etiqueta Correios: emissão bem-sucedida registra a saída.
+    await this.ensureSaidaAposEtiqueta(order.id, userId);
 
     return {
       buffer,
@@ -2535,10 +2571,7 @@ export class PedidosService {
       dto.createdAt?.trim()
         ? this.parseNfHistoryDate(dto.createdAt)
         : new Date();
-    const invoiceValue =
-      dto.invoiceValue != null && String(dto.invoiceValue).trim() !== ''
-        ? decimalFromStringOrZero(String(dto.invoiceValue).trim())
-        : null;
+    const invoiceValue = this.parseNfInvoiceValue(dto.invoiceValue);
     const pickedQtyAtTime = Math.max(0, dto.pickedQtyAtTime ?? 0);
 
     const created = await this.prisma.client.$transaction(async (tx) => {
@@ -2697,6 +2730,29 @@ export class PedidosService {
     };
   }
 
+  /**
+   * Valor da NF digitado no formulário: aceita "1234.56", "1.234,56" e
+   * "R$ 1.234,56". Valor inválido responde 400 em vez de estourar 500.
+   */
+  private parseNfInvoiceValue(
+    raw: string | number | null | undefined,
+  ): Prisma.Decimal | null {
+    if (raw == null) return null;
+    const cleaned = String(raw)
+      .replace(/[R$\s\u00a0]/gi, '')
+      .trim();
+    if (!cleaned) return null;
+    const normalized = cleaned.includes(',')
+      ? cleaned.replace(/\./g, '').replace(',', '.')
+      : cleaned;
+    if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
+      throw new BadRequestException(
+        'Valor da NF inválido. Use apenas números (ex.: 1234,56).',
+      );
+    }
+    return new Prisma.Decimal(normalized);
+  }
+
   private parseNfHistoryDate(raw: string): Date {
     const trimmed = raw.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -2750,14 +2806,10 @@ export class PedidosService {
     if (dto.pickedQtyAtTime !== undefined) {
       data.pickedQtyAtTime = dto.pickedQtyAtTime;
     }
+    let nextExitValue: Prisma.Decimal | null = null;
     if (dto.invoiceValue !== undefined) {
-      if (dto.invoiceValue == null || String(dto.invoiceValue).trim() === '') {
-        data.invoiceValue = null;
-      } else {
-        data.invoiceValue = decimalFromStringOrZero(
-          String(dto.invoiceValue).trim(),
-        );
-      }
+      nextExitValue = this.parseNfInvoiceValue(dto.invoiceValue);
+      data.invoiceValue = nextExitValue;
     }
     if (dto.createdAt !== undefined && dto.createdAt.trim()) {
       data.createdAt = this.parseNfHistoryDate(dto.createdAt);
@@ -2799,15 +2851,7 @@ export class PedidosService {
               ...(dto.invoiceNumber !== undefined
                 ? { invoiceNumber: nextInvoice }
                 : {}),
-              ...(dto.invoiceValue !== undefined &&
-              dto.invoiceValue != null &&
-              String(dto.invoiceValue).trim() !== ''
-                ? {
-                    invoiceValue: decimalFromStringOrZero(
-                      String(dto.invoiceValue).trim(),
-                    ),
-                  }
-                : {}),
+              ...(nextExitValue ? { invoiceValue: nextExitValue } : {}),
               ...(dto.createdAt !== undefined && dto.createdAt.trim()
                 ? { exitDate: this.parseNfHistoryDate(dto.createdAt) }
                 : {}),

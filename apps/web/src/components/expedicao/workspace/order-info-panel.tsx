@@ -327,14 +327,15 @@ export const OrderInfoPanel = forwardRef<
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
 
+  const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
+  // Correios → etiqueta via API dos Correios; demais transportadoras → etiqueta
+  // interna do ERP. NF de venda ou Nota de Remessa confirmada liberam as duas.
   const canEmitEtiqueta =
     order.status === 'FINALIZADO' ||
-    (isCorreiosCarrier(order.carrierName) &&
-      hasFiscalDocForEtiqueta(order) &&
+    (hasFiscalDocForEtiqueta(order) &&
       (order.status === 'NF_ATRELADA' ||
         order.status === 'AGUARDANDO_NF' ||
         order.status === 'SEPARADO'));
-  const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
   const canCancelCorreiosEtiqueta =
     isCorreiosOrder && Boolean(order.trackingCode?.trim());
   /** Edição manual liberada para WEG e Site (corrige etiqueta emitida em duplicidade). */
@@ -896,8 +897,11 @@ export const OrderInfoPanel = forwardRef<
   };
 
   const handleEmitEtiqueta = async () => {
-    const existingTracking =
-      trackingCodeInput.trim() || order.trackingCode?.trim() || '';
+    // Aviso de duplicidade só existe para Correios (pré-postagem já criada).
+    // Etiqueta interna do ERP é só reimpressão do PDF.
+    const existingTracking = isCorreiosOrder
+      ? trackingCodeInput.trim() || order.trackingCode?.trim() || ''
+      : '';
     if (existingTracking) {
       setExistingEtiquetaCode(existingTracking);
       setExistingEtiquetaModalOpen(true);

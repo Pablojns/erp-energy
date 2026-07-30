@@ -2406,16 +2406,6 @@ export class OrderService {
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
 
-      if (
-        before.status !== OrderStatus.SEPARADO &&
-        before.status !== OrderStatus.AGUARDANDO_NF &&
-        before.status !== OrderStatus.NF_ATRELADA
-      ) {
-        throw new BadRequestException(
-          `Gerar NF-e disponível apenas para pedidos separados. Atual: ${before.status}.`,
-        );
-      }
-
       const existingExit = await tx.orderExit.findUnique({
         where: { orderId: before.id },
         select: {
@@ -2454,6 +2444,16 @@ export class OrderService {
             updatedAt: exitRow.updatedAt.toISOString(),
           },
         };
+      }
+
+      if (
+        before.status !== OrderStatus.SEPARADO &&
+        before.status !== OrderStatus.AGUARDANDO_NF &&
+        before.status !== OrderStatus.NF_ATRELADA
+      ) {
+        throw new BadRequestException(
+          `Gerar NF-e disponível apenas para pedidos separados. Atual: ${before.status}.`,
+        );
       }
 
       const productIdByItem = await this.resolveOrderItemProductIdsBatch(
