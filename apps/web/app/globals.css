@@ -1984,6 +1984,20 @@ label,
   }
 }
 
+/* Separação usa lista com 9 colunas: a coluna de 34% comprimia as células e o
+   badge URGENTE cobria pedido/recebedor. */
+@media (min-width: 1025px) {
+  .exp-page-layout--separation {
+    grid-template-columns: minmax(420px, 46%) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1536px) {
+  .exp-page-layout--separation {
+    grid-template-columns: minmax(460px, 42%) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1024px) {
   .exp-page-layout {
     min-height: 0;
@@ -2317,10 +2331,17 @@ label,
   flex-wrap: wrap;
 }
 
+/* Lista começa colada no cabeçalho — sem faixa vazia entre toolbar e 1ª linha.
+   Rola na horizontal quando a coluna é estreita, em vez de comprimir células. */
+.exp-queue-panel-list--separation {
+  padding-top: 0 !important;
+  overflow-x: auto;
+}
+
 .exp-sep-list {
   display: flex;
   width: 100%;
-  min-width: 0;
+  min-width: 690px;
   flex-direction: column;
   gap: 2px;
 }
@@ -2329,10 +2350,10 @@ label,
 .exp-sep-list-row {
   display: grid;
   grid-template-columns:
-    28px minmax(110px, 0.9fr) minmax(120px, 1.4fr) minmax(110px, 1fr)
-    minmax(120px, 1.2fr) minmax(120px, 0.9fr) 84px 36px;
+    24px minmax(92px, 0.9fr) minmax(104px, 1.4fr) minmax(88px, 1fr)
+    minmax(96px, 1.2fr) minmax(72px, 0.8fr) 58px 58px 28px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   padding: 6px 8px;
 }
@@ -2382,20 +2403,30 @@ label,
 }
 
 .exp-sep-list-num {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
-  font-weight: 700;
+  overflow: hidden;
+}
+
+.exp-sep-list-num-value {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 700;
 }
 
 .exp-sep-list-urgent {
+  max-width: 100%;
   border-radius: 999px;
   padding: 1px 6px;
   font-size: 9px;
   font-weight: 700;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 .exp-sep-list-text {
@@ -2452,7 +2483,7 @@ label,
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
+  padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--exp-border);
   background: var(--exp-card);
 }
@@ -4825,7 +4856,10 @@ button.exp-wb-chip:hover {
   border-top: 1px solid var(--exp-border);
 }
 
-@media (max-width: 1024px) {
+/* Footer flutuante só no celular; em telas menores de desktop ele fica no fluxo,
+   logo abaixo da tabela (o espaçador fixo de 180px que reservava lugar para o
+   footer flutuante era o vão em branco antes de "Finalizar Separação"). */
+@media (max-width: 767px) {
   .exp-wb-footer {
     position: fixed;
     left: 0.75rem;
@@ -4847,11 +4881,6 @@ button.exp-wb-chip:hover {
     width: 100%;
   }
 }
-
-.exp-wb-footer-spacer {
-  height: 180px;
-}
-
 
 .exp-wb-footer-main {
   flex: 1 1 180px;

@@ -1190,7 +1190,6 @@
   /* Footer/triage legados da expedição têm CSS não-camadado (position fixed)
      que vence utilitários Tailwind — esconder à força no mobile. */
   .exp-wb-footer,
-  .exp-wb-footer-spacer,
   .exp-wb-triage--sticky {
     display: none !important;
   }

@@ -10,6 +10,7 @@ import {
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
 import {
+  formatOrderItemSaleValue,
   summarizeItemReceiptStatus,
   resolveItemReceiptStatusForOrder,
 } from '@/src/components/expedicao/shared/order-helpers';
@@ -17,25 +18,6 @@ import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
-
-/**
- * Valor de venda da linha (unitPrice/totalPrice do pedido, nunca custo).
- * Quando o total não veio gravado, recalcula pelo unitário × quantidade.
- */
-function formatSaleValue(
-  raw: string | number | null | undefined,
-  fallbackUnit?: string | number | null,
-  fallbackQty?: number | null,
-): string {
-  let n = Number(raw);
-  if (!Number.isFinite(n) || n === 0) {
-    const unit = Number(fallbackUnit);
-    const qty = Number(fallbackQty);
-    if (Number.isFinite(unit) && Number.isFinite(qty)) n = unit * qty;
-  }
-  if (!Number.isFinite(n)) return '—';
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
 
 export function SeparationItemsTable(props: {
   order: OrderDto;
@@ -107,6 +89,8 @@ export function SeparationItemsTable(props: {
                 <col style={{ width: '50px' }} />
                 {!isVendaExterna ? <col style={{ width: '90px' }} /> : null}
                 <col style={{ width: '80px' }} />
+                <col style={{ width: '92px' }} />
+                <col style={{ width: '92px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '90px' }} />
               </>
@@ -144,6 +128,12 @@ export function SeparationItemsTable(props: {
                   ) : null}
                   <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
                     Qtd Sep.
+                  </th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Preço Unit.
+                  </th>
+                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
+                    Total
                   </th>
                   <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
                     Status
@@ -202,10 +192,14 @@ export function SeparationItemsTable(props: {
                     </td>
                   ) : null}
                   <td className="text-center text-xs" data-label="Venda unit.">
-                    {formatSaleValue(it.unitPrice)}
+                    {formatOrderItemSaleValue(it.unitPrice)}
                   </td>
                   <td className="text-center text-xs" data-label="Total venda">
-                    {formatSaleValue(it.totalPrice, it.unitPrice, it.quantity)}
+                    {formatOrderItemSaleValue(
+                      it.totalPrice,
+                      it.unitPrice,
+                      it.quantity,
+                    )}
                   </td>
                   {!isVendaExterna ? (
                     <td className="text-center" data-label="Status item">

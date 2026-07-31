@@ -70,6 +70,7 @@ export function SeparationQueueList(props: {
         <span>Transportadora</span>
         <span>Ponto de descarga</span>
         <span className="text-center">Separação</span>
+        <span className="text-center">Data Ped.</span>
         <span className="text-center">Entrega</span>
         <span />
       </div>
@@ -79,9 +80,12 @@ export function SeparationQueueList(props: {
         const { picked, total } = separationProgress(order);
         const step = resolveSeparationWorkflowStep(order);
         const urgent = Boolean(order.isUrgentManual) || order.priority <= 2;
-        const deliveryWhen = formatOrderQueueDate(
-          order.requestedDeliveryDate ?? order.orderDate ?? order.createdAt,
+        const orderWhen = formatOrderQueueDate(
+          order.orderDate ?? order.createdAt,
         );
+        const deliveryWhen = order.requestedDeliveryDate
+          ? formatOrderQueueDate(order.requestedDeliveryDate)
+          : '—';
 
         return (
           <div
@@ -107,8 +111,9 @@ export function SeparationQueueList(props: {
               />
             </label>
 
+            {/* Badge em segunda linha: lado a lado ele cobria número e recebedor. */}
             <span className="exp-sep-list-num">
-              #{numero}
+              <span className="exp-sep-list-num-value">#{numero}</span>
               {urgent ? (
                 <span
                   className="exp-sep-list-urgent"
@@ -147,6 +152,7 @@ export function SeparationQueueList(props: {
               ) : null}
             </span>
 
+            <span className="exp-sep-list-date">{orderWhen}</span>
             <span className="exp-sep-list-date">{deliveryWhen}</span>
 
             <span className="exp-sep-list-actions">

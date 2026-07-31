@@ -357,7 +357,11 @@ export function ExpeditionWorkspace(props: {
         </div>
       ) : null}
 
-      <div className="exp-page-layout flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`exp-page-layout flex min-h-0 flex-1 flex-col overflow-hidden${
+          mode === 'separation' ? ' exp-page-layout--separation' : ''
+        }`}
+      >
         <div
           className={`exp-page-col-queue flex h-full min-h-0 w-full flex-col overflow-hidden ${mobileDetailOpen ? 'hidden md:flex' : 'flex'} exp-mobile-list-screen`}
         >

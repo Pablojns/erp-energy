@@ -99,6 +99,25 @@ export function resolveItemReceiptStatusForOrder(
   return raw || null;
 }
 
+/**
+ * Valor de venda da linha do pedido (`unitPrice`/`totalPrice`), nunca o custo
+ * do produto. Fonte única usada no detalhe do pedido e na Separação.
+ */
+export function formatOrderItemSaleValue(
+  raw: string | number | null | undefined,
+  fallbackUnit?: string | number | null,
+  fallbackQty?: number | null,
+): string {
+  let n = Number(raw);
+  if (!Number.isFinite(n) || n === 0) {
+    const unit = Number(fallbackUnit);
+    const qty = Number(fallbackQty);
+    if (Number.isFinite(unit) && Number.isFinite(qty)) n = unit * qty;
+  }
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 export function displayOrDash(value: string | null | undefined): string {
   const v = value?.trim();
   return v ? v : '—';

@@ -702,7 +702,6 @@ export function SeparationWorkbench(props: {
 
       {mode === 'separation' ? (
         <>
-          <div className="exp-wb-footer-spacer min-[1025px]:hidden" />
           <footer className="exp-wb-footer !gap-2 !pt-2 hidden md:flex">
             {shouldShowConcludeAction ? (
               <button

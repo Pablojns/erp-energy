@@ -834,7 +834,7 @@ export function OrderQueue(props: {
         className={`exp-queue-panel-list erp-scrollbar min-h-0 w-full flex-1 overflow-x-hidden ${
           isPedidosMode
             ? 'flex flex-col overflow-hidden !p-2.5'
-            : 'overflow-y-auto !p-2.5'
+            : 'exp-queue-panel-list--separation overflow-y-auto !p-2.5'
         }`}
         {...pullRefresh.handlers}
       >

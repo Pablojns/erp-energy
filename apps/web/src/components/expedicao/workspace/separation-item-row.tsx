@@ -2,7 +2,10 @@
 
 import { Loader2 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { isWegItemAlreadyReceived } from '@/src/components/expedicao/shared/order-helpers';
+import {
+  formatOrderItemSaleValue,
+  isWegItemAlreadyReceived,
+} from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 import type { OrderItemStockState } from '@/src/components/expedicao/shared/use-order-items-stock';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
@@ -38,6 +41,12 @@ export function SeparationItemRow(props: {
     () => Math.max(0, Math.min(qtyDraft || 0, item.quantity)),
     [qtyDraft, item.quantity],
   );
+  const unitPriceNumber = useMemo(() => {
+    const n = Number(item.unitPrice);
+    return Number.isFinite(n) ? n : 0;
+  }, [item.unitPrice]);
+  // Linha já recebida não tem qtd. a separar: o total é o da quantidade pedida.
+  const totalQtyForPrice = alreadyReceived ? item.quantity : qtyClamped;
   const picked = item.pickedQty ?? 0;
   const statusLabel = alreadyReceived
     ? 'RECEBIDO'
@@ -97,7 +106,7 @@ export function SeparationItemRow(props: {
     <Fragment>
       {/* Mobile — card em flex coluna (visível só &lt;768px via CSS) */}
       <tr className="exp-sep-mobile-card-row">
-        <td colSpan={8}>
+        <td colSpan={10}>
           <div className="item-card">
             <div className="item-row">
               <span className="item-linha">Linha</span>
@@ -128,6 +137,20 @@ export function SeparationItemRow(props: {
               {qtyInput}
             </div>
             <div className="item-row">
+              <span>
+                <span className="item-label">Preço Unit.: </span>
+                <span className="item-value">
+                  {formatOrderItemSaleValue(item.unitPrice)}
+                </span>
+              </span>
+              <span>
+                <span className="item-label">Total: </span>
+                <span className="item-value">
+                  {formatOrderItemSaleValue(unitPriceNumber * totalQtyForPrice)}
+                </span>
+              </span>
+            </div>
+            <div className="item-row">
               <span className="item-label">Status</span>
               {statusNode}
             </div>
@@ -154,6 +177,13 @@ export function SeparationItemRow(props: {
           </td>
         ) : null}
         <td className="text-center">{qtyInput}</td>
+        <td className="text-center text-xs">
+          {formatOrderItemSaleValue(item.unitPrice)}
+        </td>
+        {/* Total acompanha a quantidade digitada, não a já confirmada. */}
+        <td className="text-center text-xs font-semibold">
+          {formatOrderItemSaleValue(unitPriceNumber * totalQtyForPrice)}
+        </td>
         <td className="text-center">{statusNode}</td>
         <td className="text-center">{actionNode}</td>
       </tr>
