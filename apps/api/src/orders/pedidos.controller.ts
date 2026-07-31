@@ -390,6 +390,17 @@ export class PedidosController {
     return this.pedidos.attachNf(numeroPed, dto, user.id);
   }
 
+  /** Saída de uma linha só (pedido parcial: "dar saída deste item"). */
+  @Post(':numeroPed/itens/:itemId/saida')
+  @RequirePermission('expedicao', 'confirmar_saida')
+  gerarSaidaItem(
+    @Param('numeroPed') numeroPed: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pedidos.gerarSaidaItem(numeroPed, itemId, user.id);
+  }
+
   @Post(':numeroPed/saida')
   @RequirePermission('expedicao', 'confirmar_saida')
   gerarSaida(

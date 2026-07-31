@@ -180,12 +180,14 @@ type ProductDto = {
 type ProductReservationRow = {
   id: string;
   productId: string;
-  orderId: string;
+  orderId: string | null;
   orderNumber: string;
-  orderStatus: string;
-  orderSource: string;
+  orderStatus: string | null;
+  orderSource: string | null;
   sku: string;
   quantity: number;
+  /** `pedido` = reserva de pedido; `manual` = reserva feita direto no estoque. */
+  origin?: 'pedido' | 'manual';
   createdAt: string;
 };
 
@@ -1165,7 +1167,9 @@ export function EstoqueWorkspace() {
               [...moveTypeCardFilters].sort().join(','),
             );
           } else {
-            params.set('types', 'entrada,saida');
+            // Reservas entram na listagem padrão: antes só apareciam ao clicar
+            // no card "Reservados", dando a impressão de reserva não registrada.
+            params.set('types', 'entrada,saida,reserva');
           }
         }
         if (moveFilterUserId) {
@@ -1184,7 +1188,7 @@ export function EstoqueWorkspace() {
           params.set('productId', opts.productId);
           const end = new Date();
           const start = new Date(end.getTime() - 1000 * 60 * 60 * 24 * 30);
-          params.set('types', 'entrada,saida');
+          params.set('types', 'entrada,saida,reserva');
           params.set('startDate', start.toISOString().slice(0, 10));
           params.set('endDate', end.toISOString().slice(0, 10));
         }
@@ -1956,17 +1960,11 @@ export function EstoqueWorkspace() {
     setCancelingReserveId(movement.id);
     setBannerError(null);
     try {
-      await erpFetchJson('stock/movements', {
-        method: 'POST',
-        body: JSON.stringify({
-          productId: movement.product.id,
-          movementType: 'RESERVE_CANCEL',
-          quantity: movement.quantity,
-          ...(movement.reference?.trim()
-            ? { reference: movement.reference.trim() }
-            : {}),
-          notes: `Cancelamento de reserva (${movement.product.sku})`,
-        }),
+      // Remove a própria reserva (o backend devolve o saldo). Antes era criada
+      // uma linha RESERVE_CANCEL e a reserva original ficava na lista, o que
+      // aparecia como duplicação e mantinha o total de reservados errado.
+      await erpFetchJson(`stock/movements/${movement.id}`, {
+        method: 'DELETE',
       });
       setBannerSuccess('Reserva cancelada com sucesso.');
       await loadSummary();
@@ -2656,7 +2654,7 @@ export function EstoqueWorkspace() {
           </div>
           <p className="text-xs text-[var(--text-muted)]">
             {productReservations.length > 0
-              ? `${productReservations.length} pedido(s)`
+              ? `${productReservations.length} reserva(s)`
               : 'sem reservas ativas'}
           </p>
         </button>
@@ -4345,35 +4343,47 @@ export function EstoqueWorkspace() {
                       </tr>
                     </thead>
                     <tbody>
-                      {productReservations.map((r, idx) => (
-                        <tr
-                          key={r.id}
-                          className={`cursor-pointer border-b border-[var(--border-color)] transition hover:bg-[var(--accent)]/10 ${
-                            idx % 2 === 0
-                              ? 'bg-[var(--bg-card)]'
-                              : 'bg-[var(--input-bg)]'
-                          }`}
-                          onClick={() => {
-                            setReservationsModalOpen(false);
-                            router.push(
-                              `/app/expedicao/pedidos?search=${encodeURIComponent(r.orderNumber)}`,
-                            );
-                          }}
-                        >
-                          <td className="px-2 py-1.5 font-medium text-[var(--accent)] underline-offset-2 hover:underline">
-                            {r.orderNumber}
-                          </td>
-                          <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
-                            {r.quantity}
-                          </td>
-                          <td className="px-2 py-1.5 text-[var(--text-secondary)]">
-                            {formatDateTime(r.createdAt)}
-                          </td>
-                          <td className="px-2 py-1.5 text-xs text-[var(--text-secondary)]">
-                            {r.orderStatus}
-                          </td>
-                        </tr>
-                      ))}
+                      {productReservations.map((r, idx) => {
+                        const isManual = r.origin === 'manual' || !r.orderId;
+                        return (
+                          <tr
+                            key={r.id}
+                            className={`border-b border-[var(--border-color)] transition hover:bg-[var(--accent)]/10 ${
+                              isManual ? '' : 'cursor-pointer'
+                            } ${
+                              idx % 2 === 0
+                                ? 'bg-[var(--bg-card)]'
+                                : 'bg-[var(--input-bg)]'
+                            }`}
+                            onClick={() => {
+                              if (isManual) return;
+                              setReservationsModalOpen(false);
+                              router.push(
+                                `/app/expedicao/pedidos?search=${encodeURIComponent(r.orderNumber)}`,
+                              );
+                            }}
+                          >
+                            <td
+                              className={`px-2 py-1.5 font-medium ${
+                                isManual
+                                  ? 'text-[var(--text-primary)]'
+                                  : 'text-[var(--accent)] underline-offset-2 hover:underline'
+                              }`}
+                            >
+                              {r.orderNumber}
+                            </td>
+                            <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[var(--text-primary)]">
+                              {r.quantity}
+                            </td>
+                            <td className="px-2 py-1.5 text-[var(--text-secondary)]">
+                              {formatDateTime(r.createdAt)}
+                            </td>
+                            <td className="px-2 py-1.5 text-xs text-[var(--text-secondary)]">
+                              {isManual ? 'Reserva manual' : r.orderStatus}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

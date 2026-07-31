@@ -18,6 +18,25 @@ import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedido
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
+/**
+ * Valor de venda da linha (unitPrice/totalPrice do pedido, nunca custo).
+ * Quando o total não veio gravado, recalcula pelo unitário × quantidade.
+ */
+function formatSaleValue(
+  raw: string | number | null | undefined,
+  fallbackUnit?: string | number | null,
+  fallbackQty?: number | null,
+): string {
+  let n = Number(raw);
+  if (!Number.isFinite(n) || n === 0) {
+    const unit = Number(fallbackUnit);
+    const qty = Number(fallbackQty);
+    if (Number.isFinite(unit) && Number.isFinite(qty)) n = unit * qty;
+  }
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 export function SeparationItemsTable(props: {
   order: OrderDto;
   data: OrdersData;
@@ -76,8 +95,8 @@ export function SeparationItemsTable(props: {
                 <col className="exp-wb-col-qtd-sep" />
                 <col className="exp-wb-col-qtd-falta" />
                 {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
-                {isVendaExterna ? <col /> : null}
-                {isVendaExterna ? <col /> : null}
+                <col />
+                <col />
                 {!isVendaExterna ? <col className="exp-wb-col-item-status" /> : null}
               </>
             ) : (
@@ -106,8 +125,8 @@ export function SeparationItemsTable(props: {
                   </th>
                   <th className="text-center">Falta</th>
                   {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
-                  {isVendaExterna ? <th className="text-center">Preço unit.</th> : null}
-                  {isVendaExterna ? <th className="text-center">Total</th> : null}
+                  <th className="text-center">Venda unit.</th>
+                  <th className="text-center">Total venda</th>
                   {!isVendaExterna ? <th className="text-center">Status item</th> : null}
                 </>
               ) : (
@@ -182,22 +201,12 @@ export function SeparationItemsTable(props: {
                       <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
                     </td>
                   ) : null}
-                  {isVendaExterna ? (
-                    <td className="text-center text-xs" data-label="Preço unit.">
-                      {Number(it.unitPrice).toLocaleString('pt-BR', {
-                        style: 'currency',
-                        currency: 'BRL',
-                      })}
-                    </td>
-                  ) : null}
-                  {isVendaExterna ? (
-                    <td className="text-center text-xs" data-label="Total">
-                      {Number(it.totalPrice).toLocaleString('pt-BR', {
-                        style: 'currency',
-                        currency: 'BRL',
-                      })}
-                    </td>
-                  ) : null}
+                  <td className="text-center text-xs" data-label="Venda unit.">
+                    {formatSaleValue(it.unitPrice)}
+                  </td>
+                  <td className="text-center text-xs" data-label="Total venda">
+                    {formatSaleValue(it.totalPrice, it.unitPrice, it.quantity)}
+                  </td>
                   {!isVendaExterna ? (
                     <td className="text-center" data-label="Status item">
                       <OrderItemReceiptStatusBadge

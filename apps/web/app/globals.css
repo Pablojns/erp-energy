@@ -2308,6 +2308,131 @@ label,
   }
 }
 
+/* Fila de separação em lista (linhas), no lugar dos blocos em grade. */
+.exp-sep-filters {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.exp-sep-list {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.exp-sep-list-header,
+.exp-sep-list-row {
+  display: grid;
+  grid-template-columns:
+    28px minmax(110px, 0.9fr) minmax(120px, 1.4fr) minmax(110px, 1fr)
+    minmax(120px, 1.2fr) minmax(120px, 0.9fr) 84px 36px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+}
+
+.exp-sep-list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--exp-border);
+  background: var(--bg-card);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.exp-sep-list-row {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--exp-inner, var(--bg-card));
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.exp-sep-list-row:hover {
+  border-color: var(--exp-border-active, var(--accent));
+}
+
+.exp-sep-list-row--selected {
+  border-color: var(--exp-border-active, var(--accent));
+  box-shadow: 0 0 0 1px rgba(91, 94, 244, 0.45);
+}
+
+.exp-sep-list-row--checked {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.exp-sep-list-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exp-sep-list-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.exp-sep-list-urgent {
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.exp-sep-list-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exp-sep-list-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.exp-sep-list-progress-qty {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.exp-sep-list-date {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.exp-sep-list-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .exp-queue-empty {
   display: flex;
   flex-direction: column;

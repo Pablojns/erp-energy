@@ -23,6 +23,12 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CarrierResolverService } from './carrier-resolver.service';
+import {
+  buildOrderFieldFilterWhere,
+  buildOrderSearchWhere,
+  invoiceNumberDigits,
+  normalizeOrderSearchTerm,
+} from './order-search';
 import { OrderService } from './order.service';
 import { WEG_TAB_ORDER_SOURCES } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
@@ -570,29 +576,17 @@ export class PedidosService {
 
   list(query: Parameters<OrderService['findMany']>[0]) {
     const q = query as OrderQueryDto;
-    const search = q.search?.trim();
-    const filterField = q.filterField?.trim();
-    const filterValue = q.filterValue?.trim();
-    const hasSearch = Boolean(search);
-    const hasFieldFilter = Boolean(filterField && filterValue);
-    const isSeparationWorkspace = q.workspace?.trim() === 'separation';
 
-    if (isSeparationWorkspace) {
+    if (q.workspace?.trim() === 'separation') {
       return this.listSeparationWorkspaceOrders(q, {
-        search,
-        filterField,
-        filterValue,
+        search: q.search?.trim(),
+        filterField: q.filterField?.trim(),
+        filterValue: q.filterValue?.trim(),
       });
     }
 
-    if (!hasSearch && !hasFieldFilter) {
-      return this.orders.findMany(q);
-    }
-    return this.listPedidosWithFilters(q, {
-      search,
-      filterField,
-      filterValue,
-    });
+    // Busca e filtro por campo vivem em `OrderService.buildWhere` (fonte única).
+    return this.orders.findMany(q);
   }
 
   expeditionDashboard() {
@@ -812,130 +806,31 @@ export class PedidosService {
         ? query.pageSize
         : 15;
 
-    const mode = 'insensitive' as const;
-    const allowedFilterFields = new Set([
-      'invoiceNumber',
-      'receiverName',
-      'unloadingPoint',
-    ]);
+    const searchWhere = buildOrderSearchWhere(filters.search);
+    const fieldWhere = buildOrderFieldFilterWhere(
+      filters.filterField,
+      filters.filterValue,
+    );
 
-    const where: Prisma.OrderWhereInput = PedidosService.stripSeparationItemVisualFilters({
+    const where: Prisma.OrderWhereInput = {
       AND: [
-        this.buildSeparationListWhere({
-          ...query,
-          search: undefined,
-          filterField: undefined,
-          filterValue: undefined,
-        }),
-        ...(filters.search
-          ? [{ externalOrderNumber: { startsWith: filters.search, mode } }]
-          : []),
-        ...(filters.filterField &&
-        filters.filterValue &&
-        allowedFilterFields.has(filters.filterField)
-          ? [
-              {
-                [filters.filterField]: {
-                  contains: filters.filterValue,
-                  mode,
-                },
-              } as Prisma.OrderWhereInput,
-            ]
-          : []),
+        PedidosService.stripSeparationItemVisualFilters(
+          this.buildSeparationListWhere({
+            ...query,
+            search: undefined,
+            filterField: undefined,
+            filterValue: undefined,
+          }),
+        ),
+        ...(Object.keys(searchWhere).length > 0 ? [searchWhere] : []),
+        ...(Object.keys(fieldWhere).length > 0 ? [fieldWhere] : []),
       ],
-    });
+    };
 
     const orderBy = [
       { sentToSeparationAt: 'asc' as const },
       { createdAt: 'asc' as const },
     ];
-    const [total, rows] = await Promise.all([
-      this.prisma.client.order.count({ where }),
-      this.prisma.client.order.findMany({
-        where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy,
-        include: (
-          OrderService as unknown as {
-            orderListInclude(): Prisma.OrderInclude;
-          }
-        ).orderListInclude(),
-      }),
-    ]);
-
-    return {
-      data: rows.map((row) => internals.serializeOrder(row)),
-      meta: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / pageSize)),
-      },
-    };
-  }
-
-  private async listPedidosWithFilters(
-    query: OrderQueryDto,
-    filters: {
-      search?: string;
-      filterField?: string;
-      filterValue?: string;
-    },
-  ) {
-    type OrderListInternals = {
-      buildWhere(input: OrderQueryDto): Prisma.OrderWhereInput;
-      buildOrderBy(input: OrderQueryDto): Prisma.OrderOrderByWithRelationInput[];
-      serializeOrder(row: unknown): Awaited<
-        ReturnType<OrderService['findMany']>
-      >['data'][number];
-    };
-
-    const internals = this.orders as unknown as OrderListInternals;
-    const page = query.page !== undefined && query.page > 0 ? query.page : 1;
-    const pageSize =
-      query.pageSize !== undefined &&
-      query.pageSize > 0 &&
-      query.pageSize <= 100
-        ? query.pageSize
-        : 15;
-
-    const baseWhere = internals.buildWhere({
-      ...query,
-      search: undefined,
-      filterField: undefined,
-      filterValue: undefined,
-    });
-
-    const mode = 'insensitive' as const;
-    const allowedFilterFields = new Set([
-      'invoiceNumber',
-      'receiverName',
-      'unloadingPoint',
-    ]);
-
-    const where: Prisma.OrderWhereInput = {
-      AND: [
-        baseWhere,
-        ...(filters.search
-          ? [{ externalOrderNumber: { startsWith: filters.search, mode } }]
-          : []),
-        ...(filters.filterField &&
-        filters.filterValue &&
-        allowedFilterFields.has(filters.filterField)
-          ? [
-              {
-                [filters.filterField]: {
-                  contains: filters.filterValue,
-                  mode,
-                },
-              } as Prisma.OrderWhereInput,
-            ]
-          : []),
-      ],
-    };
-
-    const orderBy = internals.buildOrderBy(query);
     const [total, rows] = await Promise.all([
       this.prisma.client.order.count({ where }),
       this.prisma.client.order.findMany({
@@ -1429,15 +1324,7 @@ export class PedidosService {
   }
 
   private normalizeInvoiceNumberDigits(raw: string): string {
-    const trimmed = raw.trim();
-    if (!trimmed) return '';
-
-    let part = trimmed.split('/')[0]?.trim() ?? trimmed;
-    const dashMatch = part.match(/[-–—]\s*(.+)$/);
-    if (dashMatch?.[1]) {
-      part = dashMatch[1].trim();
-    }
-    return part.replace(/\D/g, '');
+    return invoiceNumberDigits(raw);
   }
 
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {
@@ -2656,38 +2543,26 @@ export class PedidosService {
    * Busca global no histórico de NFs por número da NF, número do pedido ou CNPJ.
    */
   async searchNfHistorico(qRaw?: string) {
-    const q = (qRaw ?? '').trim();
+    const q = normalizeOrderSearchTerm(qRaw);
     if (!q) {
       return { historico: [] as Array<Record<string, unknown>> };
     }
 
-    const digits = q.replace(/\D/g, '');
+    const nfDigits = invoiceNumberDigits(q);
+    // Mesma semântica da busca de pedidos: substring + NF normalizada.
     const or: Prisma.OrderInvoiceHistoryWhereInput[] = [
       { invoiceNumber: { contains: q, mode: 'insensitive' } },
-      {
-        order: {
-          OR: [
-            { externalOrderNumber: { contains: q, mode: 'insensitive' } },
-            { code: { contains: q, mode: 'insensitive' } },
-            ...(digits.length >= 8
-              ? [
-                  {
-                    deliveryCnpj: {
-                      contains: digits,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    customerDocument: {
-                      contains: digits,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                ]
-              : []),
-          ],
-        },
-      },
+      ...(nfDigits && nfDigits !== q
+        ? [
+            {
+              invoiceNumber: {
+                contains: nfDigits,
+                mode: 'insensitive' as const,
+              },
+            },
+          ]
+        : []),
+      { order: buildOrderSearchWhere(q) },
     ];
 
     const rows = await this.prisma.client.orderInvoiceHistory.findMany({
@@ -3150,6 +3025,17 @@ export class PedidosService {
     };
   }
 
+  /** Saída de uma única linha do pedido (parcial). */
+  async gerarSaidaItem(numeroPed: string, itemId: string, userId: string) {
+    const order = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: numeroPed.trim() },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    return this.orders.dispatchOrderItem(order.id, itemId, userId);
+  }
+
   async gerarSaidaComNf(numeroPed: string, dto: PedidosAttachNfDto, userId: string) {
     const order = await this.prisma.client.order.findFirst({
       where: { externalOrderNumber: numeroPed.trim() },
@@ -3249,45 +3135,20 @@ export class PedidosService {
 
     const where: Prisma.OrderExitWhereInput = {};
     if (search) {
+      const nfDigits = invoiceNumberDigits(search);
       where.OR = [
-        {
-          order: {
-            externalOrderNumber: {
-              contains: search,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-        {
-          order: {
-            code: {
-              contains: search,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-        {
-          order: {
-            receiverName: {
-              contains: search,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-        {
-          order: {
-            customerName: {
-              contains: search,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-        {
-          invoiceNumber: {
-            contains: search,
-            mode: Prisma.QueryMode.insensitive,
-          },
-        },
+        { invoiceNumber: { contains: search, mode: Prisma.QueryMode.insensitive } },
+        ...(nfDigits && nfDigits !== search
+          ? [
+              {
+                invoiceNumber: {
+                  contains: nfDigits,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+            ]
+          : []),
+        { order: buildOrderSearchWhere(search) },
         {
           order: {
             carrier: {

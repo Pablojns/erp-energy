@@ -25,7 +25,6 @@ import {
   DEFAULT_PEDIDOS_SORT_ORDER,
   type PedidosSortOrder,
 } from '@/src/components/expedicao/workspace/pedidos-saved-filter-types';
-import { isSeparationWorkspaceOrder } from '@/src/components/expedicao/shared/order-helpers';
 import { useBusinessContext } from '@/src/components/layout/business-context-provider';
 
 export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}) {
@@ -123,12 +122,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     page,
   ]);
 
-  const orders = useMemo(() => {
-    if (mode === 'separation') {
-      return fetchedOrders.filter(isSeparationWorkspaceOrder);
-    }
-    return fetchedOrders;
-  }, [fetchedOrders, mode]);
+  // A aba Separação é filtrada no servidor (buildSeparationListWhere). Refiltrar
+  // aqui escondia pedidos já paginados (ex.: NF_ATRELADA sem NF) e quebrava o
+  // scroll infinito e o contador.
+  const orders = fetchedOrders;
 
   useEffect(() => {
     if (pedidosError) {

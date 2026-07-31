@@ -56,6 +56,9 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchGenerationRef = useRef(0);
+  // Contador de requisições em voo: garante que o loading sempre seja liberado
+  // (antes, se a requisição mais recente fosse invalidada, o skeleton ficava eterno).
+  const inFlightRef = useRef(0);
   const listQueryKey = useMemo(
     () =>
       JSON.stringify({
@@ -109,6 +112,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
         setLoading(true);
       }
       setError(null);
+      inFlightRef.current += 1;
 
       try {
         const searchDebounced = search.trim();
@@ -156,13 +160,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
           setPedidos(refined);
         }
       } catch (e) {
-        if (e instanceof Error && e.name === 'AbortError') {
-          if (generation === fetchGenerationRef.current) {
-            if (appendPage) setLoadingMore(false);
-            else setLoading(false);
-          }
-          return;
-        }
+        if (e instanceof Error && e.name === 'AbortError') return;
         if (generation !== fetchGenerationRef.current) return;
 
         if (!appendPage) {
@@ -171,12 +169,14 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
         }
         setError(e instanceof Error ? e.message : 'Falha ao carregar pedidos.');
       } finally {
-        if (generation !== fetchGenerationRef.current) return;
-
-        if (appendPage) {
+        inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+        // Nada em voo: libera o loading independente de geração obsoleta.
+        if (inFlightRef.current === 0) {
           setLoadingMore(false);
-        } else {
           setLoading(false);
+        } else if (generation === fetchGenerationRef.current) {
+          if (appendPage) setLoadingMore(false);
+          else setLoading(false);
         }
       }
     },

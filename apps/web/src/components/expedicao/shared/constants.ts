@@ -10,6 +10,7 @@ export const INITIAL_FILTERS: FilterFormState = {
   deliveryCnpj: '',
   receiverName: '',
   unloadingPoint: '',
+  carrierName: '',
   sku: '',
   contaAzulStatus: '',
   invoiceNumber: '',

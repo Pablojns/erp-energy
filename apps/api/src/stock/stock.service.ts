@@ -89,15 +89,47 @@ export class StockService {
       return {
         id: r.id,
         productId: r.productId,
-        orderId: r.orderId,
+        orderId: r.orderId as string | null,
         orderNumber,
-        orderStatus: r.order.status,
-        orderSource: r.order.source,
+        orderStatus: r.order.status as string | null,
+        orderSource: r.order.source as string | null,
         sku: r.sku,
         quantity: r.quantity,
+        origin: 'pedido' as const,
         createdAt: r.createdAt.toISOString(),
       };
     });
+
+    // Reserva manual do estoque vive em StockMovement (RESERVE), não em
+    // StockReservation. Sem isso ela nunca aparecia em "Reservados".
+    const manualRows = await this.prisma.client.stockMovement.findMany({
+      where: { productId, movementType: StockMovementType.RESERVE },
+      orderBy: { movementDate: 'desc' },
+      select: {
+        id: true,
+        quantity: true,
+        reference: true,
+        notes: true,
+        movementDate: true,
+      },
+    });
+
+    const manual = manualRows.map((m) => ({
+      id: m.id,
+      productId,
+      orderId: null,
+      orderNumber: m.reference?.trim() || 'Reserva manual',
+      orderStatus: null,
+      orderSource: null,
+      sku: product.sku,
+      quantity: m.quantity,
+      origin: 'manual' as const,
+      createdAt: m.movementDate.toISOString(),
+    }));
+
+    const all = [...reservations, ...manual].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
 
     return {
       product: {
@@ -108,8 +140,8 @@ export class StockService {
         reservedQty: product.reservedQty,
         availableQty: Math.max(0, product.stockQty - product.reservedQty),
       },
-      reservations,
-      totalReserved: reservations.reduce((acc, r) => acc + r.quantity, 0),
+      reservations: all,
+      totalReserved: all.reduce((acc, r) => acc + r.quantity, 0),
     };
   }
 
@@ -1335,6 +1367,27 @@ export class StockService {
       }
     } else if (type === StockMovementType.RESERVA) {
       await this.safeDecrementReservedQty(tx, productId, qty);
+      // Sem liberar o registro da reserva, ela continuava aparecendo como ativa
+      // em "Reservados" mesmo com a movimentação apagada (reserva fantasma).
+      const reference = movement.reference?.trim();
+      if (reference) {
+        const order = await tx.order.findFirst({
+          where: {
+            OR: [{ code: reference }, { externalOrderNumber: reference }],
+          },
+          select: { id: true },
+        });
+        if (order) {
+          await tx.stockReservation.updateMany({
+            where: { orderId: order.id, productId, releasedAt: null },
+            data: { releasedAt: new Date() },
+          });
+          await tx.orderItem.updateMany({
+            where: { orderId: order.id, productId },
+            data: { reservedQuantity: 0 },
+          });
+        }
+      }
     } else if (
       type === StockMovementType.SAIDA_EXPEDICAO ||
       type === StockMovementType.BAIXA_EXPEDICAO

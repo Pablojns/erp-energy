@@ -74,6 +74,7 @@ export function buildFilterParams(opts: {
   if (f.receiverName.trim()) params.set('receiverName', f.receiverName.trim());
   if (f.unloadingPoint.trim())
     params.set('unloadingPoint', f.unloadingPoint.trim());
+  if (f.carrierName?.trim()) params.set('carrierName', f.carrierName.trim());
   if (f.sku.trim()) params.set('sku', f.sku.trim());
   if (f.contaAzulStatus.trim())
     params.set('contaAzulStatus', f.contaAzulStatus.trim());

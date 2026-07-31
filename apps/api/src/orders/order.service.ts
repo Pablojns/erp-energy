@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -31,6 +32,11 @@ import {
   orderStockReference,
 } from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
+import {
+  buildOrderFieldFilterWhere,
+  buildOrderParcialWhere,
+  buildOrderSearchWhere,
+} from './order-search';
 import { AppLogger } from '../common/logger/app-logger';
 import {
   markOrderItemReservationReleased,
@@ -589,25 +595,16 @@ export class OrderService {
         },
       };
     } catch (e: unknown) {
-      this.logger.error(
-        'Order list query failed; returning empty list fallback',
-        e,
-        {
-          fallbackUsed: true,
-          page,
-          pageSize,
-          recommendation: 'Run database migrations and validate schema sync',
-        },
+      // Nunca devolver lista vazia em caso de falha: isso aparecia na tela como
+      // "nenhum resultado" e fazia a busca parecer intermitente (F5 resolvia).
+      this.logger.error('Order list query failed', e, {
+        page,
+        pageSize,
+        recommendation: 'Run database migrations and validate schema sync',
+      });
+      throw new InternalServerErrorException(
+        'Não foi possível carregar os pedidos. Tente novamente.',
       );
-      return {
-        data: [],
-        meta: {
-          page,
-          pageSize,
-          total: 0,
-          totalPages: 1,
-        },
-      };
     }
   }
 
@@ -2618,6 +2615,155 @@ export class OrderService {
     });
   }
 
+  /**
+   * Saída de UMA linha do pedido (usado no pedido parcial quando o item é marcado
+   * como Recebido e o usuário escolhe "dar saída deste item"). Baixa o estoque só
+   * da linha, mantém o pedido em PARCIAL enquanto houver itens pendentes.
+   */
+  async dispatchOrderItem(orderId: string, itemId: string, userId: string) {
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+      );
+
+      const before = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true, carrier: { select: { name: true } } },
+      });
+      if (!before) throw new NotFoundException('Pedido não encontrado.');
+      if (before.status === OrderStatus.CANCELADO) {
+        throw new BadRequestException('Pedido cancelado.');
+      }
+
+      const item = before.items.find((it) => it.id === itemId);
+      if (!item) throw new NotFoundException('Item não encontrado no pedido.');
+
+      const remaining = item.quantity - item.invoicedQty;
+      if (remaining <= 0) {
+        throw new BadRequestException('Este item já teve saída registrada.');
+      }
+
+      const productId = await this.resolveOrderItemProductId(tx, item);
+      if (!productId) {
+        throw new BadRequestException(
+          `Vincule o SKU ${item.sku} ao cadastro de produtos para dar saída deste item.`,
+        );
+      }
+
+      const reservation = await tx.stockReservation.findFirst({
+        where: { orderItemId: item.id, releasedAt: null },
+      });
+      const decReserved = Math.min(reservation?.quantity ?? 0, remaining);
+
+      const up = await tx.product.updateMany({
+        where: {
+          id: productId,
+          stockQty: { gte: remaining },
+          reservedQty: { gte: decReserved },
+        },
+        data: {
+          stockQty: { decrement: remaining },
+          reservedQty: { decrement: decReserved },
+        },
+      });
+      if (up.count !== 1) {
+        throw new ConflictException(
+          `Saldo insuficiente em estoque para o SKU ${item.sku}.`,
+        );
+      }
+
+      const inv = before.invoiceNumber?.trim() || null;
+      await tx.stockMovement.create({
+        data: {
+          productId,
+          movementType: StockMovementType.SAIDA_EXPEDICAO,
+          quantity: remaining,
+          reference: before.code,
+          invoiceNumber: inv,
+          notes: `Saída do item ${item.sku} · pedido ${before.code}`,
+          movedById: userId,
+        },
+      });
+
+      if (reservation) {
+        const rest = reservation.quantity - decReserved;
+        if (rest <= 0) {
+          await tx.stockReservation.update({
+            where: { id: reservation.id },
+            data: { releasedAt: new Date() },
+          });
+        } else {
+          await tx.stockReservation.update({
+            where: { id: reservation.id },
+            data: { quantity: rest },
+          });
+        }
+      }
+
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: {
+          productId,
+          pickedQty: item.quantity,
+          invoicedQty: item.invoicedQty + remaining,
+          missingQty: 0,
+          reservedQuantity: Math.max(0, item.reservedQuantity - decReserved),
+          mercadoEletronicoItemStatus:
+            item.mercadoEletronicoItemStatus?.trim() || 'Recebido',
+        },
+      });
+
+      const itemsAfter = await tx.orderItem.findMany({
+        where: { orderId },
+        select: { quantity: true, pickedQty: true, invoicedQty: true },
+      });
+      const finalStatus = OrderService.resolveExitOrderStatus(itemsAfter);
+
+      // OrderExit é único por pedido: cria na primeira saída e mantém depois.
+      const existingExit = await tx.orderExit.findFirst({ where: { orderId } });
+      if (!existingExit) {
+        await tx.orderExit.create({
+          data: {
+            orderId,
+            invoiceNumber:
+              inv || before.notaRemessa?.trim() || before.code,
+            invoiceValue: before.totalValue,
+            exitDate: new Date(),
+            carrierName: before.carrier?.name ?? null,
+            trackingCode: before.trackingCode?.trim() || null,
+          },
+        });
+      }
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: finalStatus,
+          ...(finalStatus === OrderStatus.FINALIZADO && !before.shippedAt
+            ? { shippedAt: new Date() }
+            : {}),
+        },
+        include: OrderService.orderInclude(),
+      });
+
+      await this.audit.log({
+        userId,
+        action: 'ORDER_ITEM_EXIT_GENERATED',
+        entity: 'Order',
+        entityId: orderId,
+        changes: {
+          code: before.code,
+          sku: item.sku,
+          lineNumber: item.lineNumber,
+          quantity: remaining,
+          status: finalStatus,
+        },
+      });
+
+      return this.serializeOrder(updated);
+    });
+  }
+
   /** Baixa física (SAIDA_EXPEDICAO), libera reservas proporcionais e encerra o pedido. */
   async finalizeExpedition(orderId: string, userId: string) {
     return this.prisma.client.$transaction(async (tx) => {
@@ -2814,7 +2960,7 @@ export class OrderService {
       }
 
       if (to === OrderStatus.NOVO) {
-        await OrderService.hardResetOrderOnReturnToNovo(tx, id);
+        await this.hardResetOrderOnReturnToNovo(tx, id, userId);
       }
 
       const data: Prisma.OrderUncheckedUpdateInput = {
@@ -2900,9 +3046,9 @@ export class OrderService {
         await OrderService.resetItemsForNewSeparationCycle(tx, id);
       }
 
-      // Voltar para NOVO: limpeza total (saída, NF, rastreio, itens).
+      // Voltar para NOVO: limpeza total (saída, estoque, NF, rastreio, itens).
       if (to === OrderStatus.NOVO) {
-        await OrderService.hardResetOrderOnReturnToNovo(tx, id);
+        await this.hardResetOrderOnReturnToNovo(tx, id, userId);
       }
 
       const data: Prisma.OrderUncheckedUpdateInput = {
@@ -3065,7 +3211,7 @@ export class OrderService {
     if (ext) {
       clauses.push({
         externalOrderNumber: {
-          startsWith: ext,
+          contains: ext,
           mode: Prisma.QueryMode.insensitive,
         },
       });
@@ -3081,25 +3227,21 @@ export class OrderService {
     const cnpj = query.deliveryCnpj?.trim();
     if (cnpj) {
       clauses.push({
-        deliveryCnpj: { startsWith: cnpj, mode: Prisma.QueryMode.insensitive },
+        deliveryCnpj: {
+          contains: cnpj.replace(/\D/g, '') || cnpj,
+          mode: Prisma.QueryMode.insensitive,
+        },
       });
     }
 
     const recv = query.receiverName?.trim();
     if (recv) {
-      clauses.push({
-        receiverName: { startsWith: recv, mode: Prisma.QueryMode.insensitive },
-      });
+      clauses.push(buildOrderFieldFilterWhere('receiverName', recv));
     }
 
     const unload = query.unloadingPoint?.trim();
     if (unload) {
-      clauses.push({
-        unloadingPoint: {
-          startsWith: unload,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      });
+      clauses.push(buildOrderFieldFilterWhere('unloadingPoint', unload));
     }
 
     const sku = query.sku?.trim();
@@ -3107,17 +3249,24 @@ export class OrderService {
       clauses.push({
         items: {
           some: {
-            sku: { startsWith: sku, mode: Prisma.QueryMode.insensitive },
+            sku: { contains: sku, mode: Prisma.QueryMode.insensitive },
           },
+        },
+      });
+    }
+
+    const carrierName = query.carrierName?.trim();
+    if (carrierName) {
+      clauses.push({
+        carrier: {
+          name: { contains: carrierName, mode: Prisma.QueryMode.insensitive },
         },
       });
     }
 
     const inv = query.invoiceNumber?.trim();
     if (inv) {
-      clauses.push({
-        invoiceNumber: { startsWith: inv, mode: Prisma.QueryMode.insensitive },
-      });
+      clauses.push(buildOrderFieldFilterWhere('invoiceNumber', inv));
     }
 
     const invSt = query.invoiceStatus?.trim();
@@ -3172,6 +3321,8 @@ export class OrderService {
           priority: { lte: 2 },
           status: { notIn: TERMINAL },
         });
+      } else if (st === 'parcial') {
+        clauses.push(buildOrderParcialWhere());
       } else if (st === 'today') {
         const day = OrderService.startOfUtcDay(new Date());
         clauses.push({ createdAt: { gte: day } });
@@ -3184,17 +3335,20 @@ export class OrderService {
       }
     }
 
-    let where: Prisma.OrderWhereInput =
-      clauses.length > 0 ? { AND: clauses } : {};
-
-    const term = query.search?.trim();
-    if (term) {
-      where = {
-        AND: [where, OrderService.buildSmartSearchWhere(term)],
-      };
+    const searchWhere = buildOrderSearchWhere(query.search);
+    if (Object.keys(searchWhere).length > 0) {
+      clauses.push(searchWhere);
     }
 
-    return where;
+    const fieldWhere = buildOrderFieldFilterWhere(
+      query.filterField,
+      query.filterValue,
+    );
+    if (Object.keys(fieldWhere).length > 0) {
+      clauses.push(fieldWhere);
+    }
+
+    return clauses.length > 0 ? { AND: clauses } : {};
   }
 
   /** WEG → source WEG(+MANUAL/ECOMMERCE) e/ou CNPJ SP; SITE → source SITE e/ou CNPJ Londrina. */
@@ -3217,139 +3371,6 @@ export class OrderService {
         ...(londrinaId ? [{ companyEntityId: londrinaId }] : []),
       ],
     };
-  }
-
-  /** Busca inteligente: números curtos = NF; números longos = pedido; texto = prefixo. */
-  private static buildSmartSearchWhere(term: string): Prisma.OrderWhereInput {
-    const raw = term.trim();
-    if (!raw) return {};
-
-    const withoutHash = raw.startsWith('#') ? raw.slice(1).trim() : raw;
-    if (!withoutHash) return {};
-
-    const digitsOnly = /^\d+$/.test(withoutHash);
-    const invoiceMaxLen = 9;
-
-    if (digitsOnly && withoutHash.length <= invoiceMaxLen) {
-      return {
-        OR: [
-          {
-            invoiceNumber: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-          {
-            notaRemessa: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        ],
-      };
-    }
-
-    if (digitsOnly) {
-      return {
-        OR: [
-          {
-            externalOrderNumber: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-          {
-            code: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-          {
-            mercadoEletronicoNumber: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        ],
-      };
-    }
-
-    const orClauses: Prisma.OrderWhereInput[] = [
-      {
-        receiverName: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        customerName: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        unloadingPoint: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        externalOrderNumber: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        code: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        mercadoEletronicoNumber: {
-          startsWith: withoutHash,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      },
-      {
-        items: {
-          some: {
-            sku: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-      },
-      {
-        items: {
-          some: {
-            description: {
-              startsWith: withoutHash,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-        },
-      },
-    ];
-
-    const cnpjDigits = withoutHash.replace(/\D/g, '');
-    if (cnpjDigits.length >= 3) {
-      orClauses.push({
-        deliveryCnpj: {
-          startsWith: cnpjDigits,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      });
-      orClauses.push({
-        customerDocument: {
-          startsWith: cnpjDigits,
-          mode: Prisma.QueryMode.insensitive,
-        },
-      });
-    }
-
-    return { OR: orClauses };
   }
 
   private buildOrderBy(
@@ -3595,7 +3616,62 @@ export class OrderService {
    * Diferente de resetItemsForNewSeparationCycle (reenvio à separação), que preserva
    * itens já faturados em ciclos parciais.
    */
-  private static async hardResetOrderOnReturnToNovo(tx: Tx, orderId: string) {
+  private async hardResetOrderOnReturnToNovo(
+    tx: Tx,
+    orderId: string,
+    userId: string,
+  ) {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        code: true,
+        items: {
+          select: { id: true, productId: true, reservedQuantity: true },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+
+    // Pedido já expedido: devolve ao estoque o que saiu e apaga a movimentação,
+    // senão o saldo ficava furado e a saída "fantasma" seguia no histórico.
+    const exit = await tx.orderExit.findFirst({ where: { orderId } });
+    if (exit) {
+      const outbound = await tx.stockMovement.findMany({
+        where: {
+          reference: order.code,
+          movementType: {
+            in: [
+              StockMovementType.SAIDA_EXPEDICAO,
+              StockMovementType.BAIXA_EXPEDICAO,
+            ],
+          },
+        },
+        select: { id: true, productId: true, quantity: true },
+        orderBy: { productId: 'asc' },
+      });
+
+      for (const mov of outbound) {
+        await tx.product.update({
+          where: { id: mov.productId },
+          data: { stockQty: { increment: mov.quantity } },
+        });
+      }
+      if (outbound.length > 0) {
+        await tx.stockMovement.deleteMany({
+          where: { id: { in: outbound.map((m) => m.id) } },
+        });
+      }
+    }
+
+    // Reservas remanescentes voltam ao saldo disponível (ciclo do zero).
+    await this.releaseReservations(
+      tx,
+      userId,
+      order.code,
+      orderId,
+      order.items,
+    );
+
     await tx.orderExit.deleteMany({ where: { orderId } });
     await tx.orderInvoiceHistory.deleteMany({ where: { orderId } });
     await tx.orderItem.updateMany({
@@ -3604,6 +3680,7 @@ export class OrderService {
         pickedQty: 0,
         invoicedQty: 0,
         missingQty: 0,
+        reservedQuantity: 0,
         mercadoEletronicoItemStatus: null,
       },
     });

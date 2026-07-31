@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  buildOrderSearchWhere,
+  normalizeOrderSearchTerm,
+} from '../orders/order-search';
 
 export type SearchResultItem = {
   id: string;
@@ -19,7 +23,7 @@ export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   async search(term: string): Promise<GlobalSearchResponse> {
-    const q = term.trim();
+    const q = normalizeOrderSearchTerm(term);
     if (!q) {
       return { orders: [], products: [], customers: [] };
     }
@@ -28,15 +32,8 @@ export class SearchService {
 
     const [orders, products, customers] = await Promise.all([
       this.prisma.client.order.findMany({
-        where: {
-          OR: [
-            { code: contains },
-            { externalOrderNumber: contains },
-            { receiverName: contains },
-            { invoiceNumber: contains },
-            { customerName: contains },
-          ],
-        },
+        // Mesma regra da fila de pedidos (order-search): sem divergência de campos.
+        where: buildOrderSearchWhere(q),
         take: 5,
         orderBy: { updatedAt: 'desc' },
         select: {

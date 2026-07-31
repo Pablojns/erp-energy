@@ -19,6 +19,10 @@ import {
   type InventoryProductOption,
 } from '@/src/components/expedicao/workspace/inventory-product-picker-modal';
 import {
+  ItemRecebidoChoiceModal,
+  type ItemRecebidoChoice,
+} from '@/src/components/expedicao/workspace/item-recebido-choice-modal';
+import {
   WegBuyerCustomerSelector,
   wegBuyerCustomerLabel,
   type WegBuyerCustomer,
@@ -127,6 +131,10 @@ export function AdminOrderEditModal(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickingIndex, setPickingIndex] = useState<number | null>(null);
   const [pickingMode, setPickingMode] = useState<'replace' | 'add'>('replace');
+  const [recebidoChoiceIndex, setRecebidoChoiceIndex] = useState<number | null>(
+    null,
+  );
+  const [dispatchingItem, setDispatchingItem] = useState(false);
 
   const stockLookupItems = useMemo((): OrderItemDto[] => {
     if (!isOpen || !order || order.source !== 'SITE') return [];
@@ -410,6 +418,62 @@ export function AdminOrderEditModal(props: {
       if (isWegOrder) setTotalValue(calcItemsTotal(next));
       return next;
     });
+  };
+
+  /** Pedido parcial: marcar Recebido oferece dar saída da linha ou só mudar status. */
+  const handleItemStatusChange = (idx: number, nextStatus: string) => {
+    const row = items[idx];
+    const isRecebido = nextStatus.trim().toLowerCase() === 'recebido';
+    const alreadyReceived =
+      row?.mercadoEletronicoItemStatus.trim().toLowerCase() === 'recebido';
+    if (
+      row &&
+      isRecebido &&
+      !alreadyReceived &&
+      !row.isNew &&
+      !row.id.startsWith('new-') &&
+      status === 'PARCIAL'
+    ) {
+      setRecebidoChoiceIndex(idx);
+      return;
+    }
+    updateItemField(idx, { mercadoEletronicoItemStatus: nextStatus });
+  };
+
+  const handleRecebidoChoice = async (choice: ItemRecebidoChoice) => {
+    const idx = recebidoChoiceIndex;
+    if (idx === null) return;
+    if (choice === 'cancel') {
+      setRecebidoChoiceIndex(null);
+      return;
+    }
+    if (choice === 'status-only') {
+      updateItemField(idx, { mercadoEletronicoItemStatus: 'Recebido' });
+      setRecebidoChoiceIndex(null);
+      return;
+    }
+
+    const row = items[idx];
+    if (!row || !order) return;
+    setDispatchingItem(true);
+    setError(null);
+    try {
+      await erpFetchJson(
+        pedidoApiUrl(numeroPed, 'itens', row.id, 'saida'),
+        { method: 'POST' },
+      );
+      updateItemField(idx, { mercadoEletronicoItemStatus: 'Recebido' });
+      setRecebidoChoiceIndex(null);
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Falha ao dar saída deste item.',
+      );
+      setRecebidoChoiceIndex(null);
+    } finally {
+      setDispatchingItem(false);
+    }
   };
 
   const handleSave = async () => {
@@ -1046,9 +1110,7 @@ export function AdminOrderEditModal(props: {
                             className={fieldClass()}
                             value={it.mercadoEletronicoItemStatus}
                             onChange={(e) =>
-                              updateItemField(idx, {
-                                mercadoEletronicoItemStatus: e.target.value,
-                              })
+                              handleItemStatusChange(idx, e.target.value)
                             }
                           >
                             {ITEM_STATUS_OPTIONS.map((opt) => (
@@ -1091,6 +1153,27 @@ export function AdminOrderEditModal(props: {
           setPickingMode('replace');
         }}
         onSelect={handleInventorySelect}
+      />
+
+      <ItemRecebidoChoiceModal
+        open={recebidoChoiceIndex !== null}
+        sku={
+          recebidoChoiceIndex !== null
+            ? (items[recebidoChoiceIndex]?.sku ?? '')
+            : ''
+        }
+        description={
+          recebidoChoiceIndex !== null
+            ? items[recebidoChoiceIndex]?.description
+            : null
+        }
+        quantity={
+          recebidoChoiceIndex !== null
+            ? Number(items[recebidoChoiceIndex]?.quantity) || undefined
+            : undefined
+        }
+        busy={dispatchingItem}
+        onChoice={(choice) => void handleRecebidoChoice(choice)}
       />
     </div>
   );

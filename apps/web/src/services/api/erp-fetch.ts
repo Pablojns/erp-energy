@@ -28,6 +28,37 @@ function nestErrorMessage(payload: unknown, fallbackStatus: number): string {
   return String(raw);
 }
 
+/**
+ * Teto de espera de qualquer chamada ao ERP. Sem isso, uma requisição pendurada
+ * deixava a tela em "carregando" para sempre (o estado só é liberado quando a
+ * requisição mais recente termina).
+ */
+const ERP_FETCH_TIMEOUT_MS = 35_000;
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'TimeoutError';
+}
+
+/** Combina o sinal do chamador (cancelamento por digitação) com o timeout. */
+function buildSignal(external: AbortSignal | null | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(ERP_FETCH_TIMEOUT_MS);
+  if (!external) return timeout;
+  const anyAbort = (
+    AbortSignal as unknown as {
+      any?: (signals: AbortSignal[]) => AbortSignal;
+    }
+  ).any;
+  if (typeof anyAbort === 'function') {
+    return anyAbort([external, timeout]);
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (external.aborted) abort();
+  else external.addEventListener('abort', abort, { once: true });
+  timeout.addEventListener('abort', abort, { once: true });
+  return controller.signal;
+}
+
 /** Chamadas autenticadas ao Nest via Route Handler `/api/erp/*` (cookie httpOnly). */
 export async function erpFetchJson<T>(
   segmentsPath: string,
@@ -41,8 +72,10 @@ export async function erpFetchJson<T>(
   let res: Response;
   try {
     res = await fetch(`/api/erp/${path}`, {
+      cache: 'no-store',
       ...init,
       credentials: 'include',
+      signal: buildSignal(init?.signal),
       headers: {
         'Content-Type': 'application/json',
         'x-request-id': requestId,
@@ -50,6 +83,17 @@ export async function erpFetchJson<T>(
       },
     });
   } catch (error) {
+    if (isTimeoutError(error)) {
+      clientLogger.error('ERP fetch timed out', {
+        action: 'erp.fetch.timeout',
+        requestId,
+        path: `/api/erp/${path}`,
+        method: init?.method ?? 'GET',
+      });
+      throw new Error(
+        'A requisição demorou demais e foi cancelada. Verifique a conexão e tente novamente.',
+      );
+    }
     if (!isAbortError(error)) {
       clientLogger.error('Network error in ERP fetch', {
         action: 'erp.fetch.network',

@@ -13,6 +13,8 @@ import {
 import { usePullToRefresh } from '@/src/hooks/use-pull-to-refresh';
 import { MobileBottomDrawer } from '@/src/components/mobile/mobile-bottom-drawer';
 import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue-card';
+import { SeparationQueueList } from '@/src/components/expedicao/workspace/separation-queue-list';
+import { SeparationQueueFilters } from '@/src/components/expedicao/workspace/separation-queue-filters';
 import {
   PedidosListaToolbar,
   PedidosOrdersTable,
@@ -728,11 +730,20 @@ export function OrderQueue(props: {
             />
           </div>
         ) : (
-          <div className="exp-queue-header-row !mb-1.5 !gap-2">
-            {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
-            <div className="exp-queue-header-actions !gap-2">
-              {refreshButton}
+          <div className="exp-queue-filters-area">
+            <div className="exp-queue-header-row !mb-1.5 !gap-2">
+              {title ? <h2 className="exp-queue-panel-title text-sm">{title}</h2> : null}
+              <div className="exp-queue-header-actions !gap-2">
+                {refreshButton}
+              </div>
             </div>
+            <SeparationQueueFilters
+              filters={data.appliedFilters}
+              onChange={(patch) => {
+                data.setPage(1);
+                data.setAppliedFilters((f) => ({ ...f, ...patch }));
+              }}
+            />
           </div>
         )}
 
@@ -912,7 +923,20 @@ export function OrderQueue(props: {
           </>
         ) : (
           <>
-            <div className="grid w-full grid-cols-1 gap-1.5 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="hidden md:block">
+              <SeparationQueueList
+                orders={data.orders}
+                selectedOrderId={selectedOrderId}
+                selectedIds={selectedForSeparationIds}
+                onSelectOrder={onSelectOrder}
+                onOrderChosen={onOrderChosen}
+                onToggleSelection={toggleSeparationSelection}
+                onRemoveFromSeparation={(order) =>
+                  void handleRemoveSingleFromSeparation(order)
+                }
+              />
+            </div>
+            <div className="flex w-full flex-col gap-1.5 md:hidden">
               {data.orders.map(renderOrderCard)}
             </div>
             {data.ordersHasMore ? (
@@ -925,10 +949,12 @@ export function OrderQueue(props: {
         )}
       </div>
 
-      {data.meta && !data.ordersLoading && isPedidosMode ? (
+      {data.meta && !data.ordersLoading ? (
         <div className="exp-queue-panel-footer shrink-0">
           <p className="exp-queue-footer-text">
-            {data.orders.length} de {data.meta.total} pedido(s)
+            {data.orders.length === data.meta.total
+              ? `${data.meta.total} pedido(s) no filtro`
+              : `${data.orders.length} de ${data.meta.total} pedido(s) no filtro`}
           </p>
         </div>
       ) : null}

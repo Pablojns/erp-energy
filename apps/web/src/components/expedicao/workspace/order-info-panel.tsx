@@ -37,6 +37,9 @@ type CarrierOption = {
   isActive: boolean;
 };
 
+/** Etiqueta dos Correios (pré-postagem) ou etiqueta interna do ERP. */
+type EtiquetaKind = 'correios' | 'erp';
+
 type NfHistoricoItem = {
   id: string;
   invoiceNumber: string;
@@ -297,7 +300,9 @@ export const OrderInfoPanel = forwardRef<
   const [savingVolumes, setSavingVolumes] = useState(false);
   const [volumesError, setVolumesError] = useState<string | null>(null);
   const lastSavedVolumesRef = useRef<number | null>(order.volumes ?? null);
-  const [emittingEtiqueta, setEmittingEtiqueta] = useState(false);
+  const [emittingEtiqueta, setEmittingEtiqueta] = useState<EtiquetaKind | null>(
+    null,
+  );
   const [cancellingEtiqueta, setCancellingEtiqueta] = useState(false);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
   const [existingEtiquetaModalOpen, setExistingEtiquetaModalOpen] = useState(false);
@@ -336,6 +341,8 @@ export const OrderInfoPanel = forwardRef<
       (order.status === 'NF_ATRELADA' ||
         order.status === 'AGUARDANDO_NF' ||
         order.status === 'SEPARADO'));
+  // Correios: as duas etiquetas ficam disponíveis (pré-postagem + etiqueta interna).
+  const showBothEtiquetas = isCorreiosOrder && canEmitEtiqueta;
   const canCancelCorreiosEtiqueta =
     isCorreiosOrder && Boolean(order.trackingCode?.trim());
   /** Edição manual liberada para WEG e Site (corrige etiqueta emitida em duplicidade). */
@@ -786,18 +793,21 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const emitEtiquetaPdf = async () => {
+  const emitEtiquetaPdf = async (
+    kind: EtiquetaKind = isCorreiosOrder ? 'correios' : 'erp',
+  ) => {
     const numeroPed = numeroPedFromOrder(order);
     if (!numeroPed) {
       setEtiquetaError('Número do pedido inválido.');
       return;
     }
 
-    setEmittingEtiqueta(true);
+    setEmittingEtiqueta(kind);
     setEtiquetaError(null);
 
     try {
-      const etiquetaEndpoint = isCorreiosOrder ? 'etiqueta-correios' : 'etiqueta';
+      const etiquetaEndpoint =
+        kind === 'correios' ? 'etiqueta-correios' : 'etiqueta';
       const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, etiquetaEndpoint)}`, {
         credentials: 'include',
       });
@@ -852,7 +862,7 @@ export const OrderInfoPanel = forwardRef<
         err instanceof Error ? err.message : 'Não foi possível gerar a etiqueta.',
       );
     } finally {
-      setEmittingEtiqueta(false);
+      setEmittingEtiqueta(null);
     }
   };
 
@@ -896,18 +906,20 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const handleEmitEtiqueta = async () => {
+  const handleEmitEtiqueta = async (kind?: EtiquetaKind) => {
+    const target = kind ?? (isCorreiosOrder ? 'correios' : 'erp');
     // Aviso de duplicidade só existe para Correios (pré-postagem já criada).
     // Etiqueta interna do ERP é só reimpressão do PDF.
-    const existingTracking = isCorreiosOrder
-      ? trackingCodeInput.trim() || order.trackingCode?.trim() || ''
-      : '';
+    const existingTracking =
+      target === 'correios'
+        ? trackingCodeInput.trim() || order.trackingCode?.trim() || ''
+        : '';
     if (existingTracking) {
       setExistingEtiquetaCode(existingTracking);
       setExistingEtiquetaModalOpen(true);
       return;
     }
-    await emitEtiquetaPdf();
+    await emitEtiquetaPdf(target);
   };
 
   const handleExistingEtiquetaChoice = (choice: ExistingEtiquetaChoice) => {
@@ -917,7 +929,7 @@ export const OrderInfoPanel = forwardRef<
       void exitWithExistingEtiqueta();
       return;
     }
-    void emitEtiquetaPdf();
+    void emitEtiquetaPdf('correios');
   };
 
   const handleCancelCorreiosEtiqueta = async () => {
@@ -1099,26 +1111,57 @@ export const OrderInfoPanel = forwardRef<
               </button>
             ) : null}
             {canEmitEtiqueta ? (
-              <button
-                type="button"
-                className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void handleEmitEtiqueta()}
-                disabled={emittingEtiqueta || cancellingEtiqueta}
-              >
-                {emittingEtiqueta ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Tag className="h-3.5 w-3.5" />
-                )}
-                Etiqueta
-              </button>
+              showBothEtiquetas ? (
+                <>
+                  <button
+                    type="button"
+                    className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleEmitEtiqueta('correios')}
+                    disabled={emittingEtiqueta !== null || cancellingEtiqueta}
+                  >
+                    {emittingEtiqueta === 'correios' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Tag className="h-3.5 w-3.5" />
+                    )}
+                    Etiqueta Correios
+                  </button>
+                  <button
+                    type="button"
+                    className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleEmitEtiqueta('erp')}
+                    disabled={emittingEtiqueta !== null || cancellingEtiqueta}
+                  >
+                    {emittingEtiqueta === 'erp' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Tag className="h-3.5 w-3.5" />
+                    )}
+                    Etiqueta ERP
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void handleEmitEtiqueta()}
+                  disabled={emittingEtiqueta !== null || cancellingEtiqueta}
+                >
+                  {emittingEtiqueta ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Tag className="h-3.5 w-3.5" />
+                  )}
+                  Etiqueta
+                </button>
+              )
             ) : null}
             {canCancelCorreiosEtiqueta ? (
               <button
                 type="button"
                 className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void handleCancelCorreiosEtiqueta()}
-                disabled={cancellingEtiqueta || emittingEtiqueta}
+                disabled={cancellingEtiqueta || emittingEtiqueta !== null}
               >
                 {cancellingEtiqueta ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1679,7 +1722,7 @@ export const OrderInfoPanel = forwardRef<
       <ExistingEtiquetaChoiceModal
         open={existingEtiquetaModalOpen}
         trackingCode={existingEtiquetaCode}
-        busy={emittingEtiqueta || exitingWithExistingEtiqueta}
+        busy={emittingEtiqueta !== null || exitingWithExistingEtiqueta}
         onChoice={handleExistingEtiquetaChoice}
       />
 

@@ -141,6 +141,7 @@ export type FilterFormState = {
   deliveryCnpj: string;
   receiverName: string;
   unloadingPoint: string;
+  carrierName: string;
   sku: string;
   contaAzulStatus: string;
   invoiceNumber: string;

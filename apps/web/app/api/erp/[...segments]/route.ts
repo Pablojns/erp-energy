@@ -8,6 +8,8 @@ import { DEV_MOCK_USER, isAuthDisabled } from '@/src/services/auth/bypass';
 export const maxDuration = 300;
 
 const LONG_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
+/** Sem teto, uma requisição pendurada deixava a tela em carregamento eterno. */
+const PROXY_TIMEOUT_MS = 30_000;
 
 function isAuthPath(path: string): boolean {
   return (
@@ -139,9 +141,9 @@ async function proxy(request: NextRequest, segments: string[]) {
     method,
     headers,
     cache: 'no-store',
-    ...(isLongRunningCatalogSync
-      ? { signal: AbortSignal.timeout(LONG_PROXY_TIMEOUT_MS) }
-      : {}),
+    signal: AbortSignal.timeout(
+      isLongRunningCatalogSync ? LONG_PROXY_TIMEOUT_MS : PROXY_TIMEOUT_MS,
+    ),
   };
 
   if (method !== 'GET' && method !== 'HEAD') {
@@ -161,7 +163,22 @@ async function proxy(request: NextRequest, segments: string[]) {
     }
   }
 
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (error) {
+    const timedOut =
+      error instanceof DOMException && error.name === 'TimeoutError';
+    return NextResponse.json(
+      {
+        message: timedOut
+          ? 'A API demorou demais para responder. Tente novamente.'
+          : 'Não foi possível falar com a API.',
+      },
+      { status: timedOut ? 504 : 502 },
+    );
+  }
+
   const outHeaders = new Headers();
   const ct = upstream.headers.get('content-type');
   const ctBase = ct?.split(';')[0]?.trim().toLowerCase() ?? '';

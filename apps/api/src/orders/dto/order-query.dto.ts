@@ -84,6 +84,12 @@ export class OrderQueryDto {
   @MaxLength(80)
   sku?: string;
 
+  /** Nome da transportadora (filtro da fila de separação). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  carrierName?: string;
+
   @IsOptional()
   @IsString()
   @IsIn([
