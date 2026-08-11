@@ -8,6 +8,24 @@ export function applyStatusFilter(
 ) {
   if (mode === 'separation') {
     params.set('workspace', 'separation');
+    switch (filter) {
+      case 'sep_em_separacao':
+      case 'em_separacao':
+        params.set('status', 'sep_em_separacao');
+        break;
+      case 'sep_falta_nf':
+      case 'aguardando_nf':
+        params.set('status', 'sep_falta_nf');
+        break;
+      case 'sep_falta_etiqueta':
+        params.set('status', 'sep_falta_etiqueta');
+        break;
+      case 'sep_aguardando_saida':
+        params.set('status', 'sep_aguardando_saida');
+        break;
+      default:
+        break;
+    }
     return;
   }
 

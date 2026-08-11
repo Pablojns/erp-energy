@@ -173,7 +173,12 @@ export type StatusFilterId =
   | 'pronto_separacao'
   | 'em_separacao'
   | 'finalizado'
-  | 'cancelado';
+  | 'cancelado'
+  /** Etapas da fila de Separação. */
+  | 'sep_em_separacao'
+  | 'sep_falta_nf'
+  | 'sep_falta_etiqueta'
+  | 'sep_aguardando_saida';
 
 export type UseExpeditionOrdersOptions = {
   mode?: 'expedition' | 'separation';

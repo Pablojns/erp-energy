@@ -60,6 +60,10 @@ export class CreateCrmCardDto {
   funilId!: string;
 
   @IsOptional()
+  @IsString()
+  responsavelId?: string | null;
+
+  @IsOptional()
   @IsBoolean()
   force?: boolean;
 }

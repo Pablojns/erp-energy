@@ -20,13 +20,17 @@ function isPerdido(card: CrmCardDto) {
   return (
     card.funil?.name === 'Orçamento Reprovado' ||
     card.funil?.name === 'Perdidos' ||
-    card.statusMeta?.name === 'Perdido' ||
-    Boolean(card.motivoPerdaMeta)
+    Boolean(card.motivoPerdaMeta) ||
+    card.statusMeta?.name === 'Perdido'
   );
 }
 
 function isFechado(card: CrmCardDto) {
-  return card.statusMeta?.name === 'Fechado';
+  return (
+    card.funil?.name === 'Orçamento Pago' ||
+    card.funil?.name === 'Pedido Entregue' ||
+    card.statusMeta?.name === 'Fechado'
+  );
 }
 
 export function CrmKanbanCard(props: {
@@ -130,24 +134,11 @@ export function CrmKanbanCard(props: {
         </h3>
 
         <div className="flex flex-wrap items-center gap-1.5 md:block md:space-y-2.5">
-          {card.statusMeta ? (
-            perdido ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-800 md:px-2.5 md:py-1 md:text-[11px] md:font-bold">
-                <XCircle className="h-3 w-3 shrink-0 md:h-3.5 md:w-3.5" aria-hidden />
-                {card.statusMeta.name}
-              </span>
-            ) : (
-              <span
-                className="inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide md:px-2.5 md:py-1 md:text-[11px] md:font-bold"
-                style={{
-                  borderColor: `${card.statusMeta.color}88`,
-                  backgroundColor: `${card.statusMeta.color}33`,
-                  color: card.statusMeta.color,
-                }}
-              >
-                {card.statusMeta.name}
-              </span>
-            )
+          {perdido ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-800 md:px-2.5 md:py-1 md:text-[11px] md:font-bold">
+              <XCircle className="h-3 w-3 shrink-0 md:h-3.5 md:w-3.5" aria-hidden />
+              Perdido
+            </span>
           ) : null}
 
           {card.value ? (
@@ -160,7 +151,7 @@ export function CrmKanbanCard(props: {
         {showStageSelect ? (
           <MobileEtapaSelect
             density="compact"
-            label="Status atual"
+            label="Etapa atual"
             currentValue={card.funilId}
             options={(moveTargets ?? []).map((funil) => ({
               id: funil.id,
@@ -180,19 +171,6 @@ export function CrmKanbanCard(props: {
         >
           {CRM_ORIGIN_LABEL[card.origin]}
         </span>
-
-        {perdido && card.motivoPerdaMeta ? (
-          <div className="hidden rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 md:block">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-rose-700">
-              Motivo: {card.motivoPerdaMeta.name}
-            </p>
-            {card.motivoPerdaTexto ? (
-              <p className="mt-0.5 line-clamp-2 text-xs text-rose-600">
-                {card.motivoPerdaTexto}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
 
         <div className="hidden md:block">
           <CrmLeadScoreThermometer score={card.score ?? 0} prominent showLabel />

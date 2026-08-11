@@ -618,7 +618,7 @@ export class CrmService {
     return this.serializeCard(row, statusMap);
   }
 
-  async createCard(dto: CreateCrmCardDto) {
+  async createCard(dto: CreateCrmCardDto, userId?: string) {
     await this.assertFunilExists(dto.funilId);
 
     if (!dto.force) {
@@ -638,6 +638,10 @@ export class CrmService {
     if (Number.isNaN(createdAt.getTime())) {
       throw new BadRequestException('Data de criação inválida.');
     }
+    const responsavelId = dto.responsavelId?.trim() || userId || null;
+    if (responsavelId) {
+      await this.assertUserExists(responsavelId);
+    }
     const created = await this.prisma.client.crmCard.create({
       data: {
         name: dto.name.trim(),
@@ -654,6 +658,7 @@ export class CrmService {
         createdAt,
         funilId: dto.funilId,
         status: defaultStatusId,
+        responsavelId,
         funilHistory: [
           {
             funilId: funil.id,
@@ -733,6 +738,9 @@ export class CrmService {
     }
 
     const reprovadoFunil = await this.ensureReprovadoFunil();
+    const pagoFunil = await this.prisma.client.crmFunil.findFirst({
+      where: { name: 'Orçamento Pago' },
+    });
     const movingToReprovado =
       (dto.funilId !== undefined && dto.funilId === reprovadoFunil.id) ||
       (dto.status !== undefined && dto.status === perdidoId);
@@ -740,6 +748,15 @@ export class CrmService {
       before.funilId === reprovadoFunil.id &&
       dto.funilId !== undefined &&
       dto.funilId !== reprovadoFunil.id;
+    const movingToPago =
+      dto.funilId !== undefined &&
+      pagoFunil != null &&
+      dto.funilId === pagoFunil.id;
+    const leavingPago =
+      pagoFunil != null &&
+      before.funilId === pagoFunil.id &&
+      dto.funilId !== undefined &&
+      dto.funilId !== pagoFunil.id;
 
     if (movingToReprovado) {
       if (before.funilId !== reprovadoFunil.id) {
@@ -754,6 +771,13 @@ export class CrmService {
       }
     }
 
+    if (movingToPago) {
+      data.closedAt = new Date();
+      if (fechadoId) {
+        data.status = fechadoId;
+      }
+    }
+
     if (leavingReprovado) {
       data.funilOrigem = { disconnect: true };
       if (dto.status === undefined || (dto.status !== perdidoId && dto.status !== fechadoId)) {
@@ -762,6 +786,18 @@ export class CrmService {
       if (dto.status !== undefined && dto.status !== perdidoId) {
         data.motivoPerda = { disconnect: true };
         data.motivoPerdaTexto = null;
+      }
+    }
+
+    if (leavingPago && !movingToReprovado) {
+      if (before.status === fechadoId) {
+        data.closedAt = null;
+        if (dto.status === undefined || dto.status === fechadoId) {
+          const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
+          data.status = defaultStatusId;
+        }
+      } else if (dto.status === undefined || dto.status !== perdidoId) {
+        data.closedAt = null;
       }
     }
 
@@ -924,6 +960,9 @@ export class CrmService {
 
     const { fechadoId, perdidoId } = await this.resolveClosedStatusIds();
     const reprovadoFunil = await this.ensureReprovadoFunil();
+    const pagoFunil = await this.prisma.client.crmFunil.findFirst({
+      where: { name: 'Orçamento Pago' },
+    });
     const history = appendFunilHistoryEntry(before.funilHistory, {
       funilId: target.id,
       funilName: target.name,
@@ -944,6 +983,9 @@ export class CrmService {
       };
       data.closedAt = new Date();
       if (perdidoId) data.status = perdidoId;
+    } else if (pagoFunil && funilId === pagoFunil.id) {
+      data.closedAt = new Date();
+      if (fechadoId) data.status = fechadoId;
     } else if (before.funilId === reprovadoFunil.id) {
       data.funilOrigem = { disconnect: true };
       if (before.status === perdidoId) {
@@ -953,6 +995,14 @@ export class CrmService {
         const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
         data.status = defaultStatusId;
       } else if (before.status !== fechadoId) {
+        data.closedAt = null;
+      }
+    } else if (pagoFunil && before.funilId === pagoFunil.id) {
+      if (before.status === fechadoId) {
+        data.closedAt = null;
+        const defaultStatusId = await getDefaultCrmStatusId(this.prisma.client);
+        data.status = defaultStatusId;
+      } else if (before.status !== perdidoId) {
         data.closedAt = null;
       }
     }
@@ -1694,16 +1744,19 @@ export class CrmService {
       };
     });
 
-    const statusCounts = statuses.map((status) => ({
-      statusId: status.id,
-      statusName: status.name,
-      order: status.order,
-      count: cards.filter((c) => c.status === status.id).length,
+    const funis = await this.prisma.client.crmFunil.findMany({
+      orderBy: { order: 'asc' },
+    });
+    const funilCounts = funis.map((funil) => ({
+      statusId: funil.id,
+      statusName: funil.name,
+      order: funil.order,
+      count: cards.filter((c) => c.funilId === funil.id).length,
     }));
 
-    const funilConversao = statusCounts.map((row, index) => {
+    const funilConversao = funilCounts.map((row, index) => {
       const previousCount =
-        index === 0 ? totalLeads : statusCounts[index - 1]!.count;
+        index === 0 ? totalLeads : funilCounts[index - 1]!.count;
       const dropPercent =
         index === 0 || previousCount === 0
           ? null

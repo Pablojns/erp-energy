@@ -42,13 +42,13 @@ import {
 export function CrmCardDetailModal(props: {
   cardId: string | null;
   funis: CrmFunilDto[];
-  statuses: CrmStatusDto[];
+  statuses?: CrmStatusDto[];
   channels: CrmChannelDto[];
   users: CrmUserDto[];
   onClose: () => void;
   onUpdated: () => void | Promise<void>;
 }) {
-  const { cardId, funis, statuses, channels, users, onClose, onUpdated } = props;
+  const { cardId, funis, statuses = [], channels, users, onClose, onUpdated } = props;
   const [card, setCard] = useState<CrmCardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
@@ -121,10 +121,8 @@ export function CrmCardDetailModal(props: {
     [card],
   );
 
-  const selectedStatus = statuses.find((s) => s.id === statusId);
-  const statusOptions = statuses.filter(
-    (s) => s.name !== 'Perdido' || s.id === statusId,
-  );
+  const selectedFunilName =
+    funis.find((f) => f.id === funilId)?.name ?? card?.funil?.name ?? null;
 
   const activityItems = useMemo(() => {
     if (!card) return [];
@@ -158,11 +156,19 @@ export function CrmCardDetailModal(props: {
   if (!cardId) return null;
 
   const isPerdido =
-    selectedStatus?.name === 'Perdido' ||
+    selectedFunilName === 'Orçamento Reprovado' ||
+    selectedFunilName === 'Perdidos' ||
     card?.funil?.name === 'Orçamento Reprovado' ||
     card?.funil?.name === 'Perdidos' ||
-    funis.find((f) => f.id === funilId)?.name === 'Orçamento Reprovado' ||
-    funis.find((f) => f.id === funilId)?.name === 'Perdidos';
+    Boolean(card?.motivoPerdaMeta) ||
+    card?.statusMeta?.name === 'Perdido';
+
+  const isFechado =
+    selectedFunilName === 'Orçamento Pago' ||
+    selectedFunilName === 'Pedido Entregue' ||
+    card?.funil?.name === 'Orçamento Pago' ||
+    card?.funil?.name === 'Pedido Entregue' ||
+    card?.statusMeta?.name === 'Fechado';
 
   const updateTouchpoint = (number: number, patch: Partial<CrmTouchpointInput>) => {
     setTouchpoints((current) =>
@@ -190,7 +196,6 @@ export function CrmCardDetailModal(props: {
         email: email.trim() || null,
         value: parsedValue != null && Number.isFinite(parsedValue) ? parsedValue : null,
         origin,
-        status: extra?.status ?? statusId,
         observations: observations.trim() || null,
         whatsappLog: whatsappLog.trim() || null,
         funilId: extra?.funilId ?? funilId,
@@ -200,6 +205,9 @@ export function CrmCardDetailModal(props: {
         motivoPerdaId: extra?.motivoPerdaId,
         motivoPerdaTexto: extra?.motivoPerdaTexto,
       };
+      if (extra?.status) {
+        payload.status = extra.status;
+      }
       await updateCrmCard(card.id, payload);
       await upsertCrmTouchpoints(card.id, touchpoints);
       const refreshed = await getCrmCard(card.id);
@@ -217,36 +225,44 @@ export function CrmCardDetailModal(props: {
     }
   };
 
-  const markStatus = async (statusName: 'Fechado' | 'Perdido') => {
-    if (statusName === 'Perdido') {
-      setLossModalOpen(true);
+  const markFechado = async () => {
+    const pagoFunil = funis.find((f) => f.name === 'Orçamento Pago');
+    if (!pagoFunil) {
+      setError(
+        'Funil "Orçamento Pago" não encontrado. Recarregue o CRM ou abra as configurações.',
+      );
       return;
     }
-    const target = findCrmStatusByName(statuses, statusName);
-    if (!target) {
-      setError(`Status "${statusName}" não encontrado.`);
-      return;
-    }
-    setStatusId(target.id);
-    await save({ status: target.id, closeAfter: true });
+    const fechadoStatus = findCrmStatusByName(statuses, 'Fechado');
+    setFunilId(pagoFunil.id);
+    if (fechadoStatus) setStatusId(fechadoStatus.id);
+    await save({
+      funilId: pagoFunil.id,
+      status: fechadoStatus?.id,
+      closeAfter: true,
+    });
+  };
+
+  const markPerdido = () => {
+    setLossModalOpen(true);
   };
 
   const confirmLoss = async (motivoPerdaId: string, motivoPerdaTexto: string | null) => {
     const reprovadoFunil =
       funis.find((f) => f.name === 'Orçamento Reprovado') ??
       funis.find((f) => f.name === 'Perdidos');
-    const perdidoStatus = findCrmStatusByName(statuses, 'Perdido');
     if (!reprovadoFunil) {
       setError(
         'Funil "Orçamento Reprovado" não encontrado. Recarregue o CRM ou abra as configurações.',
       );
       return;
     }
-    if (perdidoStatus) setStatusId(perdidoStatus.id);
+    const perdidoStatus = findCrmStatusByName(statuses, 'Perdido');
     setFunilId(reprovadoFunil.id);
+    if (perdidoStatus) setStatusId(perdidoStatus.id);
     await save({
-      status: perdidoStatus?.id ?? statusId,
       funilId: reprovadoFunil.id,
+      status: perdidoStatus?.id,
       closeAfter: true,
       motivoPerdaId,
       motivoPerdaTexto,
@@ -277,6 +293,7 @@ export function CrmCardDetailModal(props: {
       const updated = await moveCrmCard(card.id, nextFunilId);
       setCard(updated);
       setFunilId(updated.funilId);
+      setStatusId(updated.status);
       await onUpdated();
     } catch (e) {
       setFunilId(card.funilId);
@@ -308,24 +325,11 @@ export function CrmCardDetailModal(props: {
                     {name || card.name}
                   </h2>
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    {selectedStatus ? (
-                      isPerdido ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">
-                          <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          {selectedStatus.name}
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide"
-                          style={{
-                            borderColor: `${selectedStatus.color}88`,
-                            backgroundColor: `${selectedStatus.color}33`,
-                            color: selectedStatus.color,
-                          }}
-                        >
-                          {selectedStatus.name}
-                        </span>
-                      )
+                    {isPerdido ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">
+                        <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Perdido
+                      </span>
                     ) : null}
                     <span
                       className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${CRM_ORIGIN_BADGE_CLASS[origin]}`}
@@ -345,7 +349,7 @@ export function CrmCardDetailModal(props: {
 
                   <div className="mt-3 md:hidden">
                     <MobileEtapaSelect
-                      label="Status atual"
+                      label="Etapa atual"
                       currentValue={funilId}
                       options={funis.map((f) => ({ id: f.id, label: f.name }))}
                       disabled={saving}
@@ -471,20 +475,6 @@ export function CrmCardDetailModal(props: {
                   </select>
                 </label>
                 <label className="block text-xs font-semibold text-[var(--text-secondary)]">
-                  Status
-                  <select
-                    value={statusId}
-                    onChange={(e) => setStatusId(e.target.value)}
-                    className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
-                  >
-                    {statusOptions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-xs font-semibold text-[var(--text-secondary)]">
                   Responsável
                   <select
                     value={responsavelId}
@@ -508,7 +498,7 @@ export function CrmCardDetailModal(props: {
                     className="mt-1.5 w-full rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] outline-none"
                   />
                 </label>
-                <label className="hidden text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2 md:block">
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] sm:col-span-2">
                   Funil
                   <select
                     value={funilId}
@@ -689,15 +679,15 @@ export function CrmCardDetailModal(props: {
                 </GlowButton>
                 <GlowButton
                   variant="secondary"
-                  disabled={saving || selectedStatus?.name === 'Fechado'}
-                  onClick={() => void markStatus('Fechado')}
+                  disabled={saving || isFechado}
+                  onClick={() => void markFechado()}
                 >
                   Marcar Fechado
                 </GlowButton>
                 <GlowButton
                   variant="secondary"
-                  disabled={saving || selectedStatus?.name === 'Perdido'}
-                  onClick={() => void markStatus('Perdido')}
+                  disabled={saving || isPerdido}
+                  onClick={() => markPerdido()}
                 >
                   Marcar como Perdido
                 </GlowButton>
@@ -726,7 +716,6 @@ export function CrmCardDetailModal(props: {
         open={lossModalOpen}
         onClose={() => {
           setLossModalOpen(false);
-          if (card) setStatusId(card.status);
         }}
         onConfirm={confirmLoss}
         saving={saving}

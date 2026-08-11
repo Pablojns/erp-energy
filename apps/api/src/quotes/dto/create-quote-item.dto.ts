@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNumber,
@@ -6,8 +7,27 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export class QuoteItemEngravingDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  engravingTechniqueId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  engraving?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  engravingPrice?: number | null;
+}
 
 export class CreateQuoteItemDto {
   @IsOptional()
@@ -45,6 +65,12 @@ export class CreateQuoteItemDto {
   @IsNumber()
   @Min(0)
   engravingPrice?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuoteItemEngravingDto)
+  engravings?: QuoteItemEngravingDto[] | null;
 
   @IsOptional()
   @Type(() => Number)

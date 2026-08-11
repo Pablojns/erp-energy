@@ -12,6 +12,12 @@ export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
 export type QuoteCustomerType = 'PF' | 'PJ';
 export type QuoteOrigin = 'SISTEMA' | 'WHATSAPP';
 
+export type QuoteItemEngravingDto = {
+  engravingTechniqueId: string | null;
+  engraving: string | null;
+  engravingPrice: number | null;
+};
+
 export type QuoteItemDto = {
   id: string;
   quoteId: string;
@@ -21,6 +27,8 @@ export type QuoteItemDto = {
   engraving: string | null;
   engravingTechniqueId: string | null;
   engravingPrice: string | null;
+  /** Múltiplas gravações; soma em engravingPrice. */
+  engravings?: QuoteItemEngravingDto[];
   productPrice: string | null;
   supplier: string | null;
   requiresArtwork: boolean;
@@ -340,6 +348,7 @@ export type CreateQuoteItemPayload = {
   engraving?: string | null;
   engravingTechniqueId?: string | null;
   engravingPrice?: number | null;
+  engravings?: QuoteItemEngravingDto[] | null;
   productPrice?: number | null;
   supplier?: string | null;
   requiresArtwork?: boolean;
@@ -355,6 +364,7 @@ export type UpdateQuoteItemPayload = {
   engraving?: string | null;
   engravingTechniqueId?: string | null;
   engravingPrice?: number | null;
+  engravings?: QuoteItemEngravingDto[] | null;
   productPrice?: number | null;
   supplier?: string | null;
   requiresArtwork?: boolean;

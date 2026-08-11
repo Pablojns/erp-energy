@@ -1229,8 +1229,10 @@ model QuoteItem {
   engraving        String?
   engravingTechniqueId String?
   engravingTechnique   EngravingTechnique? @relation(fields: [engravingTechniqueId], references: [id], onDelete: SetNull)
-  /// Preço unitário da gravação (faixa ou manual)
+  /// Preço unitário da gravação (faixa ou manual) — soma de todas as entradas em `engravings`
   engravingPrice   Decimal? @db.Decimal(12, 4)
+  /// Múltiplas gravações do item: [{ engravingTechniqueId, engraving, engravingPrice }]
+  engravings       Json?
   /// Preço do produto (catálogo / editável), sem gravação
   productPrice     Decimal? @db.Decimal(12, 2)
   /// XBZ | SPOT | null (manual)

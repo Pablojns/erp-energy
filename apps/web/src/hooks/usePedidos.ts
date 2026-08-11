@@ -32,6 +32,11 @@ export type UsePedidosOptions = {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   businessContext?: 'WEG' | 'SITE' | 'ALL';
+  /**
+   * Chamado quando a lista volta à página 1 (filtro, refetch, focus).
+   * O bridge deve zerar `page` para não dessincronizar o scroll infinito.
+   */
+  onPageReset?: () => void;
 };
 
 export function usePedidos(opts: UsePedidosOptions = {}) {
@@ -47,6 +52,7 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
     sortBy = 'orderDate',
     sortOrder = 'desc',
     businessContext,
+    onPageReset,
   } = opts;
 
   const [pedidos, setPedidos] = useState<OrderDto[]>([]);
@@ -59,6 +65,9 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
   // Contador de requisições em voo: garante que o loading sempre seja liberado
   // (antes, se a requisição mais recente fosse invalidada, o skeleton ficava eterno).
   const inFlightRef = useRef(0);
+  const onPageResetRef = useRef(onPageReset);
+  onPageResetRef.current = onPageReset;
+
   const listQueryKey = useMemo(
     () =>
       JSON.stringify({
@@ -94,17 +103,25 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
       if (!enabled) return;
 
       const generation = ++fetchGenerationRef.current;
-      const effectivePage = fetchOpts?.page ?? page;
       const queryChanged = listQueryKeyRef.current !== listQueryKey;
       listQueryKeyRef.current = listQueryKey;
-      // Nunca acumular páginas se o filtro mudou (evita loop infinito de scroll
-      // quando o cliente descarta quase todos os itens da página).
+
+      // Filtro/refetch/focus: sempre página 1 e avisa o bridge para zerar `page`.
+      // Evita lista encolher para a 1ª página enquanto o estado local fica em N>1
+      // (próximo loadMore pula páginas e pedidos “somem”).
+      const shouldReset =
+        queryChanged ||
+        fetchOpts?.replace === true ||
+        fetchOpts?.page === 1;
+
+      if (shouldReset) {
+        onPageResetRef.current?.();
+      }
+
+      const effectivePage = shouldReset ? 1 : (fetchOpts?.page ?? page);
+
       const appendPage =
-        infinite &&
-        effectivePage > 1 &&
-        !queryChanged &&
-        fetchOpts?.replace !== true &&
-        fetchOpts?.page === undefined;
+        infinite && effectivePage > 1 && !shouldReset;
 
       if (appendPage) {
         setLoadingMore(true);
@@ -185,6 +202,14 @@ export function usePedidos(opts: UsePedidosOptions = {}) {
       listQueryKey,
       page,
       infinite,
+      search,
+      appliedFilters,
+      statusFilter,
+      mode,
+      sortBy,
+      sortOrder,
+      businessContext,
+      pageSize,
     ],
   );
 

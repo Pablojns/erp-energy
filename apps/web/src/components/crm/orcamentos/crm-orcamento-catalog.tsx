@@ -60,8 +60,13 @@ function formatDateTime(value: string | null | undefined) {
 
 export function CrmOrcamentoCatalog(props: {
   selectable?: boolean;
+  /** immediate = botão Adicionar (desktop); confirm = toque seleciona (mobile). */
+  selectMode?: 'immediate' | 'confirm';
+  selectedId?: string | null;
   onSelect?: (product: QuoteCatalogProductDto) => void;
 }) {
+  const selectMode = props.selectMode ?? 'immediate';
+  const isConfirmMode = Boolean(props.selectable && selectMode === 'confirm');
   // Scroll infinito na aba Catálogo e no modal (mesmo padrão XBZ).
   const pageSize = 50;
   const [rows, setRows] = useState<QuoteCatalogProductDto[]>([]);
@@ -479,6 +484,61 @@ export function CrmOrcamentoCatalog(props: {
             title="Catálogo vazio"
             description="Sincronize o catálogo XBZ ou SPOT para carregar os produtos."
           />
+        ) : isConfirmMode ? (
+          <>
+            <ul className="flex flex-col gap-2 p-1">
+              {rows.map((row) => {
+                const selected = props.selectedId === row.id;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      onClick={() => props.onSelect?.(row)}
+                      aria-pressed={selected}
+                      className={`erp-focus-ring flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                        selected
+                          ? 'border-[var(--erp-accent,#2AACE2)] bg-[color-mix(in_srgb,var(--erp-accent,#2AACE2)_12%,white)] ring-2 ring-[color-mix(in_srgb,var(--erp-accent,#2AACE2)_35%,transparent)]'
+                          : 'border-[var(--erp-border)] bg-white hover:bg-[var(--erp-bg-hover)]'
+                      }`}
+                    >
+                      <CrmOrcamentoProductImage
+                        src={row.imageUrl}
+                        alt={row.name}
+                        size="list"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-[var(--erp-fg)]">
+                          {row.name}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--erp-fg-muted)]">
+                          <span className="font-medium text-[#2AACE2]">
+                            {row.supplierCode}
+                          </span>
+                          {row.supplier ? <span>{row.supplier}</span> : null}
+                          <span>Est. {row.availableQty}</span>
+                        </div>
+                        <div className="mt-1 text-sm font-bold text-emerald-700">
+                          {formatQuoteCurrency(row.salePrice)}
+                        </div>
+                      </div>
+                      {selected ? (
+                        <span className="shrink-0 rounded-full bg-[var(--erp-accent,#2AACE2)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Selecionado
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div ref={sentinelRef} className="h-4 w-full" aria-hidden />
+            {loadingMore ? (
+              <div className="flex items-center justify-center gap-2 py-3 text-sm text-[var(--erp-fg-muted)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando mais...
+              </div>
+            ) : null}
+          </>
         ) : (
           <>
             <table className="catalog-search-table w-full min-w-[800px] text-left text-sm">

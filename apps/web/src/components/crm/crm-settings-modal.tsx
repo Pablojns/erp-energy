@@ -8,25 +8,20 @@ import {
   createCrmChannel,
   createCrmFunil,
   createCrmMotivoPerda,
-  createCrmStatus,
   deleteCrmChannel,
   deleteCrmFunil,
   deleteCrmMotivoPerda,
-  deleteCrmStatus,
   listCrmChannels,
   listCrmFunis,
   listCrmMotivosPerda,
-  listCrmStatuses,
   updateCrmChannel,
   updateCrmFunil,
-  updateCrmStatus,
   type CrmChannelDto,
   type CrmFunilDto,
   type CrmMotivoPerdaDto,
-  type CrmStatusDto,
 } from '@/src/services/api/crm-api';
 
-type SettingsTab = 'status' | 'channels' | 'funis' | 'motivos';
+type SettingsTab = 'channels' | 'funis' | 'motivos';
 
 export function CrmSettingsModal(props: {
   open: boolean;
@@ -34,8 +29,7 @@ export function CrmSettingsModal(props: {
   onChanged: () => void | Promise<void>;
 }) {
   const { open, onClose, onChanged } = props;
-  const [tab, setTab] = useState<SettingsTab>('status');
-  const [statuses, setStatuses] = useState<CrmStatusDto[]>([]);
+  const [tab, setTab] = useState<SettingsTab>('funis');
   const [channels, setChannels] = useState<CrmChannelDto[]>([]);
   const [funis, setFunis] = useState<CrmFunilDto[]>([]);
   const [motivos, setMotivos] = useState<CrmMotivoPerdaDto[]>([]);
@@ -52,13 +46,11 @@ export function CrmSettingsModal(props: {
     setLoading(true);
     setError(null);
     try {
-      const [statusData, channelData, funilData, motivoData] = await Promise.all([
-        listCrmStatuses(),
+      const [channelData, funilData, motivoData] = await Promise.all([
         listCrmChannels(),
         listCrmFunis(),
         listCrmMotivosPerda(),
       ]);
-      setStatuses(statusData.filter((s) => s.name !== 'Perdido'));
       setChannels(channelData);
       setFunis(funilData);
       setMotivos(motivoData);
@@ -71,7 +63,7 @@ export function CrmSettingsModal(props: {
 
   useEffect(() => {
     if (!open) return;
-    setTab('status');
+    setTab('funis');
     setNewName('');
     setNewColor('#6366f1');
     setNewRequiresText(false);
@@ -87,18 +79,10 @@ export function CrmSettingsModal(props: {
       setError('Informe o nome.');
       return;
     }
-    if (tab === 'status' && name.toLowerCase() === 'perdido') {
-      setError(
-        'Use o funil "Orçamento Reprovado" e o botão Marcar como Perdido — não crie status Perdido.',
-      );
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
-      if (tab === 'status') {
-        await createCrmStatus({ name, color: newColor });
-      } else if (tab === 'channels') {
+      if (tab === 'channels') {
         await createCrmChannel({ name, color: newColor });
       } else if (tab === 'funis') {
         await createCrmFunil({ name, color: newColor });
@@ -128,8 +112,7 @@ export function CrmSettingsModal(props: {
     setSaving(true);
     setError(null);
     try {
-      if (kind === 'status') await updateCrmStatus(id, { color });
-      else if (kind === 'channels') await updateCrmChannel(id, { color });
+      if (kind === 'channels') await updateCrmChannel(id, { color });
       else await updateCrmFunil(id, { color });
       await load();
       await onChanged();
@@ -141,7 +124,7 @@ export function CrmSettingsModal(props: {
   };
 
   const handleSaveName = async (
-    kind: 'status' | 'channels' | 'funis',
+    kind: 'channels' | 'funis',
     id: string,
   ) => {
     const name = editingNameValue.trim();
@@ -152,8 +135,7 @@ export function CrmSettingsModal(props: {
     setSaving(true);
     setError(null);
     try {
-      if (kind === 'status') await updateCrmStatus(id, { name });
-      else if (kind === 'channels') await updateCrmChannel(id, { name });
+      if (kind === 'channels') await updateCrmChannel(id, { name });
       else await updateCrmFunil(id, { name });
       setEditingNameId(null);
       await load();
@@ -166,11 +148,10 @@ export function CrmSettingsModal(props: {
   };
 
   const handleReorder = async (
-    kind: 'status' | 'funis',
     id: string,
     direction: 'up' | 'down',
   ) => {
-    const rows = kind === 'status' ? statuses : funis;
+    const rows = funis;
     const index = rows.findIndex((r) => r.id === id);
     if (index < 0) return;
     const swapIndex = direction === 'up' ? index - 1 : index + 1;
@@ -178,19 +159,14 @@ export function CrmSettingsModal(props: {
 
     const current = rows[index]!;
     const swap = rows[swapIndex]!;
-    const currentOrder = 'order' in current ? (current.order ?? index) : index;
-    const swapOrder = 'order' in swap ? (swap.order ?? swapIndex) : swapIndex;
+    const currentOrder = current.order ?? index;
+    const swapOrder = swap.order ?? swapIndex;
 
     setSaving(true);
     setError(null);
     try {
-      if (kind === 'status') {
-        await updateCrmStatus(current.id, { order: swapOrder });
-        await updateCrmStatus(swap.id, { order: currentOrder });
-      } else {
-        await updateCrmFunil(current.id, { order: swapOrder });
-        await updateCrmFunil(swap.id, { order: currentOrder });
-      }
+      await updateCrmFunil(current.id, { order: swapOrder });
+      await updateCrmFunil(swap.id, { order: currentOrder });
       await load();
       await onChanged();
     } catch (e) {
@@ -205,8 +181,7 @@ export function CrmSettingsModal(props: {
     setSaving(true);
     setError(null);
     try {
-      if (kind === 'status') await deleteCrmStatus(id);
-      else if (kind === 'channels') await deleteCrmChannel(id);
+      if (kind === 'channels') await deleteCrmChannel(id);
       else if (kind === 'funis') await deleteCrmFunil(id);
       else await deleteCrmMotivoPerda(id);
       await load();
@@ -219,28 +194,25 @@ export function CrmSettingsModal(props: {
   };
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
-    { id: 'status', label: 'Status' },
-    { id: 'channels', label: 'Canais de TP' },
     { id: 'funis', label: 'Funis' },
+    { id: 'channels', label: 'Canais de TP' },
     { id: 'motivos', label: 'Motivos de perda' },
   ];
 
   const newItemLabel =
-    tab === 'status'
-      ? 'status'
-      : tab === 'channels'
-        ? 'canal'
-        : tab === 'funis'
-          ? 'funil'
-          : 'motivo';
+    tab === 'channels'
+      ? 'canal'
+      : tab === 'funis'
+        ? 'funil'
+        : 'motivo';
 
   const renderEditableRow = (
-    kind: 'status' | 'channels' | 'funis',
-    row: CrmStatusDto | CrmChannelDto | CrmFunilDto,
+    kind: 'channels' | 'funis',
+    row: CrmChannelDto | CrmFunilDto,
     index: number,
     total: number,
   ) => {
-    const canReorder = kind === 'status' || kind === 'funis';
+    const canReorder = kind === 'funis';
     const editing = editingNameId === row.id;
 
     return (
@@ -296,7 +268,7 @@ export function CrmSettingsModal(props: {
             <button
               type="button"
               disabled={saving || index === 0}
-              onClick={() => void handleReorder(kind, row.id, 'up')}
+              onClick={() => void handleReorder(row.id, 'up')}
               className="rounded p-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-card)] disabled:opacity-30"
               aria-label="Mover para cima"
             >
@@ -305,7 +277,7 @@ export function CrmSettingsModal(props: {
             <button
               type="button"
               disabled={saving || index >= total - 1}
-              onClick={() => void handleReorder(kind, row.id, 'down')}
+              onClick={() => void handleReorder(row.id, 'down')}
               className="rounded p-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-card)] disabled:opacity-30"
               aria-label="Mover para baixo"
             >
@@ -403,17 +375,13 @@ export function CrmSettingsModal(props: {
                         </button>
                       </div>
                     ))
-                  : tab === 'status'
-                    ? statuses.map((row, index) =>
-                        renderEditableRow('status', row, index, statuses.length),
+                  : tab === 'channels'
+                    ? channels.map((row, index) =>
+                        renderEditableRow('channels', row, index, channels.length),
                       )
-                    : tab === 'channels'
-                      ? channels.map((row, index) =>
-                          renderEditableRow('channels', row, index, channels.length),
-                        )
-                      : funis.map((row, index) =>
-                          renderEditableRow('funis', row, index, funis.length),
-                        )}
+                    : funis.map((row, index) =>
+                        renderEditableRow('funis', row, index, funis.length),
+                      )}
               </div>
 
               <div className="mt-4 flex flex-wrap items-end gap-2">

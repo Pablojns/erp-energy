@@ -16,8 +16,41 @@ import {
   type QuoteCatalogProductDto,
   type QuoteDto,
   type QuoteItemDto,
+  type QuoteItemEngravingDto,
   type UpdateQuoteItemPayload,
 } from '@/src/services/api/quotes-api';
+
+function itemEngravingsList(item: QuoteItemDto): QuoteItemEngravingDto[] {
+  if (item.engravings && item.engravings.length > 0) {
+    return item.engravings.map((e) => ({
+      engravingTechniqueId: e.engravingTechniqueId ?? null,
+      engraving: e.engraving ?? null,
+      engravingPrice:
+        e.engravingPrice != null && Number.isFinite(Number(e.engravingPrice))
+          ? Number(e.engravingPrice)
+          : null,
+    }));
+  }
+  if (
+    item.engravingTechniqueId ||
+    item.engraving?.trim() ||
+    (item.engravingPrice != null && Number(item.engravingPrice) > 0)
+  ) {
+    return [
+      {
+        engravingTechniqueId: item.engravingTechniqueId ?? null,
+        engraving: item.engraving ?? null,
+        engravingPrice:
+          item.engravingPrice != null ? Number(item.engravingPrice) || 0 : null,
+      },
+    ];
+  }
+  return [];
+}
+
+function sumEngravingPrices(entries: QuoteItemEngravingDto[]): number {
+  return entries.reduce((acc, e) => acc + (Number(e.engravingPrice) || 0), 0);
+}
 
 function calcEngravingFromTiers(
   technique: EngravingTechniqueDto | undefined,
@@ -516,88 +549,121 @@ export function CrmOrcamentoProductsSection(props: {
     }
   };
 
-  const handleTechniqueChange = async (
+  const resolveEntryFromSelect = (
     item: QuoteItemDto,
     techniqueId: string,
-  ) => {
-    if (!techniqueId) {
-      const productPrice = Number(item.productPrice ?? item.unitPrice) || 0;
-      const unitPrice = finalUnit(productPrice, 0, item.quantity);
-      patchLocalItem(item.id, {
-        engravingTechniqueId: null,
-        engraving: null,
-        engravingPrice: null,
-        unitPrice: String(unitPrice),
-        requiresArtwork: false,
-        artworkFileName: null,
-        artworkMimeType: null,
-        artworkData: null,
-      });
-      await persistItem(item.id, {
-        engravingTechniqueId: null,
-        engraving: null,
-        engravingPrice: null,
-        productPrice,
-        requiresArtwork: false,
-        artworkFileName: null,
-        artworkMimeType: null,
-        artworkData: null,
-      });
-      return;
-    }
-
-    const productPrice = Number(item.productPrice ?? item.unitPrice) || 0;
-
-    // SPOT: preço por faixa de quantidade (QuoteCatalogEngravingPriceTier)
+  ): QuoteItemEngravingDto | null => {
+    if (!techniqueId) return null;
     if (item.supplier === 'SPOT') {
       const spotOpts = spotOptionsBySku[item.sku] ?? [];
       const option = spotOpts.find((o) => o.id === techniqueId);
+      if (!option) return null;
       const engCalc = calcSpotEngravingFromTiers(option, item.quantity);
-      const engravingPrice =
-        engCalc === null ? 0 : round2(engCalc);
-      const unitPrice = finalUnit(productPrice, engravingPrice, item.quantity);
-      patchLocalItem(item.id, {
+      return {
         engravingTechniqueId: null,
-        engraving: option?.techniqueName ?? null,
-        engravingPrice: String(engravingPrice),
-        productPrice: String(productPrice),
-        unitPrice: String(unitPrice),
-        requiresArtwork: true,
-      });
-      await persistItem(item.id, {
-        engravingTechniqueId: null,
-        engraving: option?.techniqueName ?? null,
-        engravingPrice,
-        productPrice,
-        requiresArtwork: true,
-      });
-      return;
+        engraving: option.techniqueName,
+        engravingPrice: engCalc === null ? 0 : round2(engCalc),
+      };
     }
-
     const technique = techniques.find((t) => t.id === techniqueId);
+    if (!technique) return null;
     const engravingCalc = calcEngravingFromTiers(technique, item.quantity);
-    const engravingPrice =
-      engravingCalc === null ? 0 : round2(engravingCalc);
-    const unitPrice = finalUnit(
-      productPrice,
-      engravingPrice,
-      item.quantity,
+    return {
+      engravingTechniqueId: techniqueId,
+      engraving: technique.name,
+      engravingPrice: engravingCalc === null ? 0 : round2(engravingCalc),
+    };
+  };
+
+  const applyEngravingsList = async (
+    item: QuoteItemDto,
+    entries: QuoteItemEngravingDto[],
+  ) => {
+    const productPrice = Number(item.productPrice ?? item.unitPrice) || 0;
+    const cleaned = entries.filter(
+      (e) =>
+        Boolean(e.engravingTechniqueId) ||
+        Boolean(e.engraving?.trim()) ||
+        (e.engravingPrice != null && e.engravingPrice > 0),
     );
+    const engSum = sumEngravingPrices(cleaned);
+    const unitPrice = finalUnit(productPrice, engSum, item.quantity);
+    const names = cleaned
+      .map((e) => e.engraving?.trim())
+      .filter((n): n is string => Boolean(n));
+    const techniqueIds = [
+      ...new Set(
+        cleaned
+          .map((e) => e.engravingTechniqueId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const requiresArtwork = item.supplier === 'SPOT' && cleaned.length > 0;
 
     patchLocalItem(item.id, {
-      engravingTechniqueId: techniqueId,
-      engraving: technique?.name ?? null,
-      engravingPrice: String(engravingPrice),
+      engravings: cleaned,
+      engravingTechniqueId: techniqueIds.length === 1 ? techniqueIds[0]! : null,
+      engraving: names.length > 0 ? names.join(' + ') : null,
+      engravingPrice: cleaned.length > 0 ? String(engSum) : null,
       productPrice: String(productPrice),
       unitPrice: String(unitPrice),
-      requiresArtwork: false,
+      requiresArtwork,
+      ...(cleaned.length === 0
+        ? {
+            artworkFileName: null,
+            artworkMimeType: null,
+            artworkData: null,
+          }
+        : {}),
     });
     await persistItem(item.id, {
-      engravingTechniqueId: techniqueId,
-      engraving: technique?.name ?? null,
-      engravingPrice,
+      engravings: cleaned,
+      engravingTechniqueId: techniqueIds.length === 1 ? techniqueIds[0]! : null,
+      engraving: names.length > 0 ? names.join(' + ') : null,
+      engravingPrice: cleaned.length > 0 ? engSum : null,
       productPrice,
-      requiresArtwork: false,
+      requiresArtwork,
+      ...(cleaned.length === 0
+        ? {
+            artworkFileName: null,
+            artworkMimeType: null,
+            artworkData: null,
+          }
+        : {}),
+    });
+  };
+
+  const handleEngravingAtChange = async (
+    item: QuoteItemDto,
+    index: number,
+    techniqueId: string,
+  ) => {
+    const current = itemEngravingsList(item);
+    if (!techniqueId) {
+      const next = current.filter((_, i) => i !== index);
+      await applyEngravingsList(item, next);
+      return;
+    }
+    const entry = resolveEntryFromSelect(item, techniqueId);
+    if (!entry) return;
+    const next = [...current];
+    if (index >= next.length) next.push(entry);
+    else next[index] = entry;
+    await applyEngravingsList(item, next);
+  };
+
+  const handleAddEngraving = async (item: QuoteItemDto) => {
+    const current = itemEngravingsList(item);
+    // Placeholder vazio só na UI local até o usuário escolher a técnica.
+    patchLocalItem(item.id, {
+      engravings: [
+        ...current,
+        {
+          engravingTechniqueId: null,
+          engraving: null,
+          engravingPrice: null,
+        },
+      ],
     });
   };
 
@@ -726,13 +792,17 @@ export function CrmOrcamentoProductsSection(props: {
                 const showArtwork =
                   item.supplier === 'SPOT' &&
                   (item.requiresArtwork ||
-                    Boolean(item.engravingTechniqueId) ||
-                    Boolean(item.engraving?.trim()));
+                    itemEngravingsList(item).some((e) =>
+                      Boolean(e.engraving?.trim()),
+                    ));
                 const productPrice =
                   item.productPrice ?? item.unitPrice ?? '0';
                 const engravingPrice = item.engravingPrice ?? '';
                 const productUnit = Number(productPrice) || 0;
-                const engravingUnit = Number(engravingPrice) || 0;
+                const engravingUnit =
+                  sumEngravingPrices(itemEngravingsList(item)) ||
+                  Number(engravingPrice) ||
+                  0;
                 const hasProductPrice =
                   item.productPrice != null &&
                   Number.isFinite(Number(item.productPrice));
@@ -801,73 +871,133 @@ export function CrmOrcamentoProductsSection(props: {
                     </td>
                     <td className="px-2 py-2 align-middle">{item.description}</td>
                     <td className="px-2 py-2 align-middle">
-                      <div className="flex min-w-[11rem] items-center gap-1.5">
-                        <select
-                          value={
-                            item.supplier === 'SPOT'
-                              ? (spotOptionsBySku[item.sku]?.find(
-                                  (o) => o.techniqueName === item.engraving,
-                                )?.id ?? '')
-                              : (item.engravingTechniqueId ?? '')
-                          }
-                          disabled={busyId === item.id}
-                          onChange={(e) => {
-                            void handleTechniqueChange(item, e.target.value);
-                          }}
-                          className="erp-module-input"
-                        >
-                          <option value="">Sem gravação</option>
-                          {item.supplier === 'SPOT'
-                            ? (spotOptionsBySku[item.sku] ?? []).map((o) => {
-                                const tierPrice = calcSpotEngravingFromTiers(
-                                  o,
-                                  currentQty,
-                                );
-                                const labelPrice =
-                                  tierPrice != null
-                                    ? tierPrice
-                                    : o.price != null
-                                      ? Number(o.price)
-                                      : null;
-                                return (
-                                  <option key={o.id} value={o.id}>
-                                    {o.techniqueName}
-                                    {labelPrice != null &&
-                                    Number.isFinite(labelPrice)
-                                      ? ` — ${formatQuoteCurrency(labelPrice)}`
-                                      : ''}
-                                  </option>
-                                );
-                              })
-                            : techniques.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                        </select>
-                        {showArtwork ? (
-                          <label
-                            className="erp-focus-ring inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                            title={
-                              item.artworkFileName
-                                ? `Arte: ${item.artworkFileName}`
-                                : 'Enviar arte (imagem/PDF)'
-                            }
+                      <div className="flex min-w-[14rem] flex-col gap-1.5">
+                        {(() => {
+                          const entries = itemEngravingsList(item);
+                          const rows =
+                            entries.length > 0
+                              ? entries
+                              : [
+                                  {
+                                    engravingTechniqueId: null,
+                                    engraving: null,
+                                    engravingPrice: null,
+                                  } satisfies QuoteItemEngravingDto,
+                                ];
+                          return rows.map((entry, idx) => {
+                            const selectValue =
+                              item.supplier === 'SPOT'
+                                ? (spotOptionsBySku[item.sku]?.find(
+                                    (o) => o.techniqueName === entry.engraving,
+                                  )?.id ?? '')
+                                : (entry.engravingTechniqueId ?? '');
+                            return (
+                              <div
+                                key={`${item.id}-eng-${idx}`}
+                                className="flex items-center gap-1.5"
+                              >
+                                <select
+                                  value={selectValue}
+                                  disabled={busyId === item.id}
+                                  onChange={(e) => {
+                                    void handleEngravingAtChange(
+                                      item,
+                                      idx,
+                                      e.target.value,
+                                    );
+                                  }}
+                                  className="erp-module-input"
+                                >
+                                  <option value="">Sem gravação</option>
+                                  {item.supplier === 'SPOT'
+                                    ? (spotOptionsBySku[item.sku] ?? []).map(
+                                        (o) => {
+                                          const tierPrice =
+                                            calcSpotEngravingFromTiers(
+                                              o,
+                                              currentQty,
+                                            );
+                                          const labelPrice =
+                                            tierPrice != null
+                                              ? tierPrice
+                                              : o.price != null
+                                                ? Number(o.price)
+                                                : null;
+                                          return (
+                                            <option key={o.id} value={o.id}>
+                                              {o.techniqueName}
+                                              {labelPrice != null &&
+                                              Number.isFinite(labelPrice)
+                                                ? ` — ${formatQuoteCurrency(labelPrice)}`
+                                                : ''}
+                                            </option>
+                                          );
+                                        },
+                                      )
+                                    : techniques.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.name}
+                                        </option>
+                                      ))}
+                                </select>
+                                {entries.length > 1 ||
+                                (entries.length === 1 && selectValue) ? (
+                                  <button
+                                    type="button"
+                                    className="erp-focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50"
+                                    title="Remover gravação"
+                                    disabled={busyId === item.id}
+                                    onClick={() => {
+                                      void handleEngravingAtChange(
+                                        item,
+                                        idx,
+                                        '',
+                                      );
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                  </button>
+                                ) : null}
+                              </div>
+                            );
+                          });
+                        })()}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            className="erp-focus-ring inline-flex items-center gap-1 rounded-md border border-[var(--erp-border)] px-2 py-1 text-[11px] font-semibold text-[var(--erp-fg-secondary)] hover:bg-[var(--erp-bg-muted)] disabled:opacity-50"
+                            disabled={busyId === item.id}
+                            onClick={() => {
+                              void handleAddEngraving(item);
+                            }}
                           >
-                            <Upload className="h-3.5 w-3.5" aria-hidden />
-                            <input
-                              type="file"
-                              accept="image/*,application/pdf"
-                              className="hidden"
-                              disabled={busyId === item.id}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0] ?? null;
-                                void handleArtworkUpload(item, file);
-                                e.target.value = '';
-                              }}
-                            />
-                          </label>
-                        ) : null}
+                            <Plus className="h-3 w-3" aria-hidden />
+                            Adicionar Gravação
+                          </button>
+                          {showArtwork ? (
+                            <label
+                              className="erp-focus-ring inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                              title={
+                                item.artworkFileName
+                                  ? `Arte: ${item.artworkFileName}`
+                                  : 'Enviar arte (imagem/PDF)'
+                              }
+                            >
+                              <Upload className="h-3.5 w-3.5" aria-hidden />
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                disabled={busyId === item.id}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] ?? null;
+                                  void handleArtworkUpload(item, file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
                     <td className="px-2 py-2 align-middle">
@@ -896,43 +1026,76 @@ export function CrmOrcamentoProductsSection(props: {
                             delete next[item.id];
                             return next;
                           });
-                          const technique = techniques.find(
-                            (t) => t.id === item.engravingTechniqueId,
-                          );
-                          const spotOption =
-                            item.supplier === 'SPOT' && item.engraving
-                              ? (spotOptionsBySku[item.sku] ?? []).find(
-                                  (o) => o.techniqueName === item.engraving,
-                                )
-                              : undefined;
+                          const entries = itemEngravingsList(item);
                           const pp =
                             Number(item.productPrice ?? item.unitPrice) || 0;
-                          const engCalc =
-                            item.supplier === 'SPOT' && spotOption
-                              ? calcSpotEngravingFromTiers(
-                                  spotOption,
-                                  quantity,
-                                )
-                              : technique
-                                ? calcEngravingFromTiers(technique, quantity)
-                                : item.engravingPrice != null
-                                  ? Number(item.engravingPrice)
-                                  : null;
-                          const eng =
-                            engCalc === null || engCalc === undefined
-                              ? 0
-                              : round2(engCalc);
-                          const shouldUpdateEng =
-                            Boolean(technique) ||
-                            (item.supplier === 'SPOT' && Boolean(spotOption));
+                          const recalculated = entries.map((entry) => {
+                            if (item.supplier === 'SPOT' && entry.engraving) {
+                              const spotOption = (
+                                spotOptionsBySku[item.sku] ?? []
+                              ).find(
+                                (o) => o.techniqueName === entry.engraving,
+                              );
+                              const engCalc = calcSpotEngravingFromTiers(
+                                spotOption,
+                                quantity,
+                              );
+                              return {
+                                ...entry,
+                                engravingPrice:
+                                  engCalc === null
+                                    ? entry.engravingPrice
+                                    : round2(engCalc),
+                              };
+                            }
+                            if (entry.engravingTechniqueId) {
+                              const technique = techniques.find(
+                                (t) => t.id === entry.engravingTechniqueId,
+                              );
+                              const engCalc = calcEngravingFromTiers(
+                                technique,
+                                quantity,
+                              );
+                              return {
+                                ...entry,
+                                engravingPrice:
+                                  engCalc === null
+                                    ? entry.engravingPrice
+                                    : round2(engCalc),
+                              };
+                            }
+                            return entry;
+                          });
+                          const eng = sumEngravingPrices(recalculated);
+                          const shouldUpdateEng = recalculated.some(
+                            (e) =>
+                              Boolean(e.engravingTechniqueId) ||
+                              (item.supplier === 'SPOT' && Boolean(e.engraving)),
+                          );
                           if (
                             quantity !== item.quantity ||
                             (shouldUpdateEng &&
-                              eng !==
-                                (Number(item.engravingPrice ?? 0) || 0))
+                              eng !== (Number(item.engravingPrice ?? 0) || 0))
                           ) {
+                            const names = recalculated
+                              .map((x) => x.engraving?.trim())
+                              .filter((n): n is string => Boolean(n));
+                            const techniqueIds = [
+                              ...new Set(
+                                recalculated
+                                  .map((x) => x.engravingTechniqueId)
+                                  .filter((id): id is string => Boolean(id)),
+                              ),
+                            ];
                             patchLocalItem(item.id, {
                               quantity,
+                              engravings: recalculated,
+                              engraving:
+                                names.length > 0 ? names.join(' + ') : null,
+                              engravingTechniqueId:
+                                techniqueIds.length === 1
+                                  ? techniqueIds[0]!
+                                  : null,
                               ...(shouldUpdateEng
                                 ? { engravingPrice: String(eng) }
                                 : {}),
@@ -940,6 +1103,7 @@ export function CrmOrcamentoProductsSection(props: {
                             });
                             void persistItem(item.id, {
                               quantity,
+                              engravings: recalculated,
                               ...(shouldUpdateEng
                                 ? { engravingPrice: eng }
                                 : {}),
@@ -997,10 +1161,7 @@ export function CrmOrcamentoProductsSection(props: {
                           value={engravingPrice}
                           disabled={
                             busyId === item.id ||
-                            !(
-                              item.engravingTechniqueId ||
-                              (item.supplier === 'SPOT' && item.engraving)
-                            )
+                            itemEngravingsList(item).length === 0
                           }
                           placeholder="—"
                           onChange={(e) => {
@@ -1009,7 +1170,25 @@ export function CrmOrcamentoProductsSection(props: {
                               Number(e.target.value) || 0,
                             );
                             const pp = Number(item.productPrice ?? 0) || 0;
+                            const entries = itemEngravingsList(item);
+                            // Ajusta o preço da 1ª gravação e mantém as demais.
+                            const next =
+                              entries.length === 0
+                                ? []
+                                : entries.map((entry, i) =>
+                                    i === 0
+                                      ? {
+                                          ...entry,
+                                          engravingPrice:
+                                            eng -
+                                            sumEngravingPrices(
+                                              entries.slice(1),
+                                            ),
+                                        }
+                                      : entry,
+                                  );
                             patchLocalItem(item.id, {
+                              engravings: next,
                               engravingPrice: String(eng),
                               unitPrice: String(
                                 finalUnit(pp, eng, item.quantity),
@@ -1021,15 +1200,31 @@ export function CrmOrcamentoProductsSection(props: {
                               0,
                               Number(e.target.value) || 0,
                             );
+                            const entries = itemEngravingsList(item);
+                            if (entries.length === 0) {
+                              void persistItem(item.id, {
+                                engravingPrice: eng,
+                              });
+                              return;
+                            }
+                            const rest = sumEngravingPrices(entries.slice(1));
+                            const next = entries.map((entry, i) =>
+                              i === 0
+                                ? {
+                                    ...entry,
+                                    engravingPrice: Math.max(0, eng - rest),
+                                  }
+                                : entry,
+                            );
                             void persistItem(item.id, {
+                              engravings: next,
                               engravingPrice: eng,
                             });
                           }}
                           className="erp-module-input w-28 disabled:opacity-50"
                         />
                         <span className="pl-0.5 text-[11px] text-[var(--erp-fg-muted)]">
-                          {item.engravingTechniqueId ||
-                          (item.supplier === 'SPOT' && item.engraving)
+                          {itemEngravingsList(item).length > 0
                             ? formatQuoteCurrency(
                                 qtyTotal(engravingUnit, item.quantity),
                               )

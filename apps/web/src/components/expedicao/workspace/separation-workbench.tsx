@@ -665,15 +665,7 @@ export function SeparationWorkbench(props: {
             type="button"
             className="exp-wb-btn exp-wb-btn--primary exp-wb-btn--full exp-wb-send-separation"
             onClick={async () => {
-              if (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO') {
-                await data.sendToPicking(order.id);
-              } else {
-                await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
-                data.setToast({
-                  variant: 'ok',
-                  message: `Pedido #${numero} enviado para separação ✓`,
-                });
-              }
+              await data.sendToPicking(order.id);
               onAfterAction?.();
             }}
           >
@@ -688,15 +680,7 @@ export function SeparationWorkbench(props: {
             type="button"
             className="exp-mobile-fixed-cta-btn"
             onClick={async () => {
-              if (orderStatus === 'PARCIAL' || orderStatus === 'RESERVADO') {
-                await data.sendToPicking(order.id);
-              } else {
-                await data.patchOrderStatus(order.id, 'EM_SEPARACAO');
-                data.setToast({
-                  variant: 'ok',
-                  message: `Pedido #${numero} enviado para separação ✓`,
-                });
-              }
+              await data.sendToPicking(order.id);
               onAfterAction?.();
             }}
           >

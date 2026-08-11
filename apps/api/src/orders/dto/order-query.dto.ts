@@ -101,6 +101,11 @@ export class OrderQueryDto {
     'week',
     'closed',
     'all',
+    /** Etapas da fila de Separação (workspace=separation). */
+    'sep_em_separacao',
+    'sep_falta_nf',
+    'sep_falta_etiqueta',
+    'sep_aguardando_saida',
   ])
   status?: string;
 

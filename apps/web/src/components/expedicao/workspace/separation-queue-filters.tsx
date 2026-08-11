@@ -3,16 +3,32 @@
 import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import type { FilterFormState } from '@/src/components/expedicao/shared/types';
+import type {
+  FilterFormState,
+  StatusFilterId,
+} from '@/src/components/expedicao/shared/types';
 
 type CarrierOption = { id: string; name: string; isActive: boolean };
 
-/** Filtros da fila de separação: busca livre + transportadora + ponto de descarga. */
+export const SEPARATION_STAGE_FILTERS: Array<{
+  id: StatusFilterId;
+  label: string;
+}> = [
+  { id: 'all', label: 'Todas as etapas' },
+  { id: 'sep_em_separacao', label: 'Em separação' },
+  { id: 'sep_falta_nf', label: 'Já separado, falta NF' },
+  { id: 'sep_falta_etiqueta', label: 'Falta colar etiqueta' },
+  { id: 'sep_aguardando_saida', label: 'Aguardando saída' },
+];
+
+/** Filtros da fila de separação: etapa + busca + transportadora + ponto de descarga. */
 export function SeparationQueueFilters(props: {
   filters: FilterFormState;
+  statusFilter: StatusFilterId;
   onChange: (patch: Partial<FilterFormState>) => void;
+  onStatusFilterChange: (id: StatusFilterId) => void;
 }) {
-  const { filters, onChange } = props;
+  const { filters, statusFilter, onChange, onStatusFilterChange } = props;
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [points, setPoints] = useState<string[]>([]);
 
@@ -38,13 +54,27 @@ export function SeparationQueueFilters(props: {
   }, []);
 
   const hasFilters = Boolean(
-    filters.search.trim() ||
+    statusFilter !== 'all' ||
+      filters.search.trim() ||
       filters.carrierName.trim() ||
       filters.unloadingPoint.trim(),
   );
 
   return (
     <div className="exp-sep-filters">
+      <select
+        value={statusFilter}
+        onChange={(e) => onStatusFilterChange(e.target.value as StatusFilterId)}
+        className="exp-queue-filter-select shrink-0"
+        aria-label="Filtrar por etapa da separação"
+      >
+        {SEPARATION_STAGE_FILTERS.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+
       <div className="exp-queue-search-wrap min-w-0 flex-1">
         <Search className="exp-queue-search-icon" aria-hidden />
         <input
@@ -89,9 +119,10 @@ export function SeparationQueueFilters(props: {
         <button
           type="button"
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-transparent text-[var(--text-primary)] transition hover:bg-gray-100"
-          onClick={() =>
-            onChange({ search: '', carrierName: '', unloadingPoint: '' })
-          }
+          onClick={() => {
+            onStatusFilterChange('all');
+            onChange({ search: '', carrierName: '', unloadingPoint: '' });
+          }}
           aria-label="Limpar filtros da separação"
           title="Limpar filtros"
         >

@@ -217,8 +217,11 @@ export class CrmController {
   @Post('cards')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('crm', 'ver_modulo')
-  createCard(@Body() dto: CreateCrmCardDto) {
-    return this.crm.createCard(dto);
+  createCard(
+    @Body() dto: CreateCrmCardDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.crm.createCard(dto, user.id);
   }
 
   @Patch('cards/:id')

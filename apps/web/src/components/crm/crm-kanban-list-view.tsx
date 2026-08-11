@@ -9,14 +9,12 @@ import {
   formatCrmCurrency,
   type CrmCardDto,
   type CrmFunilDto,
-  type CrmStatusDto,
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
 
 type SortKey =
   | 'name'
   | 'origin'
-  | 'status'
   | 'funil'
   | 'value'
   | 'touchPoints'
@@ -40,8 +38,7 @@ function formatActivity(value?: string) {
 export function CrmKanbanListView(props: {
   cards: CrmCardDto[];
   funis: CrmFunilDto[];
-  statuses: CrmStatusDto[];
-  users: CrmUserDto[];
+  users?: CrmUserDto[];
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
 }) {
@@ -66,11 +63,6 @@ export function CrmKanbanListView(props: {
           return compareString(a.name, b.name);
         case 'origin':
           return compareString(a.origin, b.origin);
-        case 'status':
-          return compareString(
-            a.statusMeta?.name ?? a.status,
-            b.statusMeta?.name ?? b.status,
-          );
         case 'funil':
           return compareString(
             a.funil?.name ?? funilNameById[a.funilId] ?? '',
@@ -110,7 +102,6 @@ export function CrmKanbanListView(props: {
   const columns: Array<{ key: SortKey; label: string }> = [
     { key: 'name', label: 'Nome' },
     { key: 'origin', label: 'Origem' },
-    { key: 'status', label: 'Status' },
     { key: 'funil', label: 'Funil' },
     { key: 'value', label: 'Valor' },
     { key: 'touchPoints', label: 'Touchpoints' },
@@ -162,22 +153,6 @@ export function CrmKanbanListView(props: {
                   >
                     {CRM_ORIGIN_LABEL[card.origin]}
                   </span>
-                </td>
-                <td className="px-4 py-3">
-                  {card.statusMeta ? (
-                    <span
-                      className="inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                      style={{
-                        borderColor: `${card.statusMeta.color}66`,
-                        backgroundColor: `${card.statusMeta.color}22`,
-                        color: card.statusMeta.color,
-                      }}
-                    >
-                      {card.statusMeta.name}
-                    </span>
-                  ) : (
-                    '—'
-                  )}
                 </td>
                 <td className="px-4 py-3 text-[var(--erp-fg-secondary)]">{funilName}</td>
                 <td className="px-4 py-3 text-[var(--erp-fg)]">

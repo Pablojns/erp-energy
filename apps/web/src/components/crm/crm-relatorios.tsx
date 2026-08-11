@@ -413,7 +413,7 @@ export function CrmRelatorios() {
               Funil de conversão
             </h3>
             <p className="mt-1 text-xs text-[var(--erp-fg-muted)]">
-              Leads por status e percentual de queda entre etapas
+              Leads por etapa do funil e percentual de queda entre etapas
             </p>
             <div className="mt-4 h-80 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -461,7 +461,7 @@ export function CrmRelatorios() {
               <table className="min-w-full text-xs">
                 <thead>
                   <tr className="text-left text-[var(--erp-fg-muted)]">
-                    <th className="px-2 py-1">Status</th>
+                    <th className="px-2 py-1">Funil</th>
                     <th className="px-2 py-1">Leads</th>
                     <th className="px-2 py-1">Queda vs etapa anterior</th>
                   </tr>

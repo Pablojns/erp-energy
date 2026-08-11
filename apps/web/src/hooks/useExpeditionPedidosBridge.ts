@@ -89,6 +89,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     [appliedFilters, filterValueDebounced, orderSource, businessContext],
   );
 
+  const resetPageToFirst = useCallback(() => {
+    setPage((p) => (p === 1 ? p : 1));
+  }, []);
+
   const {
     pedidos: fetchedOrders,
     loading: ordersLoading,
@@ -108,6 +112,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     sortBy,
     sortOrder,
     businessContext: businessContext === 'ALL' ? undefined : businessContext,
+    onPageReset: resetPageToFirst,
   });
 
   const loadMoreOrders = useCallback(() => {
@@ -174,6 +179,8 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
       try {
         do {
           refreshQueuedRef.current = false;
+          // Sempre volta à página 1 no refresh — evita dessincronizar scroll infinito.
+          setPage(1);
           await refetchPedidos();
         } while (refreshQueuedRef.current);
       } finally {
@@ -213,9 +220,21 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
 
   async function sendToPicking(id: string) {
     try {
-      await erpFetchJson(`orders/${id}/send-to-picking`, { method: 'POST' });
+      const updated = await erpFetchJson<{
+        unidadesFaltantes?: number;
+        items?: Array<{ missingQty?: number; sku?: string }>;
+      }>(`orders/${id}/send-to-picking`, { method: 'POST' });
       await refreshAll();
-      setToast({ variant: 'ok', message: 'Pedido enviado para separação.' });
+      const faltantes = updated.unidadesFaltantes ?? 0;
+      if (faltantes > 0) {
+        setToast({
+          variant: 'ok',
+          message: `Enviado para separação — ${faltantes} un. sem estoque (itens sinalizados).`,
+          durationMs: 6500,
+        });
+      } else {
+        setToast({ variant: 'ok', message: 'Pedido enviado para separação.' });
+      }
     } catch (e) {
       setToast({
         variant: 'err',

@@ -44,8 +44,12 @@ import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedido
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
 import { downloadWaybillPdf } from '@/src/utils/download-waybill-pdf';
+import { downloadSeparacaoListaPdf } from '@/src/utils/download-separacao-lista-pdf';
 import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
 import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
+import {
+  SEPARATION_STAGE_FILTERS,
+} from '@/src/components/expedicao/workspace/separation-queue-filters';
 import {
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
@@ -277,11 +281,14 @@ export function OrderQueue(props: {
   const filterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
     if (data.statusFilter !== 'all') {
+      const sepLabel = SEPARATION_STAGE_FILTERS.find(
+        (f) => f.id === data.statusFilter,
+      )?.label;
       badges.push({
         key: `status:${data.statusFilter}`,
         label: isPedidosMode
           ? headerStatusFilterLabel(data.statusFilter)
-          : data.statusFilter,
+          : (sepLabel ?? data.statusFilter),
         tone: isPedidosMode ? headerStatusFilterTone(data.statusFilter) : undefined,
         style: isPedidosMode
           ? headerStatusFilterStyle(data.statusFilter, true)
@@ -466,6 +473,32 @@ export function OrderQueue(props: {
       setRemoveModalOpen(false);
       setSelectedForSeparationIds(new Set());
     }
+  };
+
+  const handlePrintSeparacaoLista = () => {
+    const selected = data.orders.filter((o) =>
+      selectedForSeparationIds.has(o.id),
+    );
+    if (selected.length === 0) return;
+
+    const lines = selected.flatMap((order) => {
+      const orderNumber = orderDisplayNumber(order);
+      const volumes = order.volumes ?? null;
+      return (order.items ?? [])
+        .filter((it) => (it.pickedQty ?? 0) > 0)
+        .map((it) => ({
+          orderNumber,
+          productSku: it.sku ?? '',
+          productName: it.description?.trim() || it.sku || 'Item',
+          pickedQty: it.pickedQty ?? 0,
+          volumes,
+        }));
+    });
+
+    void downloadSeparacaoListaPdf({
+      lines,
+      orderCount: selected.length,
+    });
   };
 
   const handleRemoveSingleFromSeparation = async (order: OrderDto) => {
@@ -739,9 +772,14 @@ export function OrderQueue(props: {
             </div>
             <SeparationQueueFilters
               filters={data.appliedFilters}
+              statusFilter={data.statusFilter}
               onChange={(patch) => {
                 data.setPage(1);
                 data.setAppliedFilters((f) => ({ ...f, ...patch }));
+              }}
+              onStatusFilterChange={(id) => {
+                data.setPage(1);
+                data.setStatusFilter(id);
               }}
             />
           </div>
@@ -784,6 +822,13 @@ export function OrderQueue(props: {
           )}
           {selectedSeparationCount > 0 ? (
             <>
+              <button
+                type="button"
+                className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !px-3 !py-1.5 !text-xs"
+                onClick={handlePrintSeparacaoLista}
+              >
+                Imprimir lista de separados
+              </button>
               <button
                 type="button"
                 className="exp-wb-btn exp-wb-btn--danger !min-h-0 !px-3 !py-1.5 !text-xs"

@@ -14,7 +14,6 @@ import {
   type CrmCardDto,
   type CrmCardOrigin,
   type CrmFunilDto,
-  type CrmStatusDto,
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
 
@@ -25,7 +24,6 @@ function formatDate(value: string) {
 export function CrmClientesList(props: {
   cards: CrmCardDto[];
   funis: CrmFunilDto[];
-  statuses: CrmStatusDto[];
   users: CrmUserDto[];
   loading: boolean;
   onOpenCard: (card: CrmCardDto) => void;
@@ -33,7 +31,7 @@ export function CrmClientesList(props: {
 }) {
   const [search, setSearch] = useState('');
   const [originFilter, setOriginFilter] = useState<CrmCardOrigin | 'TODOS'>('TODOS');
-  const [statusFilter, setStatusFilter] = useState<string>('TODOS');
+  const [funilFilter, setFunilFilter] = useState<string>('TODOS');
   const [responsavelFilter, setResponsavelFilter] = useState<string>('TODOS');
   const [entryDateFrom, setEntryDateFrom] = useState('');
   const [entryDateTo, setEntryDateTo] = useState('');
@@ -47,7 +45,7 @@ export function CrmClientesList(props: {
     const q = search.trim().toLowerCase();
     const rows = props.cards.filter((card) => {
       if (originFilter !== 'TODOS' && card.origin !== originFilter) return false;
-      if (statusFilter !== 'TODOS' && card.status !== statusFilter) return false;
+      if (funilFilter !== 'TODOS' && card.funilId !== funilFilter) return false;
       if (responsavelFilter === 'NONE') {
         if (card.responsavelId) return false;
       } else if (
@@ -73,11 +71,11 @@ export function CrmClientesList(props: {
   }, [
     entryDateFrom,
     entryDateTo,
+    funilFilter,
     originFilter,
     props.cards,
     responsavelFilter,
     search,
-    statusFilter,
   ]);
 
   return (
@@ -93,14 +91,14 @@ export function CrmClientesList(props: {
           />
         </div>
         <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          value={funilFilter}
+          onChange={(e) => setFunilFilter(e.target.value)}
           className="erp-module-input w-auto min-w-[9rem]"
         >
-          <option value="TODOS">Todos status</option>
-          {props.statuses.map((status) => (
-            <option key={status.id} value={status.id}>
-              {status.name}
+          <option value="TODOS">Todos funis</option>
+          {props.funis.map((funil) => (
+            <option key={funil.id} value={funil.id}>
+              {funil.name}
             </option>
           ))}
         </select>
@@ -190,7 +188,6 @@ export function CrmClientesList(props: {
                 <th className="px-4 py-3 font-semibold">Origem</th>
                 <th className="px-4 py-3 font-semibold">Funil</th>
                 <th className="px-4 py-3 font-semibold">Valor</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Touch.</th>
                 <th className="px-4 py-3 font-semibold">Score</th>
                 <th className="px-4 py-3 font-semibold">Criado</th>
@@ -228,22 +225,6 @@ export function CrmClientesList(props: {
                     <td className="px-4 py-3 text-[var(--erp-fg-secondary)]">{funilName}</td>
                     <td className="px-4 py-3 text-[var(--erp-fg)]">
                       {card.value ? formatCrmCurrency(card.value) : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {card.statusMeta ? (
-                        <span
-                          className="inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                          style={{
-                            borderColor: `${card.statusMeta.color}66`,
-                            backgroundColor: `${card.statusMeta.color}22`,
-                            color: card.statusMeta.color,
-                          }}
-                        >
-                          {card.statusMeta.name}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--erp-fg-muted)]">—</span>
-                      )}
                     </td>
                     <td className="px-4 py-3 text-[var(--erp-fg-secondary)]">
                       {card.touchPoints}

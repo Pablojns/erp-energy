@@ -37,6 +37,11 @@ import {
   toNumDecimal,
 } from './quote-pricing.util';
 import { canViewQuoteMargin } from './quote-margin-access';
+import {
+  parseQuoteItemEngravings,
+  syncLegacyEngravingFields,
+  type QuoteItemEngravingEntry,
+} from './quote-item-engravings.util';
 const NEXT_QUOTE_CODE_LOCK = 88442201;
 const NEXT_ORDER_CODE_LOCK = 77441100;
 
@@ -204,6 +209,14 @@ export class QuotesService {
           engraving: it.engraving,
           engravingTechniqueId: it.engravingTechniqueId ?? null,
           engravingPrice: it.engravingPrice?.toString() ?? null,
+          engravings: parseQuoteItemEngravings(
+            (it as { engravings?: unknown }).engravings,
+            {
+              engravingTechniqueId: it.engravingTechniqueId,
+              engraving: it.engraving,
+              engravingPrice: it.engravingPrice,
+            },
+          ),
           productPrice: it.productPrice?.toString() ?? null,
           supplier: it.supplier ?? null,
           requiresArtwork: Boolean(it.requiresArtwork),
@@ -917,8 +930,19 @@ export class QuotesService {
       dto.engravingPrice !== undefined && dto.engravingPrice !== null
         ? new Prisma.Decimal(dto.engravingPrice)
         : null;
+    let engravingsJson: QuoteItemEngravingEntry[] | null = null;
 
-    if (engravingTechniqueId) {
+    if (dto.engravings !== undefined) {
+      const resolved = await this.resolveEngravingEntries(
+        dto.engravings ?? [],
+        quantity,
+      );
+      const synced = syncLegacyEngravingFields(resolved);
+      engraving = synced.engraving;
+      engravingTechniqueId = synced.engravingTechniqueId;
+      engravingPrice = synced.engravingPrice;
+      engravingsJson = synced.engravings;
+    } else if (engravingTechniqueId) {
       const technique = await this.prisma.client.engravingTechnique.findUnique({
         where: { id: engravingTechniqueId },
         include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
@@ -932,8 +956,23 @@ export class QuotesService {
         engravingPrice =
           calc === null ? null : new Prisma.Decimal(roundMoney(calc, 4));
       }
+      engravingsJson = [
+        {
+          engravingTechniqueId,
+          engraving,
+          engravingPrice: engravingPrice ? Number(engravingPrice) : null,
+        },
+      ];
     } else if (dto.engravingTechniqueId === null) {
       engravingTechniqueId = null;
+    } else if (engraving || (engravingPrice != null && Number(engravingPrice) > 0)) {
+      engravingsJson = [
+        {
+          engravingTechniqueId: null,
+          engraving,
+          engravingPrice: engravingPrice ? Number(engravingPrice) : null,
+        },
+      ];
     }
 
     const { unitPrice, lineTotal } = this.resolveItemLineTotal({
@@ -953,7 +992,7 @@ export class QuotesService {
 
     const requiresArtwork =
       dto.requiresArtwork ??
-      (supplier === 'SPOT' && Boolean(engraving || engravingTechniqueId));
+      (supplier === 'SPOT' && Boolean(engraving || engravingTechniqueId || engravingsJson?.length));
 
     await this.prisma.client.$transaction(async (tx) => {
       const maxOrder = await tx.quoteItem.aggregate({
@@ -969,6 +1008,8 @@ export class QuotesService {
           engraving,
           engravingTechniqueId,
           engravingPrice,
+          engravings: (engravingsJson ??
+            undefined) as unknown as Prisma.InputJsonValue | undefined,
           productPrice,
           supplier,
           requiresArtwork,
@@ -979,7 +1020,7 @@ export class QuotesService {
           unitPrice,
           total: lineTotal,
           order: (maxOrder._max.order ?? -1) + 1,
-        },
+        } as Prisma.QuoteItemUncheckedCreateInput,
       });
       await this.recalcTotals(tx, quoteId);
     });
@@ -1042,42 +1083,101 @@ export class QuotesService {
           ? null
           : new Prisma.Decimal(dto.engravingPrice)
         : item.engravingPrice;
+    let engravingsJson: QuoteItemEngravingEntry[] | null | undefined =
+      undefined;
 
-    const techniqueChanging =
-      dto.engravingTechniqueId !== undefined ||
-      (dto.quantity !== undefined && Boolean(engravingTechniqueId));
-    const shouldRecalcEngraving =
-      techniqueChanging &&
-      dto.engravingPrice === undefined &&
-      engravingTechniqueId;
+    if (dto.engravings !== undefined) {
+      const resolved = await this.resolveEngravingEntries(
+        dto.engravings ?? [],
+        quantity,
+      );
+      const synced = syncLegacyEngravingFields(resolved);
+      engraving = synced.engraving;
+      engravingTechniqueId = synced.engravingTechniqueId;
+      engravingPrice = synced.engravingPrice;
+      engravingsJson = synced.engravings;
+    } else {
+      const techniqueChanging =
+        dto.engravingTechniqueId !== undefined ||
+        (dto.quantity !== undefined && Boolean(engravingTechniqueId));
+      const shouldRecalcEngraving =
+        techniqueChanging &&
+        dto.engravingPrice === undefined &&
+        engravingTechniqueId;
 
-    if (shouldRecalcEngraving && engravingTechniqueId) {
-      const technique = await this.prisma.client.engravingTechnique.findUnique({
-        where: { id: engravingTechniqueId },
-        include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
-      });
-      if (!technique) {
-        throw new BadRequestException('Técnica de gravação não encontrada.');
+      if (shouldRecalcEngraving && engravingTechniqueId) {
+        const technique = await this.prisma.client.engravingTechnique.findUnique({
+          where: { id: engravingTechniqueId },
+          include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
+        });
+        if (!technique) {
+          throw new BadRequestException('Técnica de gravação não encontrada.');
+        }
+        if (dto.engravingTechniqueId !== undefined) {
+          engraving = technique.name;
+        }
+        const calc = calcEngravingUnitPrice(technique.tiers, quantity);
+        engravingPrice =
+          calc === null ? null : new Prisma.Decimal(roundMoney(calc, 4));
       }
-      if (dto.engravingTechniqueId !== undefined) {
-        engraving = technique.name;
-      }
-      const calc = calcEngravingUnitPrice(technique.tiers, quantity);
-      engravingPrice =
-        calc === null ? null : new Prisma.Decimal(roundMoney(calc, 4));
-    }
 
-    if (dto.engravingTechniqueId === null) {
-      engravingTechniqueId = null;
-      if (dto.engraving === undefined) engraving = null;
-      if (dto.engravingPrice === undefined) engravingPrice = null;
+      if (dto.engravingTechniqueId === null) {
+        engravingTechniqueId = null;
+        if (dto.engraving === undefined) engraving = null;
+        if (dto.engravingPrice === undefined) engravingPrice = null;
+        engravingsJson = null;
+      } else if (
+        dto.engravingTechniqueId !== undefined ||
+        dto.engraving !== undefined ||
+        dto.engravingPrice !== undefined ||
+        (dto.quantity !== undefined && Boolean(engravingTechniqueId || engraving))
+      ) {
+        // Mantém lista alinhada aos campos legados quando o cliente ainda envia 1 gravação.
+        const existing = parseQuoteItemEngravings(
+          (item as { engravings?: unknown }).engravings,
+          {
+            engravingTechniqueId: item.engravingTechniqueId,
+            engraving: item.engraving,
+            engravingPrice: item.engravingPrice,
+          },
+        );
+        if (existing.length <= 1) {
+          engravingsJson =
+            engravingTechniqueId || engraving || (engravingPrice && Number(engravingPrice) > 0)
+              ? [
+                  {
+                    engravingTechniqueId,
+                    engraving,
+                    engravingPrice: engravingPrice
+                      ? Number(engravingPrice)
+                      : null,
+                  },
+                ]
+              : null;
+        } else if (dto.quantity !== undefined) {
+          // Recalcula cada técnica da lista quando só a qty muda.
+          const resolved = await this.resolveEngravingEntries(
+            existing.map((e) => ({
+              engravingTechniqueId: e.engravingTechniqueId,
+              engraving: e.engraving,
+              engravingPrice: undefined,
+            })),
+            quantity,
+          );
+          const synced = syncLegacyEngravingFields(resolved);
+          engraving = synced.engraving;
+          engravingTechniqueId = synced.engravingTechniqueId;
+          engravingPrice = synced.engravingPrice;
+          engravingsJson = synced.engravings;
+        }
+      }
     }
 
     const shouldRecalcUnit =
       dto.unitPrice === undefined &&
       (dto.productPrice !== undefined ||
         dto.engravingPrice !== undefined ||
-        shouldRecalcEngraving ||
+        dto.engravings !== undefined ||
         dto.engravingTechniqueId !== undefined ||
         dto.quantity !== undefined);
 
@@ -1130,6 +1230,12 @@ export class QuotesService {
           engraving,
           engravingTechniqueId,
           engravingPrice,
+          ...(engravingsJson !== undefined
+            ? {
+                engravings:
+                  engravingsJson as unknown as Prisma.InputJsonValue | null,
+              }
+            : {}),
           productPrice,
           ...(dto.supplier !== undefined ? { supplier: nextSupplier } : {}),
           requiresArtwork: nextRequiresArtwork,
@@ -1144,7 +1250,8 @@ export class QuotesService {
             : {}),
           ...(!nextRequiresArtwork &&
           (dto.engraving !== undefined ||
-            dto.engravingTechniqueId !== undefined)
+            dto.engravingTechniqueId !== undefined ||
+            dto.engravings !== undefined)
             ? {
                 artworkFileName: null,
                 artworkMimeType: null,
@@ -1154,12 +1261,56 @@ export class QuotesService {
           quantity,
           unitPrice,
           total: lineTotal,
-        },
+        } as Prisma.QuoteItemUncheckedUpdateInput,
       });
       await this.recalcTotals(tx, quoteId);
     });
 
     return this.loadQuoteSerialized(quoteId, viewer);
+  }
+
+  private async resolveEngravingEntries(
+    rows: Array<{
+      engravingTechniqueId?: string | null;
+      engraving?: string | null;
+      engravingPrice?: number | null;
+    }>,
+    quantity: number,
+  ): Promise<QuoteItemEngravingEntry[]> {
+    const out: QuoteItemEngravingEntry[] = [];
+    for (const row of rows) {
+      let techniqueId = row.engravingTechniqueId?.trim() || null;
+      let name = row.engraving?.trim() || null;
+      let price =
+        row.engravingPrice !== undefined && row.engravingPrice !== null
+          ? Number(row.engravingPrice)
+          : null;
+
+      if (techniqueId) {
+        const technique = await this.prisma.client.engravingTechnique.findUnique({
+          where: { id: techniqueId },
+          include: { tiers: { orderBy: { qtyFrom: 'asc' } } },
+        });
+        if (!technique) {
+          throw new BadRequestException(
+            `Técnica de gravação não encontrada (${techniqueId}).`,
+          );
+        }
+        name = name || technique.name;
+        if (price == null || !Number.isFinite(price)) {
+          const calc = calcEngravingUnitPrice(technique.tiers, quantity);
+          price = calc === null ? null : roundMoney(calc, 4);
+        }
+      }
+
+      if (!techniqueId && !name && (price == null || price <= 0)) continue;
+      out.push({
+        engravingTechniqueId: techniqueId,
+        engraving: name,
+        engravingPrice: price != null && Number.isFinite(price) ? price : null,
+      });
+    }
+    return out;
   }
 
   async removeItem(

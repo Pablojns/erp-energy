@@ -55,12 +55,16 @@ export type CrmActivityItem = {
 };
 
 export function isCrmClosedStatus(card: CrmCardDto): boolean {
-  const name = card.statusMeta?.name;
+  const funilName = card.funil?.name;
+  const statusName = card.statusMeta?.name;
   return (
-    name === 'Fechado' ||
-    name === 'Perdido' ||
-    card.funil?.name === 'Orçamento Reprovado' ||
-    card.funil?.name === 'Perdidos'
+    funilName === 'Orçamento Reprovado' ||
+    funilName === 'Perdidos' ||
+    funilName === 'Orçamento Pago' ||
+    funilName === 'Pedido Entregue' ||
+    statusName === 'Fechado' ||
+    statusName === 'Perdido' ||
+    Boolean(card.closedAt)
   );
 }
 

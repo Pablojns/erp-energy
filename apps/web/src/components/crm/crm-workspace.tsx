@@ -21,14 +21,12 @@ import {
   listCrmCards,
   listCrmChannels,
   listCrmFunis,
-  listCrmStatuses,
   listCrmUsuarios,
   type CrmCardDto,
   type CrmCardOrigin,
   type CrmChannelDto,
   type CrmDashboardDto,
   type CrmFunilDto,
-  type CrmStatusDto,
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
 import { listQuotes } from '@/src/services/api/quotes-api';
@@ -86,7 +84,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const isAdmin = props.isAdmin ?? false;
   const [activeView, setActiveView] = useState<CrmView>('dashboard');
   const [funis, setFunis] = useState<CrmFunilDto[]>([]);
-  const [statuses, setStatuses] = useState<CrmStatusDto[]>([]);
   const [channels, setChannels] = useState<CrmChannelDto[]>([]);
   const [users, setUsers] = useState<CrmUserDto[]>([]);
   const [cards, setCards] = useState<CrmCardDto[]>([]);
@@ -121,16 +118,13 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
       setLoadingData(true);
       setError(null);
       try {
-        const [funisData, statusesData, channelsData, usersData] =
-          await Promise.all([
-            listCrmFunis(),
-            listCrmStatuses(),
-            listCrmChannels(),
-            listCrmUsuarios(),
-          ]);
+        const [funisData, channelsData, usersData] = await Promise.all([
+          listCrmFunis(),
+          listCrmChannels(),
+          listCrmUsuarios(),
+        ]);
         if (!controller.signal.aborted) {
           setFunis(funisData);
-          setStatuses(statusesData);
           setChannels(channelsData);
           setUsers(usersData);
         }
@@ -139,7 +133,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
         if (!controller.signal.aborted) {
           setError(err instanceof Error ? err.message : 'Falha ao carregar CRM.');
           setFunis([]);
-          setStatuses([]);
           setChannels([]);
           setUsers([]);
         }
@@ -427,7 +420,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
                 <CrmKanbanListView
                   cards={filteredKanbanCards}
                   funis={funis}
-                  statuses={statuses}
                   users={users}
                   loading={loadingData}
                   onOpenCard={(card) => setDetailCardId(card.id)}
@@ -451,7 +443,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
             <CrmClientesList
               cards={cards}
               funis={funis}
-              statuses={statuses}
               users={users}
               loading={loadingData}
               onOpenCard={(card) => setDetailCardId(card.id)}
@@ -514,7 +505,6 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
       <CrmCardDetailModal
         cardId={detailCardId}
         funis={funis}
-        statuses={statuses}
         channels={channels}
         users={users}
         onClose={() => setDetailCardId(null)}

@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNumber,
@@ -6,8 +7,10 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { QuoteItemEngravingDto } from './create-quote-item.dto';
 
 export class UpdateQuoteItemDto {
   @IsOptional()
@@ -30,6 +33,12 @@ export class UpdateQuoteItemDto {
   @IsNumber()
   @Min(0)
   engravingPrice?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuoteItemEngravingDto)
+  engravings?: QuoteItemEngravingDto[] | null;
 
   @IsOptional()
   @Type(() => Number)

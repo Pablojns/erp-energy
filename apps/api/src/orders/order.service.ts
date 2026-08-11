@@ -1773,23 +1773,38 @@ export class OrderService {
           id: true,
           code: true,
           status: true,
+          source: true,
+          externalOrderNumber: true,
+          mercadoEletronicoNumber: true,
           shippedAt: true,
           invoicedAt: true,
           invoiceStatus: true,
           invoiceNumber: true,
-          items: { select: { pickedQty: true } },
+          linkedOrderId: true,
+          items: {
+            orderBy: { lineNumber: 'asc' },
+            select: {
+              id: true,
+              lineNumber: true,
+              sku: true,
+              productId: true,
+              quantity: true,
+              pickedQty: true,
+              reservedQuantity: true,
+            },
+          },
         },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
-    if (
-      before.status !== OrderStatus.RESERVADO &&
-      before.status !== OrderStatus.PARCIAL &&
-      before.status !== OrderStatus.NOVO
-    ) {
-      throw new BadRequestException(
-        `Envie para separação apenas com status NOVO, RESERVADO ou PARCIAL. Atual: ${before.status}.`,
-      );
-    }
+      if (
+        before.status !== OrderStatus.RESERVADO &&
+        before.status !== OrderStatus.PARCIAL &&
+        before.status !== OrderStatus.NOVO
+      ) {
+        throw new BadRequestException(
+          `Envie para separação apenas com status NOVO, RESERVADO ou PARCIAL. Atual: ${before.status}.`,
+        );
+      }
 
       await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
         orderId,
@@ -1800,6 +1815,41 @@ export class OrderService {
 
       // Novo ciclo: preserva itens já faturados por completo; libera só os pendentes.
       await OrderService.resetItemsForNewSeparationCycle(tx, orderId);
+
+      // WEG (e demais fontes da aba WEG): reserva automática no envio à separação,
+      // igual ao fluxo do Site — sem bloquear se faltar estoque (marca missingQty).
+      const isWegTab = (WEG_TAB_ORDER_SOURCES as readonly string[]).includes(
+        before.source,
+      );
+      if (isWegTab && !before.linkedOrderId) {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+        );
+        const orderRef = orderStockReference(before);
+        const resCount = await tx.stockReservation.count({
+          where: { orderId: before.id, releasedAt: null },
+        });
+        if (resCount > 0) {
+          await this.releaseReservations(
+            tx,
+            userId,
+            orderRef,
+            before.id,
+            before.items.map((it) => ({
+              id: it.id,
+              productId: it.productId,
+              reservedQuantity: it.reservedQuantity,
+            })),
+          );
+        }
+        await this.flexibleAnalyzeAndReserve(
+          tx,
+          userId,
+          orderRef,
+          before.id,
+          before.items,
+        );
+      }
 
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
@@ -1824,6 +1874,7 @@ export class OrderService {
           from: before.status,
           to: OrderStatus.EM_SEPARACAO,
           code: before.code,
+          autoReserved: isWegTab && !before.linkedOrderId,
         },
       });
 
@@ -2107,15 +2158,10 @@ export class OrderService {
         });
       }
 
-      const itemsFull = await tx.orderItem.findMany({ where: { orderId } });
-      for (const it of itemsFull) {
-        if (it.invoicedQty === 0 && it.pickedQty > 0) {
-          await tx.orderItem.update({
-            where: { id: it.id },
-            data: { invoicedQty: it.pickedQty },
-          });
-        }
-      }
+      // NÃO antecipar invoicedQty aqui. Esse campo representa o já expedido
+      // (baixa de estoque); se igualar a pickedQty no atrelamento da NF, a saída
+      // seguinte calcula delta 0 e falha com "Nenhuma quantidade nova separada".
+      // generateExitFromInvoice / finalizeExpedition atualizam invoicedQty na saída.
 
       const updated = await tx.order.update({
         where: { id: orderId },
@@ -2465,6 +2511,28 @@ export class OrderService {
         throw new BadRequestException(
           `Gerar NF-e disponível apenas para pedidos separados. Atual: ${before.status}.`,
         );
+      }
+
+      // Autocura: attachInvoice antigo igualava invoicedQty a pickedQty antes da
+      // baixa física. Sem OrderExit, esse invoicedQty é inválido e zera o delta.
+      const priorExitCount = await tx.orderExit.count({ where: { orderId } });
+      if (priorExitCount === 0) {
+        const premature = before.items.some(
+          (it) =>
+            (it.pickedQty ?? 0) > 0 &&
+            (it.invoicedQty ?? 0) > 0 &&
+            OrderService.resolveExitPendingQuantity(it) <= 0,
+        );
+        if (premature) {
+          for (const it of before.items) {
+            if ((it.invoicedQty ?? 0) === 0) continue;
+            await tx.orderItem.update({
+              where: { id: it.id },
+              data: { invoicedQty: 0 },
+            });
+            it.invoicedQty = 0;
+          }
+        }
       }
 
       const productIdByItem = await this.resolveOrderItemProductIdsBatch(
@@ -3082,6 +3150,52 @@ export class OrderService {
           items: before.items,
         });
         await OrderService.resetItemsForNewSeparationCycle(tx, id);
+
+        // Mesma reserva automática WEG do send-to-picking (caminho manual NOVO→EM_SEPARACAO).
+        const isWegTab = (WEG_TAB_ORDER_SOURCES as readonly string[]).includes(
+          before.source,
+        );
+        if (isWegTab && !before.linkedOrderId) {
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
+          );
+          const fullItems = await tx.orderItem.findMany({
+            where: { orderId: id },
+            orderBy: { lineNumber: 'asc' },
+            select: {
+              id: true,
+              lineNumber: true,
+              sku: true,
+              productId: true,
+              quantity: true,
+              reservedQuantity: true,
+            },
+          });
+          const orderRef = orderStockReference(before);
+          const resCount = await tx.stockReservation.count({
+            where: { orderId: id, releasedAt: null },
+          });
+          if (resCount > 0) {
+            await this.releaseReservations(
+              tx,
+              userId,
+              orderRef,
+              id,
+              fullItems.map((it) => ({
+                id: it.id,
+                productId: it.productId,
+                reservedQuantity: it.reservedQuantity,
+              })),
+            );
+          }
+          await this.flexibleAnalyzeAndReserve(
+            tx,
+            userId,
+            orderRef,
+            id,
+            fullItems,
+          );
+        }
       }
 
       // Voltar para NOVO: limpeza total (saída, estoque, NF, rastreio, itens).
@@ -3370,6 +3484,27 @@ export class OrderService {
         clauses.push({ createdAt: { gte: w } });
       } else if (st === 'closed') {
         clauses.push({ status: { in: TERMINAL } });
+      } else if (st === 'sep_em_separacao') {
+        clauses.push({ status: OrderStatus.EM_SEPARACAO });
+      } else if (st === 'sep_falta_nf') {
+        clauses.push({
+          status: {
+            in: [OrderStatus.SEPARADO, OrderStatus.AGUARDANDO_NF],
+          },
+        });
+      } else if (st === 'sep_falta_etiqueta') {
+        // NF atrelada, ainda sem rastreio do ciclo (etiqueta não colada).
+        clauses.push({
+          status: OrderStatus.NF_ATRELADA,
+          OR: [{ trackingCode: null }, { trackingCode: '' }],
+        });
+      } else if (st === 'sep_aguardando_saida') {
+        // Etiqueta já emitida — aguarda baixa/saída.
+        clauses.push({
+          status: OrderStatus.NF_ATRELADA,
+          trackingCode: { not: null },
+          NOT: { trackingCode: '' },
+        });
       }
     }
 
