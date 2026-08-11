@@ -437,3 +437,132 @@ export function isCorreiosObjetoEntregue(eventos: CorreiosTrackingEvent[]): bool
     return descricao.includes('entregue');
   });
 }
+
+export type ReverseLogisticsDto = {
+  id: string;
+  orderId: string | null;
+  customerName: string;
+  customerCnpj: string | null;
+  customerEmail: string | null;
+  customerCep: string | null;
+  customerLogradouro: string | null;
+  customerNumero: string | null;
+  customerComplemento: string | null;
+  customerBairro: string | null;
+  customerCidade: string | null;
+  customerUf: string | null;
+  companyEntityId: string | null;
+  companyName: string | null;
+  companyCnpj: string | null;
+  companyCep: string | null;
+  companyLogradouro: string | null;
+  companyNumero: string | null;
+  companyComplemento: string | null;
+  companyBairro: string | null;
+  companyCidade: string | null;
+  companyUf: string | null;
+  productId: string | null;
+  productSku: string;
+  productName: string;
+  quantity: number;
+  reason: string;
+  modalidade: string;
+  coletaDataPreferencial: string | null;
+  coletaPeriodo: string | null;
+  trackingCode: string | null;
+  prePostagemId: string | null;
+  codigoServico: string | null;
+  status: string;
+  returnedToStock: boolean;
+  receivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateReverseLogisticsInput = {
+  orderId?: string;
+  customerName: string;
+  customerCnpj?: string;
+  customerEmail?: string;
+  customerCep: string;
+  customerLogradouro: string;
+  customerNumero: string;
+  customerComplemento?: string;
+  customerBairro: string;
+  customerCidade: string;
+  customerUf: string;
+  companyEntityId?: string;
+  companyName: string;
+  companyCnpj: string;
+  companyEmail?: string;
+  companyCep: string;
+  companyLogradouro: string;
+  companyNumero: string;
+  companyComplemento?: string;
+  companyBairro: string;
+  companyCidade: string;
+  companyUf: string;
+  productId: string;
+  quantity: number;
+  reason: string;
+  servico?: 'PAC' | 'SEDEX';
+  modalidade?: 'AGENCIA' | 'COLETA';
+  coletaDataPreferencial?: string;
+  coletaPeriodo?: 'MANHA' | 'TARDE';
+  pesoGramas?: number;
+  valorDeclarado?: number;
+};
+
+export async function listReverseLogistics(params?: {
+  status?: string;
+  customer?: string;
+  from?: string;
+  to?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.customer) query.set('customer', params.customer);
+  if (params?.from) query.set('from', params.from);
+  if (params?.to) query.set('to', params.to);
+  const qs = query.toString();
+  return erpFetchJson<ReverseLogisticsDto[]>(
+    `correios/logistica-reversa${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export async function createReverseLogistics(input: CreateReverseLogisticsInput) {
+  return erpFetchJson<ReverseLogisticsDto & { prePostagem?: Record<string, unknown> }>(
+    'correios/logistica-reversa',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export async function receberReverseLogistics(
+  id: string,
+  returnToStock: boolean,
+) {
+  return erpFetchJson<ReverseLogisticsDto>(
+    `correios/logistica-reversa/${encodeURIComponent(id)}/receber`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ returnToStock }),
+    },
+  );
+}
+
+export async function cancelarReverseLogistics(id: string) {
+  return erpFetchJson<ReverseLogisticsDto & { alreadyCancelled?: boolean }>(
+    `correios/logistica-reversa/${encodeURIComponent(id)}/cancelar`,
+    { method: 'PATCH' },
+  );
+}
+
+export async function excluirReverseLogistics(id: string) {
+  return erpFetchJson<{ ok: boolean }>(
+    `correios/logistica-reversa/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}

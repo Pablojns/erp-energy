@@ -200,16 +200,21 @@ export function SeparationWorkbench(props: {
   );
   const finalLotStatus =
     itemCounts.pending === 0 && itemCounts.partial === 0 ? 'COMPLETO' : 'PARCIAL';
-  const hasAnySeparatedQty = order.items.some(
-    (it) => !isWegItemAlreadyReceived(it) && (it.pickedQty ?? 0) > 0,
+  // Reenvio parcial: o piso já vem com pickedQty = invoicedQty; só conta o que
+  // foi separado A MAIS neste ciclo (senão conclui sem gerar OrderExit novo).
+  const hasNewSeparatedQty = order.items.some(
+    (it) =>
+      !isWegItemAlreadyReceived(it) &&
+      (it.pickedQty ?? 0) > (it.invoicedQty ?? 0),
   );
-  const canFinalizeSeparation = hasAnySeparatedQty;
+  const canFinalizeSeparation = hasNewSeparatedQty;
 
   const handleFinalizeSeparation = async () => {
-    if (!hasAnySeparatedQty) {
+    if (!hasNewSeparatedQty) {
       data.setToast({
         variant: 'err',
-        message: 'Confirme ao menos um item com quantidade maior que zero antes de finalizar.',
+        message:
+          'Confirme quantidade nova neste ciclo (acima do já expedido) antes de finalizar.',
       });
       return;
     }
@@ -713,7 +718,7 @@ export function SeparationWorkbench(props: {
                     ? 'Informe quantos volumes serão enviados'
                     : canFinalizeSeparation
                       ? undefined
-                      : 'Confirme ao menos um item com quantidade maior que zero'
+                      : 'Confirme quantidade nova neste ciclo (acima do já expedido)'
                 }
                 onClick={() => void handleFinalizeSeparation()}
               >

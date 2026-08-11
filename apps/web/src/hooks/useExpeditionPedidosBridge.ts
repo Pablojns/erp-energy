@@ -622,15 +622,28 @@ function mergeListOrderIntoDetail(pedido: OrderDto, fromList: OrderDto): OrderDt
     invoiceNumber = listInvoice ?? detailInvoice;
   }
 
+  // Campos anuláveis (volume/transportadora zerados no reenvio): `null` é valor
+  // válido. `??` tratava null da fila como "ausente" e recolocava o valor antigo
+  // do detalhe — volume/transportadora "não limpavam" e edições pediam F5.
+  const pickNullable = <K extends keyof OrderDto>(key: K): OrderDto[K] => {
+    if (detailIsNewer) return pedido[key];
+    return (Object.prototype.hasOwnProperty.call(fromList, key)
+      ? fromList[key]
+      : pedido[key]) as OrderDto[K];
+  };
+
   return {
     ...pedido,
     status,
-    priority: fromList.priority,
-    volumes: fromList.volumes ?? pedido.volumes,
-    notaRemessa: fromList.notaRemessa ?? pedido.notaRemessa,
-    notaRemessaConfirmada: fromList.notaRemessaConfirmada ?? pedido.notaRemessaConfirmada,
-    carrierId: fromList.carrierId ?? pedido.carrierId,
-    carrierName: fromList.carrierName ?? pedido.carrierName,
+    priority: detailIsNewer ? pedido.priority : fromList.priority,
+    volumes: pickNullable('volumes'),
+    notaRemessa: pickNullable('notaRemessa'),
+    notaRemessaConfirmada: detailIsNewer
+      ? pedido.notaRemessaConfirmada
+      : (fromList.notaRemessaConfirmada ?? pedido.notaRemessaConfirmada),
+    carrierId: pickNullable('carrierId'),
+    carrierName: pickNullable('carrierName'),
+    trackingCode: pickNullable('trackingCode'),
     invoiceNumber,
     invoiceStatus:
       prePipeline && !listInvoice

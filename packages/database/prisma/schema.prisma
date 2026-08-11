@@ -241,8 +241,9 @@ model Product {
   width             Decimal?         @db.Decimal(12, 3)
   depth             Decimal?         @db.Decimal(12, 3)
   origin            String?
-  orderItems        OrderItem[]
-  stockMovements    StockMovement[]
+  orderItems         OrderItem[]
+  stockMovements     StockMovement[]
+  reverseLogistics   ReverseLogistics[]
   stockReservations StockReservation[]
   purchaseRequests  PurchaseRequest[]
   createdAt         DateTime         @default(now())
@@ -364,6 +365,7 @@ model Order {
   stockReservations       StockReservation[]
   exits                   OrderExit[]
   invoiceHistory          OrderInvoiceHistory[]
+  reverseLogistics        ReverseLogistics[]
   shipments               Shipment[]
   receivables             AccountReceivable[]
   financeiroNF            FinanceiroNF?
@@ -408,9 +410,11 @@ model OrderInvoiceHistory {
   @@index([invoiceNumber])
 }
 
+/// Uma saída por ciclo de separação: pedido parcial que volta para separação
+/// gera nova saída da parcela recém-separada (histórico anterior é preservado).
 model OrderExit {
   id            String   @id @default(uuid()) @db.Uuid
-  orderId       String   @unique @db.Uuid
+  orderId       String   @db.Uuid
   invoiceNumber String   @db.VarChar(64)
   invoiceValue  Decimal  @db.Decimal(12, 2)
   exitDate      DateTime @default(now())
@@ -421,6 +425,8 @@ model OrderExit {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([orderId])
+  @@index([orderId, exitDate])
   @@index([invoiceNumber])
   @@index([exitDate])
   @@index([carrierName])
@@ -812,6 +818,7 @@ model CompanyEntity {
   updatedAt         DateTime  @updatedAt
   orders            Order[]
   products          Product[]
+  reverseLogistics  ReverseLogistics[]
 
   @@index([isActive])
   @@index([isMatriz])
@@ -1086,6 +1093,65 @@ model CorreiosEtiqueta {
   @@index([prePostagemId])
   @@index([status])
   @@index([createdAt])
+}
+
+/// Devolução via Logística Reversa dos Correios (cliente → Energy Brands).
+model ReverseLogistics {
+  id              String    @id @default(uuid()) @db.Uuid
+  orderId         String?   @db.Uuid
+  order           Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  /// Cliente = remetente da etiqueta / remetente no payload PPN (com logisticaReversa=S).
+  customerName    String
+  customerCnpj    String?
+  customerEmail   String?
+  customerCep     String?   @db.VarChar(16)
+  customerLogradouro String?
+  customerNumero  String?   @db.VarChar(32)
+  customerComplemento String?
+  customerBairro  String?
+  customerCidade  String?
+  customerUf      String?   @db.VarChar(2)
+  /// Energy Brands = destinatário da etiqueta (Multi-CNPJ).
+  companyEntityId String?   @db.Uuid
+  companyEntity   CompanyEntity? @relation(fields: [companyEntityId], references: [id], onDelete: SetNull)
+  companyName     String?
+  companyCnpj     String?
+  companyCep      String?   @db.VarChar(16)
+  companyLogradouro String?
+  companyNumero   String?   @db.VarChar(32)
+  companyComplemento String?
+  companyBairro   String?
+  companyCidade   String?
+  companyUf       String?   @db.VarChar(2)
+  productId       String?   @db.Uuid
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productSku      String
+  productName     String
+  quantity        Int
+  reason          String
+  /// AGENCIA (LRA) | COLETA (PC domiciliar)
+  modalidade      String    @default("AGENCIA")
+  coletaDataPreferencial DateTime?
+  /// MANHA | TARDE
+  coletaPeriodo   String?
+  trackingCode    String?
+  prePostagemId   String?
+  codigoServico   String?   @db.VarChar(16)
+  /// AGUARDANDO_ENVIO | EM_TRANSITO | RECEBIDO | CANCELADO
+  status          String    @default("AGUARDANDO_ENVIO")
+  returnedToStock Boolean   @default(false)
+  receivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([customerName])
+  @@index([productSku])
+  @@index([orderId])
+  @@index([trackingCode])
+  @@index([modalidade])
+  @@index([companyEntityId])
 }
 
 model Quote {

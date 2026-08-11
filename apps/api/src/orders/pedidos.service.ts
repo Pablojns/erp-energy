@@ -1288,10 +1288,12 @@ export class PedidosService {
       );
     }
 
-    return this.prisma.client.order.update({
+    await this.prisma.client.order.update({
       where: { id: order.id },
       data: { volumes },
     });
+    // Mesmo shape do GET: o front atualiza lista/detalhe sem depender de F5.
+    return this.orders.findOne(order.id);
   }
 
   async updateRastreio(numeroPed: string, trackingCode: string) {
@@ -1310,8 +1312,10 @@ export class PedidosService {
 
     const code = trackingCode.trim() || null;
 
-    const exit = await this.prisma.client.orderExit.findUnique({
+    // Pedido pode ter saída por ciclo: o rastreio vale para a mais recente.
+    const exit = await this.prisma.client.orderExit.findFirst({
       where: { orderId: order.id },
+      orderBy: { exitDate: 'desc' },
       select: { id: true },
     });
 
@@ -1353,8 +1357,11 @@ export class PedidosService {
       `correios-${pedidoNum}`.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_') ||
       'correios-pedido';
 
-    const exit = await this.prisma.client.orderExit.findUnique({
-      where: { orderId: order.id },
+    // Só a saída/rastreio DESTE ciclo: histórico de ciclos anteriores não pode
+    // disparar reimpressão nem receber o tracking novo (bug do 2º/3º reenvio).
+    const exit = await this.prisma.client.orderExit.findFirst({
+      where: OrderService.exitOfCurrentCycleWhere(order),
+      orderBy: { exitDate: 'desc' },
       select: { id: true, trackingCode: true },
     });
     const trackingExistente =
@@ -1452,7 +1459,9 @@ export class PedidosService {
 
   /**
    * Garante OrderExit após emissão de etiqueta (Correios ou interna do ERP).
-   * Idempotente: se a saída já existir, só sincroniza o rastreio.
+   * Idempotente por ciclo de separação: reimprimir a etiqueta do mesmo ciclo só
+   * sincroniza o rastreio, mas um novo ciclo (pedido parcial reenviado) gera a
+   * saída da parcela recém-separada.
    */
   private async ensureSaidaAposEtiqueta(
     orderId: string,
@@ -1460,8 +1469,23 @@ export class PedidosService {
     codigoRastreio = '',
   ) {
     const tracking = codigoRastreio.trim();
-    const existing = await this.prisma.client.orderExit.findUnique({
-      where: { orderId },
+    const order = await this.prisma.client.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        invoiceNumber: true,
+        notaRemessa: true,
+        sentToSeparationAt: true,
+        items: { select: { quantity: true, pickedQty: true } },
+      },
+    });
+    if (!order) return;
+
+    const cycleWhere = OrderService.exitOfCurrentCycleWhere(order);
+    const existing = await this.prisma.client.orderExit.findFirst({
+      where: cycleWhere,
+      orderBy: { exitDate: 'desc' },
       select: { id: true, trackingCode: true },
     });
 
@@ -1476,17 +1500,6 @@ export class PedidosService {
     }
 
     if (!userId) return;
-
-    const order = await this.prisma.client.order.findUnique({
-      where: { id: orderId },
-      select: {
-        status: true,
-        invoiceNumber: true,
-        notaRemessa: true,
-        items: { select: { quantity: true, pickedQty: true } },
-      },
-    });
-    if (!order) return;
 
     const canExit =
       order.status === OrderStatus.SEPARADO ||
@@ -1529,8 +1542,9 @@ export class PedidosService {
       });
 
       if (tracking) {
+        // Só a saída deste ciclo: o rastreio de ciclos anteriores é histórico.
         await this.prisma.client.orderExit.updateMany({
-          where: { orderId },
+          where: cycleWhere,
           data: { trackingCode: tracking },
         });
       }
@@ -1561,8 +1575,9 @@ export class PedidosService {
 
     this.mapCarrierToCorreiosService(order.carrier?.name ?? '');
 
-    const exit = await this.prisma.client.orderExit.findUnique({
+    const exit = await this.prisma.client.orderExit.findFirst({
       where: { orderId: order.id },
+      orderBy: { exitDate: 'desc' },
       select: { id: true, trackingCode: true },
     });
 
@@ -2462,13 +2477,15 @@ export class PedidosService {
         dto.invoiceValue !== undefined ||
         dto.createdAt !== undefined
       ) {
-        const exit = await tx.orderExit.findUnique({
-          where: { orderId: before.orderId },
+        // Pedido pode ter uma saída por ciclo: sincroniza a da NF editada.
+        const exit = await tx.orderExit.findFirst({
+          where: {
+            orderId: before.orderId,
+            invoiceNumber: before.invoiceNumber.trim(),
+          },
+          orderBy: { exitDate: 'desc' },
         });
-        if (
-          exit &&
-          exit.invoiceNumber.trim() === before.invoiceNumber.trim()
-        ) {
+        if (exit) {
           await tx.orderExit.update({
             where: { id: exit.id },
             data: {

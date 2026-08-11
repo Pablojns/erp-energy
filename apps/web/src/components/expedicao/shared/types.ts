@@ -112,7 +112,18 @@ export type OrderDto = {
   isUrgentManual?: boolean;
   linkedOrderId?: string | null;
   linkedOrderDisplayNumber?: string | null;
+  /** Saídas já registradas (uma por ciclo de separação), da mais recente à mais antiga. */
+  saidas?: OrderExitHistoryDto[];
   items: OrderItemDto[];
+};
+
+export type OrderExitHistoryDto = {
+  id: string;
+  invoiceNumber: string | null;
+  invoiceValue: string | null;
+  exitDate: string | null;
+  carrierName: string | null;
+  trackingCode: string | null;
 };
 
 export type PaginatedOrders = {

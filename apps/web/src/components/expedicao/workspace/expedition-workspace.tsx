@@ -72,7 +72,9 @@ export function ExpeditionWorkspace(props: {
     useExpeditionSelectedPedido(selectedInList);
 
   const handleAfterAction = async () => {
-    await refetchDetail();
+    // Lista + detalhe: volume/carrier/itens mudam nos dois lados; só refetch do
+    // detalhe deixava a fila com snapshot antigo e o merge revertia a tela.
+    await Promise.all([data.refreshAll(), refetchDetail()]);
     setSelectedOrderId((current) => {
       if (current && data.orders.some((o) => o.id === current)) return current;
       return null;

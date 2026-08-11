@@ -37,9 +37,12 @@ export function SeparationItemRow(props: {
   const [confirming, setConfirming] = useState(false);
   const [qtyDraft, setQtyDraft] = useState<number>(() => defaultSeparationQty(item));
   const editable = order.status === 'EM_SEPARACAO' && !alreadyReceived;
+  // Já expedido em ciclos anteriores: é o piso da linha, não pode ser desfeito
+  // pela separação atual (só o restante é separável neste ciclo).
+  const shippedQty = Math.max(0, Math.min(item.invoicedQty ?? 0, item.quantity));
   const qtyClamped = useMemo(
-    () => Math.max(0, Math.min(qtyDraft || 0, item.quantity)),
-    [qtyDraft, item.quantity],
+    () => Math.max(shippedQty, Math.min(qtyDraft || 0, item.quantity)),
+    [qtyDraft, item.quantity, shippedQty],
   );
   const unitPriceNumber = useMemo(() => {
     const n = Number(item.unitPrice);
@@ -62,19 +65,29 @@ export function SeparationItemRow(props: {
     void Promise.resolve(onConfirmLine(qtyClamped)).finally(() => setConfirming(false));
   };
 
+  const shippedHint =
+    shippedQty > 0 && !alreadyReceived ? (
+      <span className="mt-0.5 block text-[10px] leading-tight text-[var(--text-muted)]">
+        {shippedQty} de {item.quantity} já separados anteriormente
+      </span>
+    ) : null;
+
   const qtyInput = alreadyReceived ? (
     <span className="item-value text-[var(--text-muted)]">—</span>
   ) : (
-    <input
-      type="number"
-      min={0}
-      max={item.quantity}
-      value={qtyDraft}
-      disabled={!editable}
-      onChange={(e) => setQtyDraft(Number(e.target.value))}
-      className="exp-wb-qty-input qtd-sep-input item-value !min-h-0"
-      aria-label="Qtd sep."
-    />
+    <>
+      <input
+        type="number"
+        min={shippedQty}
+        max={item.quantity}
+        value={qtyDraft}
+        disabled={!editable}
+        onChange={(e) => setQtyDraft(Number(e.target.value))}
+        className="exp-wb-qty-input qtd-sep-input item-value !min-h-0"
+        aria-label="Qtd sep."
+      />
+      {shippedHint}
+    </>
   );
 
   const statusNode = alreadyReceived ? (

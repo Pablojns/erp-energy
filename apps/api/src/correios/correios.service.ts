@@ -382,6 +382,8 @@ export class CorreiosService {
       valorDeclarado?: number;
       descricaoConteudo: string;
     };
+    /** 'S' = Logística Reversa (remetente=empresa, destinatário=cliente; rótulo invertido). */
+    logisticaReversa?: 'S' | 'N';
     itensDeclaracaoConteudo?: Array<{
       conteudo: string;
       quantidade: string | number;
@@ -463,7 +465,7 @@ export class CorreiosService {
       incluirRegiao: true,
     });
 
-    const body = {
+    const body: Record<string, unknown> = {
       remetente: {
         nome: remetente.nome,
         cpfCnpj: remetente.cpfCnpj.replace(/\D/g, ''),
@@ -490,6 +492,10 @@ export class CorreiosService {
       cienteObjetoNaoProibido: '1',
       itensDeclaracaoConteudo,
     };
+
+    if (payload.logisticaReversa === 'S' || payload.logisticaReversa === 'N') {
+      body.logisticaReversa = payload.logisticaReversa;
+    }
 
     let data: Record<string, unknown>;
     try {
@@ -1044,6 +1050,11 @@ export class CorreiosService {
       bairro: cepData.bairro ?? '',
       cidade: cepData.localidade ?? cepData.cidade ?? '',
       uf: cepData.uf ?? '',
+      // Obrigatório na pré-postagem com logisticaReversa=S (PPN-252).
+      email:
+        this.config.get<string>('CORREIOS_REMETENTE_EMAIL')?.trim() ||
+        'expedicao@energybrands.com.br',
+      telefone: this.config.get<string>('CORREIOS_REMETENTE_TELEFONE')?.trim() || undefined,
     };
   }
 

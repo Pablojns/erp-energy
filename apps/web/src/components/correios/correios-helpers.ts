@@ -5,7 +5,24 @@ import {
   parseCorreiosTrackingEvents,
 } from '@/src/services/api/correios-api';
 
-export type TabId = 'cotacao' | 'rastreamento' | 'pedidos' | 'etiqueta';
+export type TabId =
+  | 'cotacao'
+  | 'rastreamento'
+  | 'pedidos'
+  | 'etiqueta'
+  | 'logistica-reversa';
+
+export const REVERSE_LOGISTICS_STATUSES = [
+  { id: 'AGUARDANDO_ENVIO', label: 'Aguardando envio' },
+  { id: 'EM_TRANSITO', label: 'Em trânsito' },
+  { id: 'RECEBIDO', label: 'Recebido' },
+  { id: 'CANCELADO', label: 'Cancelado' },
+] as const;
+
+export function reverseLogisticsStatusLabel(status: string): string {
+  const found = REVERSE_LOGISTICS_STATUSES.find((s) => s.id === status);
+  return found?.label ?? status;
+}
 
 export type TrackedOrderRow = {
   id: string;

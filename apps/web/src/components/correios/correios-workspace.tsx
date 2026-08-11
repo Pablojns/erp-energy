@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { TabId } from '@/src/components/correios/correios-helpers';
 import { CorreiosCotacaoPanel } from '@/src/components/correios/correios-cotacao-panel';
 import { CorreiosEtiquetaPanel } from '@/src/components/correios/correios-etiqueta-panel';
+import { CorreiosLogisticaReversaPanel } from '@/src/components/correios/correios-logistica-reversa-panel';
 import { CorreiosPedidosPanel } from '@/src/components/correios/correios-pedidos-panel';
 import { CorreiosRastreamentoPanel } from '@/src/components/correios/correios-rastreamento-panel';
 
@@ -14,6 +15,7 @@ export function CorreiosWorkspace() {
     { id: 'cotacao', label: 'Cotação de Frete' },
     { id: 'rastreamento', label: 'Rastreamento' },
     { id: 'etiqueta', label: 'Etiqueta Manual' },
+    { id: 'logistica-reversa', label: 'Logística Reversa' },
     { id: 'pedidos', label: 'Acompanhamento de Pedidos' },
   ];
 
@@ -48,6 +50,7 @@ export function CorreiosWorkspace() {
       {tab === 'cotacao' ? <CorreiosCotacaoPanel /> : null}
       {tab === 'rastreamento' ? <CorreiosRastreamentoPanel /> : null}
       {tab === 'etiqueta' ? <CorreiosEtiquetaPanel /> : null}
+      {tab === 'logistica-reversa' ? <CorreiosLogisticaReversaPanel /> : null}
       {tab === 'pedidos' ? <CorreiosPedidosPanel /> : null}
     </div>
   );

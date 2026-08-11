@@ -164,7 +164,14 @@ type OrderSerializeSource = {
     code: string;
     externalOrderNumber: string | null;
   } | null;
-  exits?: Array<{ trackingCode: string | null }>;
+  exits?: Array<{
+    trackingCode: string | null;
+    id?: string;
+    invoiceNumber?: string;
+    invoiceValue?: Prisma.Decimal | string | number;
+    exitDate?: Date;
+    carrierName?: string | null;
+  }>;
   createdAt: Date;
   updatedAt: Date;
   items: OrderItemSerializeSource[];
@@ -1892,10 +1899,14 @@ export class OrderService {
       }
 
       const lines = await tx.orderItem.findMany({ where: { orderId } });
-      const hasPickedQty = lines.some((it) => it.pickedQty > 0);
-      if (!hasPickedQty) {
+      // No reenvio parcial o piso já vem com pickedQty = invoicedQty; concluir
+      // sem quantidade NOVA deste ciclo gerava SEPARADO sem saída correspondente.
+      const hasNewPickedQty = lines.some(
+        (it) => (it.pickedQty ?? 0) > (it.invoicedQty ?? 0),
+      );
+      if (!hasNewPickedQty) {
         throw new BadRequestException(
-          'Confirme ao menos um item com quantidade maior que zero antes de finalizar a separação.',
+          'Confirme quantidade nova neste ciclo (acima do já expedido) antes de finalizar a separação.',
         );
       }
 
@@ -2403,8 +2414,11 @@ export class OrderService {
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
 
-      const existingExit = await tx.orderExit.findUnique({
-        where: { orderId: before.id },
+      // Só a saída DESTE ciclo bloqueia uma nova: a do ciclo anterior fica no
+      // histórico e não pode impedir a saída da parcela recém-separada.
+      const existingExit = await tx.orderExit.findFirst({
+        where: OrderService.exitOfCurrentCycleWhere(before),
+        orderBy: { exitDate: 'desc' },
         select: {
           id: true,
           orderId: true,
@@ -2468,6 +2482,9 @@ export class OrderService {
       );
 
       let movedUnits = 0;
+      // Valor da parcela deste ciclo: com múltiplas saídas, repetir o total do
+      // pedido em cada uma infla o faturamento na lista de Saídas.
+      let cycleValue = new Prisma.Decimal(0);
       const movements: Prisma.StockMovementCreateManyInput[] = [];
       const releaseReservationIds: string[] = [];
 
@@ -2475,7 +2492,7 @@ export class OrderService {
         const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
-        const qtyOut = OrderService.resolveExitQuantity(it);
+        const qtyOut = OrderService.resolveExitPendingQuantity(it);
         if (qtyOut <= 0) continue;
 
         const reservation = reservationByItem.get(it.id);
@@ -2500,6 +2517,7 @@ export class OrderService {
         }
 
         movedUnits += qtyOut;
+        cycleValue = cycleValue.add(new Prisma.Decimal(it.unitPrice).mul(qtyOut));
 
         movements.push({
           productId,
@@ -2523,7 +2541,8 @@ export class OrderService {
           }
         }
 
-        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : qtyOut;
+        const shippedTotal = Math.max(0, it.invoicedQty) + qtyOut;
+        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : shippedTotal;
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
@@ -2531,7 +2550,8 @@ export class OrderService {
             pickedQty: pickedFinal,
             missingQty: Math.max(0, it.quantity - pickedFinal),
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
-            invoicedQty: qtyOut,
+            // Acumula os ciclos: total já expedido da linha.
+            invoicedQty: shippedTotal,
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
@@ -2550,7 +2570,7 @@ export class OrderService {
 
       // Itens sem baixa (SKU sem produto / qtyOut 0) ainda precisam de missingQty.
       for (const it of before.items) {
-        const qtyOut = OrderService.resolveExitQuantity(it);
+        const qtyOut = OrderService.resolveExitPendingQuantity(it);
         if (qtyOut > 0) continue;
         await tx.orderItem.update({
           where: { id: it.id },
@@ -2561,8 +2581,13 @@ export class OrderService {
       }
 
       if (movedUnits === 0 && before.items.length > 0) {
+        const nothingNewPicked = before.items.every(
+          (it) => OrderService.resolveExitPendingQuantity(it) <= 0,
+        );
         throw new BadRequestException(
-          'Não foi possível baixar estoque: vincule os SKUs ao cadastro de produtos ou confirme as quantidades do pedido.',
+          nothingNewPicked
+            ? 'Nenhuma quantidade nova separada: confirme as quantidades deste ciclo antes de registrar a saída.'
+            : 'Não foi possível baixar estoque: vincule os SKUs ao cadastro de produtos ou confirme as quantidades do pedido.',
         );
       }
 
@@ -2583,7 +2608,7 @@ export class OrderService {
         data: {
           orderId: updated.id,
           invoiceNumber: inv,
-          invoiceValue: updated.totalValue,
+          invoiceValue: cycleValue.gt(0) ? cycleValue : updated.totalValue,
           exitDate: new Date(),
           carrierName: before.carrier?.name ?? null,
           trackingCode: before.trackingCode?.trim() || null,
@@ -2719,15 +2744,26 @@ export class OrderService {
       });
       const finalStatus = OrderService.resolveExitOrderStatus(itemsAfter);
 
-      // OrderExit é único por pedido: cria na primeira saída e mantém depois.
-      const existingExit = await tx.orderExit.findFirst({ where: { orderId } });
-      if (!existingExit) {
+      // Uma saída por ciclo de separação: a do ciclo anterior fica no histórico.
+      const existingExit = await tx.orderExit.findFirst({
+        where: OrderService.exitOfCurrentCycleWhere(before),
+        orderBy: { exitDate: 'desc' },
+        select: { id: true },
+      });
+      const itemValue = new Prisma.Decimal(item.unitPrice).mul(remaining);
+      if (existingExit) {
+        // Mesmo ciclo: soma a linha ao valor da saída já registrada.
+        await tx.orderExit.update({
+          where: { id: existingExit.id },
+          data: { invoiceValue: { increment: itemValue } },
+        });
+      } else {
         await tx.orderExit.create({
           data: {
             orderId,
             invoiceNumber:
               inv || before.notaRemessa?.trim() || before.code,
-            invoiceValue: before.totalValue,
+            invoiceValue: itemValue.gt(0) ? itemValue : before.totalValue,
             exitDate: new Date(),
             carrierName: before.carrier?.name ?? null,
             trackingCode: before.trackingCode?.trim() || null,
@@ -2808,7 +2844,7 @@ export class OrderService {
         const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
-        const qtyOut = OrderService.resolveExitQuantity(it);
+        const qtyOut = OrderService.resolveExitPendingQuantity(it);
         if (qtyOut <= 0) continue;
 
         const r = reservationByItem.get(it.id);
@@ -2856,7 +2892,8 @@ export class OrderService {
           }
         }
 
-        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : qtyOut;
+        const shippedTotal = Math.max(0, it.invoicedQty) + qtyOut;
+        const pickedFinal = it.pickedQty > 0 ? it.pickedQty : shippedTotal;
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
@@ -2864,7 +2901,8 @@ export class OrderService {
             pickedQty: pickedFinal,
             missingQty: Math.max(0, it.quantity - pickedFinal),
             reservedQuantity: Math.max(0, it.reservedQuantity - decReserved),
-            invoicedQty: qtyOut,
+            // Acumula os ciclos: total já expedido da linha.
+            invoicedQty: shippedTotal,
             mercadoEletronicoItemStatus:
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
@@ -2882,7 +2920,7 @@ export class OrderService {
       }
 
       for (const it of before.items) {
-        const qtyOut = OrderService.resolveExitQuantity(it);
+        const qtyOut = OrderService.resolveExitPendingQuantity(it);
         if (qtyOut > 0) continue;
         await tx.orderItem.update({
           where: { id: it.id },
@@ -3431,9 +3469,18 @@ export class OrderService {
           externalOrderNumber: true,
         },
       },
+      // Uma saída por ciclo de separação: a mais recente responde pelo rastreio
+      // e as demais formam o histórico exibido no painel do pedido.
       exits: {
-        select: { trackingCode: true },
-        take: 1,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceValue: true,
+          exitDate: true,
+          carrierName: true,
+          trackingCode: true,
+        },
+        orderBy: { exitDate: 'desc' },
       },
       stockReservations: {
         where: { releasedAt: null },
@@ -3713,6 +3760,12 @@ export class OrderService {
     }
     if (to === OrderStatus.EM_SEPARACAO) {
       data.sentToSeparationAt = new Date();
+      // Cada ciclo tem seu próprio despacho: volume, transportadora e rastreio
+      // voltam em branco para nova confirmação (saídas anteriores ficam no
+      // histórico — OrderExit não é apagado).
+      data.volumes = null;
+      data.carrierId = null;
+      data.trackingCode = null;
     }
     if (to === OrderStatus.NOVO) {
       data.sentToSeparationAt = null;
@@ -3730,6 +3783,39 @@ export class OrderService {
     if (item.invoicedQty > 0) return item.invoicedQty;
     // Itens pendentes (sem separado/faturado) não devem gerar baixa de saída.
     return 0;
+  }
+
+  /**
+   * Quantidade que ainda não saiu: no reenvio à separação `pickedQty` já vem com
+   * o piso do que foi expedido antes (`invoicedQty`), então a saída do ciclo só
+   * pode baixar a diferença — senão o estoque era debitado duas vezes.
+   */
+  private static resolveExitPendingQuantity(item: {
+    quantity: number;
+    pickedQty: number;
+    invoicedQty: number;
+  }): number {
+    const target = Math.min(
+      Math.max(item.quantity, 0),
+      OrderService.resolveExitQuantity(item),
+    );
+    return Math.max(0, target - Math.max(0, item.invoicedQty));
+  }
+
+  /**
+   * Saída do ciclo de separação corrente (a partir de `sentToSeparationAt`).
+   * Mantém a idempotência dentro do ciclo — dois cliques em "Imprimir Etiqueta"
+   * não geram duas saídas — sem bloquear a saída do ciclo seguinte.
+   */
+  static exitOfCurrentCycleWhere(order: {
+    id: string;
+    sentToSeparationAt?: Date | null;
+  }): Prisma.OrderExitWhereInput {
+    const cycleStart = order.sentToSeparationAt;
+    return {
+      orderId: order.id,
+      ...(cycleStart ? { exitDate: { gte: cycleStart } } : {}),
+    };
   }
 
   /** FINALIZADO só se todos os itens foram 100% separados/enviados; senão PARCIAL. */
@@ -4375,7 +4461,18 @@ export class OrderService {
       companyEntityId: row.companyEntityId ?? null,
       companyEntityName: row.companyEntity?.name ?? null,
       companyEntityCnpj: row.companyEntity?.cnpj ?? null,
-      trackingCode: row.exits?.[0]?.trackingCode ?? row.trackingCode ?? null,
+      // Rastreio ativo = só do ciclo corrente. Usar exits[0] (histórico) fazia
+      // o 2º reenvio "herdar" a etiqueta antiga e bloquear nova saída.
+      trackingCode: (() => {
+        const cycleStart = row.sentToSeparationAt ?? null;
+        if (cycleStart && row.exits?.length) {
+          const current = row.exits.find(
+            (e) => e.exitDate != null && e.exitDate >= cycleStart,
+          );
+          return current?.trackingCode ?? row.trackingCode ?? null;
+        }
+        return row.trackingCode ?? null;
+      })(),
       linkedOrderId: row.linkedOrderId,
       isUrgentManual: row.isUrgentManual,
       linkedOrderDisplayNumber,
@@ -4401,6 +4498,18 @@ export class OrderService {
       stockReserveBlocked,
       missingSkuForReserve,
       integralReserveBlocked: false,
+      // Histórico de saídas (uma por ciclo de separação), da mais recente para
+      // a mais antiga. Preservado quando o pedido volta para separação.
+      saidas: (row.exits ?? [])
+        .filter((e) => e.id)
+        .map((e) => ({
+          id: e.id as string,
+          invoiceNumber: e.invoiceNumber ?? null,
+          invoiceValue: e.invoiceValue != null ? e.invoiceValue.toString() : null,
+          exitDate: e.exitDate ? e.exitDate.toISOString() : null,
+          carrierName: e.carrierName ?? null,
+          trackingCode: e.trackingCode ?? null,
+        })),
       unidadesFaltantes,
       itemCount: row.items.length,
       quantitySum: qtySum,

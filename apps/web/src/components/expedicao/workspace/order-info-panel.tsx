@@ -6,6 +6,7 @@ import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/deliver
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
   displayOrDash,
+  formatOrderItemSaleValue,
   formatOverdueLabel,
   getOverdueDays,
   orderDisplayNumber,
@@ -249,16 +250,20 @@ export const OrderInfoPanel = forwardRef<
   const separationTotals = useMemo(() => {
     let ordered = 0;
     let picked = 0;
+    let shipped = 0;
     for (const it of order.items ?? []) {
       ordered += it.quantity ?? 0;
       picked += it.pickedQty ?? 0;
+      shipped += it.invoicedQty ?? 0;
     }
     return {
       ordered,
       picked,
+      shipped,
       missing: Math.max(0, ordered - picked),
     };
   }, [order.items]);
+  const saidas = order.saidas ?? [];
   const point = displayOrDash(order.unloadingPoint);
   const simpleCliente = displayOrDash(order.customerName);
   const simpleEndereco = formatDeliveryAddressDisplay(
@@ -1198,7 +1203,49 @@ export const OrderInfoPanel = forwardRef<
           {separationTotals.missing > 0
             ? ` — faltam ${separationTotals.missing}`
             : ' — completo'}
+          {separationTotals.shipped > 0
+            ? ` · ${separationTotals.shipped} já expedida${
+                separationTotals.shipped > 1 ? 's' : ''
+              }`
+            : ''}
         </p>
+      ) : null}
+
+      {saidas.length > 0 ? (
+        <div className="mt-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+            Saídas registradas ({saidas.length})
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {saidas.map((saida) => (
+              <li
+                key={saida.id}
+                className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[var(--text-primary)]"
+              >
+                <span className="font-semibold">
+                  {saida.invoiceNumber?.trim()
+                    ? `NF ${saida.invoiceNumber.trim()}`
+                    : 'Saída'}
+                </span>
+                {saida.exitDate ? (
+                  <span className="text-[var(--text-secondary)]">
+                    · {formatDayDisplay(saida.exitDate)}
+                  </span>
+                ) : null}
+                {saida.invoiceValue ? (
+                  <span className="text-[var(--text-secondary)]">
+                    · {formatOrderItemSaleValue(saida.invoiceValue)}
+                  </span>
+                ) : null}
+                {saida.carrierName?.trim() ? (
+                  <span className="text-[var(--text-secondary)]">
+                    · {saida.carrierName.trim()}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="exp-wb-order-header-body">

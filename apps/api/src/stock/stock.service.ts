@@ -911,7 +911,10 @@ export class StockService {
 
 
 
-      if (type === StockMovementType.INBOUND) {
+      if (
+        type === StockMovementType.INBOUND ||
+        type === StockMovementType.RETURN
+      ) {
 
         await tx.product.update({
 
@@ -1322,7 +1325,10 @@ export class StockService {
     const qty = movement.quantity;
     const { productId } = movement;
 
-    if (type === StockMovementType.INBOUND) {
+    if (
+      type === StockMovementType.INBOUND ||
+      type === StockMovementType.RETURN
+    ) {
       if (options?.allowNegativeBalance) {
         await tx.product.update({
           where: { id: productId },
@@ -1335,7 +1341,7 @@ export class StockService {
         });
         if (updated.count !== 1) {
           throw new ConflictException(
-            'Não é possível reverter entrada do pedido: saldo atual ficaria negativo.',
+            'Não é possível reverter entrada/devolução: saldo atual ficaria negativo.',
           );
         }
       }

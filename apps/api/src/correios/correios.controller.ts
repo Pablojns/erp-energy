@@ -15,11 +15,15 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { CorreiosService } from './correios.service';
+import { ReverseLogisticsService } from './reverse-logistics.service';
 
 @UseGuards(JwtGuard)
 @Controller('correios')
 export class CorreiosController {
-  constructor(private readonly correiosService: CorreiosService) {}
+  constructor(
+    private readonly correiosService: CorreiosService,
+    private readonly reverseLogisticsService: ReverseLogisticsService,
+  ) {}
 
   /** GET /correios/remetente-padrao — dados do remetente padrão (Energy Brands) */
   @Get('remetente-padrao')
@@ -169,5 +173,47 @@ export class CorreiosController {
       'Content-Length': pdf.length,
     });
     res.send(pdf);
+  }
+
+  /** POST /correios/logistica-reversa — cria devolução e gera etiqueta via Correios */
+  @Post('logistica-reversa')
+  criarLogisticaReversa(@Body() body: any, @CurrentUser() user: AuthUser) {
+    return this.reverseLogisticsService.create(body, user?.id);
+  }
+
+  /** GET /correios/logistica-reversa — lista com filtros status/período/cliente */
+  @Get('logistica-reversa')
+  listarLogisticaReversa(
+    @Query('status') status?: string,
+    @Query('customer') customer?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.reverseLogisticsService.list({ status, customer, from, to });
+  }
+
+  /**
+   * PATCH /correios/logistica-reversa/:id/receber
+   * Body: { returnToStock: true | false } — escolha explícita obrigatória.
+   */
+  @Patch('logistica-reversa/:id/receber')
+  receberLogisticaReversa(
+    @Param('id') id: string,
+    @Body() body: { returnToStock?: boolean },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.reverseLogisticsService.receber(id, body, user.id);
+  }
+
+  /** PATCH /correios/logistica-reversa/:id/cancelar — cancela nos Correios + status CANCELADO */
+  @Patch('logistica-reversa/:id/cancelar')
+  cancelarLogisticaReversa(@Param('id') id: string) {
+    return this.reverseLogisticsService.cancelar(id);
+  }
+
+  /** DELETE /correios/logistica-reversa/:id — remove só o registro local */
+  @Delete('logistica-reversa/:id')
+  excluirLogisticaReversa(@Param('id') id: string) {
+    return this.reverseLogisticsService.excluir(id);
   }
 }

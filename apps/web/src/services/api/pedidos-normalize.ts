@@ -70,6 +70,9 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     sentToSeparationAt: toIsoString(raw.sentToSeparationAt),
     totalValue: decimalToString(raw.totalValue),
     createdAt: toIsoString(raw.createdAt) ?? new Date().toISOString(),
+    // Necessário para merge lista↔detalhe: sem isso o front tratava o detalhe
+    // como "sem data" e a fila antiga sobrescrevia volume/transportadora até F5.
+    updatedAt: toIsoString(raw.updatedAt),
     itemCount: Number(raw.itemCount ?? items.length),
     quantitySum: Number(raw.quantitySum ?? qtySum),
     physicalReservationActive: Boolean(raw.physicalReservationActive),
@@ -82,8 +85,28 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
     linkedOrderDisplayNumber: raw.linkedOrderDisplayNumber
       ? String(raw.linkedOrderDisplayNumber)
       : null,
+    saidas: normalizeSaidasFromApi(raw.saidas),
     items,
   };
+}
+
+/** Histórico de saídas do pedido (uma por ciclo de separação). */
+function normalizeSaidasFromApi(raw: unknown): OrderDto['saidas'] {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+    .map((row) => ({
+      id: String(row.id ?? ''),
+      invoiceNumber: row.invoiceNumber ? String(row.invoiceNumber) : null,
+      invoiceValue:
+        row.invoiceValue !== null && row.invoiceValue !== undefined
+          ? decimalToString(row.invoiceValue)
+          : null,
+      exitDate: toIsoString(row.exitDate),
+      carrierName: row.carrierName ? String(row.carrierName) : null,
+      trackingCode: row.trackingCode ? String(row.trackingCode) : null,
+    }))
+    .filter((row) => row.id);
 }
 
 /** Item serializado (GET /api/pedidos/:id/itens ou em `items` do pedido). */
