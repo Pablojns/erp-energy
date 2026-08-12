@@ -420,7 +420,7 @@ export function AdminOrderEditModal(props: {
     });
   };
 
-  /** Pedido parcial: marcar Recebido oferece dar saída da linha ou só mudar status. */
+  /** Marcar Recebido: oferece dar saída da linha ou só mudar status (qualquer status do pedido). */
   const handleItemStatusChange = (idx: number, nextStatus: string) => {
     const row = items[idx];
     const isRecebido = nextStatus.trim().toLowerCase() === 'recebido';
@@ -431,8 +431,7 @@ export function AdminOrderEditModal(props: {
       isRecebido &&
       !alreadyReceived &&
       !row.isNew &&
-      !row.id.startsWith('new-') &&
-      status === 'PARCIAL'
+      !row.id.startsWith('new-')
     ) {
       setRecebidoChoiceIndex(idx);
       return;

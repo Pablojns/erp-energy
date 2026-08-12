@@ -98,6 +98,8 @@ type PedidosOrdersTableProps = {
   onOrderChosen?: () => void;
   selectedForPrintIds?: Set<string>;
   onTogglePrint?: (orderId: string) => void;
+  allPrintSelected?: boolean;
+  onToggleSelectAllPrint?: () => void;
   isAdmin?: boolean;
   onEditOrder?: (order: OrderDto) => void;
   onDeleteOrder?: (order: OrderDto) => void;
@@ -114,6 +116,8 @@ export function PedidosOrdersTable({
   onOrderChosen,
   selectedForPrintIds,
   onTogglePrint,
+  allPrintSelected = false,
+  onToggleSelectAllPrint,
   isAdmin = false,
   onEditOrder,
   onDeleteOrder,
@@ -190,7 +194,16 @@ export function PedidosOrdersTable({
           <thead>
             <tr>
               {hasCheckbox ? (
-                <th className="exp-pedidos-th exp-pedidos-th--check" scope="col" aria-label="Selecionar" />
+                <th className="exp-pedidos-th exp-pedidos-th--check" scope="col">
+                  <input
+                    type="checkbox"
+                    className="exp-pedidos-check"
+                    checked={allPrintSelected}
+                    onChange={() => onToggleSelectAllPrint?.()}
+                    aria-label="Selecionar todos"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </th>
               ) : null}
               {visibleColumns.map((col) => (
                 <th

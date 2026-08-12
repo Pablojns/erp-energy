@@ -4,7 +4,7 @@ import { CheckCircle2, Loader2, Truck, X } from 'lucide-react';
 
 export type ItemRecebidoChoice = 'exit-item' | 'status-only' | 'cancel';
 
-/** Pedido parcial: ao marcar a linha como Recebido, dá saída ou só muda status. */
+/** Ao marcar a linha como Recebido, dá saída ou só muda status. */
 export function ItemRecebidoChoiceModal(props: {
   open: boolean;
   sku: string;
@@ -47,7 +47,7 @@ export function ItemRecebidoChoiceModal(props: {
               {quantity ? ` · ${quantity} un.` : ''}
             </p>
             <p className="mt-2 text-sm text-[var(--text-secondary)]">
-              O que fazer com esta linha do pedido parcial?
+              O que fazer com esta linha do pedido?
             </p>
           </div>
           <button

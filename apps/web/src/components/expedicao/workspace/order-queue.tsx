@@ -45,6 +45,7 @@ import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { mapOrderToPedidoParaImpressao } from '@/src/utils/map-order-to-waybill';
 import { downloadWaybillPdf } from '@/src/utils/download-waybill-pdf';
 import { downloadSeparacaoListaPdf } from '@/src/utils/download-separacao-lista-pdf';
+import { downloadColetaListaPdf } from '@/src/utils/download-coleta-lista-pdf';
 import { numeroPedFromOrder } from '@/src/services/api/pedidos-normalize';
 import { orderDisplayNumber } from '@/src/components/expedicao/shared/order-helpers';
 import {
@@ -60,6 +61,29 @@ import {
 } from '@/src/components/ui/skeleton';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
+
+/** Consolida itens dos pedidos selecionados no formato da Lista de Coleta. */
+function buildColetaListaFromOrders(
+  orders: OrderDto[],
+): Array<{ productName: string; totalQty: number }> {
+  const totals = new Map<string, { productName: string; totalQty: number }>();
+  for (const order of orders) {
+    for (const it of order.items ?? []) {
+      const sku = (it.sku ?? '').trim();
+      const name = (it.description ?? '').trim() || sku || 'Item';
+      const key = `${sku}::${name}`;
+      const productName = sku ? `${sku} — ${name}` : name;
+      const qty = Number(it.quantity) || 0;
+      if (qty <= 0) continue;
+      const existing = totals.get(key);
+      if (existing) existing.totalQty += qty;
+      else totals.set(key, { productName, totalQty: qty });
+    }
+  }
+  return [...totals.values()].sort((a, b) =>
+    a.productName.localeCompare(b.productName, 'pt-BR', { sensitivity: 'base' }),
+  );
+}
 
 const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
   'all',
@@ -376,6 +400,11 @@ export function OrderQueue(props: {
     data.orders.length > 0 &&
     data.orders.every((o) => selectedForSeparationIds.has(o.id));
 
+  const allPrintSelected =
+    isPedidosMode &&
+    data.orders.length > 0 &&
+    data.orders.every((o) => selectedForPrintIds.has(o.id));
+
   useEffect(() => {
     if (!data.ordersLoadingMore) {
       loadMoreQueuedRef.current = false;
@@ -454,6 +483,14 @@ export function OrderQueue(props: {
     setSelectedForSeparationIds(new Set(data.orders.map((o) => o.id)));
   };
 
+  const toggleSelectAllPrint = () => {
+    if (allPrintSelected) {
+      setSelectedForPrintIds(new Set());
+      return;
+    }
+    setSelectedForPrintIds(new Set(data.orders.map((o) => o.id)));
+  };
+
   const selectedNfLoteNumeroPeds = useMemo(
     () =>
       data.orders
@@ -523,6 +560,17 @@ export function OrderQueue(props: {
       .filter((o) => selectedForPrintIds.has(o.id))
       .map(mapOrderToPedidoParaImpressao);
     void downloadWaybillPdf(pedidos);
+  };
+
+  const handlePrintListaItens = () => {
+    const selected = data.orders.filter((o) => selectedForPrintIds.has(o.id));
+    if (selected.length === 0) return;
+    const items = buildColetaListaFromOrders(selected);
+    if (items.length === 0) return;
+    void downloadColetaListaPdf({
+      items,
+      orderCount: selected.length,
+    });
   };
 
   const renderOrderCard = (o: OrderDto) => (
@@ -658,6 +706,16 @@ export function OrderQueue(props: {
                 <Download className="h-4 w-4 shrink-0" aria-hidden />
                 Salvar PDF
               </button>
+              {selectedForPrintCount > 0 ? (
+                <button
+                  type="button"
+                  className="exp-queue-print-btn exp-queue-print-btn--inline exp-queue-toolbar-btn shrink-0"
+                  onClick={handlePrintListaItens}
+                >
+                  <Download className="h-4 w-4 shrink-0" aria-hidden />
+                  Imprimir Lista de Itens
+                </button>
+              ) : null}
               {refreshButton}
             </div>
 
@@ -799,6 +857,38 @@ export function OrderQueue(props: {
         />
       ) : null}
 
+      {isPedidosMode && data.orders.length > 0 ? (
+        <div className="exp-queue-print-toolbar shrink-0 flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              className="pedido-card-checkbox"
+              checked={allPrintSelected}
+              onChange={toggleSelectAllPrint}
+              aria-label="Selecionar todos"
+            />
+            Selecionar todos
+          </label>
+          {selectedForPrintCount > 0 ? (
+            <span className="exp-queue-print-count">
+              {selectedForPrintCount} selecionado
+              {selectedForPrintCount > 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="exp-queue-print-count exp-queue-print-count--empty" />
+          )}
+          {selectedForPrintCount > 0 ? (
+            <button
+              type="button"
+              className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !px-3 !py-1.5 !text-xs md:hidden"
+              onClick={handlePrintListaItens}
+            >
+              Imprimir Lista de Itens
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {!isPedidosMode ? (
         <div className="exp-queue-print-toolbar shrink-0 flex flex-wrap items-center gap-2">
           {data.orders.length > 0 ? (
@@ -925,6 +1015,8 @@ export function OrderQueue(props: {
                 onOrderChosen={onOrderChosen}
                 selectedForPrintIds={selectedForPrintIds}
                 onTogglePrint={togglePrintSelection}
+                allPrintSelected={allPrintSelected}
+                onToggleSelectAllPrint={toggleSelectAllPrint}
                 isAdmin={isAdmin}
                 onEditOrder={onEditOrder}
                 onDeleteOrder={onDeleteOrder}

@@ -3744,8 +3744,9 @@ export class OrderService {
    *
    * - invoicedQty >= quantity (já completo): mantém/define status "OK" e
    *   pickedQty no total; UI mostra "Já recebido" e não exige reconfirmar.
-   * - invoicedQty < quantity (pendente): limpa status de recebimento e
-   *   deixa pickedQty no piso já faturado (em geral 0) para Confirmar de novo.
+   * - invoicedQty < quantity (pendente): deixa pickedQty no piso já faturado
+   *   (em geral 0) para Confirmar de novo, mas preserva OK/Recebido se o
+   *   usuário já tiver marcado (não apaga "Apenas mudar status").
    *
    * Usado por send-to-picking e transição manual para EM_SEPARACAO.
    */
@@ -3767,9 +3768,11 @@ export class OrderService {
       const qty = Math.max(0, it.quantity);
       const floor = Math.max(0, it.invoicedQty ?? 0);
       const fullyInvoiced = qty > 0 && floor >= qty;
+      const existing = it.mercadoEletronicoItemStatus?.trim() || null;
+      const preserveReceipt =
+        OrderService.isPreservedItemReceiptStatus(existing);
 
       if (fullyInvoiced) {
-        const existing = it.mercadoEletronicoItemStatus?.trim() || null;
         await tx.orderItem.update({
           where: { id: it.id },
           data: {
@@ -3787,10 +3790,24 @@ export class OrderService {
         data: {
           pickedQty: floor,
           missingQty: Math.max(0, qty - floor),
-          mercadoEletronicoItemStatus: null,
+          // Mantém decisão manual de Recebido/OK; só limpa outros status.
+          mercadoEletronicoItemStatus: preserveReceipt ? existing : null,
         },
       });
     }
+  }
+
+  /** OK / Recebido (planilha) — não resetar no reenvio à separação. */
+  private static isPreservedItemReceiptStatus(
+    status: string | null | undefined,
+  ): boolean {
+    const raw = (status ?? '').trim();
+    if (!raw) return false;
+    const normalized = raw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '');
+    return normalized === 'ok' || normalized.includes('recebido');
   }
 
   /**
