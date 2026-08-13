@@ -346,7 +346,7 @@ export function AdminOrderEditModal(props: {
   };
 
   const openPickerFor = (idx: number) => {
-    if (!siteItemsEditable) return;
+    if (!siteItemsEditable && !isWegOrder) return;
     setPickingMode('replace');
     setPickingIndex(idx);
     setPickerOpen(true);
@@ -1069,19 +1069,36 @@ export function AdminOrderEditModal(props: {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        {it.isNew ? (
-                          <span className="text-xs font-medium" title={it.description}>
-                            {it.description || '—'}
-                          </span>
-                        ) : (
-                          <input
-                            className={fieldClass()}
-                            value={it.description}
-                            onChange={(e) =>
-                              updateItemField(idx, { description: e.target.value })
-                            }
-                          />
-                        )}
+                        <div className="flex min-w-0 items-start gap-2">
+                          {it.isNew ? (
+                            <span
+                              className="min-w-0 flex-1 text-xs font-medium"
+                              title={it.description}
+                            >
+                              {it.description || '—'}
+                            </span>
+                          ) : (
+                            <input
+                              className={`${fieldClass()} min-w-0 flex-1`}
+                              value={it.description}
+                              onChange={(e) =>
+                                updateItemField(idx, { description: e.target.value })
+                              }
+                            />
+                          )}
+                          {isWegOrder ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => openPickerFor(idx)}
+                              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-card)] disabled:opacity-60"
+                              title="Trocar produto"
+                            >
+                              <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              Trocar
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-2 py-2">
                         <input
