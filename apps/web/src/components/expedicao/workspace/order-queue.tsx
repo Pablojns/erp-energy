@@ -1058,6 +1058,7 @@ export function OrderQueue(props: {
                 scrollContainerRef={pedidosTableScrollRef}
                 columnPrefs={pedidosColumnPrefs}
                 hideToolbar
+                hideReceiverPointColumns={sourceFilter === 'SITE'}
                 listFooter={
                   <>
                     {data.ordersHasMore ? (
@@ -1101,6 +1102,7 @@ export function OrderQueue(props: {
                 onSelectOrder={onSelectOrder}
                 onOrderChosen={onOrderChosen}
                 onToggleSelection={toggleSeparationSelection}
+                hideReceiverPointColumns={sourceFilter === 'SITE'}
                 onRemoveFromSeparation={(order) =>
                   void handleRemoveSingleFromSeparation(order)
                 }

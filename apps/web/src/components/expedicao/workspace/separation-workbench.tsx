@@ -842,6 +842,7 @@ export function SeparationWorkbench(props: {
         <ConcluirModal
           orderNumber={numero}
           receiverName={order.receiverName}
+          hideReceiver={order.source === 'SITE'}
           items={order.items}
           complete={itemCounts.complete}
           partial={itemCounts.partial}

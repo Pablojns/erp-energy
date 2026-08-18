@@ -73,6 +73,14 @@ export class CorreiosService {
     return { Authorization: `Bearer ${token}`, Accept: 'application/json' };
   }
 
+  /** Nome do destinatário: Correios exige ≥ 2 letras (A-Z). */
+  private sanitizeDestinatarioNome(nome: string): string {
+    const cleaned = this.formatCorreiosText(nome).slice(0, 50);
+    const letters = cleaned.replace(/[^A-Za-z]/g, '');
+    if (letters.length >= 2) return cleaned;
+    return 'Destinatario';
+  }
+
   /** Remove acentos e normaliza texto para o padrão DNE/Correios. */
   private formatCorreiosText(value: string): string {
     return value
@@ -207,6 +215,20 @@ export class CorreiosService {
       if (complemento.length > 30) {
         const split = this.splitCorreiosAddressField(complemento);
         complemento = split.primary;
+      }
+    }
+
+    // CEP genérico (tipo 1) e endereços livres costumam chegar sem bairro;
+    // Correios aceita o POST e depois cancela (status 5) se bairro ficar vazio.
+    if (!bairro) {
+      if (complemento) {
+        bairro = complemento.slice(0, 30);
+        complemento = '';
+      } else {
+        bairro = this.formatCorreiosText(endereco.cidade || 'Centro').slice(
+          0,
+          30,
+        );
       }
     }
 
@@ -474,7 +496,7 @@ export class CorreiosService {
         email: remetente.email ?? '',
       },
       destinatario: {
-        nome: payload.destinatario.nome,
+        nome: this.sanitizeDestinatarioNome(payload.destinatario.nome),
         cpfCnpj: payload.destinatario.cpfCnpj?.replace(/\D/g, '') ?? '',
         endereco: destinatarioEndereco,
         telefone: payload.destinatario.telefone ?? '',
@@ -497,6 +519,11 @@ export class CorreiosService {
       body.logisticaReversa = payload.logisticaReversa;
     }
 
+    // Log temporário detalhado do payload enviado à API (diagnóstico etiquetas).
+    this.logger.warn(
+      `Pré-postagem Correios payload: ${JSON.stringify(body)}`,
+    );
+
     let data: Record<string, unknown>;
     try {
       const resp = await this.api.post('/prepostagem/v1/prepostagens', body, { headers });
@@ -505,7 +532,7 @@ export class CorreiosService {
       const status = err?.response?.status;
       const apiBody = err?.response?.data;
       this.logger.error(
-        `Pré-postagem Correios falhou — status ${status} — body: ${JSON.stringify(apiBody)}`,
+        `Pré-postagem Correios falhou — status ${status} — body: ${JSON.stringify(apiBody)} — payload: ${JSON.stringify(body)}`,
       );
       const msg =
         apiBody?.msgs?.join?.(' ') ||
@@ -639,8 +666,24 @@ export class CorreiosService {
         params: { id: idPrePostagem },
       });
       const item = data?.itens?.[0] ?? data?.content?.[0];
-      if (item?.statusAtual === 2) return;
-      if (item?.descStatusAtual === 'Pré-postado') return;
+      const statusAtual = item?.statusAtual;
+      const desc = String(item?.descStatusAtual ?? '');
+      if (statusAtual === 2 || desc === 'Pré-postado') return;
+
+      // status 5 = cancelada automaticamente (ex.: bairro vazio em CEP genérico)
+      if (
+        statusAtual === 5 ||
+        /cancelad/i.test(desc)
+      ) {
+        this.logger.error(
+          `Pré-postagem ${idPrePostagem} cancelada pelos Correios: ${JSON.stringify(item)}`,
+        );
+        throw new BadRequestException(
+          desc.trim() ||
+            'Pré-postagem Correios foi cancelada automaticamente. Verifique endereço (bairro/CEP) e nome do destinatário.',
+        );
+      }
+
       await new Promise((resolve) => setTimeout(resolve, intervaloMs));
     }
 
@@ -836,9 +879,23 @@ export class CorreiosService {
       if (status === 200) {
         const raw = Buffer.from(data).toString('utf8');
         try {
-          const parsed = JSON.parse(raw) as { dados?: string; nome?: string };
+          const parsed = JSON.parse(raw) as {
+            dados?: string;
+            nome?: string;
+            [key: string]: unknown;
+          };
           if (parsed.dados) {
             return this.ajustarRotuloPdf4x6(Buffer.from(parsed.dados, 'base64'));
+          }
+          // Alguns retornos usam o nome do arquivo como chave do base64.
+          for (const [key, value] of Object.entries(parsed)) {
+            if (
+              typeof value === 'string' &&
+              key.toLowerCase().endsWith('.pdf') &&
+              value.length > 100
+            ) {
+              return this.ajustarRotuloPdf4x6(Buffer.from(value, 'base64'));
+            }
           }
         } catch {
           /* aguarda próxima tentativa */

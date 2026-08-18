@@ -108,6 +108,8 @@ type PedidosOrdersTableProps = {
   listFooter?: ReactNode;
   columnPrefs: ReturnType<typeof usePedidosTableColumns>;
   hideToolbar?: boolean;
+  /** Site: não exibe Recebedor/Ponto; coluna vira Cliente. */
+  hideReceiverPointColumns?: boolean;
 };
 
 export function PedidosOrdersTable({
@@ -126,6 +128,7 @@ export function PedidosOrdersTable({
   listFooter,
   columnPrefs,
   hideToolbar = false,
+  hideReceiverPointColumns = false,
 }: PedidosOrdersTableProps) {
 
   const visibleColumns = useMemo(() => {
@@ -133,9 +136,19 @@ export function PedidosOrdersTable({
       PEDIDOS_TABLE_COLUMN_DEFINITIONS.map((d) => [d.key, d.label]),
     );
     return columnPrefs.preferences
-      .filter((p) => p.visible)
-      .map((p) => ({ key: p.key, label: labelByKey.get(p.key) ?? p.key }));
-  }, [columnPrefs.preferences]);
+      .filter((p) => {
+        if (!p.visible) return false;
+        if (hideReceiverPointColumns && p.key === 'pontoDescarga') return false;
+        return true;
+      })
+      .map((p) => ({
+        key: p.key,
+        label:
+          hideReceiverPointColumns && p.key === 'recebedor'
+            ? 'Cliente'
+            : (labelByKey.get(p.key) ?? p.key),
+      }));
+  }, [columnPrefs.preferences, hideReceiverPointColumns]);
 
   const hasActions = isAdmin && Boolean(onEditOrder || onDeleteOrder);
   const hasCheckbox = Boolean(onTogglePrint);
@@ -150,9 +163,13 @@ export function PedidosOrdersTable({
       case 'status':
         return formatOrderStatusLabel(order.status);
       case 'recebedor':
-        return displayOrDash(order.receiverName ?? order.customerName);
+        return order.source === 'SITE'
+          ? displayOrDash(order.customerName)
+          : displayOrDash(order.receiverName ?? order.customerName);
       case 'pontoDescarga':
-        return displayOrDash(order.unloadingPoint);
+        return order.source === 'SITE'
+          ? '—'
+          : displayOrDash(order.unloadingPoint);
       case 'transportadora':
         return displayOrDash(order.carrierName);
       case 'nf':

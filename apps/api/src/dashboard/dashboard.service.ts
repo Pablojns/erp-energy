@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { ORDER_STATUS } from '../orders/order-domain';
 
 const FLUXO_STATUSES: OrderStatus[] = [
   OrderStatus.NOVO,
@@ -11,14 +12,19 @@ const FLUXO_STATUSES: OrderStatus[] = [
   OrderStatus.CANCELADO,
 ];
 
+const OS_ARQUIVADO = (OrderStatus.ARQUIVADO ??
+  ORDER_STATUS.ARQUIVADO) as OrderStatus;
+
 const DELAYED_EXCLUDED: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
+  OS_ARQUIVADO,
 ];
 
 const TERMINAL_STATUSES: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
+  OS_ARQUIVADO,
 ];
 
 const CONTA_AZUL_FATURADO = 'Faturado';

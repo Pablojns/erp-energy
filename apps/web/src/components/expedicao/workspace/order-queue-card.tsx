@@ -287,7 +287,11 @@ export function OrderQueueCard(props: {
             </section>
             <section className="exp-queue-row-section exp-queue-row-back">
               <span className="exp-queue-row-receiver truncate">
-                {displayOrDash(order.receiverName ?? order.customerName)}
+                {displayOrDash(
+                  order.source === 'SITE'
+                    ? order.customerName
+                    : (order.receiverName ?? order.customerName),
+                )}
               </span>
               <span className="exp-queue-row-date shrink-0">{deliveryWhen}</span>
               {cardTrailingActions ?? (showAdminActions ? (

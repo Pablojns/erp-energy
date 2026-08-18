@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
-import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
+import {
+  deliveryAddressToEditableText,
+  normalizeDeliveryAddressInput,
+} from '@/src/components/cadastros/delivery-address';
 import {
   canEditSiteOrderItems,
   resolveItemReceiptStatusForOrder,
@@ -207,7 +210,11 @@ export function AdminOrderEditModal(props: {
     setUnloadingPoint(order.unloadingPoint ?? '');
     const initialCnpj = order.deliveryCnpj ?? order.customerDocument ?? '';
     setDeliveryCnpj(initialCnpj);
-    setDeliveryAddress(order.deliveryAddress ?? '');
+    setDeliveryAddress(
+      deliveryAddressToEditableText(
+        order.deliveryAddress || order.unloadingPoint || '',
+      ),
+    );
     setCustomerId(order.customerId ?? null);
     setBuyerQuery(
       order.customerName?.trim()
@@ -313,7 +320,8 @@ export function AdminOrderEditModal(props: {
     setCustomerId((prev) => prev ?? matched.id);
     setBuyerQuery((prev) => (prev.trim() ? prev : wegBuyerCustomerLabel(matched)));
     if (matched.deliveryAddress?.trim() && !order.deliveryAddress?.trim()) {
-      setDeliveryAddress(matched.deliveryAddress);
+      setDeliveryAddress(deliveryAddressToEditableText(matched.deliveryAddress));
+
     }
   }, [isOpen, order, customers]);
 
@@ -329,9 +337,6 @@ export function AdminOrderEditModal(props: {
   const isSimpleCustomerLayout =
     isSiteOrder || order.source === 'VENDA_EXTERNA';
   const orderNumberDisplay = order.externalOrderNumber ?? order.code;
-  const deliveryAddressDisplay = formatDeliveryAddressDisplay(
-    deliveryAddress || unloadingPoint,
-  );
   const busy = saving;
 
   const applyBuyerCustomer = (customer: WegBuyerCustomer) => {
@@ -340,7 +345,9 @@ export function AdminOrderEditModal(props: {
     setDeliveryCnpj(cnpj);
     setBuyerQuery(wegBuyerCustomerLabel(customer));
     if (customer.deliveryAddress?.trim()) {
-      setDeliveryAddress(customer.deliveryAddress);
+      setDeliveryAddress(
+        deliveryAddressToEditableText(customer.deliveryAddress),
+      );
     }
     setError(null);
   };
@@ -498,10 +505,14 @@ export function AdminOrderEditModal(props: {
         )[0]?.invoiceNumber ?? '';
 
       const headerPayload = {
-        receiverName,
-        unloadingPoint,
+        ...(isSiteOrder
+          ? {}
+          : {
+              receiverName,
+              unloadingPoint,
+            }),
         deliveryCnpj,
-        deliveryAddress: deliveryAddress.trim() || null,
+        deliveryAddress: normalizeDeliveryAddressInput(deliveryAddress) || null,
         customerId: customerId || null,
         orderDate: orderDate || undefined,
         requestedDeliveryDate: requestedDeliveryDate || undefined,
@@ -653,7 +664,12 @@ export function AdminOrderEditModal(props: {
                 </label>
                 <label className="block sm:col-span-2">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Endereço</span>
-                  <input className={readOnlyFieldClass()} readOnly value={deliveryAddressDisplay} />
+                  <textarea
+                    className={`${fieldClass()} min-h-[72px]`}
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Rua, número - bairro - Cidade/UF - CEP 00000-000"
+                  />
                 </label>
               </div>
 
@@ -721,14 +737,17 @@ export function AdminOrderEditModal(props: {
                 </label>
                 <label className="block sm:col-span-2 lg:col-span-3">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                    Endereço (atualiza ao selecionar o cliente)
+                    Endereço
                   </span>
-                  <input
-                    className={readOnlyFieldClass()}
-                    readOnly
-                    value={deliveryAddressDisplay}
+                  <textarea
+                    className={`${fieldClass()} min-h-[72px]`}
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Rua, número - bairro - Cidade/UF - CEP 00000-000"
                   />
                 </label>
+                {!isSiteOrder ? (
+                  <>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Recebedor</span>
                   <input className={fieldClass()} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
@@ -737,6 +756,8 @@ export function AdminOrderEditModal(props: {
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Ponto de descarga</span>
                   <input className={fieldClass()} value={unloadingPoint} onChange={(e) => setUnloadingPoint(e.target.value)} />
                 </label>
+                  </>
+                ) : null}
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Data pedido</span>
                   <input type="date" className={fieldClass()} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />

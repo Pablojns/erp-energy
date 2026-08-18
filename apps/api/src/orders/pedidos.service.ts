@@ -30,7 +30,7 @@ import {
   normalizeOrderSearchTerm,
 } from './order-search';
 import { OrderService } from './order.service';
-import { WEG_TAB_ORDER_SOURCES } from './order-domain';
+import { WEG_TAB_ORDER_SOURCES, ORDER_STATUS } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -1662,13 +1662,14 @@ export class PedidosService {
       cep,
       logradouro: cepData.logradouro ?? cepData.end ?? 'Endereço remetente',
       numero: 'S/N',
-      bairro: cepData.bairro ?? '',
+      bairro: cepData.bairro?.trim() || 'Centro',
       cidade: cepData.localidade ?? cepData.cidade ?? '',
       uf: cepData.uf ?? '',
     };
   }
 
   private parseDestinatarioFromOrder(order: {
+    source?: string | null;
     receiverName: string | null;
     customerName: string;
     customerDocument: string | null;
@@ -1678,8 +1679,15 @@ export class PedidosService {
     deliveryState: string | null;
     unloadingPoint: string | null;
   }) {
+    // Site: cliente = destinatário (receiverName costuma ser redundante/lixo).
     const nome =
-      order.receiverName?.trim() || order.customerName?.trim() || 'Destinatário';
+      order.source === 'SITE'
+        ? order.customerName?.trim() ||
+          order.receiverName?.trim() ||
+          'Destinatario'
+        : order.receiverName?.trim() ||
+          order.customerName?.trim() ||
+          'Destinatario';
     const cpfCnpj =
       order.deliveryCnpj?.replace(/\D/g, '') ||
       order.customerDocument?.replace(/\D/g, '') ||
@@ -1696,7 +1704,7 @@ export class PedidosService {
         logradouro: structured.logradouro,
         numero: structured.numero,
         complemento: structured.complemento,
-        bairro: structured.bairro,
+        bairro: structured.bairro || 'Centro',
         cidade: structured.cidade,
         uf: structured.uf,
       };
@@ -1713,9 +1721,9 @@ export class PedidosService {
       );
     }
 
-    const withoutCep = addressRaw.replace(/\s*-\s*CEP\s*[\d.-]+/i, '').trim();
+    const withoutCep = addressRaw.replace(/\s*[-–—]?\s*CEP\s*[\d.-]+/i, '').trim();
     const segments = withoutCep
-      .split(' - ')
+      .split(/\s*[-–—]\s*/)
       .map((segment) => segment.trim())
       .filter(Boolean);
 
@@ -1728,7 +1736,7 @@ export class PedidosService {
 
     if (segments.length > 0) {
       const last = segments[segments.length - 1];
-      const cityState = last.match(/^(.+)\/([A-Za-z]{2})$/);
+      const cityState = last.match(/^(.+)\s*\/\s*([A-Za-z]{2})$/);
       if (cityState) {
         if (!cidade) cidade = cityState[1].trim();
         if (!uf) uf = cityState[2].trim().toUpperCase();
@@ -1737,9 +1745,14 @@ export class PedidosService {
     }
 
     if (segments[0]) {
-      const streetParts = segments[0].split(',').map((part) => part.trim());
+      const streetParts = segments[0]
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
       logradouro = streetParts[0] ?? '';
-      if (streetParts[1]) numero = streetParts[1];
+      if (streetParts.length >= 2) {
+        numero = streetParts[streetParts.length - 1] || 'S/N';
+      }
     }
     if (segments.length >= 3) {
       complemento = segments[1] ?? '';
@@ -1761,7 +1774,7 @@ export class PedidosService {
       logradouro,
       numero,
       complemento,
-      bairro,
+      bairro: bairro || 'Centro',
       cidade,
       uf,
     };
@@ -3084,7 +3097,7 @@ export class PedidosService {
       where: {
         AND: [
           PedidosService.separationMinDateWhere(),
-          { status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO, OrderStatus.ARQUIVADO] } },
+          { status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO, (OrderStatus.ARQUIVADO ?? ORDER_STATUS.ARQUIVADO) as OrderStatus] } },
         ],
       },
       orderBy: [

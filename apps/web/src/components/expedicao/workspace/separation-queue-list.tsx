@@ -39,6 +39,8 @@ export function SeparationQueueList(props: {
   onOrderChosen?: () => void;
   onToggleSelection: (id: string) => void;
   onRemoveFromSeparation?: (order: OrderDto) => void;
+  /** Quando true (ex.: workspace Site), oculta Recebedor/Ponto na lista. */
+  hideReceiverPointColumns?: boolean;
 }) {
   const {
     orders,
@@ -48,6 +50,7 @@ export function SeparationQueueList(props: {
     onOrderChosen,
     onToggleSelection,
     onRemoveFromSeparation,
+    hideReceiverPointColumns = false,
   } = props;
 
   const { partial, fresh } = splitOrdersPartialFirst(orders);
@@ -75,6 +78,15 @@ export function SeparationQueueList(props: {
     const deliveryWhen = order.requestedDeliveryDate
       ? formatOrderQueueDate(order.requestedDeliveryDate)
       : '—';
+
+    const isSite = order.source === 'SITE';
+    const partyLabel = isSite || hideReceiverPointColumns
+      ? displayOrDash(order.customerName)
+      : displayOrDash(order.receiverName ?? order.customerName);
+    const pointLabel =
+      isSite || hideReceiverPointColumns
+        ? '—'
+        : displayOrDash(order.unloadingPoint);
 
     return (
       <div
@@ -116,20 +128,19 @@ export function SeparationQueueList(props: {
           ) : null}
         </span>
 
-        <span className="exp-sep-list-text" title={order.receiverName ?? ''}>
-          {displayOrDash(order.receiverName ?? order.customerName)}
+        <span className="exp-sep-list-text" title={partyLabel}>
+          {partyLabel}
         </span>
 
         <span className="exp-sep-list-text" title={order.carrierName ?? ''}>
           {displayOrDash(order.carrierName)}
         </span>
 
-        <span
-          className="exp-sep-list-text"
-          title={order.unloadingPoint ?? ''}
-        >
-          {displayOrDash(order.unloadingPoint)}
-        </span>
+        {hideReceiverPointColumns ? null : (
+          <span className="exp-sep-list-text" title={pointLabel}>
+            {pointLabel}
+          </span>
+        )}
 
         <span className="exp-sep-list-progress">
           <SeparationStepIndicator currentStep={step} compact />
@@ -188,9 +199,9 @@ export function SeparationQueueList(props: {
       <div className="exp-sep-list-header" role="row">
         <span />
         <span>Pedido</span>
-        <span>Recebedor</span>
+        <span>{hideReceiverPointColumns ? 'Cliente' : 'Recebedor'}</span>
         <span>Transportadora</span>
-        <span>Ponto de descarga</span>
+        {hideReceiverPointColumns ? null : <span>Ponto de descarga</span>}
         <span className="text-center">Separação</span>
         <span className="text-center">Data Ped.</span>
         <span className="text-center">Entrega</span>

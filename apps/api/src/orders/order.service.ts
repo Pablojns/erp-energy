@@ -26,6 +26,7 @@ import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dt
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import {
+  ORDER_STATUS,
   ORDER_STATUS_EXPEDITION_CHAIN,
   ORDER_STATUS_VALUES,
   WEG_TAB_ORDER_SOURCES,
@@ -57,17 +58,21 @@ type Tx = Omit<
 const RESERVE_ADVISORY_LOCK = 94821001;
 const NEXT_CODE_ADVISORY_LOCK = 94821002;
 
+/** Preferência: enum Prisma; fallback no espelho de domínio se o client estiver defasado. */
+const OS_ARQUIVADO = (OrderStatus.ARQUIVADO ??
+  ORDER_STATUS.ARQUIVADO) as OrderStatus;
+
 const TERMINAL: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
-  OrderStatus.ARQUIVADO,
+  OS_ARQUIVADO,
 ];
 
 /** Pedidos encerrados não entram no contador de atrasados. */
 const DELAYED_EXCLUDED_STATUSES: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
-  OrderStatus.ARQUIVADO,
+  OS_ARQUIVADO,
   OrderStatus.EXPEDIDO,
 ];
 
@@ -312,6 +317,24 @@ export class OrderService {
       status: { notIn: DELAYED_EXCLUDED_STATUSES },
     };
 
+    const emAndamentoStatuses: OrderStatus[] = [
+      OrderStatus.EM_SEPARACAO,
+      OrderStatus.SEPARADO,
+      OrderStatus.AGUARDANDO_NF,
+      OrderStatus.NF_ATRELADA,
+    ];
+    const emAndamentoWhere: Prisma.OrderWhereInput = {
+      AND: [
+        { status: { in: emAndamentoStatuses } },
+        {
+          OR: [
+            { requestedDeliveryDate: null },
+            { requestedDeliveryDate: { gte: todayUtc } },
+          ],
+        },
+      ],
+    };
+
     const [
       totalPedidos,
       todayCount,
@@ -323,11 +346,17 @@ export class OrderService {
       aguardandoNf,
       parciais,
       cancelados,
+      novos,
+      emAndamento,
+      finalizados,
       byStatusLast7,
       topPoints,
       topReceivers,
+      requiresAttentionRows,
     ] = await Promise.all([
-      this.prisma.client.order.count(),
+      this.prisma.client.order.count({
+        where: { status: { notIn: TERMINAL } },
+      }),
       this.prisma.client.order.count({
         where: {
           OR: [
@@ -339,6 +368,7 @@ export class OrderService {
               ],
             },
           ],
+          status: { notIn: TERMINAL },
         },
       }),
       this.prisma.client.order.count({ where: delayedArm }),
@@ -351,7 +381,7 @@ export class OrderService {
         },
       }),
       this.prisma.client.order.count({
-        where: { priority: { lte: 2 } },
+        where: { priority: { lte: 2 }, status: { notIn: TERMINAL } },
       }),
       this.countStockRuptureOrders({}),
       this.prisma.client.order.count({
@@ -364,6 +394,13 @@ export class OrderService {
       this.countParcialOrders(),
       this.prisma.client.order.count({
         where: { status: OrderStatus.CANCELADO },
+      }),
+      this.prisma.client.order.count({
+        where: { status: OrderStatus.NOVO },
+      }),
+      this.prisma.client.order.count({ where: emAndamentoWhere }),
+      this.prisma.client.order.count({
+        where: { status: OrderStatus.FINALIZADO },
       }),
       this.prisma.client.order.groupBy({
         by: ['status'],
@@ -379,6 +416,7 @@ export class OrderService {
       }),
       this.prisma.client.order.groupBy({
         by: ['unloadingPoint'],
+        where: { status: { notIn: TERMINAL } },
         _count: { _all: true },
         orderBy: { _count: { unloadingPoint: 'desc' } },
         take: 8,
@@ -386,7 +424,7 @@ export class OrderService {
       this.prisma.client.order.groupBy({
         by: ['receiverName'],
         where: {
-          status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO, OrderStatus.ARQUIVADO] },
+          status: { notIn: TERMINAL },
           receiverName: { not: null },
           NOT: { receiverName: '' },
         },
@@ -394,6 +432,7 @@ export class OrderService {
         orderBy: { _count: { receiverName: 'desc' } },
         take: 5,
       }),
+      this.findRequiresAttentionOrders(8),
     ]);
 
     const statusOrder = [
@@ -436,10 +475,47 @@ export class OrderService {
       aguardandoNf,
       parciais,
       cancelados,
+      novos,
+      emAndamento,
+      finalizados,
+      requiresAttention: requiresAttentionRows.map((o) => this.serializeOrder(o)),
       byStatusLast7Days,
       topUnloadingPoints,
       topReceiversPending,
     };
+  }
+
+  /**
+   * Casos críticos para a seção "Requer atenção": atrasados (mais dias primeiro)
+   * e, se sobrar vaga, parciais mais antigos.
+   */
+  private async findRequiresAttentionOrders(limit: number) {
+    const todayUtc = OrderService.startOfUtcDay(new Date());
+    const overdue = await this.prisma.client.order.findMany({
+      where: {
+        requestedDeliveryDate: { lt: todayUtc },
+        status: { notIn: DELAYED_EXCLUDED_STATUSES },
+      },
+      orderBy: { requestedDeliveryDate: 'asc' },
+      take: limit,
+      include: OrderService.orderInclude(),
+    });
+    if (overdue.length >= limit) return overdue;
+
+    const remaining = limit - overdue.length;
+    const excludeIds = overdue.map((o) => o.id);
+    const parciais = await this.prisma.client.order.findMany({
+      where: {
+        AND: [
+          buildOrderParcialWhere(),
+          excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {},
+        ],
+      },
+      orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
+      take: remaining,
+      include: OrderService.orderInclude(),
+    });
+    return [...overdue, ...parciais];
   }
 
   /** Status PARCIAL ou envio parcial (algum picked > 0 e nem todos completos). */
@@ -452,7 +528,8 @@ export class OrderService {
            o.status NOT IN (
              'FINALIZADO'::"OrderStatus",
              'CANCELADO'::"OrderStatus",
-             'EXPEDIDO'::"OrderStatus"
+             'EXPEDIDO'::"OrderStatus",
+             'ARQUIVADO'::"OrderStatus"
            )
            AND EXISTS (
              SELECT 1 FROM "OrderItem" i
@@ -3246,11 +3323,11 @@ export class OrderService {
     if (
       from === OrderStatus.FINALIZADO ||
       from === OrderStatus.CANCELADO ||
-      from === OrderStatus.ARQUIVADO
+      from === OS_ARQUIVADO
     ) {
       throw new BadRequestException('Pedido encerrado.');
     }
-    if (to === OrderStatus.CANCELADO || to === OrderStatus.ARQUIVADO) return;
+    if (to === OrderStatus.CANCELADO || to === OS_ARQUIVADO) return;
 
     if (to === OrderStatus.RESERVADO) {
       throw new BadRequestException(
@@ -3474,6 +3551,22 @@ export class OrderService {
           requestedDeliveryDate: { lt: todayUtc },
           status: { notIn: DELAYED_EXCLUDED_STATUSES },
         });
+      } else if (st === 'em_andamento') {
+        const todayUtc = OrderService.startOfUtcDay(new Date());
+        clauses.push({
+          status: {
+            in: [
+              OrderStatus.EM_SEPARACAO,
+              OrderStatus.SEPARADO,
+              OrderStatus.AGUARDANDO_NF,
+              OrderStatus.NF_ATRELADA,
+            ],
+          },
+          OR: [
+            { requestedDeliveryDate: null },
+            { requestedDeliveryDate: { gte: todayUtc } },
+          ],
+        });
       } else if (st === 'urgent') {
         clauses.push({
           priority: { lte: 2 },
@@ -3515,8 +3608,8 @@ export class OrderService {
     }
 
     // Arquivados ficam fora das filas operacionais (só com filtro explícito ARQUIVADO).
-    if (st !== OrderStatus.ARQUIVADO && st !== 'arquivado') {
-      clauses.push({ status: { not: OrderStatus.ARQUIVADO } });
+    if (st !== OS_ARQUIVADO && st !== 'arquivado') {
+      clauses.push({ status: { not: OS_ARQUIVADO } });
     }
 
     const searchWhere = buildOrderSearchWhere(query.search);

@@ -2,12 +2,22 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrderStatus } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { ORDER_STATUS } from '../orders/order-domain';
 import {
   NOTIFICATION_PRIORITY,
   NOTIFICATION_TYPES,
 } from './notification.constants';
 import { isBusinessHours, isMorningDigestHour } from './notification-time.util';
 import { NotificationsService } from './notifications.service';
+
+const OS_ARQUIVADO = (OrderStatus.ARQUIVADO ??
+  ORDER_STATUS.ARQUIVADO) as OrderStatus;
+
+const ACTIVE_ORDER_EXCLUDED: OrderStatus[] = [
+  OrderStatus.FINALIZADO,
+  OrderStatus.CANCELADO,
+  OS_ARQUIVADO,
+];
 
 @Injectable()
 export class NotificationsCron {
@@ -83,7 +93,7 @@ export class NotificationsCron {
     const orders = await this.prisma.client.order.findMany({
       where: {
         requestedDeliveryDate: { lt: cutoff },
-        status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO] },
+        status: { notIn: ACTIVE_ORDER_EXCLUDED },
       },
       select: {
         id: true,
@@ -221,7 +231,7 @@ export class NotificationsCron {
           some: {
             order: {
               status: {
-                notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO],
+                notIn: ACTIVE_ORDER_EXCLUDED,
               },
             },
           },

@@ -97,6 +97,92 @@ export function formatDeliveryAddressDisplay(
   return parts.join(' — ');
 }
 
+/** Texto livre editável a partir do valor salvo (JSON estruturado ou string). */
+export function deliveryAddressToEditableText(
+  raw: string | Record<string, unknown> | null | undefined,
+): string {
+  if (!raw) return '';
+  if (typeof raw === 'string' && raw.trim() && !parseDeliveryAddress(raw)) {
+    return raw.trim();
+  }
+  const parsed = parseDeliveryAddress(raw);
+  if (!parsed) return typeof raw === 'string' ? raw.trim() : '';
+  const head = `${parsed.logradouro}, ${parsed.numero}`.replace(/,\s*$/, '');
+  const parts = [
+    head,
+    parsed.complemento || null,
+    parsed.bairro || null,
+    parsed.cidade && parsed.uf ? `${parsed.cidade}/${parsed.uf}` : parsed.cidade || null,
+    parsed.cep ? `CEP ${formatCep(parsed.cep)}` : null,
+  ].filter(Boolean);
+  return parts.join(' - ');
+}
+
+/**
+ * Converte texto livre (ex.: "Rua X, 6 - bairro - Cidade/UF - CEP 00000-000")
+ * em JSON estruturado; se não der para parsear, devolve o texto limpo.
+ */
+export function normalizeDeliveryAddressInput(raw: string): string {
+  const text = raw.trim();
+  if (!text) return '';
+
+  const asJson = parseDeliveryAddress(text);
+  if (asJson?.logradouro && asJson.cep && asJson.cidade && asJson.uf) {
+    return serializeDeliveryAddress(asJson);
+  }
+
+  const cepMatch = text.match(/CEP\s*([\d.\-]+)/i);
+  const cep = digitsOnly(cepMatch?.[1] ?? '').slice(0, 8);
+  const withoutCep = text.replace(/\s*[-–—]?\s*CEP\s*[\d.\-]+/i, '').trim();
+  const segments = withoutCep
+    .split(/\s*[-–—]\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let cidade = '';
+  let uf = '';
+  if (segments.length > 0) {
+    const last = segments[segments.length - 1];
+    const cityState = last.match(/^(.+)\s*\/\s*([A-Za-z]{2})$/);
+    if (cityState) {
+      cidade = cityState[1].trim();
+      uf = cityState[2].trim().toUpperCase();
+      segments.pop();
+    }
+  }
+
+  let logradouro = '';
+  let numero = 'S/N';
+  let complemento = '';
+  let bairro = '';
+
+  if (segments[0]) {
+    const streetParts = segments[0].split(',').map((p) => p.trim());
+    logradouro = streetParts[0] ?? '';
+    if (streetParts[1]) numero = streetParts.slice(1).join(', ').trim() || 'S/N';
+  }
+  if (segments.length >= 3) {
+    complemento = segments[1] ?? '';
+    bairro = segments.slice(2).join(' - ');
+  } else if (segments[1]) {
+    bairro = segments[1];
+  }
+
+  if (logradouro && cidade && uf && cep.length === 8) {
+    return serializeDeliveryAddress({
+      cep,
+      logradouro,
+      numero,
+      complemento,
+      bairro,
+      cidade,
+      uf,
+    });
+  }
+
+  return text;
+}
+
 export type ViaCepResponse = {
   cep?: string;
   logradouro?: string;

@@ -6,6 +6,8 @@ import type { OrderItemDto } from '@/src/components/expedicao/shared/types';
 export function ConcluirModal(props: {
   orderNumber: string;
   receiverName: string | null;
+  /** Quando true, não exibe a linha Recebedor (pedidos Site). */
+  hideReceiver?: boolean;
   items: OrderItemDto[];
   complete: number;
   partial: number;
@@ -18,6 +20,7 @@ export function ConcluirModal(props: {
   const {
     orderNumber,
     receiverName,
+    hideReceiver = false,
     items,
     complete,
     partial,
@@ -42,10 +45,12 @@ export function ConcluirModal(props: {
           <p className="text-[var(--text-primary)]">
             <span className="text-[var(--text-secondary)]">Pedido:</span> #{orderNumber}
           </p>
-          <p className="text-[var(--text-primary)]">
-            <span className="text-[var(--text-secondary)]">Recebedor:</span>{' '}
-            {receiverName?.trim() || 'Não informado'}
-          </p>
+          {!hideReceiver ? (
+            <p className="text-[var(--text-primary)]">
+              <span className="text-[var(--text-secondary)]">Recebedor:</span>{' '}
+              {receiverName?.trim() || 'Não informado'}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-4 space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] p-3">

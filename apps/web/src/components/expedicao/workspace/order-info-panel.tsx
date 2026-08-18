@@ -270,12 +270,15 @@ export const OrderInfoPanel = forwardRef<
     order.deliveryAddress ?? order.unloadingPoint,
   );
   const pointAsAddress = formatDeliveryAddressDisplay(order.unloadingPoint);
-  // Pedidos (Site/Venda Externa): oculta Recebedor/Ponto quando idênticos a Cliente/Endereço.
+  // Site: Recebedor/Ponto de descarga não se aplicam (cliente = destinatário).
+  const hideReceiverPoint = isSiteOrder;
+  // Fallback legado: também oculta quando idênticos a Cliente/Endereço (Venda Externa etc.).
   const hideDuplicateReceiverPoint =
-    isOrdersMode &&
-    isSimpleCustomerLayout &&
-    receiver === simpleCliente &&
-    (point === simpleEndereco || pointAsAddress === simpleEndereco);
+    hideReceiverPoint ||
+    (isOrdersMode &&
+      isSimpleCustomerLayout &&
+      receiver === simpleCliente &&
+      (point === simpleEndereco || pointAsAddress === simpleEndereco));
   const notes = order.notes?.trim() || null;
   const notaVenda = order.invoiceNumber?.trim() || null;
   const isFinalized =
