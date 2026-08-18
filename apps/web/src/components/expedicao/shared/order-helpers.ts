@@ -272,8 +272,35 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   EXPEDIDO: 'Expedido',
   FINALIZADO: 'Finalizado',
   CANCELADO: 'Cancelado',
+  ARQUIVADO: 'Arquivado',
 };
 
 export function formatOrderStatusLabel(status: string): string {
   return ORDER_STATUS_LABELS[status] ?? status;
+}
+
+/**
+ * Pedido parcial a retomar: status PARCIAL ou já teve saída parcial
+ * (invoicedQty > 0) — prioridade visual na fila.
+ */
+export function isPartialResumeOrder(order: {
+  status: string;
+  items?: Array<{ invoicedQty?: number | null }>;
+}): boolean {
+  if (order.status === 'PARCIAL') return true;
+  return (order.items ?? []).some((it) => (it.invoicedQty ?? 0) > 0);
+}
+
+/** Separa a lista em parciais (topo) e novos, preservando a ordem relativa. */
+export function splitOrdersPartialFirst<T extends {
+  status: string;
+  items?: Array<{ invoicedQty?: number | null }>;
+}>(orders: T[]): { partial: T[]; fresh: T[] } {
+  const partial: T[] = [];
+  const fresh: T[] = [];
+  for (const order of orders) {
+    if (isPartialResumeOrder(order)) partial.push(order);
+    else fresh.push(order);
+  }
+  return { partial, fresh };
 }

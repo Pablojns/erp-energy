@@ -1,11 +1,12 @@
 'use client';
 
-import type { KeyboardEvent, MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import {
   displayOrDash,
   formatOrderQueueDate,
   orderDisplayNumber,
+  splitOrdersPartialFirst,
 } from '@/src/components/expedicao/shared/order-helpers';
 import { resolveSeparationWorkflowStep } from '@/src/components/expedicao/shared/separation-workflow';
 import { SeparationStepIndicator } from '@/src/components/expedicao/workspace/separation-step-indicator';
@@ -49,6 +50,8 @@ export function SeparationQueueList(props: {
     onRemoveFromSeparation,
   } = props;
 
+  const { partial, fresh } = splitOrdersPartialFirst(orders);
+
   const openOrder = (id: string) => {
     onSelectOrder(id);
     onOrderChosen?.();
@@ -59,6 +62,125 @@ export function SeparationQueueList(props: {
       e.preventDefault();
       openOrder(id);
     }
+  };
+
+  const renderRow = (order: OrderDto) => {
+    const numero = orderDisplayNumber(order);
+    const { picked, total } = separationProgress(order);
+    const step = resolveSeparationWorkflowStep(order);
+    const urgent = Boolean(order.isUrgentManual) || order.priority <= 2;
+    const orderWhen = formatOrderQueueDate(
+      order.orderDate ?? order.createdAt,
+    );
+    const deliveryWhen = order.requestedDeliveryDate
+      ? formatOrderQueueDate(order.requestedDeliveryDate)
+      : '—';
+
+    return (
+      <div
+        key={order.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => openOrder(order.id)}
+        onKeyDown={(e) => handleKeyDown(e, order.id)}
+        className={`exp-sep-list-row${
+          selectedOrderId === order.id ? ' exp-sep-list-row--selected' : ''
+        }${selectedIds.has(order.id) ? ' exp-sep-list-row--checked' : ''}`}
+      >
+        <label
+          className="exp-sep-list-check"
+          onClick={(e: MouseEvent) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            className="pedido-card-checkbox"
+            checked={selectedIds.has(order.id)}
+            onChange={() => onToggleSelection(order.id)}
+            aria-label={`Selecionar pedido ${numero}`}
+          />
+        </label>
+
+        <span className="exp-sep-list-num">
+          <span className="exp-sep-list-num-value">#{numero}</span>
+          {urgent ? (
+            <span
+              className="exp-sep-list-urgent"
+              style={
+                order.isUrgentManual
+                  ? MANUAL_URGENT_BADGE_STYLE
+                  : URGENT_BADGE_STYLE
+              }
+            >
+              URGENTE
+            </span>
+          ) : null}
+        </span>
+
+        <span className="exp-sep-list-text" title={order.receiverName ?? ''}>
+          {displayOrDash(order.receiverName ?? order.customerName)}
+        </span>
+
+        <span className="exp-sep-list-text" title={order.carrierName ?? ''}>
+          {displayOrDash(order.carrierName)}
+        </span>
+
+        <span
+          className="exp-sep-list-text"
+          title={order.unloadingPoint ?? ''}
+        >
+          {displayOrDash(order.unloadingPoint)}
+        </span>
+
+        <span className="exp-sep-list-progress">
+          <SeparationStepIndicator currentStep={step} compact />
+          {total > 0 ? (
+            <span className="exp-sep-list-progress-qty">
+              {picked}/{total}
+            </span>
+          ) : null}
+        </span>
+
+        <span className="exp-sep-list-date">{orderWhen}</span>
+        <span className="exp-sep-list-date">{deliveryWhen}</span>
+
+        <span className="exp-sep-list-actions">
+          {onRemoveFromSeparation ? (
+            <button
+              type="button"
+              className="exp-queue-card-admin-icon-btn exp-queue-card-admin-icon-btn--danger"
+              aria-label={`Remover pedido ${numero} da separação`}
+              title="Remover da separação"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveFromSeparation(order);
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </span>
+      </div>
+    );
+  };
+
+  const renderSection = (
+    title: string,
+    sectionOrders: OrderDto[],
+    variant: 'partial' | 'fresh',
+  ): ReactNode => {
+    if (sectionOrders.length === 0) return null;
+    return (
+      <div
+        className={`exp-queue-section exp-queue-section--${variant}`}
+        key={variant}
+      >
+        <div className="exp-queue-section-title">
+          {title}
+          <span className="exp-queue-section-count">{sectionOrders.length}</span>
+        </div>
+        {sectionOrders.map(renderRow)}
+      </div>
+    );
   };
 
   return (
@@ -75,105 +197,8 @@ export function SeparationQueueList(props: {
         <span />
       </div>
 
-      {orders.map((order) => {
-        const numero = orderDisplayNumber(order);
-        const { picked, total } = separationProgress(order);
-        const step = resolveSeparationWorkflowStep(order);
-        const urgent = Boolean(order.isUrgentManual) || order.priority <= 2;
-        const orderWhen = formatOrderQueueDate(
-          order.orderDate ?? order.createdAt,
-        );
-        const deliveryWhen = order.requestedDeliveryDate
-          ? formatOrderQueueDate(order.requestedDeliveryDate)
-          : '—';
-
-        return (
-          <div
-            key={order.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => openOrder(order.id)}
-            onKeyDown={(e) => handleKeyDown(e, order.id)}
-            className={`exp-sep-list-row${
-              selectedOrderId === order.id ? ' exp-sep-list-row--selected' : ''
-            }${selectedIds.has(order.id) ? ' exp-sep-list-row--checked' : ''}`}
-          >
-            <label
-              className="exp-sep-list-check"
-              onClick={(e: MouseEvent) => e.stopPropagation()}
-            >
-              <input
-                type="checkbox"
-                className="pedido-card-checkbox"
-                checked={selectedIds.has(order.id)}
-                onChange={() => onToggleSelection(order.id)}
-                aria-label={`Selecionar pedido ${numero}`}
-              />
-            </label>
-
-            {/* Badge em segunda linha: lado a lado ele cobria número e recebedor. */}
-            <span className="exp-sep-list-num">
-              <span className="exp-sep-list-num-value">#{numero}</span>
-              {urgent ? (
-                <span
-                  className="exp-sep-list-urgent"
-                  style={
-                    order.isUrgentManual
-                      ? MANUAL_URGENT_BADGE_STYLE
-                      : URGENT_BADGE_STYLE
-                  }
-                >
-                  URGENTE
-                </span>
-              ) : null}
-            </span>
-
-            <span className="exp-sep-list-text" title={order.receiverName ?? ''}>
-              {displayOrDash(order.receiverName ?? order.customerName)}
-            </span>
-
-            <span className="exp-sep-list-text" title={order.carrierName ?? ''}>
-              {displayOrDash(order.carrierName)}
-            </span>
-
-            <span
-              className="exp-sep-list-text"
-              title={order.unloadingPoint ?? ''}
-            >
-              {displayOrDash(order.unloadingPoint)}
-            </span>
-
-            <span className="exp-sep-list-progress">
-              <SeparationStepIndicator currentStep={step} compact />
-              {total > 0 ? (
-                <span className="exp-sep-list-progress-qty">
-                  {picked}/{total}
-                </span>
-              ) : null}
-            </span>
-
-            <span className="exp-sep-list-date">{orderWhen}</span>
-            <span className="exp-sep-list-date">{deliveryWhen}</span>
-
-            <span className="exp-sep-list-actions">
-              {onRemoveFromSeparation ? (
-                <button
-                  type="button"
-                  className="exp-queue-card-admin-icon-btn exp-queue-card-admin-icon-btn--danger"
-                  aria-label={`Remover pedido ${numero} da separação`}
-                  title="Remover da separação"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemoveFromSeparation(order);
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </span>
-          </div>
-        );
-      })}
+      {renderSection('Pedidos Parciais (retomar)', partial, 'partial')}
+      {renderSection('Novos Pedidos', fresh, 'fresh')}
     </div>
   );
 }

@@ -37,6 +37,8 @@ enum OrderStatus {
   EXPEDIDO
   FINALIZADO
   CANCELADO
+  /// Pedidos históricos encerrados administrativamente (fora das filas operacionais)
+  ARQUIVADO
 }
 
 enum OrderItemStockStatus {

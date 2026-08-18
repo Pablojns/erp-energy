@@ -16,7 +16,8 @@ export type OrderStatus =
   | 'NF_ATRELADA'
   | 'EXPEDIDO'
   | 'FINALIZADO'
-  | 'CANCELADO';
+  | 'CANCELADO'
+  | 'ARQUIVADO';
 
 export type InvoiceStatus =
   | 'NOT_FOUND'

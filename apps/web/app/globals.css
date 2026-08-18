@@ -2346,6 +2346,68 @@ label,
   gap: 2px;
 }
 
+.exp-queue-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.exp-queue-section--partial {
+  border: 1px solid color-mix(in srgb, #d97706 45%, var(--exp-border, #e5e7eb));
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 8%, var(--bg-card, #fff));
+  padding: 6px;
+}
+
+.exp-queue-section--fresh {
+  margin-top: 10px;
+}
+
+.exp-queue-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.exp-queue-section--partial .exp-queue-section-title {
+  color: #b45309;
+}
+
+.exp-queue-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-pedidos-section-row td {
+  padding: 8px 10px 4px !important;
+  border-bottom: none !important;
+  background: transparent !important;
+}
+
+.exp-pedidos-section-row--partial td {
+  background: color-mix(in srgb, #f59e0b 8%, var(--bg-card, #fff)) !important;
+}
+
+.exp-pedidos-row--partial {
+  background: color-mix(in srgb, #f59e0b 5%, transparent);
+}
+
 .exp-sep-list-header,
 .exp-sep-list-row {
   display: grid;

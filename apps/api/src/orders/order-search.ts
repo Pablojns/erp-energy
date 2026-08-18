@@ -186,7 +186,7 @@ export function buildOrderFieldFilterWhere(
 export function buildOrderParcialWhere(): Prisma.OrderWhereInput {
   return {
     AND: [
-      { status: { notIn: ['FINALIZADO', 'EXPEDIDO', 'CANCELADO'] } },
+      { status: { notIn: ['FINALIZADO', 'EXPEDIDO', 'CANCELADO', 'ARQUIVADO'] } },
       {
         OR: [
           { status: 'PARCIAL' },

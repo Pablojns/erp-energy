@@ -59,6 +59,7 @@ import {
   InlineLoadMoreSkeleton,
   ListSkeleton,
 } from '@/src/components/ui/skeleton';
+import { splitOrdersPartialFirst } from '@/src/components/expedicao/shared/order-helpers';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
 
@@ -602,6 +603,40 @@ export function OrderQueue(props: {
     />
   );
 
+  const renderGroupedOrderCards = (list: OrderDto[]) => {
+    const { partial, fresh } = splitOrdersPartialFirst(list);
+    return (
+      <>
+        {partial.length > 0 ? (
+          <div className="exp-queue-section exp-queue-section--partial">
+            <div className="exp-queue-section-title">
+              Pedidos Parciais (retomar)
+              <span className="exp-queue-section-count">{partial.length}</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {partial.map((order) => (
+                <div key={order.id}>{renderOrderCard(order)}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {fresh.length > 0 ? (
+          <div className="exp-queue-section exp-queue-section--fresh">
+            <div className="exp-queue-section-title">
+              Novos Pedidos
+              <span className="exp-queue-section-count">{fresh.length}</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {fresh.map((order) => (
+                <div key={order.id}>{renderOrderCard(order)}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  };
+
   const handleStatusFilterChange = (id: StatusFilterId) => {
     data.setPage(1);
     setActiveCustomFilterId(null);
@@ -1043,9 +1078,7 @@ export function OrderQueue(props: {
               ref={pedidosMobileScrollRef}
               className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto md:hidden"
             >
-              {data.orders.map((order) => (
-                <div key={order.id}>{renderOrderCard(order)}</div>
-              ))}
+              {renderGroupedOrderCards(data.orders)}
               {data.ordersHasMore ? (
                 <div
                   ref={loadMoreSentinelMobileRef}
@@ -1074,7 +1107,7 @@ export function OrderQueue(props: {
               />
             </div>
             <div className="flex w-full flex-col gap-1.5 md:hidden">
-              {data.orders.map(renderOrderCard)}
+              {renderGroupedOrderCards(data.orders)}
             </div>
             {data.ordersHasMore ? (
               <div ref={loadMoreSentinelRef} className="exp-queue-load-more-sentinel" />

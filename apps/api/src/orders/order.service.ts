@@ -60,12 +60,14 @@ const NEXT_CODE_ADVISORY_LOCK = 94821002;
 const TERMINAL: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
+  OrderStatus.ARQUIVADO,
 ];
 
 /** Pedidos encerrados não entram no contador de atrasados. */
 const DELAYED_EXCLUDED_STATUSES: OrderStatus[] = [
   OrderStatus.FINALIZADO,
   OrderStatus.CANCELADO,
+  OrderStatus.ARQUIVADO,
   OrderStatus.EXPEDIDO,
 ];
 
@@ -384,7 +386,7 @@ export class OrderService {
       this.prisma.client.order.groupBy({
         by: ['receiverName'],
         where: {
-          status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO] },
+          status: { notIn: [OrderStatus.FINALIZADO, OrderStatus.CANCELADO, OrderStatus.ARQUIVADO] },
           receiverName: { not: null },
           NOT: { receiverName: '' },
         },
@@ -3241,10 +3243,14 @@ export class OrderService {
   }
 
   private assertTransition(from: OrderStatus, to: OrderStatus) {
-    if (from === OrderStatus.FINALIZADO || from === OrderStatus.CANCELADO) {
+    if (
+      from === OrderStatus.FINALIZADO ||
+      from === OrderStatus.CANCELADO ||
+      from === OrderStatus.ARQUIVADO
+    ) {
       throw new BadRequestException('Pedido encerrado.');
     }
-    if (to === OrderStatus.CANCELADO) return;
+    if (to === OrderStatus.CANCELADO || to === OrderStatus.ARQUIVADO) return;
 
     if (to === OrderStatus.RESERVADO) {
       throw new BadRequestException(
@@ -3506,6 +3512,11 @@ export class OrderService {
           NOT: { trackingCode: '' },
         });
       }
+    }
+
+    // Arquivados ficam fora das filas operacionais (só com filtro explícito ARQUIVADO).
+    if (st !== OrderStatus.ARQUIVADO && st !== 'arquivado') {
+      clauses.push({ status: { not: OrderStatus.ARQUIVADO } });
     }
 
     const searchWhere = buildOrderSearchWhere(query.search);
@@ -3912,11 +3923,10 @@ export class OrderService {
     }
     if (to === OrderStatus.EM_SEPARACAO) {
       data.sentToSeparationAt = new Date();
-      // Cada ciclo tem seu próprio despacho: volume, transportadora e rastreio
-      // voltam em branco para nova confirmação (saídas anteriores ficam no
-      // histórico — OrderExit não é apagado).
+      // Cada ciclo tem seu próprio despacho: volume e rastreio voltam em branco
+      // para nova confirmação (saídas anteriores ficam no histórico — OrderExit
+      // não é apagado). Transportadora escolhida antes do envio é preservada.
       data.volumes = null;
-      data.carrierId = null;
       data.trackingCode = null;
     }
     if (to === OrderStatus.NOVO) {

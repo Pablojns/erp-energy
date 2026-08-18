@@ -1357,6 +1357,11 @@ export class PedidosService {
       `correios-${pedidoNum}`.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_') ||
       'correios-pedido';
 
+    // Valida transportadora Correios antes de qualquer chamada externa / poll
+    // (evita ~30s de espera quando o pedido está sem PAC/SEDEX/MINI ENVIOS).
+    const carrierName = order.carrier?.name ?? '';
+    const codigoServico = this.mapCarrierToCorreiosService(carrierName);
+
     // Só a saída/rastreio DESTE ciclo: histórico de ciclos anteriores não pode
     // disparar reimpressão nem receber o tracking novo (bug do 2º/3º reenvio).
     const exit = await this.prisma.client.orderExit.findFirst({
@@ -1392,8 +1397,6 @@ export class PedidosService {
       }
     }
 
-    const carrierName = order.carrier?.name ?? '';
-    const codigoServico = this.mapCarrierToCorreiosService(carrierName);
     const remetente = await this.buildRemetenteCorreios();
     const destinatario = this.parseDestinatarioFromOrder(order);
     const descricaoConteudo =
@@ -3081,7 +3084,7 @@ export class PedidosService {
       where: {
         AND: [
           PedidosService.separationMinDateWhere(),
-          { status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO] } },
+          { status: { notIn: [OrderStatus.CANCELADO, OrderStatus.FINALIZADO, OrderStatus.ARQUIVADO] } },
         ],
       },
       orderBy: [

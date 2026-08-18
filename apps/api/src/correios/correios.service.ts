@@ -844,6 +844,30 @@ export class CorreiosService {
           /* aguarda próxima tentativa */
         }
       }
+
+      // Erros definitivos (exceto 404 = ainda processando): não gastar ~30s de poll.
+      if (status >= 400 && status !== 404) {
+        let msg = `Falha ao baixar rótulo Correios (HTTP ${status}).`;
+        try {
+          const raw = Buffer.from(data).toString('utf8');
+          const parsed = JSON.parse(raw) as {
+            msgs?: string[];
+            message?: string;
+            detail?: string;
+          };
+          msg =
+            parsed.msgs?.join?.(' ') ||
+            parsed.message ||
+            parsed.detail ||
+            msg;
+        } catch {
+          /* mantém msg padrão */
+        }
+        this.logger.error(
+          `Download rótulo Correios falhou — status ${status} — ${msg}`,
+        );
+        throw new BadRequestException(msg);
+      }
     }
 
     throw new BadRequestException('Timeout ao gerar rótulo Correios.');

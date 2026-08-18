@@ -31,6 +31,7 @@ export const ORDER_STATUS = {
   EXPEDIDO: 'EXPEDIDO',
   FINALIZADO: 'FINALIZADO',
   CANCELADO: 'CANCELADO',
+  ARQUIVADO: 'ARQUIVADO',
 } as const;
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];

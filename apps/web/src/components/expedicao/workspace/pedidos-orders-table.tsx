@@ -7,6 +7,7 @@ import {
   displayOrDash,
   formatOrderStatusLabel,
   orderDisplayNumber,
+  splitOrdersPartialFirst,
 } from '@/src/components/expedicao/shared/order-helpers';
 import { TableColumnsPicker } from '@/src/components/shared/table-columns-picker';
 import { useTableColumnPreferences } from '@/src/hooks/use-table-column-preferences';
@@ -138,6 +139,9 @@ export function PedidosOrdersTable({
 
   const hasActions = isAdmin && Boolean(onEditOrder || onDeleteOrder);
   const hasCheckbox = Boolean(onTogglePrint);
+  const { partial, fresh } = splitOrdersPartialFirst(orders);
+  const sectionColSpan =
+    (hasCheckbox ? 1 : 0) + visibleColumns.length + 1 + (hasActions ? 1 : 0);
 
   const cellValue = (order: OrderDto, key: string): string => {
     switch (key) {
@@ -224,91 +228,128 @@ export function PedidosOrdersTable({
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => {
-              const selected = selectedOrderId === order.id;
-              return (
+            {(
+              [
+                {
+                  key: 'partial',
+                  title: 'Pedidos Parciais (retomar)',
+                  rows: partial,
+                  variant: 'partial' as const,
+                },
+                {
+                  key: 'fresh',
+                  title: 'Novos Pedidos',
+                  rows: fresh,
+                  variant: 'fresh' as const,
+                },
+              ] as const
+            ).flatMap((section) => {
+              if (section.rows.length === 0) return [];
+              return [
                 <tr
-                  key={order.id}
-                  className={`exp-pedidos-row ${selected ? 'exp-pedidos-row--selected' : ''}`}
-                  onClick={() => {
-                    onSelectOrder(order.id);
-                    onOrderChosen?.();
-                  }}
+                  key={`section-${section.key}`}
+                  className={`exp-pedidos-section-row exp-pedidos-section-row--${section.variant}`}
                 >
-                  {hasCheckbox ? (
-                    <td
-                      className="exp-pedidos-td exp-pedidos-td--check"
-                      onClick={(e) => e.stopPropagation()}
+                  <td colSpan={sectionColSpan}>
+                    <span className="exp-queue-section-title">
+                      {section.title}
+                      <span className="exp-queue-section-count">
+                        {section.rows.length}
+                      </span>
+                    </span>
+                  </td>
+                </tr>,
+                ...section.rows.map((order) => {
+                  const selected = selectedOrderId === order.id;
+                  return (
+                    <tr
+                      key={order.id}
+                      className={`exp-pedidos-row ${selected ? 'exp-pedidos-row--selected' : ''}${
+                        section.variant === 'partial'
+                          ? ' exp-pedidos-row--partial'
+                          : ''
+                      }`}
+                      onClick={() => {
+                        onSelectOrder(order.id);
+                        onOrderChosen?.();
+                      }}
                     >
-                      <input
-                        type="checkbox"
-                        className="exp-pedidos-check"
-                        checked={selectedForPrintIds?.has(order.id) ?? false}
-                        onChange={() => onTogglePrint?.(order.id)}
-                        aria-label={`Selecionar pedido ${orderDisplayNumber(order)}`}
-                      />
-                    </td>
-                  ) : null}
-                  {visibleColumns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`exp-pedidos-td ${colAlign(col.key)}`}
-                    >
-                      {col.key === 'status' ? (
-                        <div className="exp-pedidos-status-cell">
-                          <OrderClickableStatusBadge order={order} compact />
-                        </div>
-                      ) : col.key === 'pedido' ? (
-                        <span
-                          className="exp-pedidos-cell-pedido block truncate"
-                          title={cellValue(order, col.key)}
+                      {hasCheckbox ? (
+                        <td
+                          className="exp-pedidos-td exp-pedidos-td--check"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {cellValue(order, col.key)}
-                        </span>
-                      ) : (
-                        <span
-                          className={`exp-pedidos-cell-secondary block truncate tabular-nums ${
-                            col.key === 'nf' ? 'text-center' : ''
-                          }`}
-                          title={cellValue(order, col.key)}
+                          <input
+                            type="checkbox"
+                            className="exp-pedidos-check"
+                            checked={selectedForPrintIds?.has(order.id) ?? false}
+                            onChange={() => onTogglePrint?.(order.id)}
+                            aria-label={`Selecionar pedido ${orderDisplayNumber(order)}`}
+                          />
+                        </td>
+                      ) : null}
+                      {visibleColumns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`exp-pedidos-td ${colAlign(col.key)}`}
                         >
-                          {cellValue(order, col.key)}
-                        </span>
-                      )}
-                    </td>
-                  ))}
-                  <td className="exp-pedidos-td exp-pedidos-td--filler" aria-hidden />
-                  {hasActions ? (
-                    <td
-                      className="exp-pedidos-td text-right"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="exp-pedidos-actions">
-                        {onEditOrder ? (
-                          <button
-                            type="button"
-                            className="exp-pedidos-action-btn"
-                            aria-label="Editar pedido"
-                            onClick={() => onEditOrder(order)}
-                          >
-                            <Pencil className="h-4 w-4" aria-hidden />
-                          </button>
-                        ) : null}
-                        {onDeleteOrder ? (
-                          <button
-                            type="button"
-                            className="exp-pedidos-action-btn exp-pedidos-action-btn--danger"
-                            aria-label="Excluir pedido"
-                            onClick={() => onDeleteOrder(order)}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              );
+                          {col.key === 'status' ? (
+                            <div className="exp-pedidos-status-cell">
+                              <OrderClickableStatusBadge order={order} compact />
+                            </div>
+                          ) : col.key === 'pedido' ? (
+                            <span
+                              className="exp-pedidos-cell-pedido block truncate"
+                              title={cellValue(order, col.key)}
+                            >
+                              {cellValue(order, col.key)}
+                            </span>
+                          ) : (
+                            <span
+                              className={`exp-pedidos-cell-secondary block truncate tabular-nums ${
+                                col.key === 'nf' ? 'text-center' : ''
+                              }`}
+                              title={cellValue(order, col.key)}
+                            >
+                              {cellValue(order, col.key)}
+                            </span>
+                          )}
+                        </td>
+                      ))}
+                      <td className="exp-pedidos-td exp-pedidos-td--filler" aria-hidden />
+                      {hasActions ? (
+                        <td
+                          className="exp-pedidos-td text-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="exp-pedidos-actions">
+                            {onEditOrder ? (
+                              <button
+                                type="button"
+                                className="exp-pedidos-action-btn"
+                                aria-label="Editar pedido"
+                                onClick={() => onEditOrder(order)}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                              </button>
+                            ) : null}
+                            {onDeleteOrder ? (
+                              <button
+                                type="button"
+                                className="exp-pedidos-action-btn exp-pedidos-action-btn--danger"
+                                aria-label="Excluir pedido"
+                                onClick={() => onDeleteOrder(order)}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                }),
+              ];
             })}
           </tbody>
         </table>

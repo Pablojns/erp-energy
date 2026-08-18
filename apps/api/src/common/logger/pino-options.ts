@@ -32,6 +32,15 @@ export function buildNestPinoParams(): Params {
         return requestId;
       },
       customLogLevel: (_req, res, err) => getLevelFromStatus(res.statusCode, err),
+      customProps: (req) => {
+        const user = (req as { user?: { id?: string } }).user;
+        const ctx = getRequestContext();
+        return {
+          requestId: ctx?.requestId ?? null,
+          userId: user?.id ?? ctx?.userId ?? null,
+          action: ctx?.action ?? null,
+        };
+      },
       serializers: {
         req: (req) =>
           sanitizeForLog({
@@ -53,6 +62,8 @@ export function buildNestPinoParams(): Params {
           }),
       },
       mixin: () => {
+        // Preferir customProps (lê req.user). Mantém fallback se customProps
+        // não estiver disponível em algum caminho de log.
         const ctx = getRequestContext();
         if (!ctx) return {};
         return {
