@@ -813,8 +813,14 @@ export const OrderInfoPanel = forwardRef<
     try {
       const etiquetaEndpoint =
         kind === 'correios' ? 'etiqueta-correios' : 'etiqueta';
-      const res = await fetch(`/api/erp/${pedidoApiUrl(numeroPed, etiquetaEndpoint)}`, {
+      // pedidoApiUrl inclui "api/" — erpFetchJson remove; aqui o fetch monta /api/erp/* manualmente.
+      const etiquetaPath = pedidoApiUrl(numeroPed, etiquetaEndpoint).replace(
+        /^api\//,
+        '',
+      );
+      const res = await fetch(`/api/erp/${etiquetaPath}`, {
         credentials: 'include',
+        signal: AbortSignal.timeout(120_000),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -863,8 +869,14 @@ export const OrderInfoPanel = forwardRef<
 
       onStatusChanged?.();
     } catch (err) {
+      const timedOut =
+        err instanceof DOMException && err.name === 'TimeoutError';
       setEtiquetaError(
-        err instanceof Error ? err.message : 'Não foi possível gerar a etiqueta.',
+        timedOut
+          ? 'A geração da etiqueta demorou demais. Tente novamente.'
+          : err instanceof Error
+            ? err.message
+            : 'Não foi possível gerar a etiqueta.',
       );
     } finally {
       setEmittingEtiqueta(null);

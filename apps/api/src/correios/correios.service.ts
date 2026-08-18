@@ -816,7 +816,9 @@ export class CorreiosService {
     }
 
     for (let i = 0; i < 15; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
       const { data, status, headers: respHeaders } = await this.api.get(
         `/prepostagem/v1/prepostagens/rotulo/download/assincrono/${idRecibo}`,
         {

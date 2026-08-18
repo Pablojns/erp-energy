@@ -336,12 +336,15 @@ export function SeparationWorkbench(props: {
       const etiquetaEndpoint =
         kind === 'correios' ? 'etiqueta-correios' : 'etiqueta';
 
-      const res = await fetch(
-        `/api/erp/${pedidoApiUrl(numeroPed, etiquetaEndpoint)}`,
-        {
-          credentials: 'include',
-        },
+      // pedidoApiUrl inclui "api/" — erpFetchJson remove; aqui o fetch monta /api/erp/* manualmente.
+      const etiquetaPath = pedidoApiUrl(numeroPed, etiquetaEndpoint).replace(
+        /^api\//,
+        '',
       );
+      const res = await fetch(`/api/erp/${etiquetaPath}`, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(120_000),
+      });
       if (!res.ok) {
         const text = await res.text();
         let message = 'Não foi possível gerar a etiqueta.';
@@ -376,10 +379,15 @@ export function SeparationWorkbench(props: {
             : 'Etiqueta ERP emitida e saída confirmada.',
       });
     } catch (err) {
+      const timedOut =
+        err instanceof DOMException && err.name === 'TimeoutError';
       data.setToast({
         variant: 'err',
-        message:
-          err instanceof Error ? err.message : 'Falha ao imprimir etiqueta.',
+        message: timedOut
+          ? 'A geração da etiqueta demorou demais. Tente novamente.'
+          : err instanceof Error
+            ? err.message
+            : 'Falha ao imprimir etiqueta.',
       });
     } finally {
       setPrintingEtiqueta(null);

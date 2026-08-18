@@ -137,12 +137,21 @@ async function proxy(request: NextRequest, segments: string[]) {
     /quotes\/catalog\/sync(-spot)?$/i.test(path) ||
     /api\/quotes\/catalog\/sync(-spot)?$/i.test(path);
 
+  /** Rótulo Correios faz poll assíncrono (até ~30s de espera) — 30s do proxy estoura 504. */
+  const isLongCorreiosEtiqueta =
+    /etiqueta-correios$/i.test(path) ||
+    /(^|\/)correios\/rotulo(\/|$)/i.test(path);
+
   const init: RequestInit = {
     method,
     headers,
     cache: 'no-store',
     signal: AbortSignal.timeout(
-      isLongRunningCatalogSync ? LONG_PROXY_TIMEOUT_MS : PROXY_TIMEOUT_MS,
+      isLongRunningCatalogSync
+        ? LONG_PROXY_TIMEOUT_MS
+        : isLongCorreiosEtiqueta
+          ? 120_000
+          : PROXY_TIMEOUT_MS,
     ),
   };
 
