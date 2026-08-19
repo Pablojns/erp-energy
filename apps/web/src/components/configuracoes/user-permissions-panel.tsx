@@ -28,7 +28,10 @@ type UserPermissionsPanelProps = {
   onClose?: () => void;
 };
 
-function formatActionLabel(action: string): string {
+function formatActionLabel(module: string, action: string): string {
+  if (module === 'crm' && action === 'ver_todos_leads') {
+    return 'Ver todos os leads do CRM';
+  }
   const label = action.replace(/_/g, ' ');
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
@@ -261,7 +264,10 @@ export function UserPermissionsPanel({
                         >
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-gray-900">
-                              {formatActionLabel(permission.action)}
+                              {formatActionLabel(
+                                permission.module,
+                                permission.action,
+                              )}
                             </p>
                             {permission.description ? (
                               <p className="mt-0.5 text-xs text-gray-500">

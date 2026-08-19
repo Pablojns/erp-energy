@@ -7,6 +7,7 @@ export const REQUIRE_PERMISSION_KEY = 'require_permission';
 export interface RequiredPermission {
   module: string;
   action: string;
+  description?: string;
 }
 
 export const RequirePermission = (module: string, action: string) =>

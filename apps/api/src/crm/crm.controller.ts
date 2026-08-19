@@ -142,8 +142,8 @@ export class CrmController {
 
   @Get('cards')
   @RequirePermission('crm', 'ver_modulo')
-  listCards() {
-    return this.crm.listCards();
+  listCards(@CurrentUser() user: AuthUser) {
+    return this.crm.listCards(user);
   }
 
   @Get('cards/check-duplicate')
@@ -210,8 +210,8 @@ export class CrmController {
 
   @Get('cards/:id')
   @RequirePermission('crm', 'ver_modulo')
-  getCard(@Param('id') id: string) {
-    return this.crm.getCard(id);
+  getCard(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.crm.getCard(id, user);
   }
 
   @Post('cards')
@@ -253,14 +253,20 @@ export class CrmController {
 
   @Get('dashboard')
   @RequirePermission('crm', 'ver_modulo')
-  dashboard(@Query() query: CrmDashboardQueryDto) {
-    return this.crm.getDashboard(query);
+  dashboard(
+    @Query() query: CrmDashboardQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.crm.getDashboard(query, user);
   }
 
   @Get('relatorios')
   @RequirePermission('crm', 'ver_modulo')
-  relatorios(@Query() query: CrmRelatoriosQueryDto) {
-    return this.crm.getRelatorios(query);
+  relatorios(
+    @Query() query: CrmRelatoriosQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.crm.getRelatorios(query, user);
   }
 
   @Get('usuarios')

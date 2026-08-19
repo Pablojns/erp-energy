@@ -30,6 +30,12 @@ export class PermissionSyncService implements OnModuleInit {
     { module: 'financeiro', action: 'ver_modulo' },
     { module: 'cadastros', action: 'ver_modulo' },
     { module: 'crm', action: 'ver_modulo' },
+    {
+      module: 'crm',
+      action: 'ver_todos_leads',
+      description:
+        'Sem esta permissão, o usuário vê apenas os leads em que é o responsável.',
+    },
     { module: 'chat', action: 'ver_modulo' },
     { module: 'correios', action: 'ver_modulo' },
     { module: 'notificacoes', action: 'receber_estoque' },
@@ -66,19 +72,7 @@ export class PermissionSyncService implements OnModuleInit {
         if (seen.has(key)) continue;
         seen.add(key);
 
-        await this.prisma.client.permission.upsert({
-          where: {
-            module_action: {
-              module: meta.module,
-              action: meta.action,
-            },
-          },
-          create: {
-            module: meta.module,
-            action: meta.action,
-          },
-          update: {},
-        });
+        await this.upsertPermission(meta);
         synced += 1;
       }
     }
@@ -88,22 +82,27 @@ export class PermissionSyncService implements OnModuleInit {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      await this.prisma.client.permission.upsert({
-        where: {
-          module_action: {
-            module: meta.module,
-            action: meta.action,
-          },
-        },
-        create: {
-          module: meta.module,
-          action: meta.action,
-        },
-        update: {},
-      });
+      await this.upsertPermission(meta);
       synced += 1;
     }
 
     this.logger.info('Permissions synced from controllers', { synced });
+  }
+
+  private upsertPermission(meta: RequiredPermission) {
+    return this.prisma.client.permission.upsert({
+      where: {
+        module_action: {
+          module: meta.module,
+          action: meta.action,
+        },
+      },
+      create: {
+        module: meta.module,
+        action: meta.action,
+        description: meta.description ?? null,
+      },
+      update: meta.description ? { description: meta.description } : {},
+    });
   }
 }

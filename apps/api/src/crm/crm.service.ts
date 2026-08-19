@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@erp/database';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { PermissionsService } from '../common/permissions/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   NOTIFICATION_PRIORITY,
@@ -136,7 +138,16 @@ export class CrmService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly permissions: PermissionsService,
   ) {}
+
+  private async leadVisibilityWhere(
+    user: AuthUser,
+  ): Promise<Prisma.CrmCardWhereInput> {
+    const seeAll = await this.permissions.canSeeAllCrmLeads(user);
+    if (seeAll) return {};
+    return { responsavelId: user.id };
+  }
 
   private serializeFunil(row: CrmFunilRow) {
     return {
@@ -584,7 +595,8 @@ export class CrmService {
     return { ok: true };
   }
 
-  async listCards() {
+  async listCards(user: AuthUser) {
+    const visibility = await this.leadVisibilityWhere(user);
     const [funis, statusMap] = await Promise.all([
       this.prisma.client.crmFunil.findMany({
         orderBy: { order: 'asc' },
@@ -597,7 +609,7 @@ export class CrmService {
     const columns = await Promise.all(
       funis.map((funil) =>
         this.prisma.client.crmCard.findMany({
-          where: { funilId: funil.id },
+          where: { funilId: funil.id, ...visibility },
           include: this.boardCardInclude,
           orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
           take: perColumn,
@@ -608,9 +620,17 @@ export class CrmService {
     return columns.flat().map((r) => this.serializeCard(r, statusMap));
   }
 
-  async getCard(id: string) {
-    const row = await this.prisma.client.crmCard.findUnique({
-      where: { id },
+  async getCard(id: string, user: AuthUser) {
+    const visibility = await this.leadVisibilityWhere(user);
+    return this.loadSerializedCard(id, visibility);
+  }
+
+  private async loadSerializedCard(
+    id: string,
+    visibility: Prisma.CrmCardWhereInput = {},
+  ) {
+    const row = await this.prisma.client.crmCard.findFirst({
+      where: { id, ...visibility },
       include: this.cardInclude,
     });
     if (!row) throw new NotFoundException('Card não encontrado.');
@@ -936,7 +956,7 @@ export class CrmService {
       data: { touchPoints: doneCount },
     });
 
-    return this.getCard(id);
+    return this.loadSerializedCard(id);
   }
 
   async deleteCard(id: string) {
@@ -1110,13 +1130,15 @@ export class CrmService {
     };
   }
 
-  async getDashboard(query: CrmDashboardQueryDto) {
+  async getDashboard(query: CrmDashboardQueryDto, user: AuthUser) {
     const originFilter =
       query.origin && query.origin !== 'TODOS' ? query.origin : undefined;
     const range = this.resolveDashboardRange(query);
     const createdAt = this.createdAtRangeFilter(range.start, range.end);
+    const visibility = await this.leadVisibilityWhere(user);
 
     const where: Prisma.CrmCardWhereInput = {
+      ...visibility,
       ...(originFilter ? { origin: originFilter } : {}),
       ...(createdAt ? { createdAt } : {}),
     };
@@ -1610,7 +1632,7 @@ export class CrmService {
     };
   }
 
-  async getRelatorios(query: CrmRelatoriosQueryDto) {
+  async getRelatorios(query: CrmRelatoriosQueryDto, user: AuthUser) {
     const start = new Date(query.startDate);
     const end = new Date(query.endDate);
     end.setHours(23, 59, 59, 999);
@@ -1624,8 +1646,10 @@ export class CrmService {
 
     const originFilter =
       query.origin && query.origin !== 'TODOS' ? query.origin : undefined;
+    const visibility = await this.leadVisibilityWhere(user);
 
     const where: Prisma.CrmCardWhereInput = {
+      ...visibility,
       createdAt: { gte: start, lte: end },
       ...(originFilter ? { origin: originFilter } : {}),
     };

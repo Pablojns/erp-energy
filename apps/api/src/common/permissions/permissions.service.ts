@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { AuthUser } from '../../auth/interfaces/auth-user.interface';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { UpdateUserPermissionDto } from './dto/update-user-permission.dto';
 
@@ -88,5 +89,36 @@ export class PermissionsService {
         'Apenas administradores podem alterar permissões.',
       );
     }
+  }
+
+  async canSeeAllCrmLeads(user: AuthUser): Promise<boolean> {
+    if (user.roles.includes('ADMIN')) {
+      return true;
+    }
+
+    const permission = await this.prisma.client.permission.findUnique({
+      where: {
+        module_action: {
+          module: 'crm',
+          action: 'ver_todos_leads',
+        },
+      },
+      select: { id: true },
+    });
+    if (!permission) {
+      return false;
+    }
+
+    const grant = await this.prisma.client.userPermission.findUnique({
+      where: {
+        userId_permissionId: {
+          userId: user.id,
+          permissionId: permission.id,
+        },
+      },
+      select: { granted: true },
+    });
+
+    return Boolean(grant?.granted);
   }
 }
