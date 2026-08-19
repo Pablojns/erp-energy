@@ -14,10 +14,6 @@ import {
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { OrderClickableStatusBadge } from '@/src/components/expedicao/workspace/order-clickable-status-badge';
 import {
-  ExistingEtiquetaChoiceModal,
-  type ExistingEtiquetaChoice,
-} from '@/src/components/expedicao/workspace/existing-etiqueta-choice-modal';
-import {
   UrgentLinkSuggestionModal,
   type VinculoSugestao,
   type VinculoSugestoesResponse,
@@ -25,10 +21,13 @@ import {
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
+  displayInvoiceNumber,
   hasFiscalDocForEtiqueta,
+  isCorreiosTrackingCode,
   normalizeInvoiceNumberDigits,
   numeroPedFromOrder,
   pedidoApiUrl,
+  trackingCodeFromOrder,
 } from '@/src/services/api/pedidos-normalize';
 import { isCorreiosCarrier } from '@/src/components/expedicao/shared/correios-carrier';
 
@@ -280,7 +279,7 @@ export const OrderInfoPanel = forwardRef<
       receiver === simpleCliente &&
       (point === simpleEndereco || pointAsAddress === simpleEndereco));
   const notes = order.notes?.trim() || null;
-  const notaVenda = order.invoiceNumber?.trim() || null;
+  const notaVenda = displayInvoiceNumber(order.invoiceNumber) || null;
   const isFinalized =
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
   // Só pedidos finalizados bloqueiam edição; NF residual/histórica não trava o campo.
@@ -290,7 +289,9 @@ export const OrderInfoPanel = forwardRef<
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [notaRemessa, setNotaRemessa] = useState(order.notaRemessa ?? '');
-  const [notaVendaInput, setNotaVendaInput] = useState(order.invoiceNumber ?? '');
+  const [notaVendaInput, setNotaVendaInput] = useState(
+    displayInvoiceNumber(order.invoiceNumber),
+  );
   const [notaRemessaConfirmada, setNotaRemessaConfirmada] = useState(
     order.notaRemessaConfirmada ?? false,
   );
@@ -300,7 +301,7 @@ export const OrderInfoPanel = forwardRef<
   const [notaVendaError, setNotaVendaError] = useState<string | null>(null);
   const lastSavedNotaRemessaRef = useRef(order.notaRemessa ?? '');
   const lastSavedNotaRemessaConfirmadaRef = useRef(order.notaRemessaConfirmada ?? false);
-  const lastSavedNotaVendaRef = useRef(order.invoiceNumber ?? '');
+  const lastSavedNotaVendaRef = useRef(displayInvoiceNumber(order.invoiceNumber));
 
   const [volumesInput, setVolumesInput] = useState(
     order.volumes != null ? String(order.volumes) : '',
@@ -313,13 +314,12 @@ export const OrderInfoPanel = forwardRef<
   );
   const [cancellingEtiqueta, setCancellingEtiqueta] = useState(false);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
-  const [existingEtiquetaModalOpen, setExistingEtiquetaModalOpen] = useState(false);
-  const [existingEtiquetaCode, setExistingEtiquetaCode] = useState('');
-  const [exitingWithExistingEtiqueta, setExitingWithExistingEtiqueta] = useState(false);
-  const [trackingCodeInput, setTrackingCodeInput] = useState(order.trackingCode ?? '');
+  const [trackingCodeInput, setTrackingCodeInput] = useState(
+    trackingCodeFromOrder(order),
+  );
   const [savingTrackingCode, setSavingTrackingCode] = useState(false);
   const [trackingCodeError, setTrackingCodeError] = useState<string | null>(null);
-  const lastSavedTrackingCodeRef = useRef(order.trackingCode ?? '');
+  const lastSavedTrackingCodeRef = useRef(trackingCodeFromOrder(order));
   const [nfHistorico, setNfHistorico] = useState<NfHistoricoItem[]>([]);
   const [nfHistoricoLoading, setNfHistoricoLoading] = useState(false);
   const [nfHistoricoModalOpen, setNfHistoricoModalOpen] = useState(false);
@@ -352,14 +352,14 @@ export const OrderInfoPanel = forwardRef<
   // Correios: as duas etiquetas ficam disponíveis (pré-postagem + etiqueta interna).
   const showBothEtiquetas = isCorreiosOrder && canEmitEtiqueta;
   const canCancelCorreiosEtiqueta =
-    isCorreiosOrder && Boolean(order.trackingCode?.trim());
+    isCorreiosOrder && Boolean(trackingCodeFromOrder(order));
   /** Edição manual liberada para WEG e Site (corrige etiqueta emitida em duplicidade). */
   const canEditTrackingCode = true;
 
   useEffect(() => {
     const initial = order.notaRemessa ?? '';
     const confirmed = order.notaRemessaConfirmada ?? false;
-    const invoice = order.invoiceNumber ?? '';
+    const invoice = displayInvoiceNumber(order.invoiceNumber);
     setNotaRemessa(initial);
     setNotaVendaInput(invoice);
     setNotaRemessaConfirmada(confirmed);
@@ -378,11 +378,11 @@ export const OrderInfoPanel = forwardRef<
   }, [order.id, order.volumes]);
 
   useEffect(() => {
-    const initial = order.trackingCode ?? '';
+    const initial = trackingCodeFromOrder(order);
     setTrackingCodeInput(initial);
     lastSavedTrackingCodeRef.current = initial;
     setTrackingCodeError(null);
-  }, [order.id, order.trackingCode]);
+  }, [order.id, order.trackingCode, order.invoiceNumber]);
 
   useEffect(() => {
     setNfHistoricoModalOpen(false);
@@ -409,6 +409,7 @@ export const OrderInfoPanel = forwardRef<
           setNfHistorico(
             rows.filter(
               (row) =>
+                !isCorreiosTrackingCode(row.invoiceNumber) &&
                 normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
             ),
           );
@@ -706,6 +707,13 @@ export const OrderInfoPanel = forwardRef<
 
   const saveNotaVenda = async () => {
     const trimmed = notaVendaInput.trim();
+    if (isCorreiosTrackingCode(trimmed)) {
+      setNotaVendaError(
+        'Código de rastreio deve ser informado no campo Código de Rastreio.',
+      );
+      setNotaVendaInput(lastSavedNotaVendaRef.current);
+      return;
+    }
     const persisted = trimmed || null;
     const lastPersisted = lastSavedNotaVendaRef.current.trim() || null;
 
@@ -803,6 +811,7 @@ export const OrderInfoPanel = forwardRef<
 
   const emitEtiquetaPdf = async (
     kind: EtiquetaKind = isCorreiosOrder ? 'correios' : 'erp',
+    opts?: { nova?: boolean },
   ) => {
     const numeroPed = numeroPedFromOrder(order);
     if (!numeroPed) {
@@ -821,7 +830,8 @@ export const OrderInfoPanel = forwardRef<
         /^api\//,
         '',
       );
-      const res = await fetch(`/api/erp/${etiquetaPath}`, {
+      const qs = kind === 'correios' && opts?.nova ? '?nova=1' : '';
+      const res = await fetch(`/api/erp/${etiquetaPath}${qs}`, {
         credentials: 'include',
         signal: AbortSignal.timeout(120_000),
       });
@@ -858,11 +868,8 @@ export const OrderInfoPanel = forwardRef<
           ? { invoiceNumber: invoiceDigits }
           : remessa
             ? {}
-            : {
-                invoiceNumber:
-                  order.trackingCode?.trim() || existingEtiquetaCode || '',
-              };
-        if (invoiceDigits || remessa || body.invoiceNumber) {
+            : {};
+        if (invoiceDigits || remessa) {
           await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
             method: 'POST',
             body: JSON.stringify(body),
@@ -886,70 +893,12 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const exitWithExistingEtiqueta = async () => {
-    const numeroPed = numeroPedFromOrder(order);
-    if (!numeroPed) {
-      setEtiquetaError('Número do pedido inválido.');
-      return;
-    }
-
-    setExitingWithExistingEtiqueta(true);
-    setEtiquetaError(null);
-    try {
-      const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
-      const remessa = order.notaRemessa?.trim() || '';
-      const body = invoiceDigits
-        ? { invoiceNumber: invoiceDigits }
-        : remessa || order.notaRemessaConfirmada
-          ? {}
-          : { invoiceNumber: existingEtiquetaCode || order.trackingCode?.trim() || '' };
-
-      if (!invoiceDigits && !remessa && !body.invoiceNumber) {
-        throw new Error(
-          'Informe a Nota de Venda/Remessa ou mantenha o código de rastreio para registrar a saída.',
-        );
-      }
-
-      await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      onStatusChanged?.();
-    } catch (err) {
-      setEtiquetaError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível registrar a saída com a etiqueta existente.',
-      );
-    } finally {
-      setExitingWithExistingEtiqueta(false);
-    }
-  };
-
-  const handleEmitEtiqueta = async (kind?: EtiquetaKind) => {
+  const handleEmitEtiqueta = async (
+    kind?: EtiquetaKind,
+    opts?: { nova?: boolean },
+  ) => {
     const target = kind ?? (isCorreiosOrder ? 'correios' : 'erp');
-    // Aviso de duplicidade só existe para Correios (pré-postagem já criada).
-    // Etiqueta interna do ERP é só reimpressão do PDF.
-    const existingTracking =
-      target === 'correios'
-        ? trackingCodeInput.trim() || order.trackingCode?.trim() || ''
-        : '';
-    if (existingTracking) {
-      setExistingEtiquetaCode(existingTracking);
-      setExistingEtiquetaModalOpen(true);
-      return;
-    }
-    await emitEtiquetaPdf(target);
-  };
-
-  const handleExistingEtiquetaChoice = (choice: ExistingEtiquetaChoice) => {
-    setExistingEtiquetaModalOpen(false);
-    if (choice === 'cancel') return;
-    if (choice === 'exit-existing') {
-      void exitWithExistingEtiqueta();
-      return;
-    }
-    void emitEtiquetaPdf('correios');
+    await emitEtiquetaPdf(target, opts);
   };
 
   const handleCancelCorreiosEtiqueta = async () => {
@@ -1146,6 +1095,18 @@ export const OrderInfoPanel = forwardRef<
                     )}
                     Etiqueta Correios
                   </button>
+                  {canCancelCorreiosEtiqueta ? (
+                    <button
+                      type="button"
+                      className="exp-wb-urgency-toggle text-[11px] font-medium text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() =>
+                        void handleEmitEtiqueta('correios', { nova: true })
+                      }
+                      disabled={emittingEtiqueta !== null || cancellingEtiqueta}
+                    >
+                      Emitir nova etiqueta
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="exp-wb-urgency-toggle inline-flex items-center gap-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1238,8 +1199,8 @@ export const OrderInfoPanel = forwardRef<
                 className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[var(--text-primary)]"
               >
                 <span className="font-semibold">
-                  {saida.invoiceNumber?.trim()
-                    ? `NF ${saida.invoiceNumber.trim()}`
+                  {displayInvoiceNumber(saida.invoiceNumber)
+                    ? `NF ${displayInvoiceNumber(saida.invoiceNumber)}`
                     : 'Saída'}
                 </span>
                 {saida.exitDate ? (
@@ -1780,13 +1741,6 @@ export const OrderInfoPanel = forwardRef<
           ) : null}
         </div>
       </div>
-
-      <ExistingEtiquetaChoiceModal
-        open={existingEtiquetaModalOpen}
-        trackingCode={existingEtiquetaCode}
-        busy={emittingEtiqueta !== null || exitingWithExistingEtiqueta}
-        onChoice={handleExistingEtiquetaChoice}
-      />
 
       {reviewSuggestion ? (
         <UrgentLinkSuggestionModal

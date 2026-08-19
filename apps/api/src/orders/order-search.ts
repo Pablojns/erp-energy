@@ -27,6 +27,14 @@ export function stripAccents(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+/** Código de objeto Correios (ex.: AP373095360BR) — nunca é número de NF. */
+export function isCorreiosTrackingCode(
+  raw: string | null | undefined,
+): boolean {
+  const code = (raw ?? '').trim().toUpperCase().replace(/\s/g, '');
+  return /^[A-Z]{2}\d{8,11}BR$/.test(code);
+}
+
 /**
  * Dígitos de um número de NF: descarta série (`1 - 1897`), sufixo (`1897/2`) e
  * qualquer pontuação. Fonte única — o espelho no front está em
@@ -35,6 +43,7 @@ export function stripAccents(value: string): string {
 export function invoiceNumberDigits(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
+  if (isCorreiosTrackingCode(trimmed)) return '';
 
   let part = trimmed.split('/')[0]?.trim() ?? trimmed;
   const dashMatch = part.match(/[-–—]\s*(.+)$/);

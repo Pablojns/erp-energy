@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@erp/database';
+import { Prisma, OrderSource } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
 import type { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
@@ -327,6 +327,12 @@ export class CadastrosService {
       where: { id },
       data,
     });
+    if (dto.deliveryAddress !== undefined) {
+      await this.prisma.client.order.updateMany({
+        where: { customerId: id, source: OrderSource.SITE },
+        data: { deliveryAddress: data.deliveryAddress ?? null },
+      });
+    }
     return this.serializeCustomer(updated);
   }
 

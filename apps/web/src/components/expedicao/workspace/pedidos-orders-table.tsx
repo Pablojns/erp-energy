@@ -12,6 +12,7 @@ import {
 import { TableColumnsPicker } from '@/src/components/shared/table-columns-picker';
 import { useTableColumnPreferences } from '@/src/hooks/use-table-column-preferences';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
+import { isCorreiosTrackingCode } from '@/src/services/api/pedidos-normalize';
 import type { ColumnDefinition } from '@/src/lib/table-column-preferences';
 
 const brl = new Intl.NumberFormat('pt-BR', {
@@ -32,6 +33,7 @@ function formatCompactDate(iso: string | null | undefined): string {
 }
 
 function formatNfDisplay(value: string | null | undefined): string {
+  if (isCorreiosTrackingCode(value)) return '—';
   const raw = displayOrDash(value);
   if (raw === '—') return raw;
   return raw.replace(/^NF\s*:?\s*/i, '').trim() || raw;

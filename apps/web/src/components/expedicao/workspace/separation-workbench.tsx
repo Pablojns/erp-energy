@@ -12,10 +12,6 @@ import { NfInputModal } from '@/src/components/expedicao/workspace/nf-input-moda
 import { SeparationStepper } from '@/src/components/expedicao/workspace/separation-stepper';
 import { resolveSeparationWorkflowStep } from '@/src/components/expedicao/shared/separation-workflow';
 import { SeparationItemsTable } from '@/src/components/expedicao/workspace/separation-items-table';
-import {
-  ExistingEtiquetaChoiceModal,
-  type ExistingEtiquetaChoice,
-} from '@/src/components/expedicao/workspace/existing-etiqueta-choice-modal';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
@@ -72,8 +68,6 @@ export function SeparationWorkbench(props: {
     null,
   );
   const [readyForEtiqueta, setReadyForEtiqueta] = useState(false);
-  const [existingEtiquetaModalOpen, setExistingEtiquetaModalOpen] = useState(false);
-  const [existingEtiquetaCode, setExistingEtiquetaCode] = useState('');
   const [carrierSaving, setCarrierSaving] = useState(false);
   const [volumesInput, setVolumesInput] = useState(
     order != null && order.volumes != null ? String(order.volumes) : '',
@@ -313,8 +307,8 @@ export function SeparationWorkbench(props: {
         return false;
       }
     }
-    // Remessa confirmada, placeholder de NF ("-") ou só rastreio: POST vazio
-    // deixa o backend resolver remessa → NF → tracking.
+    // Remessa confirmada ou pedido sem NF: POST vazio deixa o backend
+    // resolver remessa → NF (nunca usa rastreio como número de NF).
     const ok = await data.attachRemessaExit(current.id);
     return ok;
   };
@@ -324,6 +318,7 @@ export function SeparationWorkbench(props: {
     kind: EtiquetaKind = isCorreiosCarrier(current.carrierName)
       ? 'correios'
       : 'erp',
+    opts?: { nova?: boolean },
   ) => {
     const numeroPed = numeroPedFromOrder(current);
     if (!numeroPed) {
@@ -341,7 +336,8 @@ export function SeparationWorkbench(props: {
         /^api\//,
         '',
       );
-      const res = await fetch(`/api/erp/${etiquetaPath}`, {
+      const qs = kind === 'correios' && opts?.nova ? '?nova=1' : '';
+      const res = await fetch(`/api/erp/${etiquetaPath}${qs}`, {
         credentials: 'include',
         signal: AbortSignal.timeout(120_000),
       });
@@ -366,15 +362,22 @@ export function SeparationWorkbench(props: {
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-      const ok = await registerExitAfterEtiqueta(current);
-      if (!ok) return;
+      const reprinting =
+        kind === 'correios' &&
+        Boolean(current.trackingCode?.trim()) &&
+        !opts?.nova;
+      if (!reprinting) {
+        const ok = await registerExitAfterEtiqueta(current);
+        if (!ok) return;
+      }
 
       setExitGenerated(true);
       onAfterAction?.();
       data.setToast({
         variant: 'ok',
-        message:
-          kind === 'correios'
+        message: reprinting
+          ? 'Etiqueta Correios reimpressa.'
+          : kind === 'correios'
             ? 'Etiqueta Correios emitida e saída confirmada.'
             : 'Etiqueta ERP emitida e saída confirmada.',
       });
@@ -394,54 +397,14 @@ export function SeparationWorkbench(props: {
     }
   };
 
-  const exitWithExistingEtiqueta = async (current: OrderDto) => {
-    setPrintingEtiqueta('correios');
-    try {
-      const ok = await registerExitAfterEtiqueta(current);
-      if (!ok) return;
-      setExitGenerated(true);
-      onAfterAction?.();
-      data.setToast({
-        variant: 'ok',
-        message: 'Saída confirmada com a etiqueta já emitida.',
-      });
-    } catch (err) {
-      data.setToast({
-        variant: 'err',
-        message:
-          err instanceof Error
-            ? err.message
-            : 'Falha ao registrar saída com a etiqueta existente.',
-      });
-    } finally {
-      setPrintingEtiqueta(null);
-    }
-  };
-
-  const handleImprimirEtiquetaAndExit = async (kind?: EtiquetaKind) => {
+  const handleImprimirEtiquetaAndExit = async (
+    kind?: EtiquetaKind,
+    opts?: { nova?: boolean },
+  ) => {
     if (!order) return;
     const target =
       kind ?? (isCorreiosCarrier(order.carrierName) ? 'correios' : 'erp');
-    // Duplicidade só importa na pré-postagem Correios; etiqueta ERP é reimpressão.
-    const existingTracking =
-      target === 'correios' ? order.trackingCode?.trim() || '' : '';
-    if (existingTracking) {
-      setExistingEtiquetaCode(existingTracking);
-      setExistingEtiquetaModalOpen(true);
-      return;
-    }
-    await emitEtiquetaAndExit(order, target);
-  };
-
-  const handleExistingEtiquetaChoice = (choice: ExistingEtiquetaChoice) => {
-    if (!order) return;
-    setExistingEtiquetaModalOpen(false);
-    if (choice === 'cancel') return;
-    if (choice === 'exit-existing') {
-      void exitWithExistingEtiqueta(order);
-      return;
-    }
-    void emitEtiquetaAndExit(order, 'correios');
+    await emitEtiquetaAndExit(order, target, opts);
   };
 
   const orderStatus = order?.status as string | undefined;
@@ -541,6 +504,15 @@ export function SeparationWorkbench(props: {
         onClick: () => void handleImprimirEtiquetaAndExit('correios'),
         disabled: printingEtiqueta !== null,
       });
+      if (order.trackingCode?.trim()) {
+        mobileActions.push({
+          id: 'etiqueta-correios-nova',
+          label: 'Emitir nova etiqueta',
+          onClick: () =>
+            void handleImprimirEtiquetaAndExit('correios', { nova: true }),
+          disabled: printingEtiqueta !== null,
+        });
+      }
       mobileActions.push({
         id: 'etiqueta-erp',
         label: 'Etiqueta ERP',
@@ -769,6 +741,20 @@ export function SeparationWorkbench(props: {
                         )}
                         Etiqueta Correios
                       </button>
+                      {order.trackingCode?.trim() ? (
+                        <button
+                          type="button"
+                          className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !min-w-0 !px-2 !py-1.5 !text-[11px] font-medium text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={printingEtiqueta !== null}
+                          onClick={() =>
+                            void handleImprimirEtiquetaAndExit('correios', {
+                              nova: true,
+                            })
+                          }
+                        >
+                          Emitir nova etiqueta
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="exp-wb-btn exp-wb-btn--ghost !min-h-0 !min-w-0 !px-3 !py-1.5 !text-xs disabled:cursor-not-allowed disabled:opacity-50"
@@ -981,13 +967,6 @@ export function SeparationWorkbench(props: {
           </div>
         </div>
       ) : null}
-
-      <ExistingEtiquetaChoiceModal
-        open={existingEtiquetaModalOpen}
-        trackingCode={existingEtiquetaCode}
-        busy={printingEtiqueta !== null}
-        onChoice={handleExistingEtiquetaChoice}
-      />
     </div>
   );
 }

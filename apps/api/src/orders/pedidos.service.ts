@@ -27,6 +27,7 @@ import {
   buildOrderFieldFilterWhere,
   buildOrderSearchWhere,
   invoiceNumberDigits,
+  isCorreiosTrackingCode,
   normalizeOrderSearchTerm,
 } from './order-search';
 import { OrderService } from './order.service';
@@ -651,7 +652,13 @@ export class PedidosService {
       data.contaAzulStatus = dto.contaAzulStatus.trim() || null;
     }
     if (dto.invoiceNumber !== undefined) {
-      data.invoiceNumber = dto.invoiceNumber.trim() || null;
+      const next = dto.invoiceNumber.trim() || null;
+      if (next && isCorreiosTrackingCode(next)) {
+        throw new BadRequestException(
+          'Código de rastreio dos Correios não pode ser gravado como Nota de Venda.',
+        );
+      }
+      data.invoiceNumber = next;
     }
     if (dto.orderDate !== undefined && dto.orderDate.trim()) {
       data.orderDate = isoDateStringToUtcDate(dto.orderDate.trim().slice(0, 10));
@@ -718,8 +725,43 @@ export class PedidosService {
       data.trackingCode = null;
     }
 
+    if (isCorreiosTrackingCode(before.invoiceNumber)) {
+      const migrated = (before.invoiceNumber ?? '').trim().toUpperCase();
+      if (!before.trackingCode?.trim() && !destinatarioChanged) {
+        data.trackingCode = migrated;
+      }
+      if (
+        data.invoiceNumber === undefined ||
+        isCorreiosTrackingCode(dto.invoiceNumber)
+      ) {
+        data.invoiceNumber = null;
+      }
+    }
+
     await this.prisma.client.$transaction(async (tx) => {
       await tx.order.update({ where: { id: before.id }, data });
+
+      const linkedCustomerId =
+        dto.customerId !== undefined ? dto.customerId || null : before.customerId;
+      if (
+        dto.deliveryAddress !== undefined &&
+        linkedCustomerId &&
+        before.source === OrderSource.SITE
+      ) {
+        const nextAddress = dto.deliveryAddress?.trim() || null;
+        await tx.customer.update({
+          where: { id: linkedCustomerId },
+          data: { deliveryAddress: nextAddress },
+        });
+        await tx.order.updateMany({
+          where: {
+            customerId: linkedCustomerId,
+            source: OrderSource.SITE,
+            NOT: { id: before.id },
+          },
+          data: { deliveryAddress: nextAddress },
+        });
+      }
 
       if (destinatarioChanged) {
         await tx.orderExit.updateMany({
@@ -1078,7 +1120,7 @@ export class PedidosService {
 
   private readInvoiceNumber(dto: PedidosAttachNfDto): string {
     const raw = (dto.invoiceNumber ?? dto.nota_fiscal ?? '').trim();
-    if (!raw) return '';
+    if (!raw || isCorreiosTrackingCode(raw)) return '';
     return this.normalizeInvoiceNumberDigits(raw);
   }
 
@@ -1159,6 +1201,7 @@ export class PedidosService {
       select: {
         id: true,
         invoiceNumber: true,
+        trackingCode: true,
         status: true,
         items: { select: { pickedQty: true } },
       },
@@ -1197,11 +1240,29 @@ export class PedidosService {
       dto.invoiceNumber !== undefined
         ? dto.invoiceNumber.trim() || null
         : undefined;
+    if (nextInvoice && isCorreiosTrackingCode(nextInvoice)) {
+      throw new BadRequestException(
+        'Código de rastreio dos Correios não pode ser gravado como Nota de Venda.',
+      );
+    }
     if (nextInvoice !== undefined) {
       data.invoiceNumber = nextInvoice;
       if (nextInvoice) {
         data.invoiceStatus = InvoiceStatus.INVOICED;
         data.invoicedAt = new Date();
+      }
+    }
+
+    if (isCorreiosTrackingCode(order.invoiceNumber)) {
+      const migrated = (order.invoiceNumber ?? '').trim().toUpperCase();
+      if (!order.trackingCode?.trim()) {
+        data.trackingCode = migrated;
+      }
+      if (
+        nextInvoice === undefined ||
+        isCorreiosTrackingCode(nextInvoice)
+      ) {
+        data.invoiceNumber = null;
       }
     }
 
@@ -1219,7 +1280,7 @@ export class PedidosService {
             (sum, it) => sum + (it.pickedQty ?? 0),
             0,
           );
-          if (previous && previous !== nextInvoice) {
+          if (previous && previous !== nextInvoice && !isCorreiosTrackingCode(previous)) {
             const prevLogged = await tx.orderInvoiceHistory.findFirst({
               where: { orderId: order.id, invoiceNumber: previous },
               select: { id: true },
@@ -1336,6 +1397,7 @@ export class PedidosService {
   async gerarEtiquetaCorreios(
     numeroPed: string,
     userId?: string,
+    opts?: { nova?: boolean },
   ): Promise<{ buffer: Buffer; filename: string }> {
     const trimmed = numeroPed.trim();
     const order = await this.prisma.client.order.findFirst({
@@ -1369,10 +1431,31 @@ export class PedidosService {
       orderBy: { exitDate: 'desc' },
       select: { id: true, trackingCode: true },
     });
+    const trackingFromInvoice = isCorreiosTrackingCode(order.invoiceNumber)
+      ? (order.invoiceNumber ?? '').trim().toUpperCase()
+      : '';
     const trackingExistente =
-      exit?.trackingCode?.trim() || order.trackingCode?.trim() || '';
+      exit?.trackingCode?.trim() ||
+      order.trackingCode?.trim() ||
+      trackingFromInvoice;
 
-    if (trackingExistente) {
+    if (trackingFromInvoice) {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: {
+          trackingCode: trackingExistente,
+          invoiceNumber: null,
+        },
+      });
+      if (exit && !exit.trackingCode?.trim()) {
+        await this.prisma.client.orderExit.update({
+          where: { id: exit.id },
+          data: { trackingCode: trackingExistente },
+        });
+      }
+    }
+
+    if (trackingExistente && !opts?.nova) {
       const prePostagemExistente =
         await this.correiosService.buscarPrePostagemPorCodigoObjeto(
           trackingExistente,
@@ -1387,7 +1470,6 @@ export class PedidosService {
 
       if (prePostagemId && podeReimprimir) {
         const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
-        // Reimpressão: garante saída se ainda não existir (mesmo fluxo NF → etiqueta → saída).
         await this.ensureSaidaAposEtiqueta(
           order.id,
           userId,
@@ -1411,7 +1493,9 @@ export class PedidosService {
       destinatario,
       numeroNotaFiscal:
         this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '') ||
-        order.notaRemessa?.trim() ||
+        (isCorreiosTrackingCode(order.notaRemessa)
+          ? undefined
+          : order.notaRemessa?.trim()) ||
         undefined,
       objeto: {
         codigoServico,
@@ -1524,12 +1608,11 @@ export class PedidosService {
       order.invoiceNumber ?? '',
     );
     const remessa = order.notaRemessa?.trim() || '';
-    // Preferir NF válida; senão remessa; senão rastreio. Nunca usar placeholder "-".
+    // Só NF/remessa reais — nunca gravar rastreio Correios em invoiceNumber.
     const nfDigits =
       invoiceDigits ||
       this.normalizeInvoiceNumberDigits(remessa) ||
-      remessa ||
-      tracking ||
+      (isCorreiosTrackingCode(remessa) ? '' : remessa) ||
       '';
     if (!nfDigits) return;
 
@@ -2839,7 +2922,6 @@ export class PedidosService {
       }
     }
     if (!nf) {
-      // Só aceita NF com dígitos válidos (ignora placeholder "-" da planilha).
       const invoiceDigits = this.normalizeInvoiceNumberDigits(
         order.invoiceNumber ?? '',
       );
@@ -2847,11 +2929,16 @@ export class PedidosService {
         nf = invoiceDigits;
       }
     }
-    // Pedidos travados com etiqueta já emitida (mesmo sem NF): usa o rastreio como referência.
     if (!nf) {
-      const tracking = order.trackingCode?.trim();
+      const tracking =
+        order.trackingCode?.trim() ||
+        (isCorreiosTrackingCode(order.invoiceNumber)
+          ? (order.invoiceNumber ?? '').trim()
+          : '');
       if (tracking) {
-        nf = tracking;
+        return this.orders.generateExitFromInvoice(order.id, userId, {
+          invoiceNumber: '',
+        });
       }
     }
     if (!nf) {

@@ -220,10 +220,19 @@ function decimalToString(v: unknown): string {
   return String(v);
 }
 
+/** Código de objeto Correios (ex.: AP373095360BR) — nunca é número de NF. */
+export function isCorreiosTrackingCode(
+  raw: string | null | undefined,
+): boolean {
+  const code = (raw ?? '').trim().toUpperCase().replace(/\s/g, '');
+  return /^[A-Z]{2}\d{8,11}BR$/.test(code);
+}
+
 /** Extrai só os dígitos da NF (ex.: "1 - 1897" → "1897", "12345/1" → "12345"). */
 export function normalizeInvoiceNumberDigits(raw: string | null | undefined): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return '';
+  if (isCorreiosTrackingCode(trimmed)) return '';
 
   let part = trimmed.split('/')[0]?.trim() ?? trimmed;
   const dashMatch = part.match(/[-–—]\s*(.+)$/);
@@ -233,9 +242,26 @@ export function normalizeInvoiceNumberDigits(raw: string | null | undefined): st
   return part.replace(/\D/g, '');
 }
 
-/** NF válida (ignora placeholders como "-" da planilha WEG). */
+/** NF válida (ignora placeholders como "-" da planilha WEG e códigos Correios). */
 export function hasValidInvoiceNumber(raw: string | null | undefined): boolean {
+  if (isCorreiosTrackingCode(raw)) return false;
   return normalizeInvoiceNumberDigits(raw).length > 0;
+}
+
+export function displayInvoiceNumber(raw: string | null | undefined): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed || isCorreiosTrackingCode(trimmed)) return '';
+  return trimmed;
+}
+
+export function trackingCodeFromOrder(order: {
+  trackingCode?: string | null;
+  invoiceNumber?: string | null;
+}): string {
+  const tracking = order.trackingCode?.trim() || '';
+  if (tracking) return tracking;
+  const invoice = order.invoiceNumber?.trim() || '';
+  return isCorreiosTrackingCode(invoice) ? invoice : '';
 }
 
 /** Nota de remessa preenchida e confirmada — libera etiqueta/saída como NF. */

@@ -37,6 +37,7 @@ import {
   buildOrderFieldFilterWhere,
   buildOrderParcialWhere,
   buildOrderSearchWhere,
+  isCorreiosTrackingCode,
 } from './order-search';
 import { AppLogger } from '../common/logger/app-logger';
 import {
@@ -2173,6 +2174,11 @@ export class OrderService {
     if (!inv) {
       throw new BadRequestException('Informe o número da NF.');
     }
+    if (isCorreiosTrackingCode(inv)) {
+      throw new BadRequestException(
+        'Código de rastreio dos Correios não pode ser gravado como Nota de Venda.',
+      );
+    }
 
     return this.prisma.client.$transaction(async (tx) => {
       const before = await tx.order.findUnique({
@@ -2523,9 +2529,11 @@ export class OrderService {
     userId: string,
     dto: AttachInvoiceDto,
   ) {
-    const inv = dto.invoiceNumber.trim();
-    if (!inv) {
-      throw new BadRequestException('Informe o número da NF.');
+    const invRaw = (dto.invoiceNumber ?? '').trim();
+    if (isCorreiosTrackingCode(invRaw)) {
+      throw new BadRequestException(
+        'Código de rastreio dos Correios não pode ser gravado como Nota de Venda.',
+      );
     }
 
     return this.prisma.client.$transaction(async (tx) => {
@@ -2538,6 +2546,19 @@ export class OrderService {
         include: { items: true, carrier: { select: { name: true } } },
       });
       if (!before) throw new NotFoundException('Pedido não encontrado.');
+
+      const currentInvoice = isCorreiosTrackingCode(before.invoiceNumber)
+        ? null
+        : before.invoiceNumber?.trim() || null;
+      const inv = invRaw || currentInvoice || '';
+      const trackingFromInvoice = isCorreiosTrackingCode(before.invoiceNumber)
+        ? (before.invoiceNumber ?? '').trim().toUpperCase()
+        : '';
+      const tracking =
+        before.trackingCode?.trim() || trackingFromInvoice || null;
+      if (!inv && !tracking) {
+        throw new BadRequestException('Informe o número da NF.');
+      }
 
       // Só a saída DESTE ciclo bloqueia uma nova: a do ciclo anterior fica no
       // histórico e não pode impedir a saída da parcela recém-separada.
@@ -2557,12 +2578,20 @@ export class OrderService {
         },
       });
       if (existingExit) {
-        const tracking = before.trackingCode?.trim() || null;
         let exitRow = existingExit;
         if (tracking && existingExit.trackingCode?.trim() !== tracking) {
           exitRow = await tx.orderExit.update({
             where: { id: existingExit.id },
             data: { trackingCode: tracking },
+          });
+        }
+        if (trackingFromInvoice) {
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              invoiceNumber: currentInvoice,
+              ...(before.trackingCode?.trim() ? {} : { trackingCode: tracking }),
+            },
           });
         }
         const full = await this.loadOrderFull(tx, orderId);
@@ -2743,7 +2772,10 @@ export class OrderService {
         where: { id: orderId },
         data: {
           status: finalStatus,
-          invoiceNumber: inv,
+          invoiceNumber: invRaw || currentInvoice || null,
+          ...(tracking && !before.trackingCode?.trim()
+            ? { trackingCode: tracking }
+            : {}),
           invoiceStatus: InvoiceStatus.INVOICED,
           invoicedAt: new Date(),
           shippedAt: new Date(),
@@ -2758,7 +2790,7 @@ export class OrderService {
           invoiceValue: cycleValue.gt(0) ? cycleValue : updated.totalValue,
           exitDate: new Date(),
           carrierName: before.carrier?.name ?? null,
-          trackingCode: before.trackingCode?.trim() || null,
+          trackingCode: tracking,
         },
       });
 
@@ -4720,13 +4752,16 @@ export class OrderService {
       // o 2º reenvio "herdar" a etiqueta antiga e bloquear nova saída.
       trackingCode: (() => {
         const cycleStart = row.sentToSeparationAt ?? null;
+        const fromInvoice = isCorreiosTrackingCode(row.invoiceNumber)
+          ? row.invoiceNumber
+          : null;
         if (cycleStart && row.exits?.length) {
           const current = row.exits.find(
             (e) => e.exitDate != null && e.exitDate >= cycleStart,
           );
-          return current?.trackingCode ?? row.trackingCode ?? null;
+          return current?.trackingCode ?? row.trackingCode ?? fromInvoice ?? null;
         }
-        return row.trackingCode ?? null;
+        return row.trackingCode ?? fromInvoice ?? null;
       })(),
       linkedOrderId: row.linkedOrderId,
       isUrgentManual: row.isUrgentManual,
@@ -4735,7 +4770,9 @@ export class OrderService {
       priority: row.priority,
       mercadoEletronicoStatus: row.mercadoEletronicoStatus,
       contaAzulStatus: row.contaAzulStatus,
-      invoiceNumber: row.invoiceNumber,
+      invoiceNumber: isCorreiosTrackingCode(row.invoiceNumber)
+        ? null
+        : row.invoiceNumber,
       invoiceStatus: row.invoiceStatus,
       orderDate: row.orderDate?.toISOString() ?? null,
       requestedDeliveryDate: row.requestedDeliveryDate?.toISOString() ?? null,
@@ -4759,11 +4796,15 @@ export class OrderService {
         .filter((e) => e.id)
         .map((e) => ({
           id: e.id as string,
-          invoiceNumber: e.invoiceNumber ?? null,
+          invoiceNumber: isCorreiosTrackingCode(e.invoiceNumber)
+            ? null
+            : e.invoiceNumber ?? null,
           invoiceValue: e.invoiceValue != null ? e.invoiceValue.toString() : null,
           exitDate: e.exitDate ? e.exitDate.toISOString() : null,
           carrierName: e.carrierName ?? null,
-          trackingCode: e.trackingCode ?? null,
+          trackingCode:
+            e.trackingCode ??
+            (isCorreiosTrackingCode(e.invoiceNumber) ? e.invoiceNumber : null),
         })),
       unidadesFaltantes,
       itemCount: row.items.length,

@@ -3,9 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import {
-  deliveryAddressToEditableText,
-  normalizeDeliveryAddressInput,
+  emptyDeliveryAddressForm,
+  fetchAddressByCep,
+  formatCep,
+  parseDeliveryAddress,
+  serializeDeliveryAddress,
+  type DeliveryAddressForm,
 } from '@/src/components/cadastros/delivery-address';
+import { digitsOnly } from '@/src/components/cadastros/document-mask';
 import {
   canEditSiteOrderItems,
   resolveItemReceiptStatusForOrder,
@@ -73,6 +78,24 @@ function readOnlyFieldClass() {
   return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
 }
 
+function addressStateFromRaw(
+  raw: string | Record<string, unknown> | null | undefined,
+): { form: DeliveryAddressForm; loaded: boolean; hint: string } {
+  const parsed = parseDeliveryAddress(raw);
+  if (parsed && (parsed.cep || parsed.logradouro)) {
+    return {
+      form: parsed,
+      loaded: Boolean(parsed.cep && parsed.logradouro),
+      hint: '',
+    };
+  }
+  return {
+    form: emptyDeliveryAddressForm(),
+    loaded: false,
+    hint: typeof raw === 'string' ? raw.trim() : '',
+  };
+}
+
 function calcItemsTotal(rows: EditItemRow[]): string {
   const sum = rows.reduce((acc, it) => {
     const qty = Number(it.quantity) || 0;
@@ -105,7 +128,13 @@ export function AdminOrderEditModal(props: {
   const [receiverName, setReceiverName] = useState('');
   const [unloadingPoint, setUnloadingPoint] = useState('');
   const [deliveryCnpj, setDeliveryCnpj] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [addressForm, setAddressForm] = useState<DeliveryAddressForm>(
+    emptyDeliveryAddressForm(),
+  );
+  const [addressLoaded, setAddressLoaded] = useState(false);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
+  const [legacyAddressHint, setLegacyAddressHint] = useState('');
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [buyerQuery, setBuyerQuery] = useState('');
   const [customers, setCustomers] = useState<WegBuyerCustomer[]>([]);
@@ -210,11 +239,12 @@ export function AdminOrderEditModal(props: {
     setUnloadingPoint(order.unloadingPoint ?? '');
     const initialCnpj = order.deliveryCnpj ?? order.customerDocument ?? '';
     setDeliveryCnpj(initialCnpj);
-    setDeliveryAddress(
-      deliveryAddressToEditableText(
-        order.deliveryAddress || order.unloadingPoint || '',
-      ),
-    );
+    const rawAddress = order.deliveryAddress || order.unloadingPoint || '';
+    const nextAddr = addressStateFromRaw(rawAddress);
+    setAddressForm(nextAddr.form);
+    setAddressLoaded(nextAddr.loaded);
+    setLegacyAddressHint(nextAddr.hint);
+    setCepError(null);
     setCustomerId(order.customerId ?? null);
     setBuyerQuery(
       order.customerName?.trim()
@@ -320,8 +350,10 @@ export function AdminOrderEditModal(props: {
     setCustomerId((prev) => prev ?? matched.id);
     setBuyerQuery((prev) => (prev.trim() ? prev : wegBuyerCustomerLabel(matched)));
     if (matched.deliveryAddress?.trim() && !order.deliveryAddress?.trim()) {
-      setDeliveryAddress(deliveryAddressToEditableText(matched.deliveryAddress));
-
+      const next = addressStateFromRaw(matched.deliveryAddress);
+      setAddressForm(next.form);
+      setAddressLoaded(next.loaded);
+      setLegacyAddressHint(next.hint);
     }
   }, [isOpen, order, customers]);
 
@@ -345,12 +377,158 @@ export function AdminOrderEditModal(props: {
     setDeliveryCnpj(cnpj);
     setBuyerQuery(wegBuyerCustomerLabel(customer));
     if (customer.deliveryAddress?.trim()) {
-      setDeliveryAddress(
-        deliveryAddressToEditableText(customer.deliveryAddress),
-      );
+      const next = addressStateFromRaw(customer.deliveryAddress);
+      setAddressForm(next.form);
+      setAddressLoaded(next.loaded);
+      setLegacyAddressHint(next.hint);
     }
     setError(null);
   };
+
+  const searchCep = async (cepValue?: string) => {
+    setCepError(null);
+    setCepLoading(true);
+    try {
+      const found = await fetchAddressByCep(cepValue ?? addressForm.cep);
+      setAddressForm((prev) => ({
+        ...found,
+        numero: prev.numero,
+        complemento: prev.complemento,
+      }));
+      setAddressLoaded(true);
+      setLegacyAddressHint('');
+    } catch (err) {
+      setCepError(err instanceof Error ? err.message : 'Falha ao buscar CEP.');
+      setAddressLoaded(false);
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
+  const addressEditor = (
+    <div className="space-y-3">
+      {legacyAddressHint && !addressLoaded ? (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Endereço atual: {legacyAddressHint}. Busque o CEP para atualizar.
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block min-w-[140px] flex-1">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            CEP
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.cep}
+            onChange={(e) => {
+              const next = formatCep(e.target.value);
+              setAddressForm((prev) => ({ ...prev, cep: next }));
+              if (addressLoaded) setAddressLoaded(false);
+              setCepError(null);
+              if (digitsOnly(next).length === 8) {
+                void searchCep(next);
+              }
+            }}
+            placeholder="00000-000"
+            inputMode="numeric"
+            maxLength={9}
+            disabled={busy}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => void searchCep()}
+          disabled={busy || cepLoading || digitsOnly(addressForm.cep).length !== 8}
+          className="inline-flex h-[38px] items-center gap-2 rounded-lg bg-[var(--accent)] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {cepLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}
+          Buscar
+        </button>
+      </div>
+      {cepError ? <p className="text-xs text-rose-500">{cepError}</p> : null}
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+          Logradouro
+        </span>
+        <input
+          className={readOnlyFieldClass()}
+          readOnly
+          value={addressForm.logradouro}
+          placeholder="Busque o CEP"
+        />
+      </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Bairro
+          </span>
+          <input
+            className={readOnlyFieldClass()}
+            readOnly
+            value={addressForm.bairro}
+            placeholder="Busque o CEP"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Cidade
+          </span>
+          <input
+            className={readOnlyFieldClass()}
+            readOnly
+            value={addressForm.cidade}
+            placeholder="Busque o CEP"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            UF
+          </span>
+          <input
+            className={readOnlyFieldClass()}
+            readOnly
+            value={addressForm.uf}
+            placeholder="UF"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Número
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.numero}
+            onChange={(e) =>
+              setAddressForm((prev) => ({ ...prev, numero: e.target.value }))
+            }
+            placeholder="Nº"
+            disabled={busy}
+          />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Complemento
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.complemento}
+            onChange={(e) =>
+              setAddressForm((prev) => ({
+                ...prev,
+                complemento: e.target.value,
+              }))
+            }
+            placeholder="Opcional"
+            disabled={busy}
+          />
+        </label>
+      </div>
+    </div>
+  );
 
   const openPickerFor = (idx: number) => {
     if (!siteItemsEditable && !isWegOrder) return;
@@ -512,7 +690,9 @@ export function AdminOrderEditModal(props: {
               unloadingPoint,
             }),
         deliveryCnpj,
-        deliveryAddress: normalizeDeliveryAddressInput(deliveryAddress) || null,
+        deliveryAddress: addressLoaded
+          ? serializeDeliveryAddress(addressForm)
+          : legacyAddressHint || null,
         customerId: customerId || null,
         orderDate: orderDate || undefined,
         requestedDeliveryDate: requestedDeliveryDate || undefined,
@@ -522,7 +702,12 @@ export function AdminOrderEditModal(props: {
         priority: Number(priority),
         mercadoEletronicoStatus,
         contaAzulStatus,
-        invoiceNumber: currentInvoice || invoiceNumber,
+        invoiceNumber:
+          currentInvoice || invoiceNumber
+            ? normalizeInvoiceNumberDigits(currentInvoice || invoiceNumber)
+              ? currentInvoice || invoiceNumber
+              : ''
+            : '',
         invoiceHistory: cleanedInvoices,
         totalValue,
         carrierId: carrierId.trim() || null,
@@ -662,15 +847,12 @@ export function AdminOrderEditModal(props: {
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Cliente</span>
                   <input className={readOnlyFieldClass()} readOnly value={order.customerName} />
                 </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Endereço</span>
-                  <textarea
-                    className={`${fieldClass()} min-h-[72px]`}
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="Rua, número - bairro - Cidade/UF - CEP 00000-000"
-                  />
-                </label>
+                <div className="sm:col-span-2">
+                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                    Endereço
+                  </span>
+                  {addressEditor}
+                </div>
               </div>
 
               <label className="mt-3 block">
@@ -735,17 +917,12 @@ export function AdminOrderEditModal(props: {
                     listZIndexClassName="z-[60]"
                   />
                 </label>
-                <label className="block sm:col-span-2 lg:col-span-3">
+                <div className="sm:col-span-2 lg:col-span-3">
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
                     Endereço
                   </span>
-                  <textarea
-                    className={`${fieldClass()} min-h-[72px]`}
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="Rua, número - bairro - Cidade/UF - CEP 00000-000"
-                  />
-                </label>
+                  {addressEditor}
+                </div>
                 {!isSiteOrder ? (
                   <>
                 <label className="block">
