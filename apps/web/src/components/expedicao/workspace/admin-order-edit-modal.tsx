@@ -8,6 +8,7 @@ import {
   formatCep,
   parseDeliveryAddress,
   serializeDeliveryAddress,
+  normalizeDeliveryAddressInput,
   type DeliveryAddressForm,
 } from '@/src/components/cadastros/delivery-address';
 import { digitsOnly } from '@/src/components/cadastros/document-mask';
@@ -37,7 +38,7 @@ import {
 } from '@/src/components/expedicao/workspace/weg-buyer-customer-selector';
 import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { normalizeInvoiceNumberDigits, numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { normalizeInvoiceNumberDigits, normalizePedidoFromApi, numeroPedFromOrder, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 const ORDER_STATUSES = [
   'NOVO',
@@ -78,22 +79,141 @@ function readOnlyFieldClass() {
   return `${fieldClass()} cursor-default bg-[var(--bg-card)] text-[var(--text-secondary)] focus:ring-0`;
 }
 
-function addressStateFromRaw(
-  raw: string | Record<string, unknown> | null | undefined,
-): { form: DeliveryAddressForm; loaded: boolean; hint: string } {
-  const parsed = parseDeliveryAddress(raw);
-  if (parsed && (parsed.cep || parsed.logradouro)) {
+function extractCepFromText(raw: string): string {
+  const match = raw.match(/(\d{5}-?\d{3})/);
+  return match ? formatCep(match[1]) : '';
+}
+
+function fillCityState(
+  form: DeliveryAddressForm,
+  extras?: { city?: string | null; state?: string | null },
+): DeliveryAddressForm {
+  return {
+    ...form,
+    cep: formatCep(form.cep),
+    cidade: form.cidade.trim() || extras?.city?.trim() || '',
+    uf: (form.uf.trim() || extras?.state?.trim() || '').toUpperCase().slice(0, 2),
+  };
+}
+
+function parseFreeTextAddress(text: string): DeliveryAddressForm | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const cep = extractCepFromText(trimmed);
+  const withoutCep = trimmed
+    .replace(/\s*[-–—,]?\s*CEP\s*[\d.\-]+/gi, '')
+    .replace(/\s*[-–—]?\s*\d{5}-?\d{3}\s*$/g, '')
+    .trim();
+  const segments = withoutCep
+    .split(/\s*[-–—]\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let cidade = '';
+  let uf = '';
+  if (segments.length > 0) {
+    const last = segments[segments.length - 1] ?? '';
+    const cityState = last.match(/^(.+)\s*\/\s*([A-Za-z]{2})$/);
+    if (cityState) {
+      cidade = cityState[1].trim();
+      uf = cityState[2].trim().toUpperCase();
+      segments.pop();
+    }
+  }
+
+  let logradouro = '';
+  let numero = '';
+  let complemento = '';
+  let bairro = '';
+  if (segments[0]) {
+    const streetParts = segments[0].split(',').map((p) => p.trim());
+    logradouro = streetParts[0] ?? '';
+    if (streetParts.length > 1) {
+      numero = streetParts.slice(1).join(', ');
+    }
+  }
+  if (segments.length >= 3) {
+    complemento = segments[1] ?? '';
+    bairro = segments.slice(2).join(' - ');
+  } else if (segments[1]) {
+    bairro = segments[1];
+  }
+
+  if (!cep && !logradouro && !cidade && !bairro) {
     return {
-      form: parsed,
-      loaded: Boolean(parsed.cep && parsed.logradouro),
-      hint: '',
+      ...emptyDeliveryAddressForm(),
+      logradouro: trimmed,
     };
   }
+
   return {
-    form: emptyDeliveryAddressForm(),
-    loaded: false,
-    hint: typeof raw === 'string' ? raw.trim() : '',
+    cep,
+    logradouro,
+    bairro,
+    cidade,
+    uf,
+    numero,
+    complemento,
   };
+}
+
+function addressStateFromRaw(
+  raw: string | Record<string, unknown> | null | undefined,
+  extras?: { city?: string | null; state?: string | null },
+): { form: DeliveryAddressForm; loaded: boolean; hint: string } {
+  const json = parseDeliveryAddress(raw);
+  if (json && (json.cep || json.logradouro || json.cidade || json.bairro)) {
+    const form = fillCityState(json, extras);
+    return { form, loaded: true, hint: '' };
+  }
+
+  if (typeof raw === 'string' && raw.trim()) {
+    const normalized = normalizeDeliveryAddressInput(raw);
+    const fromNorm = parseDeliveryAddress(normalized);
+    if (
+      fromNorm &&
+      (fromNorm.cep || fromNorm.logradouro || fromNorm.cidade || fromNorm.bairro)
+    ) {
+      const form = fillCityState(fromNorm, extras);
+      return { form, loaded: true, hint: '' };
+    }
+    const fromText = parseFreeTextAddress(raw);
+    if (fromText) {
+      const form = fillCityState(fromText, extras);
+      return { form, loaded: true, hint: '' };
+    }
+  }
+
+  const empty = fillCityState(emptyDeliveryAddressForm(), extras);
+  const hasExtras = Boolean(empty.cidade || empty.uf);
+  return {
+    form: empty,
+    loaded: hasExtras,
+    hint: '',
+  };
+}
+
+function addressStateFromOrder(order: {
+  deliveryAddress?: string | null;
+  unloadingPoint?: string | null;
+  deliveryCity?: string | null;
+  deliveryState?: string | null;
+  customerCity?: string | null;
+  customerState?: string | null;
+}) {
+  const delivery = order.deliveryAddress?.trim() || '';
+  const unload = order.unloadingPoint?.trim() || '';
+  const unloadLooksLikeAddress = Boolean(
+    unload &&
+      (/\d{5}-?\d{3}/.test(unload) ||
+        unload.includes(',') ||
+        /\/\s*[A-Za-z]{2}/.test(unload)),
+  );
+  return addressStateFromRaw(delivery || (unloadLooksLikeAddress ? unload : ''), {
+    city: order.deliveryCity || order.customerCity,
+    state: order.deliveryState || order.customerState,
+  });
 }
 
 function calcItemsTotal(rows: EditItemRow[]): string {
@@ -239,8 +359,7 @@ export function AdminOrderEditModal(props: {
     setUnloadingPoint(order.unloadingPoint ?? '');
     const initialCnpj = order.deliveryCnpj ?? order.customerDocument ?? '';
     setDeliveryCnpj(initialCnpj);
-    const rawAddress = order.deliveryAddress || order.unloadingPoint || '';
-    const nextAddr = addressStateFromRaw(rawAddress);
+    const nextAddr = addressStateFromOrder(order);
     setAddressForm(nextAddr.form);
     setAddressLoaded(nextAddr.loaded);
     setLegacyAddressHint(nextAddr.hint);
@@ -334,6 +453,27 @@ export function AdminOrderEditModal(props: {
         .catch(() => {
           /* mantém seed do invoiceNumber do pedido */
         });
+
+      const addressLooksEmpty =
+        !nextAddr.form.logradouro.trim() &&
+        !nextAddr.form.cep.trim() &&
+        !nextAddr.form.cidade.trim();
+      if (addressLooksEmpty) {
+        void erpFetchJson<Record<string, unknown>>(pedidoApiUrl(numero))
+          .then((raw) => {
+            const fromFull = addressStateFromOrder(normalizePedidoFromApi(raw));
+            if (
+              fromFull.form.logradouro.trim() ||
+              fromFull.form.cep.trim() ||
+              fromFull.form.cidade.trim()
+            ) {
+              setAddressForm(fromFull.form);
+              setAddressLoaded(fromFull.loaded);
+              setLegacyAddressHint(fromFull.hint);
+            }
+          })
+          .catch(() => undefined);
+      }
     }
   }, [isOpen, order]);
 
@@ -406,14 +546,14 @@ export function AdminOrderEditModal(props: {
   };
 
   const addressEditor = (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-3">
       {legacyAddressHint && !addressLoaded ? (
         <p className="text-xs text-[var(--text-secondary)]">
-          Endereço atual: {legacyAddressHint}. Busque o CEP para atualizar.
+          Endereço atual: {legacyAddressHint}
         </p>
       ) : null}
       <div className="flex flex-wrap items-end gap-2">
-        <label className="block min-w-[140px] flex-1">
+        <label className="block min-w-[160px] flex-1">
           <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
             CEP
           </span>
@@ -423,7 +563,7 @@ export function AdminOrderEditModal(props: {
             onChange={(e) => {
               const next = formatCep(e.target.value);
               setAddressForm((prev) => ({ ...prev, cep: next }));
-              if (addressLoaded) setAddressLoaded(false);
+              setAddressLoaded(false);
               setCepError(null);
               if (digitsOnly(next).length === 8) {
                 void searchCep(next);
@@ -432,6 +572,7 @@ export function AdminOrderEditModal(props: {
             placeholder="00000-000"
             inputMode="numeric"
             maxLength={9}
+            autoComplete="postal-code"
             disabled={busy}
           />
         </label>
@@ -439,62 +580,35 @@ export function AdminOrderEditModal(props: {
           type="button"
           onClick={() => void searchCep()}
           disabled={busy || cepLoading || digitsOnly(addressForm.cep).length !== 8}
-          className="inline-flex h-[38px] items-center gap-2 rounded-lg bg-[var(--accent)] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-[38px] items-center gap-2 rounded-lg bg-[#2AACE2] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {cepLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Search className="h-4 w-4" />
           )}
-          Buscar
+          Buscar CEP
         </button>
       </div>
+      {cepLoading ? (
+        <p className="text-xs text-[var(--text-secondary)]">Buscando CEP…</p>
+      ) : null}
       {cepError ? <p className="text-xs text-rose-500">{cepError}</p> : null}
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
           Logradouro
         </span>
         <input
-          className={readOnlyFieldClass()}
-          readOnly
+          className={fieldClass()}
           value={addressForm.logradouro}
-          placeholder="Busque o CEP"
+          onChange={(e) =>
+            setAddressForm((prev) => ({ ...prev, logradouro: e.target.value }))
+          }
+          placeholder="Preenchido pelo CEP — pode editar"
+          disabled={busy}
         />
       </label>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-            Bairro
-          </span>
-          <input
-            className={readOnlyFieldClass()}
-            readOnly
-            value={addressForm.bairro}
-            placeholder="Busque o CEP"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-            Cidade
-          </span>
-          <input
-            className={readOnlyFieldClass()}
-            readOnly
-            value={addressForm.cidade}
-            placeholder="Busque o CEP"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-            UF
-          </span>
-          <input
-            className={readOnlyFieldClass()}
-            readOnly
-            value={addressForm.uf}
-            placeholder="UF"
-          />
-        </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
             Número
@@ -509,7 +623,7 @@ export function AdminOrderEditModal(props: {
             disabled={busy}
           />
         </label>
-        <label className="block sm:col-span-2">
+        <label className="block">
           <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
             Complemento
           </span>
@@ -523,6 +637,52 @@ export function AdminOrderEditModal(props: {
               }))
             }
             placeholder="Opcional"
+            disabled={busy}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Bairro
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.bairro}
+            onChange={(e) =>
+              setAddressForm((prev) => ({ ...prev, bairro: e.target.value }))
+            }
+            placeholder="Preenchido pelo CEP — pode editar"
+            disabled={busy}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            Cidade
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.cidade}
+            onChange={(e) =>
+              setAddressForm((prev) => ({ ...prev, cidade: e.target.value }))
+            }
+            placeholder="Preenchido pelo CEP — pode editar"
+            disabled={busy}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+            UF
+          </span>
+          <input
+            className={fieldClass()}
+            value={addressForm.uf}
+            onChange={(e) =>
+              setAddressForm((prev) => ({
+                ...prev,
+                uf: e.target.value.toUpperCase().slice(0, 2),
+              }))
+            }
+            placeholder="UF"
+            maxLength={2}
             disabled={busy}
           />
         </label>
@@ -690,9 +850,17 @@ export function AdminOrderEditModal(props: {
               unloadingPoint,
             }),
         deliveryCnpj,
-        deliveryAddress: addressLoaded
-          ? serializeDeliveryAddress(addressForm)
-          : legacyAddressHint || null,
+        deliveryAddress:
+          digitsOnly(addressForm.cep).length === 8 ||
+          Boolean(
+            addressForm.logradouro.trim() ||
+              addressForm.bairro.trim() ||
+              addressForm.cidade.trim() ||
+              addressForm.numero.trim() ||
+              addressForm.complemento.trim(),
+          )
+            ? serializeDeliveryAddress(addressForm)
+            : legacyAddressHint || null,
         customerId: customerId || null,
         orderDate: orderDate || undefined,
         requestedDeliveryDate: requestedDeliveryDate || undefined,
@@ -847,12 +1015,12 @@ export function AdminOrderEditModal(props: {
                   <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Cliente</span>
                   <input className={readOnlyFieldClass()} readOnly value={order.customerName} />
                 </label>
-                <div className="sm:col-span-2">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                    Endereço
-                  </span>
-                  {addressEditor}
-                </div>
+              </div>
+              <div className="mt-3">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Endereço
+                </span>
+                {addressEditor}
               </div>
 
               <label className="mt-3 block">
@@ -917,12 +1085,14 @@ export function AdminOrderEditModal(props: {
                     listZIndexClassName="z-[60]"
                   />
                 </label>
-                <div className="sm:col-span-2 lg:col-span-3">
-                  <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
-                    Endereço
-                  </span>
-                  {addressEditor}
-                </div>
+              </div>
+              <div className="mt-3">
+                <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                  Endereço
+                </span>
+                {addressEditor}
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {!isSiteOrder ? (
                   <>
                 <label className="block">
