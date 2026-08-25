@@ -25,6 +25,7 @@ type AdminUser = {
   isActive: boolean;
   roles: string[];
   department?: string | null;
+  createdAt?: string | null;
 };
 
 type UserRole = 'ADMIN' | 'OPERADOR';
@@ -42,6 +43,13 @@ const EMPTY_USER_FORM: NewUserForm = {
   password: '',
   role: 'OPERADOR',
 };
+
+function formatCreatedAt(value?: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('pt-BR');
+}
 
 function primaryRole(user: AdminUser): UserRole {
   return user.roles.includes('ADMIN') ? 'ADMIN' : 'OPERADOR';
@@ -78,6 +86,7 @@ type ProductListResponse = {
 };
 
 type Tab = 'users' | 'products' | 'notifications';
+type EditUserModalTab = 'dados' | 'permissoes';
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -161,6 +170,7 @@ function UsersTable() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [editTab, setEditTab] = useState<EditUserModalTab>('dados');
   const [resetUser, setResetUser] = useState<AdminUser | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -186,10 +196,12 @@ function UsersTable() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const handleUserCreated = () => {
+  const handleUserCreated = (user: AdminUser) => {
     setModalOpen(false);
-    setToast('Usuário criado com sucesso!');
+    setToast('Usuário criado. Configure as permissões.');
     load();
+    setEditTab('permissoes');
+    setEditUser(user);
   };
 
   const handleUserUpdated = () => {
@@ -230,6 +242,7 @@ function UsersTable() {
       {editUser ? (
         <EditUserModal
           user={editUser}
+          initialTab={editTab}
           onClose={() => setEditUser(null)}
           onSaved={handleUserUpdated}
         />
@@ -294,8 +307,9 @@ function UsersTable() {
               <tr>
                 <th className="px-6 py-4">Nome</th>
                 <th className="px-6 py-4">Email</th>
-                <th className="px-6 py-4">Perfis</th>
+                <th className="px-6 py-4">Papel</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Criado em</th>
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
@@ -337,11 +351,17 @@ function UsersTable() {
                       {user.isActive ? 'Ativo' : 'Inativo'}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-gray-500">
+                    {formatCreatedAt(user.createdAt)}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setEditUser(user)}
+                        onClick={() => {
+                          setEditTab('dados');
+                          setEditUser(user);
+                        }}
                         className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
                       >
                         <Pencil size={13} />
@@ -383,7 +403,13 @@ function UsersTable() {
 
 function UsersTableToolbar(props: { onNew: () => void }) {
   return (
-    <div className="flex items-center justify-end border-b border-gray-100 px-4 py-3">
+    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900">Administração de Usuários</h3>
+        <p className="text-xs text-gray-500">
+          Crie, edite e configure permissões sem scripts no terminal.
+        </p>
+      </div>
       <button
         type="button"
         onClick={props.onNew}
@@ -396,19 +422,21 @@ function UsersTableToolbar(props: { onNew: () => void }) {
   );
 }
 
-type EditUserModalTab = 'dados' | 'permissoes';
-
 function EditUserModal(props: {
   user: AdminUser;
+  initialTab?: EditUserModalTab;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { user, onClose, onSaved } = props;
-  const [activeTab, setActiveTab] = useState<EditUserModalTab>('dados');
+  const [activeTab, setActiveTab] = useState<EditUserModalTab>(
+    props.initialTab ?? 'dados',
+  );
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [role, setRole] = useState<UserRole>(primaryRole(user));
   const [department, setDepartment] = useState(user.department ?? '');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -419,6 +447,11 @@ function EditUserModal(props: {
     }
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError('E-mail inválido.');
+      return;
+    }
+
+    if (password && password.length < 6) {
+      setError('Senha deve ter no mínimo 6 caracteres.');
       return;
     }
 
@@ -434,6 +467,9 @@ function EditUserModal(props: {
           department: department || null,
         }),
       });
+      if (password) {
+        await resetUserPasswordApi(user.id, password);
+      }
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao atualizar usuário.');
@@ -550,6 +586,22 @@ function EditUserModal(props: {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-gray-600">
+                  Redefinir senha
+                </span>
+                <input
+                  type="text"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError(null);
+                  }}
+                  className="w-full erp-module-input"
+                  placeholder="Deixe em branco para manter a senha atual"
+                  autoComplete="new-password"
+                />
               </label>
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
             </div>
@@ -721,7 +773,7 @@ function ModalShell(props: {
 
 function NewUserModal(props: {
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (user: AdminUser) => void;
 }) {
   const { onClose, onCreated } = props;
   const [form, setForm] = useState<NewUserForm>(EMPTY_USER_FORM);
@@ -748,7 +800,7 @@ function NewUserModal(props: {
     setSaving(true);
     setError(null);
     try {
-      await erpFetchJson('auth/register', {
+      const created = await erpFetchJson<{ user: AdminUser }>('auth/register', {
         method: 'POST',
         body: JSON.stringify({
           name: form.name.trim(),
@@ -757,7 +809,7 @@ function NewUserModal(props: {
           role: form.role,
         }),
       });
-      onCreated();
+      onCreated(created.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao criar usuário.');
     } finally {

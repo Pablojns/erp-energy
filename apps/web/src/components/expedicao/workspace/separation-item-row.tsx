@@ -11,7 +11,9 @@ import type { OrderItemStockState } from '@/src/components/expedicao/shared/use-
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import {
   OrderItemOrderedQtyCell,
-  OrderItemStockQtyCell,
+  OrderItemStockAvailableCell,
+  OrderItemStockFiguresInline,
+  OrderItemStockOnHandCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 
 function defaultSeparationQty(item: OrderItemDto): number {
@@ -119,7 +121,7 @@ export function SeparationItemRow(props: {
     <Fragment>
       {/* Mobile — card em flex coluna (visível só &lt;768px via CSS) */}
       <tr className="exp-sep-mobile-card-row">
-        <td colSpan={10}>
+        <td colSpan={11}>
           <div className="item-card">
             <div className="item-row">
               <span className="item-linha">Linha</span>
@@ -130,20 +132,16 @@ export function SeparationItemRow(props: {
               <span className="item-nome">{item.description}</span>
             </div>
             <div className="item-row">
-              <span>
-                <span className="item-label">Qtd: </span>
-                <span className="item-value">
-                  <OrderItemOrderedQtyCell qty={item.quantity} />
-                </span>
-              </span>
               {!hideStockColumn ? (
+                <OrderItemStockFiguresInline orderedQty={item.quantity} stock={stock} />
+              ) : (
                 <span>
-                  <span className="item-label">Qtd Estoque: </span>
+                  <span className="item-label">Qtd Pedido: </span>
                   <span className="item-value">
-                    <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
+                    <OrderItemOrderedQtyCell qty={item.quantity} />
                   </span>
                 </span>
-              ) : null}
+              )}
             </div>
             <div className="item-row item-row--stack">
               <span className="item-label">Qtd Sep.:</span>
@@ -178,16 +176,21 @@ export function SeparationItemRow(props: {
       >
         <td className="exp-wb-cell-linha text-xs">{item.lineNumber}</td>
         <td className="exp-wb-cell-sku text-xs">{item.sku}</td>
-        <td className="exp-wb-cell-item text-xs" title={item.description}>
+        <td className="exp-wb-cell-item text-xs">
           {item.description}
         </td>
-        <td className="text-center">
+        <td className="exp-wb-td-num exp-wb-num-qtd">
           <OrderItemOrderedQtyCell qty={item.quantity} />
         </td>
         {!hideStockColumn ? (
-          <td className="text-center">
-            <OrderItemStockQtyCell orderedQty={item.quantity} stock={stock} />
-          </td>
+          <>
+            <td className="exp-wb-td-num exp-wb-num-real">
+              <OrderItemStockOnHandCell stock={stock} />
+            </td>
+            <td className="exp-wb-td-num exp-wb-num-disp">
+              <OrderItemStockAvailableCell orderedQty={item.quantity} stock={stock} />
+            </td>
+          </>
         ) : null}
         <td className="text-center">{qtyInput}</td>
         <td className="text-center text-xs">

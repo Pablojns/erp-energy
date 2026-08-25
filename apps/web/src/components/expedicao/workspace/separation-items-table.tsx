@@ -2,10 +2,11 @@
 
 import { useEffect } from 'react';
 import { Lock } from 'lucide-react';
-import { useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
+import { EMPTY_ITEM_STOCK, useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
 import {
   OrderItemOrderedQtyCell,
-  OrderItemStockQtyCell,
+  OrderItemStockAvailableCell,
+  OrderItemStockOnHandCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
@@ -65,7 +66,7 @@ export function SeparationItemsTable(props: {
       </div>
       <div className="exp-wb-table-scroll">
         <table
-          className={`exp-wb-table exp-wb-table--compact exp-wb-table--mobile-cards w-full table-fixed ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
+          className={`exp-wb-table exp-wb-table--compact exp-wb-table--mobile-cards w-full ${isOrdersMode ? 'exp-wb-table--orders' : 'exp-wb-table--separation'}`}
         >
           <colgroup>
             {isOrdersMode ? (
@@ -76,23 +77,25 @@ export function SeparationItemsTable(props: {
                 <col className="exp-wb-col-qtd-pedida" />
                 <col className="exp-wb-col-qtd-sep" />
                 <col className="exp-wb-col-qtd-falta" />
-                {!isVendaExterna ? <col className="exp-wb-col-qtd-estoque" /> : null}
-                <col />
-                <col />
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-real" /> : null}
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-disp" /> : null}
+                <col className="exp-wb-col-venda" />
+                <col className="exp-wb-col-total-venda" />
                 {!isVendaExterna ? <col className="exp-wb-col-item-status" /> : null}
               </>
             ) : (
               <>
-                <col style={{ width: '44px' }} />
-                <col style={{ width: '80px' }} />
-                <col />
-                <col style={{ width: '50px' }} />
-                {!isVendaExterna ? <col style={{ width: '90px' }} /> : null}
-                <col style={{ width: '80px' }} />
-                <col style={{ width: '92px' }} />
-                <col style={{ width: '92px' }} />
-                <col style={{ width: '80px' }} />
-                <col style={{ width: '90px' }} />
+                <col className="exp-wb-col-linha" />
+                <col className="exp-wb-col-sku" />
+                <col className="exp-wb-col-item" />
+                <col className="exp-wb-col-qtd-pedida" />
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-real" /> : null}
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-disp" /> : null}
+                <col className="exp-wb-col-sep-qty" />
+                <col className="exp-wb-col-preco" />
+                <col className="exp-wb-col-total" />
+                <col className="exp-wb-col-status" />
+                <col className="exp-wb-col-action" />
               </>
             )}
           </colgroup>
@@ -103,14 +106,17 @@ export function SeparationItemsTable(props: {
                   <th>Linha</th>
                   <th>SKU</th>
                   <th>Item</th>
-                  <th className="text-center">Qtd</th>
-                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
-                    Qtd Separada
-                  </th>
-                  <th className="text-center">Falta</th>
-                  {!isVendaExterna ? <th className="text-center">Qtd Estoque</th> : null}
-                  <th className="text-center">Venda unit.</th>
-                  <th className="text-center">Total venda</th>
+                  <th className="exp-wb-th-num exp-wb-num-qtd">Qtd Pedido</th>
+                  <th className="exp-wb-th-num exp-wb-num-sep">Qtd Separada</th>
+                  <th className="exp-wb-th-num exp-wb-num-falta">Falta</th>
+                  {!isVendaExterna ? (
+                    <th className="exp-wb-th-num exp-wb-num-real">Estoque Real</th>
+                  ) : null}
+                  {!isVendaExterna ? (
+                    <th className="exp-wb-th-num exp-wb-num-disp">Estoque Disponível</th>
+                  ) : null}
+                  <th className="exp-wb-th-num exp-wb-num-venda">Venda unit.</th>
+                  <th className="exp-wb-th-num exp-wb-num-total">Total venda</th>
                   {!isVendaExterna ? <th className="text-center">Status item</th> : null}
                 </>
               ) : (
@@ -118,13 +124,12 @@ export function SeparationItemsTable(props: {
                   <th style={{ whiteSpace: 'nowrap' }}>Linha</th>
                   <th style={{ whiteSpace: 'nowrap' }}>SKU</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Item</th>
-                  <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
-                    Qtd
-                  </th>
+                  <th className="exp-wb-th-num exp-wb-num-qtd">Qtd Pedido</th>
                   {!isVendaExterna ? (
-                    <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
-                      Qtd Estoque
-                    </th>
+                    <th className="exp-wb-th-num exp-wb-num-real">Estoque Real</th>
+                  ) : null}
+                  {!isVendaExterna ? (
+                    <th className="exp-wb-th-num exp-wb-num-disp">Estoque Disponível</th>
                   ) : null}
                   <th className="text-center" style={{ whiteSpace: 'nowrap' }}>
                     Qtd Sep.
@@ -147,7 +152,7 @@ export function SeparationItemsTable(props: {
           </thead>
           <tbody>
             {order.items.map((it) => {
-              const stock = stockByItemId[it.id] ?? { available: null, loading: true };
+              const stock = stockByItemId[it.id] ?? EMPTY_ITEM_STOCK;
               const picked = it.pickedQty ?? 0;
               const missing = Math.max(0, (it.quantity ?? 0) - picked);
 
@@ -171,30 +176,35 @@ export function SeparationItemsTable(props: {
                 <tr key={it.id}>
                   <td className="exp-wb-cell-linha text-xs" data-label="Linha">{it.lineNumber}</td>
                   <td className="exp-wb-cell-sku text-xs" data-label="SKU">{it.sku || '—'}</td>
-                  <td className="exp-wb-cell-item text-xs" data-label="Item" title={it.description}>
+                  <td className="exp-wb-cell-item text-xs" data-label="Item">
                     {it.description}
                   </td>
-                  <td className="text-center" data-label="Qtd">
+                  <td className="exp-wb-td-num exp-wb-num-qtd" data-label="Qtd Pedido">
                     <OrderItemOrderedQtyCell qty={it.quantity} />
                   </td>
-                  <td className="text-center text-xs font-semibold" data-label="Qtd Separada">
+                  <td className="exp-wb-td-num exp-wb-num-sep text-xs font-semibold" data-label="Qtd Separada">
                     {picked}
                   </td>
                   <td
-                    className={`text-center text-xs font-semibold ${missing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}
+                    className={`exp-wb-td-num exp-wb-num-falta text-xs font-semibold ${missing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}
                     data-label="Falta"
                   >
                     {missing}
                   </td>
                   {!isVendaExterna ? (
-                    <td className="text-center" data-label="Estoque">
-                      <OrderItemStockQtyCell orderedQty={it.quantity} stock={stock} />
-                    </td>
+                    <>
+                      <td className="exp-wb-td-num exp-wb-num-real" data-label="Estoque Real">
+                        <OrderItemStockOnHandCell stock={stock} />
+                      </td>
+                      <td className="exp-wb-td-num exp-wb-num-disp" data-label="Estoque Disponível">
+                        <OrderItemStockAvailableCell orderedQty={it.quantity} stock={stock} />
+                      </td>
+                    </>
                   ) : null}
-                  <td className="text-center text-xs" data-label="Venda unit.">
+                  <td className="exp-wb-td-num exp-wb-num-venda text-xs" data-label="Venda unit.">
                     {formatOrderItemSaleValue(it.unitPrice)}
                   </td>
-                  <td className="text-center text-xs" data-label="Total venda">
+                  <td className="exp-wb-td-num exp-wb-num-total text-xs" data-label="Total venda">
                     {formatOrderItemSaleValue(
                       it.totalPrice,
                       it.unitPrice,

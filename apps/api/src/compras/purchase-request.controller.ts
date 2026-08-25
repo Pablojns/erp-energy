@@ -22,6 +22,7 @@ import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
 import { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
@@ -32,11 +33,13 @@ import { PurchaseRequestService } from './purchase-request.service';
 
 @Controller('api/compras')
 @UseGuards(JwtGuard)
+@RequirePermission('compras', 'ver_modulo')
 export class PurchaseRequestController {
   constructor(private readonly purchaseRequests: PurchaseRequestService) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('compras', 'criar')
   @UseInterceptors(
     FilesInterceptor('images', 10, {
       storage: memoryStorage(),
@@ -94,6 +97,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id/status')
+  @RequirePermission('compras', 'editar')
   atualizarStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -103,6 +107,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id/chegada')
+  @RequirePermission('compras', 'editar')
   atualizarChegada(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePurchaseRequestChegadaDto,
@@ -111,6 +116,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id')
+  @RequirePermission('compras', 'editar')
   atualizar(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -121,6 +127,7 @@ export class PurchaseRequestController {
 
   @Post(':id/imagens')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('compras', 'editar')
   @UseInterceptors(
     FilesInterceptor('images', 10, {
       storage: memoryStorage(),
@@ -135,6 +142,7 @@ export class PurchaseRequestController {
   }
 
   @Delete(':id/imagens/:imageId')
+  @RequirePermission('compras', 'editar')
   removerImagem(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('imageId', ParseUUIDPipe) imageId: string,
@@ -143,6 +151,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id/quantidade')
+  @RequirePermission('compras', 'editar')
   atualizarQuantidade(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -152,6 +161,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id/comprado')
+  @RequirePermission('compras', 'editar')
   marcarComprado(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -161,6 +171,7 @@ export class PurchaseRequestController {
   }
 
   @Patch(':id/recusar')
+  @RequirePermission('compras', 'editar')
   recusar(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -170,6 +181,7 @@ export class PurchaseRequestController {
   }
 
   @Delete(':id')
+  @RequirePermission('compras', 'excluir')
   deletar(@Param('id', ParseUUIDPipe) id: string) {
     return this.purchaseRequests.deletar(id);
   }

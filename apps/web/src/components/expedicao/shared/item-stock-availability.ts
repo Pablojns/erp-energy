@@ -2,6 +2,11 @@ import type { OrderItemDto } from '@/src/components/expedicao/shared/types';
 
 export type StockAvailabilityTone = 'ok' | 'partial' | 'none' | 'unknown';
 
+export type ItemStockFigures = {
+  onHand: number | null;
+  available: number | null;
+};
+
 export function getStockAvailabilityTone(
   orderedQty: number,
   available: number | null,
@@ -12,33 +17,47 @@ export function getStockAvailabilityTone(
   return 'partial';
 }
 
-export function resolveInitialItemAvailable(item: OrderItemDto): number | null {
-  if (item.availableQty !== null && item.availableQty !== undefined) {
-    return item.availableQty;
+/** Estoque físico (Product.stockQty), sem descontar reserva. */
+export function resolveItemOnHand(item: OrderItemDto): number | null {
+  if (item.stockQtyOnHand !== null && item.stockQtyOnHand !== undefined) {
+    return item.stockQtyOnHand;
   }
-  if (
-    item.product?.availableQty !== undefined &&
-    item.product.availableQty !== null
-  ) {
-    return item.product.availableQty;
-  }
-  if (item.stockAvailable !== null && item.stockAvailable !== undefined) {
-    return item.stockAvailable;
-  }
-  if (
-    item.stockQtyOnHand !== null &&
-    item.stockQtyOnHand !== undefined &&
-    item.reservedQtyProduct !== null &&
-    item.reservedQtyProduct !== undefined
-  ) {
-    return item.stockQtyOnHand - item.reservedQtyProduct;
-  }
-  if (
-    item.product &&
-    typeof item.product.stockQty === 'number' &&
-    Number.isFinite(item.product.stockQty)
-  ) {
-    return item.product.stockQty - (item.product.reservedQty ?? 0);
+  if (item.product && typeof item.product.stockQty === 'number') {
+    return item.product.stockQty;
   }
   return null;
+}
+
+/**
+ * Quanto ainda sobra para atender pedidos: stockQty - reservedQty.
+ * Igual ao Estoque (`availableQty`) e à Separação em Lote. Nunca negativo na tela.
+ */
+export function availableFromPhysical(
+  stockQty: number | null | undefined,
+  reservedQty: number | null | undefined,
+  availableQty?: number | null,
+): number | null {
+  if (availableQty !== null && availableQty !== undefined && Number.isFinite(availableQty)) {
+    return Math.max(0, availableQty);
+  }
+  if (stockQty === null || stockQty === undefined || !Number.isFinite(stockQty)) {
+    return null;
+  }
+  return Math.max(0, stockQty - (reservedQty ?? 0));
+}
+
+export function resolveInitialItemStockFigures(item: OrderItemDto): ItemStockFigures {
+  const onHand = resolveItemOnHand(item);
+  const reserved = item.reservedQtyProduct ?? item.product?.reservedQty ?? null;
+  const hinted =
+    item.availableQty ?? item.product?.availableQty ?? item.stockAvailable ?? null;
+  const available =
+    onHand !== null
+      ? availableFromPhysical(onHand, reserved ?? 0)
+      : availableFromPhysical(null, null, hinted);
+  return { onHand, available };
+}
+
+export function resolveInitialItemAvailable(item: OrderItemDto): number | null {
+  return resolveInitialItemStockFigures(item).available;
 }

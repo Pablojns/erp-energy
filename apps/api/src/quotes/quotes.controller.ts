@@ -69,7 +69,7 @@ export class QuotesController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   create(@Body() dto: CreateQuoteDto, @CurrentUser() user: AuthUser) {
     return this.quotes.create(dto, user);
   }
@@ -87,20 +87,20 @@ export class QuotesController {
   }
 
   @Post('catalog/sync')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   syncCatalog() {
     return this.xbz.syncCatalog();
   }
 
   @Post('catalog/sync-spot')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   syncSpotCatalog() {
     return this.spot.syncCatalog();
   }
 
   @Post(':id/duplicate')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   duplicate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.quotes.duplicate(id, user);
   }
@@ -112,7 +112,7 @@ export class QuotesController {
   }
 
   @Post(':id/proposals')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   async createProposal(
     @Param('id') id: string,
     @Body() dto: CreateQuoteProposalDto,
@@ -149,7 +149,7 @@ export class QuotesController {
   }
 
   @Post(':id/proposals/:proposalId/send-email')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   sendProposalEmail(
     @Param('id') id: string,
     @Param('proposalId') proposalId: string,
@@ -162,7 +162,7 @@ export class QuotesController {
   }
 
   @Post(':id/convert-to-order')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   convertToOrder(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -172,7 +172,7 @@ export class QuotesController {
 
   @Post(':id/items')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   addItem(
     @Param('id') id: string,
     @Body() dto: CreateQuoteItemDto,
@@ -182,7 +182,7 @@ export class QuotesController {
   }
 
   @Patch(':id/items/:itemId')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateItem(
     @Param('id') id: string,
     @Param('itemId') itemId: string,
@@ -193,7 +193,7 @@ export class QuotesController {
   }
 
   @Delete(':id/items/:itemId')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   removeItem(
     @Param('id') id: string,
     @Param('itemId') itemId: string,
@@ -209,7 +209,7 @@ export class QuotesController {
   }
 
   @Patch(':id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateQuoteDto,
@@ -219,7 +219,7 @@ export class QuotesController {
   }
 
   @Patch(':id/status')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateQuoteStatusDto,
@@ -230,7 +230,7 @@ export class QuotesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   remove(@Param('id') id: string) {
     return this.quotes.remove(id);
   }

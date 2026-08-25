@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CorreiosService } from './correios.service';
 import { ReverseLogisticsService } from './reverse-logistics.service';
 
@@ -33,12 +34,14 @@ export class CorreiosController {
 
   /** GET /correios/etiquetas — histórico de etiquetas emitidas */
   @Get('etiquetas')
+  @RequirePermission('correios', 'ver_modulo')
   listEtiquetas() {
     return this.correiosService.listEtiquetas();
   }
 
   /** PATCH /correios/etiquetas/:id — atualiza etiqueta existente (sem criar duplicata) */
   @Patch('etiquetas/:id')
+  @RequirePermission('correios', 'editar')
   atualizarEtiqueta(
     @Param('id') id: string,
     @Body()
@@ -56,6 +59,7 @@ export class CorreiosController {
 
   /** DELETE /correios/etiquetas/:id — remove do histórico local */
   @Delete('etiquetas/:id')
+  @RequirePermission('correios', 'excluir')
   excluirEtiqueta(@Param('id') id: string) {
     return this.correiosService.excluirEtiqueta(id);
   }
@@ -119,12 +123,14 @@ export class CorreiosController {
 
   /** POST /correios/prepostagem — cria pré-postagem e retorna id + código de rastreio */
   @Post('prepostagem')
+  @RequirePermission('correios', 'criar')
   criarPrePostagem(@Body() body: any, @CurrentUser() user: AuthUser) {
     return this.correiosService.criarPrePostagem(body, user?.id);
   }
 
   /** POST /correios/rotulo — body: { idsPrePostagem: ['PRxxx'], tipoRotulo: 'P' } — retorna PDF */
   @Post('rotulo')
+  @RequirePermission('correios', 'criar')
   async gerarRotulo(
     @Body('idsPrePostagem') idsPrePostagem: string[],
     @Body('tipoRotulo') tipoRotulo: 'P' | 'R' = 'P',
@@ -159,6 +165,7 @@ export class CorreiosController {
 
   /** DELETE /correios/prepostagem/:id — cancela pré-postagem pelo ID Correios */
   @Delete('prepostagem/:id')
+  @RequirePermission('correios', 'excluir')
   cancelarPrePostagem(@Param('id') id: string) {
     return this.correiosService.cancelarPrePostagem(id);
   }
@@ -177,12 +184,14 @@ export class CorreiosController {
 
   /** POST /correios/logistica-reversa — cria devolução e gera etiqueta via Correios */
   @Post('logistica-reversa')
+  @RequirePermission('correios', 'criar')
   criarLogisticaReversa(@Body() body: any, @CurrentUser() user: AuthUser) {
     return this.reverseLogisticsService.create(body, user?.id);
   }
 
   /** GET /correios/logistica-reversa — lista com filtros status/período/cliente */
   @Get('logistica-reversa')
+  @RequirePermission('correios', 'ver_modulo')
   listarLogisticaReversa(
     @Query('status') status?: string,
     @Query('customer') customer?: string,
@@ -197,6 +206,7 @@ export class CorreiosController {
    * Body: { returnToStock: true | false } — escolha explícita obrigatória.
    */
   @Patch('logistica-reversa/:id/receber')
+  @RequirePermission('correios', 'editar')
   receberLogisticaReversa(
     @Param('id') id: string,
     @Body() body: { returnToStock?: boolean },
@@ -207,12 +217,14 @@ export class CorreiosController {
 
   /** PATCH /correios/logistica-reversa/:id/cancelar — cancela nos Correios + status CANCELADO */
   @Patch('logistica-reversa/:id/cancelar')
+  @RequirePermission('correios', 'editar')
   cancelarLogisticaReversa(@Param('id') id: string) {
     return this.reverseLogisticsService.cancelar(id);
   }
 
   /** DELETE /correios/logistica-reversa/:id — remove só o registro local */
   @Delete('logistica-reversa/:id')
+  @RequirePermission('correios', 'excluir')
   excluirLogisticaReversa(@Param('id') id: string) {
     return this.reverseLogisticsService.excluir(id);
   }

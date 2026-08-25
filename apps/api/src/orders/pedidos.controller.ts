@@ -55,6 +55,7 @@ import { RequirePermission } from '../common/permissions/require-permission.deco
 
 @Controller('api/pedidos')
 @UseGuards(JwtGuard)
+@RequirePermission('expedicao', 'ver_modulo')
 export class PedidosController {
   constructor(
     private readonly orderImportService: OrderImportService,
@@ -107,7 +108,7 @@ export class PedidosController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('expedicao', 'criar_pedido')
+  @RequirePermission('expedicao', 'criar')
   create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateManualPedidoDto,
@@ -162,7 +163,7 @@ export class PedidosController {
   }
 
   @Patch(':numeroPed')
-  @RequirePermission('expedicao', 'editar_pedido')
+  @RequirePermission('expedicao', 'editar')
   updateManual(
     @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
@@ -191,7 +192,7 @@ export class PedidosController {
   }
 
   @Patch(':numeroPed/site-items')
-  @RequirePermission('expedicao', 'editar_pedido')
+  @RequirePermission('expedicao', 'editar')
   updateSiteItems(
     @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
@@ -224,7 +225,7 @@ export class PedidosController {
 
   @Delete(':numeroPed')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('expedicao', 'deletar_pedido')
+  @RequirePermission('expedicao', 'excluir')
   deleteManual(
     @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,
@@ -266,7 +267,7 @@ export class PedidosController {
   }
 
   @Post(':numeroPed/confirmar-vinculo-urgente')
-  @RequirePermission('expedicao', 'editar_pedido')
+  @RequirePermission('expedicao', 'editar')
   confirmarVinculoUrgente(
     @Param('numeroPed') numeroPed: string,
     @CurrentUser() user: AuthUser,

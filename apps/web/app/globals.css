@@ -4493,19 +4493,32 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-table--separation .exp-wb-col-sku {
-  width: 80px;
+  width: 7rem;
+  min-width: 7rem;
 }
 
 .exp-wb-table--separation .exp-wb-col-item {
   width: auto;
+  min-width: 14rem;
 }
 
 .exp-wb-table--separation .exp-wb-col-qtd-pedida {
-  width: 50px;
+  width: 6.5rem;
+  min-width: 6.5rem;
 }
 
 .exp-wb-table--separation .exp-wb-col-qtd-estoque {
   width: 90px;
+}
+
+.exp-wb-table--separation .exp-wb-col-estoque-real {
+  width: 7.75rem;
+  min-width: 7.75rem;
+}
+
+.exp-wb-table--separation .exp-wb-col-estoque-disp {
+  width: 11rem;
+  min-width: 11rem;
 }
 
 .exp-wb-table--separation .exp-wb-col-note {
@@ -4518,6 +4531,11 @@ button.exp-wb-chip:hover {
 
 .exp-wb-table--separation .exp-wb-col-status {
   width: 80px;
+}
+
+.exp-wb-table--separation .exp-wb-col-preco,
+.exp-wb-table--separation .exp-wb-col-total {
+  width: 92px;
 }
 
 .exp-wb-table--separation .exp-wb-col-action {
@@ -4539,6 +4557,53 @@ button.exp-wb-chip:hover {
   text-overflow: ellipsis;
   padding-left: 6px;
   padding-right: 6px;
+}
+
+.exp-wb-table--separation thead th.exp-wb-th-num,
+.exp-wb-table--orders thead th.exp-wb-th-num,
+.exp-wb-table--separation tbody td.exp-wb-td-num,
+.exp-wb-table--orders tbody td.exp-wb-td-num {
+  overflow: visible !important;
+  text-overflow: unset !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+  height: auto;
+  max-height: none;
+}
+
+.exp-wb-th-num.exp-wb-num-qtd,
+.exp-wb-td-num.exp-wb-num-qtd {
+  min-width: 6.5rem;
+}
+
+.exp-wb-th-num.exp-wb-num-real,
+.exp-wb-td-num.exp-wb-num-real {
+  min-width: 7.75rem;
+}
+
+.exp-wb-th-num.exp-wb-num-disp,
+.exp-wb-td-num.exp-wb-num-disp {
+  min-width: 11rem;
+}
+
+.exp-wb-th-num.exp-wb-num-sep,
+.exp-wb-td-num.exp-wb-num-sep {
+  min-width: 8.5rem;
+}
+
+.exp-wb-th-num.exp-wb-num-falta,
+.exp-wb-td-num.exp-wb-num-falta {
+  min-width: 5rem;
+}
+
+.exp-wb-th-num.exp-wb-num-venda,
+.exp-wb-td-num.exp-wb-num-venda {
+  min-width: 7.5rem;
+}
+
+.exp-wb-th-num.exp-wb-num-total,
+.exp-wb-td-num.exp-wb-num-total {
+  min-width: 7.5rem;
 }
 
 .exp-wb-table--separation.exp-wb-table--compact .exp-wb-confirm-btn,
@@ -4628,8 +4693,9 @@ button.exp-wb-chip:hover {
   width: 8%;
 }
 
-.exp-wb-table--orders .exp-wb-col-qtd-estoque {
-  width: 10%;
+.exp-wb-table--orders .exp-wb-col-estoque-real,
+.exp-wb-table--orders .exp-wb-col-estoque-disp {
+  width: 9%;
 }
 
 .exp-wb-table--orders .exp-wb-col-item-status {
@@ -4659,21 +4725,40 @@ button.exp-wb-chip:hover {
   font-family: ui-monospace, monospace;
   font-size: 12px;
   font-weight: 600;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 
 .exp-wb-cell-item {
   font-size: 13px;
   line-height: 1.35;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.exp-wb-th-num,
+.exp-wb-td-num {
+  text-align: center;
+}
+
+.exp-wb-td-num .exp-wb-cell-num,
+.exp-wb-td-num .exp-wb-stock-qty-badge,
+.exp-wb-td-num .exp-wb-cell-muted {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  margin-inline: auto;
 }
 
 .exp-wb-cell-num {
   font-family: ui-monospace, monospace;
   font-size: 13px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .exp-wb-cell-muted {
@@ -4749,13 +4834,28 @@ button.exp-wb-chip:hover {
   table-layout: fixed;
 }
 
-.exp-wb-table thead th:nth-child(2),
-.exp-wb-table tbody td:nth-child(2),
+.exp-wb-table.exp-wb-table--separation,
+.exp-wb-table.exp-wb-table--orders {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+}
+
 .exp-wb-table thead th:nth-child(3),
 .exp-wb-table tbody td:nth-child(3) {
   white-space: normal;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.exp-wb-table thead th:nth-child(2),
+.exp-wb-table tbody td:nth-child(2),
+.exp-wb-table tbody td.exp-wb-cell-sku {
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  min-width: 7rem;
 }
 
 .exp-wb-table--separation thead th:nth-child(7),
@@ -6024,6 +6124,25 @@ button.exp-wb-chip:hover {
   overflow: hidden;
 }
 
+.exp-wb-table--compact tbody td.exp-wb-cell-item {
+  height: auto;
+  min-height: 36px;
+  max-height: none;
+  overflow: visible;
+  white-space: normal;
+}
+
+.exp-wb-table--compact tbody tr.exp-sep-desktop-row td {
+  height: auto;
+  min-height: 36px;
+  max-height: none;
+  overflow: visible;
+}
+
+.exp-wb-table--compact tbody td.exp-wb-td-num {
+  white-space: nowrap;
+}
+
 /* Card mobile de separação: não herda a altura fixa de 36px da tabela compacta */
 .exp-wb-table--compact tbody tr.exp-sep-mobile-card-row,
 .exp-wb-table--compact tbody tr.exp-sep-mobile-card-row td {
@@ -6040,19 +6159,44 @@ button.exp-wb-chip:hover {
 }
 
 .exp-wb-table--orders .exp-wb-col-sku {
-  width: 80px;
+  width: 7rem;
+  min-width: 7rem;
 }
 
 .exp-wb-table--orders .exp-wb-col-item {
   width: auto;
+  min-width: 12rem;
 }
 
 .exp-wb-table--orders .exp-wb-col-qtd-pedida {
-  width: 50px;
+  width: 6.5rem;
+  min-width: 6.5rem;
 }
 
-.exp-wb-table--orders .exp-wb-col-qtd-estoque {
-  width: 70px;
+.exp-wb-table--orders .exp-wb-col-qtd-sep {
+  width: 8.5rem;
+  min-width: 8.5rem;
+}
+
+.exp-wb-table--orders .exp-wb-col-qtd-falta {
+  width: 5rem;
+  min-width: 5rem;
+}
+
+.exp-wb-table--orders .exp-wb-col-estoque-real {
+  width: 7.75rem;
+  min-width: 7.75rem;
+}
+
+.exp-wb-table--orders .exp-wb-col-estoque-disp {
+  width: 11rem;
+  min-width: 11rem;
+}
+
+.exp-wb-table--orders .exp-wb-col-venda,
+.exp-wb-table--orders .exp-wb-col-total-venda {
+  width: 7.5rem;
+  min-width: 7.5rem;
 }
 
 .exp-wb-table--orders .exp-wb-col-item-status {
@@ -6071,6 +6215,28 @@ button.exp-wb-chip:hover {
 .exp-wb-stock-qty-badge--low {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
+}
+
+.exp-wb-stock-triple {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.exp-wb-stock-triple-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 2.5rem;
+}
+
+.exp-wb-stock-triple-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* Botão enviar separação */

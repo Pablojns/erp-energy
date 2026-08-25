@@ -3,6 +3,10 @@ import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppLogger } from '../logger/app-logger';
 import {
+  CRUD_PERMISSION_ACTIONS,
+  PERMISSION_MODULES,
+} from './permission-catalog';
+import {
   REQUIRE_PERMISSION_KEY,
   type RequiredPermission,
 } from './require-permission.decorator';
@@ -38,6 +42,9 @@ export class PermissionSyncService implements OnModuleInit {
     },
     { module: 'chat', action: 'ver_modulo' },
     { module: 'correios', action: 'ver_modulo' },
+    ...PERMISSION_MODULES.flatMap((module) =>
+      CRUD_PERMISSION_ACTIONS.map((action) => ({ module, action })),
+    ),
     { module: 'notificacoes', action: 'receber_estoque' },
     { module: 'notificacoes', action: 'receber_expedicao' },
     { module: 'notificacoes', action: 'receber_financeiro' },

@@ -17,6 +17,7 @@ import { validate, type ValidationError } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { JwtGuard } from '../auth/jwt.guard';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateWegOrderDto } from './dto/create-wego-order.dto';
 import { AttachInvoiceDto } from './dto/attach-invoice.dto';
@@ -41,6 +42,7 @@ function collectValidationMessages(errors: ValidationError[]): string[] {
 
 @Controller('orders')
 @UseGuards(JwtGuard)
+@RequirePermission('expedicao', 'ver_modulo')
 export class OrderController {
   constructor(private readonly orders: OrderService) {}
 
@@ -82,6 +84,7 @@ export class OrderController {
 
   @Post('weg')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('expedicao', 'criar')
   createWeg(@CurrentUser() user: AuthUser, @Body() dto: CreateWegOrderDto) {
     return this.orders.createWeg(user.id, dto);
   }
@@ -92,6 +95,7 @@ export class OrderController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('expedicao', 'criar')
   async create(@CurrentUser() user: AuthUser, @Body() body: object) {
     if (OrderController.looksLikeWegCreate(body)) {
       const dto = plainToInstance(CreateWegOrderDto, body);
@@ -124,6 +128,7 @@ export class OrderController {
   }
 
   @Patch(':id/priority')
+  @RequirePermission('expedicao', 'editar')
   updatePriority(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -133,6 +138,7 @@ export class OrderController {
   }
 
   @Patch(':id/status')
+  @RequirePermission('expedicao', 'editar')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -146,6 +152,7 @@ export class OrderController {
    * `pickedQty` não pode exceder a quantidade solicitada na linha.
    */
   @Patch(':orderId/items/:itemId/picked-qty')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   async updateItemPickedQty(
     @Param('orderId', ParseUUIDPipe) orderId: string,
@@ -163,12 +170,14 @@ export class OrderController {
   }
 
   @Post(':id/reserve')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   reserve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.orders.reserve(id, user.id);
   }
 
   @Post(':id/send-to-picking')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   sendToPicking(
     @Param('id', ParseUUIDPipe) id: string,
@@ -178,6 +187,7 @@ export class OrderController {
   }
 
   @Post(':id/remove-from-separation')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   removeFromSeparation(
     @Param('id', ParseUUIDPipe) id: string,
@@ -187,6 +197,7 @@ export class OrderController {
   }
 
   @Post(':id/mark-picked')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   markPicked(
     @Param('id', ParseUUIDPipe) id: string,
@@ -196,6 +207,7 @@ export class OrderController {
   }
 
   @Post(':id/attach-invoice')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   attachInvoice(
     @Param('id', ParseUUIDPipe) id: string,
@@ -206,6 +218,7 @@ export class OrderController {
   }
 
   @Post(':id/generate-exit')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   generateExit(
     @Param('id', ParseUUIDPipe) id: string,
@@ -216,6 +229,7 @@ export class OrderController {
   }
 
   @Post(':id/finalize-expedition')
+  @RequirePermission('expedicao', 'editar')
   @HttpCode(HttpStatus.OK)
   finalizeExpedition(
     @Param('id', ParseUUIDPipe) id: string,

@@ -33,27 +33,27 @@ export class EngravingController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   create(@Body() dto: CreateEngravingTechniqueDto) {
     return this.engraving.create(dto);
   }
 
   @Patch(':id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   update(@Param('id') id: string, @Body() dto: UpdateEngravingTechniqueDto) {
     return this.engraving.update(id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   remove(@Param('id') id: string) {
     return this.engraving.remove(id);
   }
 
   @Post('import')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   @UseInterceptors(FileInterceptor('file'))
   importExcel(
     @UploadedFile() file?: { originalname?: string; buffer?: Buffer },

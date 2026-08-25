@@ -1,13 +1,23 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { resolveInitialItemAvailable } from '@/src/components/expedicao/shared/item-stock-availability';
+import {
+  availableFromPhysical,
+  resolveInitialItemStockFigures,
+} from '@/src/components/expedicao/shared/item-stock-availability';
 import type { OrderItemDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 export type OrderItemStockState = {
+  onHand: number | null;
   available: number | null;
   loading: boolean;
+};
+
+export const EMPTY_ITEM_STOCK: OrderItemStockState = {
+  onHand: null,
+  available: null,
+  loading: true,
 };
 
 type ProductStockRow = {
@@ -21,29 +31,30 @@ type ProductStockRow = {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function productAvailable(p: ProductStockRow): number {
-  if (p.availableQty !== undefined && p.availableQty !== null) {
-    return p.availableQty;
-  }
-  return (p.stockQty ?? 0) - (p.reservedQty ?? 0);
+function productFigures(p: ProductStockRow): Pick<OrderItemStockState, 'onHand' | 'available'> {
+  const onHand = typeof p.stockQty === 'number' ? p.stockQty : null;
+  return {
+    onHand,
+    available: availableFromPhysical(onHand, p.reservedQty ?? 0),
+  };
 }
 
-function resolveAvailableForItem(
+function resolveFiguresForItem(
   item: OrderItemDto,
   byId: Map<string, ProductStockRow>,
   bySku: Map<string, ProductStockRow>,
-): number | null {
+): Pick<OrderItemStockState, 'onHand' | 'available'> {
   const productId = item.productId ?? item.product?.id ?? null;
   if (productId) {
     const hit = byId.get(productId);
-    if (hit) return productAvailable(hit);
+    if (hit) return productFigures(hit);
   }
   const sku = item.sku?.trim().toLowerCase();
   if (sku) {
     const hit = bySku.get(sku);
-    if (hit) return productAvailable(hit);
+    if (hit) return productFigures(hit);
   }
-  return resolveInitialItemAvailable(item);
+  return resolveInitialItemStockFigures(item);
 }
 
 function buildInitialState(
@@ -52,7 +63,7 @@ function buildInitialState(
   return Object.fromEntries(
     items.map((item) => [
       item.id,
-      { available: resolveInitialItemAvailable(item), loading: true },
+      { ...resolveInitialItemStockFigures(item), loading: true },
     ]),
   );
 }
@@ -77,7 +88,6 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
     }
 
     void (async () => {
-      // Sempre envia ids E skus: se o productId estiver stale/inativo, o SKU ainda resolve.
       const ids = [
         ...new Set(
           items
@@ -104,7 +114,7 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
             items.map((item) => [
               item.id,
               {
-                available: resolveAvailableForItem(item, byId, bySku),
+                ...resolveFiguresForItem(item, byId, bySku),
                 loading: false,
               },
             ]),
@@ -119,7 +129,7 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
             items.map((item) => [
               item.id,
               {
-                available: resolveInitialItemAvailable(item),
+                ...resolveInitialItemStockFigures(item),
                 loading: false,
               },
             ]),
@@ -139,7 +149,6 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
         applyRows(res.data ?? []);
       } catch {
         if (cancelled) return;
-        // Fallback: tenta só por SKU (evita 400 por id inválido no servidor antigo).
         if (skus.length > 0 && ids.length > 0) {
           try {
             const res = await erpFetchJson<{ data: ProductStockRow[] }>(
@@ -161,7 +170,7 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
             items.map((item) => [
               item.id,
               {
-                available: resolveInitialItemAvailable(item),
+                ...resolveInitialItemStockFigures(item),
                 loading: false,
               },
             ]),
@@ -173,7 +182,6 @@ export function useOrderItemsStock(items: OrderItemDto[]): Record<string, OrderI
     return () => {
       cancelled = true;
     };
-    // items é derivado de itemKey; incluir itemKey evita refetch espúrio.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- itemKey cobre mudanças relevantes
   }, [itemKey]);
 

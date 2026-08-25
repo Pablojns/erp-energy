@@ -28,6 +28,7 @@ type UserWithRoles = {
   passwordHash: string;
   department?: string | null;
   defaultContext?: string | null;
+  createdAt: Date;
   userRoles: Array<{
     role: {
       name: string;
@@ -153,7 +154,10 @@ export class AuthService implements OnModuleInit {
     });
 
     // Nunca expõe passwordHash — serializa apenas dados públicos.
-    return users.map((user: UserWithRoles) => this.serializeUser(user));
+    return users.map((user: UserWithRoles) => ({
+      ...this.serializeUser(user),
+      createdAt: user.createdAt.toISOString(),
+    }));
   }
 
   async updateUser(id: string, dto: UpdateUserDto, actorId: string) {

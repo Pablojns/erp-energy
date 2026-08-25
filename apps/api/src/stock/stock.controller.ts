@@ -52,7 +52,7 @@ export class StockController {
   /** Manutenção: remove movimentações órfãs (pedido inexistente). Não roda no list. */
   @Post('movements/clean-orphans')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('estoque', 'deletar_movimentacao')
+  @RequirePermission('estoque', 'excluir')
   async cleanOrphanMovements() {
     const removed = await this.stockService.cleanOrphanStockMovements();
     return { removed };
@@ -60,6 +60,7 @@ export class StockController {
 
   @Post('movements')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('estoque', 'criar')
   createMovement(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateStockMovementDto,
@@ -75,7 +76,7 @@ export class StockController {
 
   @Delete('movements/:id')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('estoque', 'deletar_movimentacao')
+  @RequirePermission('estoque', 'excluir')
   async deleteMovement(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,

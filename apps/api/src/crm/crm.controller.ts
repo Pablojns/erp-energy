@@ -54,19 +54,19 @@ export class CrmController {
 
   @Post('status')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createStatus(@Body() dto: CreateCrmStatusDto) {
     return this.crm.createStatus(dto);
   }
 
   @Patch('status/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateStatus(@Param('id') id: string, @Body() dto: UpdateCrmStatusDto) {
     return this.crm.updateStatus(id, dto);
   }
 
   @Delete('status/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteStatus(@Param('id') id: string) {
     return this.crm.deleteStatus(id);
   }
@@ -79,19 +79,19 @@ export class CrmController {
 
   @Post('channels')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createChannel(@Body() dto: CreateCrmChannelDto) {
     return this.crm.createChannel(dto);
   }
 
   @Patch('channels/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateChannel(@Param('id') id: string, @Body() dto: UpdateCrmChannelDto) {
     return this.crm.updateChannel(id, dto);
   }
 
   @Delete('channels/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteChannel(@Param('id') id: string) {
     return this.crm.deleteChannel(id);
   }
@@ -104,19 +104,19 @@ export class CrmController {
 
   @Post('funis')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createFunil(@Body() dto: CreateCrmFunilDto) {
     return this.crm.createFunil(dto);
   }
 
   @Patch('funis/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateFunil(@Param('id') id: string, @Body() dto: UpdateCrmFunilDto) {
     return this.crm.updateFunil(id, dto);
   }
 
   @Delete('funis/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteFunil(@Param('id') id: string) {
     return this.crm.deleteFunil(id);
   }
@@ -129,13 +129,13 @@ export class CrmController {
 
   @Post('motivos-perda')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createMotivoPerda(@Body() dto: CreateCrmMotivoPerdaDto) {
     return this.crm.createMotivoPerda(dto);
   }
 
   @Delete('motivos-perda/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteMotivoPerda(@Param('id') id: string) {
     return this.crm.deleteMotivoPerda(id);
   }
@@ -164,7 +164,7 @@ export class CrmController {
 
   @Post('cards/:id/propostas')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createProposta(@Param('id') id: string, @Body() dto: CreateCrmPropostaDto) {
     return this.propostas.create(id, dto);
   }
@@ -191,19 +191,19 @@ export class CrmController {
   }
 
   @Patch('propostas/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateProposta(@Param('id') id: string, @Body() dto: UpdateCrmPropostaDto) {
     return this.propostas.update(id, dto);
   }
 
   @Delete('propostas/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteProposta(@Param('id') id: string) {
     return this.propostas.delete(id);
   }
 
   @Post('propostas/:id/aceitar')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   aceitarProposta(@Param('id') id: string) {
     return this.propostas.markAceita(id);
   }
@@ -216,7 +216,7 @@ export class CrmController {
 
   @Post('cards')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   createCard(
     @Body() dto: CreateCrmCardDto,
     @CurrentUser() user: AuthUser,
@@ -225,25 +225,25 @@ export class CrmController {
   }
 
   @Patch('cards/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   updateCard(@Param('id') id: string, @Body() dto: UpdateCrmCardDto) {
     return this.crm.updateCard(id, dto);
   }
 
   @Delete('cards/:id')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'excluir')
   deleteCard(@Param('id') id: string) {
     return this.crm.deleteCard(id);
   }
 
   @Patch('cards/:id/mover')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   moveCard(@Param('id') id: string, @Body() dto: MoveCrmCardDto) {
     return this.crm.moveCard(id, dto.funilId);
   }
 
   @Post('cards/:id/touchpoints')
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'editar')
   upsertTouchpoints(
     @Param('id') id: string,
     @Body() dto: UpsertCrmTouchpointsDto,
@@ -294,7 +294,7 @@ export class CrmController {
 
   @Post('importar')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('crm', 'ver_modulo')
+  @RequirePermission('crm', 'criar')
   importLeads(@Body() dto: ImportCrmLeadsDto) {
     return this.crm.importLeads(dto);
   }

@@ -51,11 +51,8 @@ export class AuthController {
   @UseGuards(JwtGuard)
   @Get('users')
   listUsers(@CurrentUser() user: AuthUser) {
-    if (
-      !user.roles.includes('ADMIN') &&
-      !user.roles.includes('OPERADOR')
-    ) {
-      throw new ForbiddenException('Acesso restrito.');
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException('Acesso restrito a administradores.');
     }
     return this.authService.listUsers();
   }

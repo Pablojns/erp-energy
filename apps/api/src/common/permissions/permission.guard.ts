@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { AuthUser } from '../../auth/interfaces/auth-user.interface';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PERMISSION_ACTION_ALIASES } from './permission-catalog';
 import {
   REQUIRE_PERMISSION_KEY,
   type RequiredPermission,
@@ -40,29 +41,33 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    const permission = await this.prisma.client.permission.findUnique({
+    const actions = [
+      required.action,
+      ...(PERMISSION_ACTION_ALIASES[`${required.module}:${required.action}`] ?? []),
+    ];
+
+    const permissions = await this.prisma.client.permission.findMany({
       where: {
-        module_action: {
-          module: required.module,
-          action: required.action,
-        },
+        module: required.module,
+        action: { in: actions },
       },
+      select: { id: true },
     });
 
-    if (!permission) {
+    if (permissions.length === 0) {
       throw new ForbiddenException('Permissão não configurada.');
     }
 
-    const grant = await this.prisma.client.userPermission.findUnique({
+    const grant = await this.prisma.client.userPermission.findFirst({
       where: {
-        userId_permissionId: {
-          userId: user.id,
-          permissionId: permission.id,
-        },
+        userId: user.id,
+        granted: true,
+        permissionId: { in: permissions.map((row) => row.id) },
       },
+      select: { id: true },
     });
 
-    if (!grant?.granted) {
+    if (!grant) {
       throw new ForbiddenException('Sem permissão para esta ação.');
     }
 

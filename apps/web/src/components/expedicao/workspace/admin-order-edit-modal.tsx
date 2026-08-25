@@ -16,11 +16,12 @@ import {
   canEditSiteOrderItems,
   resolveItemReceiptStatusForOrder,
 } from '@/src/components/expedicao/shared/order-helpers';
-import { useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
+import { EMPTY_ITEM_STOCK, useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
 import {
   OrderItemOrderedQtyCell,
-  OrderItemStockQtyCell,
+  OrderItemStockAvailableCell,
+  OrderItemStockOnHandCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import {
@@ -1306,7 +1307,7 @@ export function AdminOrderEditModal(props: {
                   <th className="px-2 py-2 text-left">Linha</th>
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">Item</th>
-                  <th className="px-2 py-2 text-center">Qtd</th>
+                  <th className="px-2 py-2 text-center">Qtd Pedido</th>
                   {isWegOrder ? (
                     <th className="px-2 py-2 text-right">Preço un.</th>
                   ) : null}
@@ -1314,7 +1315,8 @@ export function AdminOrderEditModal(props: {
                     <>
                       <th className="px-2 py-2 text-center whitespace-nowrap">Qtd Separada</th>
                       <th className="px-2 py-2 text-center">Falta</th>
-                      <th className="px-2 py-2 text-center">Qtd Estoque</th>
+                      <th className="px-2 py-2 text-center whitespace-nowrap">Estoque Real</th>
+                      <th className="px-2 py-2 text-center whitespace-nowrap">Estoque Disponível</th>
                       <th className="px-2 py-2 text-center">Status item</th>
                     </>
                   ) : !isSimpleCustomerLayout ? (
@@ -1327,10 +1329,7 @@ export function AdminOrderEditModal(props: {
                   const qtyNum = Number(it.quantity) || 0;
                   const picked = it.pickedQty ?? 0;
                   const missing = Math.max(0, qtyNum - picked);
-                  const stock = stockByItemId[it.id] ?? {
-                    available: null,
-                    loading: true,
-                  };
+                  const stock = stockByItemId[it.id] ?? EMPTY_ITEM_STOCK;
                   const orderItemForStatus = order.items.find((o) => o.id === it.id);
 
                   if (isSiteOrder) {
@@ -1383,7 +1382,10 @@ export function AdminOrderEditModal(props: {
                           {missing}
                         </td>
                         <td className="px-2 py-2 text-center">
-                          <OrderItemStockQtyCell orderedQty={qtyNum} stock={stock} />
+                          <OrderItemStockOnHandCell stock={stock} />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <OrderItemStockAvailableCell orderedQty={qtyNum} stock={stock} />
                         </td>
                         <td className="px-2 py-2 text-center">
                           <OrderItemReceiptStatusBadge

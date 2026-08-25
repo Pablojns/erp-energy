@@ -30,6 +30,7 @@ import {
   type CrmUserDto,
 } from '@/src/services/api/crm-api';
 import { listQuotes } from '@/src/services/api/quotes-api';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 
 const CrmDashboard = dynamic(
   () => import('@/src/components/crm/crm-dashboard').then((m) => m.CrmDashboard),
@@ -82,6 +83,10 @@ const VIEW_TITLE: Record<Exclude<CrmView, 'relatorios'>, string> = {
 
 export function CrmWorkspace(props: { isAdmin?: boolean }) {
   const isAdmin = props.isAdmin ?? false;
+  const { hasPermission } = useNavPermissions();
+  const canCreateCrm = hasPermission('crm', 'criar');
+  const canEditCrm = hasPermission('crm', 'editar');
+  const canDeleteCrm = hasPermission('crm', 'excluir');
   const [activeView, setActiveView] = useState<CrmView>('dashboard');
   const [funis, setFunis] = useState<CrmFunilDto[]>([]);
   const [channels, setChannels] = useState<CrmChannelDto[]>([]);
@@ -269,7 +274,8 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
   ]);
 
   const showKanbanActions = activeView === 'kanban';
-  const showNewLeadAction = activeView === 'kanban' || activeView === 'clientes';
+  const showNewLeadAction =
+    canCreateCrm && (activeView === 'kanban' || activeView === 'clientes');
   const viewTitle =
     activeView !== 'relatorios' ? VIEW_TITLE[activeView] : 'Relatórios';
 
@@ -507,6 +513,8 @@ export function CrmWorkspace(props: { isAdmin?: boolean }) {
         funis={funis}
         channels={channels}
         users={users}
+        canEdit={canEditCrm}
+        canDelete={canDeleteCrm}
         onClose={() => setDetailCardId(null)}
         onUpdated={handleDataChanged}
       />

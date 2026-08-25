@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -27,6 +26,7 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
+  @RequirePermission('estoque', 'criar')
   create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateProductDto,
@@ -51,6 +51,7 @@ export class ProductController {
   }
 
   @Patch(':id/reactivate')
+  @RequirePermission('estoque', 'editar')
   reactivate(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -59,7 +60,7 @@ export class ProductController {
   }
 
   @Patch(':id')
-  @RequirePermission('estoque', 'editar_produto')
+  @RequirePermission('estoque', 'editar')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -69,16 +70,11 @@ export class ProductController {
   }
 
   @Delete(':id')
-  @RequirePermission('estoque', 'desativar_produto')
+  @RequirePermission('estoque', 'excluir')
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!user.roles.includes('ADMIN')) {
-      throw new ForbiddenException(
-        'Apenas administradores podem excluir produtos.',
-      );
-    }
     return this.productService.softDelete(id, user.id);
   }
 }

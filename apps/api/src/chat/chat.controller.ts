@@ -9,10 +9,12 @@ import {
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { ChatService } from './chat.service';
 
 @Controller('api/chat')
 @UseGuards(JwtGuard)
+@RequirePermission('chat', 'ver_modulo')
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
@@ -35,6 +37,7 @@ export class ChatController {
   }
 
   @Post('rooms/direct/:userId')
+  @RequirePermission('chat', 'criar')
   createDirectRoom(
     @Param('userId', ParseUUIDPipe) otherUserId: string,
     @CurrentUser() user: AuthUser,

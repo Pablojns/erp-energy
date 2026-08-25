@@ -16,32 +16,72 @@ function stockQtyToneClass(tone: ReturnType<typeof getStockAvailabilityTone>): s
   }
 }
 
-export function OrderItemOrderedQtyCell(props: { qty: number }) {
-  return <span className="exp-wb-cell-num text-xs">{props.qty}</span>;
-}
-
-export function OrderItemStockQtyCell(props: {
-  stock: OrderItemStockState;
-  orderedQty: number;
-}) {
-  const { stock, orderedQty } = props;
-  if (stock.loading) {
+function StockPlaceholder(props: { loading: boolean }) {
+  if (props.loading) {
     return (
       <span className="exp-wb-cell-muted text-xs" aria-label="Carregando estoque">
         …
       </span>
     );
   }
-  if (stock.available === null) {
-    return <span className="exp-wb-cell-muted text-xs">—</span>;
+  return <span className="exp-wb-cell-muted text-xs">—</span>;
+}
+
+export function OrderItemOrderedQtyCell(props: { qty: number }) {
+  return <span className="exp-wb-cell-num text-xs">{props.qty}</span>;
+}
+
+export function OrderItemStockOnHandCell(props: { stock: OrderItemStockState }) {
+  const { stock } = props;
+  if (stock.loading || stock.onHand === null) {
+    return <StockPlaceholder loading={stock.loading} />;
+  }
+  return (
+    <span className="exp-wb-cell-num text-xs font-semibold tabular-nums" title="Estoque físico total">
+      {stock.onHand}
+    </span>
+  );
+}
+
+export function OrderItemStockAvailableCell(props: {
+  stock: OrderItemStockState;
+  orderedQty: number;
+}) {
+  const { stock, orderedQty } = props;
+  if (stock.loading || stock.available === null) {
+    return <StockPlaceholder loading={stock.loading} />;
   }
   const tone = getStockAvailabilityTone(orderedQty, stock.available);
   const isLow = stock.available < orderedQty;
   return (
     <span
       className={`exp-wb-stock-qty-badge text-[12px] font-semibold tabular-nums ${stockQtyToneClass(tone)}${isLow ? ' exp-wb-stock-qty-badge--low' : ''}`}
+      title="Estoque disponível para este pedido (físico menos o já comprometido)"
     >
       {stock.available}
+    </span>
+  );
+}
+
+/** Três números: pedido | real | disponível — para cards compactos. */
+export function OrderItemStockFiguresInline(props: {
+  orderedQty: number;
+  stock: OrderItemStockState;
+}) {
+  return (
+    <span className="exp-wb-stock-triple" aria-label="Quantidade do pedido, estoque real e disponível">
+      <span className="exp-wb-stock-triple-item">
+        <span className="exp-wb-stock-triple-label">Pedido</span>
+        <OrderItemOrderedQtyCell qty={props.orderedQty} />
+      </span>
+      <span className="exp-wb-stock-triple-item">
+        <span className="exp-wb-stock-triple-label">Real</span>
+        <OrderItemStockOnHandCell stock={props.stock} />
+      </span>
+      <span className="exp-wb-stock-triple-item">
+        <span className="exp-wb-stock-triple-label">Disponível</span>
+        <OrderItemStockAvailableCell orderedQty={props.orderedQty} stock={props.stock} />
+      </span>
     </span>
   );
 }

@@ -9,7 +9,7 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get('resumo')
-  @RequirePermission('dashboard', 'ver_dashboard')
+  @RequirePermission('dashboard', 'ver_modulo')
   resumo(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,

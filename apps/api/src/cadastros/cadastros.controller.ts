@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -39,198 +38,188 @@ export class CadastrosController {
     private readonly audit: AuditService,
   ) {}
 
-  private assertAdmin(user: AuthUser) {
-    if (!user.roles.includes('ADMIN')) {
-      throw new ForbiddenException('Acesso restrito a administradores.');
-    }
-  }
-
   @Get('receivers')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   listReceivers() {
     return this.cadastros.listReceivers();
   }
 
   @Post('receivers')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createReceiver(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createReceiver(dto);
   }
 
   @Patch('receivers/:id')
+  @RequirePermission('cadastros', 'editar')
   updateReceiver(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateReceiver(id, dto);
   }
 
   @Patch('receivers/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleReceiver(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleReceiver(id);
   }
 
   @Delete('receivers/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('cadastros', 'excluir')
   deleteReceiver(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.deleteReceiver(id);
   }
 
   @Get('unloading-points')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   listUnloadingPoints() {
     return this.cadastros.listUnloadingPoints();
   }
 
   @Post('unloading-points')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createUnloadingPoint(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createUnloadingPoint(dto);
   }
 
   @Patch('unloading-points/:id')
+  @RequirePermission('cadastros', 'editar')
   updateUnloadingPoint(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateUnloadingPoint(id, dto);
   }
 
   @Patch('unloading-points/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleUnloadingPoint(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleUnloadingPoint(id);
   }
 
   @Delete('unloading-points/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('cadastros', 'excluir')
   deleteUnloadingPoint(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.deleteUnloadingPoint(id);
   }
 
   @Get('carriers')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   listCarriers() {
     return this.cadastros.listCarriers();
   }
 
   @Post('carriers')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createCarrier(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createCarrier(dto);
   }
 
   @Patch('carriers/:id')
+  @RequirePermission('cadastros', 'editar')
   updateCarrier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateNameCadastroDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateCarrier(id, dto);
   }
 
   @Patch('carriers/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleCarrier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleCarrier(id);
   }
 
   @Delete('carriers/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('cadastros', 'excluir')
   deleteCarrier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.deleteCarrier(id);
   }
 
   @Get('suppliers')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   listSuppliers() {
     return this.cadastros.listSuppliers();
   }
 
   @Post('suppliers')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createSupplier(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateSupplierDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createSupplier(dto);
   }
 
   @Patch('suppliers/:id')
+  @RequirePermission('cadastros', 'editar')
   updateSupplier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateSupplierDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateSupplier(id, dto);
   }
 
   @Patch('suppliers/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleSupplier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleSupplier(id);
   }
 
   @Delete('suppliers/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('cadastros', 'excluir')
   deleteSupplier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.deleteSupplier(id);
   }
 
   @Get('customers')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   async listCustomers(
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
@@ -248,77 +237,75 @@ export class CadastrosController {
 
   @Post('customers')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createCustomer(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateCustomerDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createCustomer(dto);
   }
 
   @Patch('customers/:id')
+  @RequirePermission('cadastros', 'editar')
   updateCustomer(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCustomerDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateCustomer(id, dto);
   }
 
   @Patch('customers/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleCustomer(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleCustomer(id);
   }
 
   @Delete('customers/:id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('cadastros', 'excluir')
   deleteCustomer(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.deleteCustomer(id);
   }
 
   @Get('company-entities')
-  @RequirePermission('cadastros', 'ver_cadastros')
+  @RequirePermission('cadastros', 'ver_modulo')
   listCompanyEntities() {
     return this.cadastros.listCompanyEntities();
   }
 
   @Post('company-entities')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('cadastros', 'criar_cadastro')
+  @RequirePermission('cadastros', 'criar')
   createCompanyEntity(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateCompanyEntityDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.createCompanyEntity(dto);
   }
 
   @Patch('company-entities/:id')
+  @RequirePermission('cadastros', 'editar')
   updateCompanyEntity(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCompanyEntityDto,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.updateCompanyEntity(id, dto);
   }
 
   @Patch('company-entities/:id/toggle')
+  @RequirePermission('cadastros', 'editar')
   toggleCompanyEntity(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    this.assertAdmin(user);
     return this.cadastros.toggleCompanyEntity(id);
   }
 }

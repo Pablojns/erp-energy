@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
+import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import {
   CobrarNfDto,
   CriarDespesaDto,
@@ -22,10 +23,12 @@ import { FinanceiroService } from './financeiro.service';
 
 @Controller('api/financeiro')
 @UseGuards(JwtGuard)
+@RequirePermission('financeiro', 'ver_modulo')
 export class FinanceiroController {
   constructor(private readonly financeiro: FinanceiroService) {}
 
   @Post('sync')
+  @RequirePermission('financeiro', 'editar')
   sync() {
     return this.financeiro.syncNFs();
   }
@@ -43,6 +46,7 @@ export class FinanceiroController {
   }
 
   @Patch('nfs/:id/pagar')
+  @RequirePermission('financeiro', 'editar')
   pagar(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PagarNfDto,
@@ -51,6 +55,7 @@ export class FinanceiroController {
   }
 
   @Patch('nfs/:id/cobrar')
+  @RequirePermission('financeiro', 'editar')
   cobrar(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CobrarNfDto,
@@ -64,11 +69,13 @@ export class FinanceiroController {
   }
 
   @Post('despesas')
+  @RequirePermission('financeiro', 'criar')
   criarDespesa(@Body() dto: CriarDespesaDto) {
     return this.financeiro.criarDespesa(dto);
   }
 
   @Delete('despesas/:id')
+  @RequirePermission('financeiro', 'excluir')
   deletarDespesa(@Param('id', ParseUUIDPipe) id: string) {
     return this.financeiro.deletarDespesa(id);
   }

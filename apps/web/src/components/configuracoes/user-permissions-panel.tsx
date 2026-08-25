@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Shield, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  ADMIN_PERMISSION_MODULES,
+  CRUD_PERMISSION_COLUMNS,
+  EXTRA_ACTION_LABELS,
+  MODULE_EXTRA_ACTIONS,
+  isCrudAction,
+  isLegacyHiddenAction,
+} from '@/src/services/auth/permission-catalog';
 
 export type UserPermissionRow = {
   id: string;
@@ -28,28 +36,27 @@ type UserPermissionsPanelProps = {
   onClose?: () => void;
 };
 
-function formatActionLabel(module: string, action: string): string {
-  if (module === 'crm' && action === 'ver_todos_leads') {
-    return 'Ver todos os leads do CRM';
-  }
-  const label = action.replace(/_/g, ' ');
-  return label.charAt(0).toUpperCase() + label.slice(1);
+function extraActionLabel(action: string, description: string | null): string {
+  return EXTRA_ACTION_LABELS[action] ?? description ?? action.replace(/_/g, ' ');
 }
 
 function PermissionSwitch({
   granted,
   disabled,
   onToggle,
+  label,
 }: {
   granted: boolean;
   disabled?: boolean;
   onToggle: () => void;
+  label?: string;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={granted}
+      aria-label={label}
       disabled={disabled}
       onClick={onToggle}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -114,9 +121,10 @@ export function UserPermissionsPanel({
       );
       setPermissions(rows);
       const initialExpanded: Record<string, boolean> = {};
-      for (const row of rows) {
-        initialExpanded[row.module] = true;
+      for (const mod of ADMIN_PERMISSION_MODULES) {
+        initialExpanded[mod.id] = true;
       }
+      initialExpanded.notificacoes = false;
       setExpanded(initialExpanded);
     } catch (err: unknown) {
       setError(
@@ -132,14 +140,14 @@ export function UserPermissionsPanel({
     load();
   }, [isAdmin, load]);
 
-  const grouped = useMemo(() => {
+  const byModule = useMemo(() => {
     const map = new Map<string, UserPermissionRow[]>();
     for (const row of permissions) {
       const list = map.get(row.module) ?? [];
       list.push(row);
       map.set(row.module, list);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return map;
   }, [permissions]);
 
   const togglePermission = async (permission: UserPermissionRow) => {
@@ -177,6 +185,10 @@ export function UserPermissionsPanel({
     return null;
   }
 
+  const notificationRows = (byModule.get('notificacoes') ?? []).filter(
+    (row) => !isLegacyHiddenAction(row.action),
+  );
+
   return (
     <div
       className="mt-4 overflow-hidden rounded-2xl border border-gray-200"
@@ -190,7 +202,7 @@ export function UserPermissionsPanel({
               Permissões de {userName}
             </h3>
             <p className="text-xs text-gray-500">
-              Controle de acesso por módulo e ação
+              ADMIN tem acesso total. Operadores só o que estiver marcado.
             </p>
           </div>
         </div>
@@ -223,83 +235,164 @@ export function UserPermissionsPanel({
 
       {!loading && !error ? (
         <div className="space-y-3 p-4">
-          {grouped.length === 0 ? (
-            <p className="px-2 py-4 text-center text-sm text-gray-500">
-              Nenhuma permissão cadastrada no sistema.
-            </p>
-          ) : (
-            grouped.map(([module, rows]) => {
-              const isOpen = expanded[module] ?? true;
-              return (
-                <section
-                  key={module}
-                  className="erp-module-card overflow-hidden"
+          {ADMIN_PERMISSION_MODULES.map((mod) => {
+            const rows = byModule.get(mod.id) ?? [];
+            const crudByAction = new Map(
+              rows.filter((row) => isCrudAction(row.action)).map((row) => [row.action, row]),
+            );
+            const extraActions = MODULE_EXTRA_ACTIONS[mod.id] ?? [];
+            const extras = extraActions
+              .map((action) => rows.find((row) => row.action === action))
+              .filter((row): row is UserPermissionRow => Boolean(row));
+            const leftover = rows.filter(
+              (row) =>
+                !isCrudAction(row.action) &&
+                !isLegacyHiddenAction(row.action) &&
+                !extraActions.includes(row.action),
+            );
+            const isOpen = expanded[mod.id] ?? true;
+
+            return (
+              <section key={mod.id} className="erp-module-card overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpanded((prev) => ({
+                      ...prev,
+                      [mod.id]: !isOpen,
+                    }))
+                  }
+                  className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-gray-100"
                 >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpanded((prev) => ({
-                        ...prev,
-                        [module]: !isOpen,
-                      }))
-                    }
-                    className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-gray-100"
-                  >
-                    <span className="text-xs font-bold tracking-wider text-gray-600">
-                      {module.toUpperCase()}
-                    </span>
-                    {isOpen ? (
-                      <ChevronDown size={16} className="text-gray-500" />
-                    ) : (
-                      <ChevronRight size={16} className="text-gray-500" />
-                    )}
-                  </button>
-
+                  <span className="text-xs font-bold tracking-wider text-gray-600">
+                    {mod.label.toUpperCase()}
+                  </span>
                   {isOpen ? (
-                    <ul className="divide-y divide-gray-100 border-t border-gray-200">
-                      {rows.map((permission) => (
-                        <li
-                          key={permission.id}
-                          className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-900">
-                              {formatActionLabel(
-                                permission.module,
-                                permission.action,
-                              )}
-                            </p>
-                            {permission.description ? (
-                              <p className="mt-0.5 text-xs text-gray-500">
-                                {permission.description}
-                              </p>
-                            ) : null}
-                          </div>
+                    <ChevronDown size={16} className="text-gray-500" />
+                  ) : (
+                    <ChevronRight size={16} className="text-gray-500" />
+                  )}
+                </button>
 
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                permission.granted
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-zinc-100 text-zinc-800'
-                              }`}
+                {isOpen ? (
+                  <div className="border-t border-gray-200 px-4 py-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {CRUD_PERMISSION_COLUMNS.map((col) => {
+                        const permission = crudByAction.get(col.action);
+                        if (!permission) {
+                          return (
+                            <div
+                              key={col.action}
+                              className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400"
                             >
-                              {permission.granted ? 'Liberado' : 'Bloqueado'}
+                              {col.label}
+                            </div>
+                          );
+                        }
+                        return (
+                          <label
+                            key={permission.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                          >
+                            <span className="text-sm font-medium text-gray-900">
+                              {col.label}
                             </span>
                             <PermissionSwitch
                               granted={permission.granted}
                               disabled={savingId === permission.id}
+                              label={`${mod.label}: ${col.label}`}
                               onToggle={() => void togglePermission(permission)}
                             />
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </section>
-              );
-            })
-          )}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {extras.length > 0 || leftover.length > 0 ? (
+                      <ul className="mt-3 divide-y divide-gray-100 rounded-lg border border-gray-200">
+                        {[...extras, ...leftover].map((permission) => (
+                          <li
+                            key={permission.id}
+                            className="flex items-center justify-between gap-3 px-3 py-2.5"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-900">
+                                {extraActionLabel(
+                                  permission.action,
+                                  permission.description,
+                                )}
+                              </p>
+                              {permission.description &&
+                              EXTRA_ACTION_LABELS[permission.action] ? (
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                  {permission.description}
+                                </p>
+                              ) : null}
+                            </div>
+                            <PermissionSwitch
+                              granted={permission.granted}
+                              disabled={savingId === permission.id}
+                              label={extraActionLabel(
+                                permission.action,
+                                permission.description,
+                              )}
+                              onToggle={() => void togglePermission(permission)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
+
+          {notificationRows.length > 0 ? (
+            <section className="erp-module-card overflow-hidden">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpanded((prev) => ({
+                    ...prev,
+                    notificacoes: !(prev.notificacoes ?? false),
+                  }))
+                }
+                className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-gray-100"
+              >
+                <span className="text-xs font-bold tracking-wider text-gray-600">
+                  NOTIFICAÇÕES
+                </span>
+                {expanded.notificacoes ? (
+                  <ChevronDown size={16} className="text-gray-500" />
+                ) : (
+                  <ChevronRight size={16} className="text-gray-500" />
+                )}
+              </button>
+              {expanded.notificacoes ? (
+                <ul className="divide-y divide-gray-100 border-t border-gray-200">
+                  {notificationRows.map((permission) => (
+                    <li
+                      key={permission.id}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <p className="text-sm font-medium text-gray-900">
+                        {extraActionLabel(
+                          permission.action,
+                          permission.description,
+                        )}
+                      </p>
+                      <PermissionSwitch
+                        granted={permission.granted}
+                        disabled={savingId === permission.id}
+                        onToggle={() => void togglePermission(permission)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
         </div>
       ) : null}
     </div>

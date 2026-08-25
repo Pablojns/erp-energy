@@ -45,10 +45,22 @@ export function CrmCardDetailModal(props: {
   statuses?: CrmStatusDto[];
   channels: CrmChannelDto[];
   users: CrmUserDto[];
+  canEdit?: boolean;
+  canDelete?: boolean;
   onClose: () => void;
   onUpdated: () => void | Promise<void>;
 }) {
-  const { cardId, funis, statuses = [], channels, users, onClose, onUpdated } = props;
+  const {
+    cardId,
+    funis,
+    statuses = [],
+    channels,
+    users,
+    canEdit = true,
+    canDelete = true,
+    onClose,
+    onUpdated,
+  } = props;
   const [card, setCard] = useState<CrmCardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
@@ -674,7 +686,11 @@ export function CrmCardDetailModal(props: {
               {error ? <p className="mt-4 text-sm text-rose-400">{error}</p> : null}
 
               <div className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-color)] pt-5">
-                <GlowButton variant="primary" disabled={saving} onClick={() => void save()}>
+                <GlowButton
+                  variant="primary"
+                  disabled={saving || !canEdit}
+                  onClick={() => void save()}
+                >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
                 </GlowButton>
                 <GlowButton
@@ -691,6 +707,7 @@ export function CrmCardDetailModal(props: {
                 >
                   Marcar como Perdido
                 </GlowButton>
+                {canDelete ? (
                 <button
                   type="button"
                   disabled={saving}
@@ -700,6 +717,7 @@ export function CrmCardDetailModal(props: {
                   <Trash2 className="h-3.5 w-3.5" />
                   Excluir
                 </button>
+                ) : null}
                 {card.value ? (
                   <span className="ml-auto self-center text-sm text-[var(--text-secondary)]">
                     Valor: {formatCrmCurrency(card.value)}
