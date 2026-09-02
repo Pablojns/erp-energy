@@ -1,6 +1,10 @@
 import { generateUUID } from '@/src/lib/uuid';
 import { clientLogger } from '@/src/services/observability/client-logger';
-import type { PurchaseListResponse, PurchaseRequest } from './compras-types';
+import type {
+  PurchaseListResponse,
+  PurchaseRequest,
+  PurchaseStage,
+} from './compras-types';
 
 function createRequestId(): string {
   return generateUUID();
@@ -81,10 +85,66 @@ export async function fetchPurchaseDetail(id: string): Promise<PurchaseRequest> 
   return erpFetchJson<PurchaseRequest>(`api/compras/${id}`);
 }
 
-export async function updatePurchaseStatus(id: string, status: string): Promise<PurchaseRequest> {
+/**
+ * Move a solicitação para uma etapa.
+ * `details` só é necessário quando a etapa de destino pede valor/data
+ * (requiresPurchaseDetails) ou motivo (requiresReason).
+ */
+export async function updatePurchaseStatus(
+  id: string,
+  status: string,
+  details?: {
+    purchaseValue?: number;
+    purchasedAt?: string;
+    refusalReason?: string;
+  },
+): Promise<PurchaseRequest> {
   const { erpFetchJson } = await import('@/src/services/api/erp-fetch');
   return erpFetchJson<PurchaseRequest>(`api/compras/${id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, ...(details ?? {}) }),
+  });
+}
+
+export async function listPurchaseStages(): Promise<PurchaseStage[]> {
+  const { erpFetchJson } = await import('@/src/services/api/erp-fetch');
+  return erpFetchJson<PurchaseStage[]>('api/compras/stages');
+}
+
+export async function createPurchaseStage(body: {
+  name: string;
+  order?: number;
+  color?: string | null;
+  requiresPurchaseDetails?: boolean;
+  requiresReason?: boolean;
+}): Promise<PurchaseStage> {
+  const { erpFetchJson } = await import('@/src/services/api/erp-fetch');
+  return erpFetchJson<PurchaseStage>('api/compras/stages', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updatePurchaseStage(
+  id: string,
+  body: {
+    name?: string;
+    order?: number;
+    color?: string | null;
+    requiresPurchaseDetails?: boolean;
+    requiresReason?: boolean;
+  },
+): Promise<PurchaseStage> {
+  const { erpFetchJson } = await import('@/src/services/api/erp-fetch');
+  return erpFetchJson<PurchaseStage>(`api/compras/stages/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deletePurchaseStage(id: string): Promise<{ ok: boolean }> {
+  const { erpFetchJson } = await import('@/src/services/api/erp-fetch');
+  return erpFetchJson<{ ok: boolean }>(`api/compras/stages/${id}`, {
+    method: 'DELETE',
   });
 }

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -24,18 +25,64 @@ import { JwtGuard } from '../auth/jwt.guard';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CreatePurchaseRequestDto } from './dto/create-purchase-request.dto';
+import { CreatePurchaseStageDto } from './dto/create-purchase-stage.dto';
 import { ListPurchaseRequestsQueryDto } from './dto/list-purchase-requests-query.dto';
 import { ResolvePurchaseRequestDto } from './dto/resolve-purchase-request.dto';
 import { UpdatePurchaseRequestChegadaDto } from './dto/update-purchase-request-chegada.dto';
 import { UpdatePurchaseRequestQuantityDto } from './dto/update-purchase-request-quantity.dto';
 import { UpdatePurchaseRequestStatusDto } from './dto/update-purchase-request-status.dto';
+import { UpdatePurchaseStageDto } from './dto/update-purchase-stage.dto';
 import { PurchaseRequestService } from './purchase-request.service';
+import { PurchaseStageService } from './purchase-stage.service';
 
 @Controller('api/compras')
 @UseGuards(JwtGuard)
 @RequirePermission('compras', 'ver_modulo')
 export class PurchaseRequestController {
-  constructor(private readonly purchaseRequests: PurchaseRequestService) {}
+  constructor(
+    private readonly purchaseRequests: PurchaseRequestService,
+    private readonly stages: PurchaseStageService,
+  ) {}
+
+  // As rotas de etapas ficam antes das rotas ':id' para não colidirem com o
+  // ParseUUIDPipe (que rejeitaria o literal "stages" como id).
+
+  @Get('stages')
+  listarStages() {
+    return this.stages.listar();
+  }
+
+  @Post('stages')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('compras', 'criar')
+  criarStage(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePurchaseStageDto,
+  ) {
+    this.assertAdmin(user);
+    return this.stages.criar(dto);
+  }
+
+  @Patch('stages/:stageId')
+  @RequirePermission('compras', 'editar')
+  atualizarStage(
+    @CurrentUser() user: AuthUser,
+    @Param('stageId') stageId: string,
+    @Body() dto: UpdatePurchaseStageDto,
+  ) {
+    this.assertAdmin(user);
+    return this.stages.atualizar(stageId, dto);
+  }
+
+  @Delete('stages/:stageId')
+  @RequirePermission('compras', 'excluir')
+  deletarStage(
+    @CurrentUser() user: AuthUser,
+    @Param('stageId') stageId: string,
+  ) {
+    this.assertAdmin(user);
+    return this.stages.deletar(stageId);
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -103,7 +150,11 @@ export class PurchaseRequestController {
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePurchaseRequestStatusDto,
   ) {
-    return this.purchaseRequests.atualizarStatus(id, dto.status, user.id);
+    return this.purchaseRequests.atualizarStatus(id, dto.status, user.id, {
+      purchaseValue: dto.purchaseValue,
+      purchasedAt: dto.purchasedAt,
+      refusalReason: dto.refusalReason,
+    });
   }
 
   @Patch(':id/chegada')
@@ -184,5 +235,13 @@ export class PurchaseRequestController {
   @RequirePermission('compras', 'excluir')
   deletar(@Param('id', ParseUUIDPipe) id: string) {
     return this.purchaseRequests.deletar(id);
+  }
+
+  private assertAdmin(user: AuthUser) {
+    if (!user.roles.includes('ADMIN')) {
+      throw new ForbiddenException(
+        'Somente administradores podem gerenciar as etapas de compras.',
+      );
+    }
   }
 }

@@ -7,6 +7,7 @@ import {
   OrderItemOrderedQtyCell,
   OrderItemStockAvailableCell,
   OrderItemStockOnHandCell,
+  OrderItemStockReservedCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
@@ -78,6 +79,7 @@ export function SeparationItemsTable(props: {
                 <col className="exp-wb-col-qtd-sep" />
                 <col className="exp-wb-col-qtd-falta" />
                 {!isVendaExterna ? <col className="exp-wb-col-estoque-real" /> : null}
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-reservado" /> : null}
                 {!isVendaExterna ? <col className="exp-wb-col-estoque-disp" /> : null}
                 <col className="exp-wb-col-venda" />
                 <col className="exp-wb-col-total-venda" />
@@ -90,6 +92,7 @@ export function SeparationItemsTable(props: {
                 <col className="exp-wb-col-item" />
                 <col className="exp-wb-col-qtd-pedida" />
                 {!isVendaExterna ? <col className="exp-wb-col-estoque-real" /> : null}
+                {!isVendaExterna ? <col className="exp-wb-col-estoque-reservado" /> : null}
                 {!isVendaExterna ? <col className="exp-wb-col-estoque-disp" /> : null}
                 <col className="exp-wb-col-sep-qty" />
                 <col className="exp-wb-col-preco" />
@@ -113,6 +116,9 @@ export function SeparationItemsTable(props: {
                     <th className="exp-wb-th-num exp-wb-num-real">Estoque Real</th>
                   ) : null}
                   {!isVendaExterna ? (
+                    <th className="exp-wb-th-num exp-wb-num-reservado">Reservado</th>
+                  ) : null}
+                  {!isVendaExterna ? (
                     <th className="exp-wb-th-num exp-wb-num-disp">Estoque Disponível</th>
                   ) : null}
                   <th className="exp-wb-th-num exp-wb-num-venda">Venda unit.</th>
@@ -127,6 +133,9 @@ export function SeparationItemsTable(props: {
                   <th className="exp-wb-th-num exp-wb-num-qtd">Qtd Pedido</th>
                   {!isVendaExterna ? (
                     <th className="exp-wb-th-num exp-wb-num-real">Estoque Real</th>
+                  ) : null}
+                  {!isVendaExterna ? (
+                    <th className="exp-wb-th-num exp-wb-num-reservado">Reservado</th>
                   ) : null}
                   {!isVendaExterna ? (
                     <th className="exp-wb-th-num exp-wb-num-disp">Estoque Disponível</th>
@@ -195,6 +204,9 @@ export function SeparationItemsTable(props: {
                     <>
                       <td className="exp-wb-td-num exp-wb-num-real" data-label="Estoque Real">
                         <OrderItemStockOnHandCell stock={stock} />
+                      </td>
+                      <td className="exp-wb-td-num exp-wb-num-reservado" data-label="Reservado">
+                        <OrderItemStockReservedCell stock={stock} />
                       </td>
                       <td className="exp-wb-td-num exp-wb-num-disp" data-label="Estoque Disponível">
                         <OrderItemStockAvailableCell orderedQty={it.quantity} stock={stock} />

@@ -14,6 +14,7 @@ import {
   OrderItemStockAvailableCell,
   OrderItemStockFiguresInline,
   OrderItemStockOnHandCell,
+  OrderItemStockReservedCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 
 function defaultSeparationQty(item: OrderItemDto): number {
@@ -121,7 +122,7 @@ export function SeparationItemRow(props: {
     <Fragment>
       {/* Mobile — card em flex coluna (visível só &lt;768px via CSS) */}
       <tr className="exp-sep-mobile-card-row">
-        <td colSpan={11}>
+        <td colSpan={12}>
           <div className="item-card">
             <div className="item-row">
               <span className="item-linha">Linha</span>
@@ -186,6 +187,9 @@ export function SeparationItemRow(props: {
           <>
             <td className="exp-wb-td-num exp-wb-num-real">
               <OrderItemStockOnHandCell stock={stock} />
+            </td>
+            <td className="exp-wb-td-num exp-wb-num-reservado">
+              <OrderItemStockReservedCell stock={stock} />
             </td>
             <td className="exp-wb-td-num exp-wb-num-disp">
               <OrderItemStockAvailableCell orderedQty={item.quantity} stock={stock} />

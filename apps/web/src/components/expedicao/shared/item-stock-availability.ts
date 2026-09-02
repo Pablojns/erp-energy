@@ -4,6 +4,7 @@ export type StockAvailabilityTone = 'ok' | 'partial' | 'none' | 'unknown';
 
 export type ItemStockFigures = {
   onHand: number | null;
+  reserved: number | null;
   available: number | null;
 };
 
@@ -55,7 +56,7 @@ export function resolveInitialItemStockFigures(item: OrderItemDto): ItemStockFig
     onHand !== null
       ? availableFromPhysical(onHand, reserved ?? 0)
       : availableFromPhysical(null, null, hinted);
-  return { onHand, available };
+  return { onHand, reserved, available };
 }
 
 export function resolveInitialItemAvailable(item: OrderItemDto): number | null {

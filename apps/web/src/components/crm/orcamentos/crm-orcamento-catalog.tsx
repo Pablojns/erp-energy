@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Filter, Loader2, RefreshCw, Search } from 'lucide-react';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { CrmOrcamentoProductImage } from '@/src/components/crm/orcamentos/crm-orcamento-product-image';
+import { supplierCodeLabel } from '@/src/lib/supplier-code';
 import {
   formatQuoteCurrency,
   listQuoteCatalog,
@@ -512,7 +513,7 @@ export function CrmOrcamentoCatalog(props: {
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--erp-fg-muted)]">
                           <span className="font-medium text-[#2AACE2]">
-                            {row.supplierCode}
+                            {supplierCodeLabel(row)}
                           </span>
                           {row.supplier ? <span>{row.supplier}</span> : null}
                           <span>Est. {row.availableQty}</span>
@@ -545,7 +546,7 @@ export function CrmOrcamentoCatalog(props: {
               <thead className="catalog-search-table-head text-xs uppercase tracking-wide text-[var(--erp-fg-muted)]">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">Imagem</th>
-                  <th className="px-3 py-2.5 font-semibold">SKU</th>
+                  <th className="px-3 py-2.5 font-semibold">Código</th>
                   <th className="px-3 py-2.5 font-semibold">Fornecedor</th>
                   <th className="px-3 py-2.5 font-semibold">Nome</th>
                   <th className="px-3 py-2.5 font-semibold">Preço</th>
@@ -571,7 +572,7 @@ export function CrmOrcamentoCatalog(props: {
                       />
                     </td>
                     <td className="px-3 py-2 font-medium text-[#2AACE2]">
-                      {row.supplierCode}
+                      {supplierCodeLabel(row)}
                     </td>
                     <td className="px-3 py-2">
                       <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">

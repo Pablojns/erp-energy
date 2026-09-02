@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Download, Loader2, Pencil, Save, Trash2, Upload, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { catalogCodeToSave, supplierCodeLabel } from '@/src/lib/supplier-code';
 import {
   listQuoteCatalog,
   type QuoteCatalogProductDto,
@@ -14,18 +15,22 @@ import {
 } from './compras-api';
 import { ComprasModalShell } from './compras-modal-shell';
 import { ComprasStageActions } from './compras-stage-actions';
-import type { PurchaseRequest, PurchaseRequestImage } from './compras-types';
-import { KANBAN_COLUMNS } from './compras-types';
+import type {
+  PurchaseRequest,
+  PurchaseRequestImage,
+  PurchaseStage,
+} from './compras-types';
 import {
   calcEngravingTotalFromRow,
   calcPurchaseTotalFromRow,
   displayName,
   displayQty,
+  displayEngravingVendor,
   displaySupplierName,
   fieldClass,
   formatMoney,
   formatMoneyNumber,
-  kanbanColumnForStatus,
+  stageIdForStatus,
   purchaseUnitPrice,
   purchaseImageSrc,
 } from './compras-utils';
@@ -107,6 +112,8 @@ function formatQuoteCodeDisplay(code: string | null | undefined) {
 export function ComprasDetailModal(props: {
   rowId: string;
   isAdmin: boolean;
+  /** Etapas customizáveis; alimenta o select de etapa no mobile. */
+  stages?: PurchaseStage[];
   onClose: () => void;
   onAction: (action: 'comprado' | 'recusar', row: PurchaseRequest) => void;
   onDeleted: () => void;
@@ -140,7 +147,9 @@ export function ComprasDetailModal(props: {
   const [observationInput, setObservationInput] = useState('');
   const [saleOrderRefInput, setSaleOrderRefInput] = useState('');
   const [editingField, setEditingField] = useState<EditableFieldKey | null>(null);
-  const [savingField, setSavingField] = useState<EditableFieldKey | null>(null);
+  const [savingField, setSavingField] = useState<
+    EditableFieldKey | 'engravingVendor' | null
+  >(null);
   const [skuSuggestions, setSkuSuggestions] = useState<QuoteCatalogProductDto[]>([]);
   const [skuSearching, setSkuSearching] = useState(false);
   const [skuSuggestOpen, setSkuSuggestOpen] = useState(false);
@@ -314,7 +323,7 @@ export function ComprasDetailModal(props: {
   };
 
   const applyCatalogProduct = (product: QuoteCatalogProductDto) => {
-    setSkuInput(product.supplierCode);
+    setSkuInput(catalogCodeToSave(product));
     setSupplierInput(product.supplier?.trim() || '');
     setItemNameInput(product.name?.trim() || product.description?.trim() || '');
     setCatalogImageUrl(product.imageUrl?.trim() || null);
@@ -350,7 +359,7 @@ export function ComprasDetailModal(props: {
   };
 
   const patchPurchaseFields = async (
-    field: EditableFieldKey,
+    field: EditableFieldKey | 'engravingVendor',
     body: Record<string, unknown>,
   ) => {
     if (!row) return;
@@ -391,7 +400,7 @@ export function ComprasDetailModal(props: {
         if (sku) {
           const match = await findExactCatalogMatch(sku);
           if (match) {
-            sku = match.supplierCode.trim();
+            sku = catalogCodeToSave(match);
             if (!supplier) supplier = match.supplier?.trim() || '';
             if (!itemName) {
               itemName = match.name?.trim() || match.description?.trim() || '';
@@ -733,7 +742,8 @@ export function ComprasDetailModal(props: {
     }
   };
 
-  const currentEtapa = row ? kanbanColumnForStatus(row.status) : null;
+  const stages = props.stages ?? [];
+  const currentEtapa = row ? stageIdForStatus(row.status, stages) : null;
 
   const handleEtapaConfirm = async (nextEtapa: string) => {
     if (!row || nextEtapa === currentEtapa) return;
@@ -770,14 +780,16 @@ export function ComprasDetailModal(props: {
                 <MobileEtapaSelect
                   label="Etapa atual"
                   currentValue={currentEtapa ?? ''}
-                  options={KANBAN_COLUMNS.filter(
-                    (column) =>
-                      column.id !== 'RECUSADO' || currentEtapa === 'RECUSADO',
-                  ).map((column) => ({
-                    id: column.id,
-                    label: column.label,
-                  }))}
-                  disabled={!currentEtapa || currentEtapa === 'RECUSADO'}
+                  options={stages
+                    .filter(
+                      (stage) =>
+                        stage.id !== 'RECUSADO' || currentEtapa === 'RECUSADO',
+                    )
+                    .map((stage) => ({
+                      id: stage.id,
+                      label: stage.name,
+                    }))}
+                  disabled={!currentEtapa}
                   saving={movingEtapa}
                   emptyLabel="Sem etapa no Kanban"
                   onConfirm={handleEtapaConfirm}
@@ -1037,7 +1049,7 @@ export function ComprasDetailModal(props: {
                                   )}
                                   <span className="min-w-0 flex-1">
                                     <span className="block font-mono text-xs font-semibold text-gray-900">
-                                      {product.supplierCode}
+                                      {supplierCodeLabel(product)}
                                       <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-600">
                                         {product.supplier || '—'}
                                       </span>
@@ -1069,6 +1081,33 @@ export function ComprasDetailModal(props: {
                     draft: supplierInput,
                     onDraftChange: setSupplierInput,
                   })}
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Gravador
+                    </p>
+                    {canEditOpenRequest ? (
+                      <label className="mt-1 flex cursor-pointer items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(displayEngravingVendor(row))}
+                          disabled={savingField === 'engravingVendor'}
+                          onChange={(e) => {
+                            void patchPurchaseFields('engravingVendor', {
+                              engravingVendor: e.target.checked ? 'Amanda' : null,
+                            });
+                          }}
+                          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#2AACE2] focus:ring-[#2AACE2]"
+                        />
+                        <span className="text-sm font-medium text-gray-900">
+                          Este item está com a Amanda?
+                        </span>
+                      </label>
+                    ) : (
+                      <p className="mt-1 font-semibold text-gray-900">
+                        {displayEngravingVendor(row) || '—'}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </section>
 
@@ -1316,14 +1355,6 @@ export function ComprasDetailModal(props: {
                     </p>
                   </div>
                 </div>
-                {row.refusalReason?.trim() ? (
-                  <div className="mt-3 border-t border-gray-100 pt-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-rose-600">
-                      Motivo recusa
-                    </p>
-                    <p className="mt-1 text-rose-900">{row.refusalReason}</p>
-                  </div>
-                ) : null}
               </section>
             </div>
 
@@ -1346,13 +1377,6 @@ export function ComprasDetailModal(props: {
 
               {canResolve ? (
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => props.onAction('recusar', row)}
-                    className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white active:scale-[0.98]"
-                  >
-                    Recusar
-                  </button>
                   <button
                     type="button"
                     onClick={() => props.onAction('comprado', row)}

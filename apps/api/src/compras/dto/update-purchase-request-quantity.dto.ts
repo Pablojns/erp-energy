@@ -64,6 +64,12 @@ export class UpdatePurchaseRequestQuantityDto {
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsString()
+  @MaxLength(200)
+  engravingVendor?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
   @MaxLength(2000)
   productImageUrl?: string | null;
 

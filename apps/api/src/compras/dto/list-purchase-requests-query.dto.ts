@@ -1,34 +1,42 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsIn, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import {
   PurchaseRequestPriority,
   PurchaseRequestType,
 } from './create-purchase-request.dto';
-
-const PURCHASE_LIST_STATUSES = [
-  'SOLICITADO',
-  'PEDIDO_ENVIADO_APROVADO',
-  'PEDIDO_PAGO',
-  'LAYOUT_APROVADO',
-  'EM_PRODUCAO',
-  'EXPEDIDO',
-  'RECEBIDO',
-  'COMPRADO',
-  'RECUSADO',
-] as const;
 
 export class ListPurchaseRequestsQueryDto {
   @IsOptional()
   @IsEnum(PurchaseRequestType)
   type?: PurchaseRequestType;
 
+  /** Id de etapa (PurchaseStage.id) ou status legado 'COMPRADO'. */
   @IsOptional()
-  @IsIn([...PURCHASE_LIST_STATUSES])
+  @IsString()
+  @MaxLength(64)
   status?: string;
 
   @IsOptional()
   @IsEnum(PurchaseRequestPriority)
   priority?: PurchaseRequestPriority;
+
+  /**
+   * Termo do fornecedor. `supplierName` é texto livre, então a comparação é
+   * parcial e case-insensitive (não exige cadastro em Supplier).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplier?: string;
+
+  /**
+   * Gravador terceirizado (ex.: "Amanda"). Comparação parcial e case-insensitive
+   * em `engravingVendor`, independente do fornecedor do produto.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  engravingVendor?: string;
 
   @IsOptional()
   @IsString()

@@ -7,6 +7,7 @@ import {
   Package,
   ShoppingCart,
   Stamp,
+  Truck,
 } from 'lucide-react';
 import {
   Cell,
@@ -17,8 +18,17 @@ import {
 } from 'recharts';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { TableSkeleton } from '@/src/components/ui/skeleton';
-import type { PurchaseRequest, PurchaseType } from './compras-types';
-import { KANBAN_COLUMNS, purchaseStatusLabel } from './compras-types';
+import type {
+  PurchaseRequest,
+  PurchaseStage,
+  PurchaseStatus,
+  PurchaseType,
+} from './compras-types';
+import {
+  DASHBOARD_LOCATION_OPTIONS,
+  KANBAN_COLUMNS,
+  purchaseStatusLabel,
+} from './compras-types';
 import {
   calcEngravingTotalFromRow,
   calcPaidTotalFromRow,
@@ -30,6 +40,9 @@ import {
   formatMoneyNumber,
   kanbanColumnForStatus,
   purchaseUnitPrice,
+  rowMatchesEngravingVendor,
+  rowMatchesSupplier,
+  stageIdForStatus,
 } from './compras-utils';
 
 type DashboardSource = Extract<PurchaseType, 'VENDA_EXTERNA' | 'WEG_CONTRATO'>;
@@ -82,8 +95,13 @@ function buildSummary(rows: PurchaseRequest[]) {
   };
 }
 
-export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: boolean }) {
-  const { rows, loading } = props;
+export function ComprasDashboard(props: {
+  rows: PurchaseRequest[];
+  stages: PurchaseStage[];
+  loading: boolean;
+  onSelectSupplier: (value: string) => void;
+}) {
+  const { rows, stages, loading, onSelectSupplier } = props;
   const [source, setSource] = useState<DashboardSource>('VENDA_EXTERNA');
 
   const counts = useMemo(
@@ -123,6 +141,54 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
       { id: 'NORMAL', name: 'Normal', value: normal, color: '#94A3B8' },
     ].filter((item) => item.value > 0);
   }, [selectedRows]);
+
+  /**
+   * Onde o item está operacionalmente: SPOT (fornecedor) ou Amanda (gravador).
+   * XBZ e Ásia Imports não entram aqui — o produto pode ser deles e ainda assim
+   * estar com a Amanda. Usa todas as origens (WEG, Venda Externa, Marketplace).
+   * Pendente = fora da etapa final ("Finalizados").
+   * Um item com Gravador Amanda conta só em Amanda, mesmo que o fornecedor seja SPOT.
+   */
+  const supplierBreakdown = useMemo(() => {
+    return DASHBOARD_LOCATION_OPTIONS.map((option) => {
+      const pending = rows.filter((row) => {
+        if (row.status === 'RECUSADO') return false;
+        if (option.match === 'engravingVendor') {
+          return rowMatchesEngravingVendor(row, option.term);
+        }
+        return (
+          rowMatchesSupplier(row, option.term) &&
+          !rowMatchesEngravingVendor(row, 'Amanda')
+        );
+      });
+
+        const perStage = new Map<string, number>();
+        for (const row of pending) {
+          const stageId = stageIdForStatus(row.status, stages) ?? row.status;
+          perStage.set(stageId, (perStage.get(stageId) ?? 0) + 1);
+        }
+
+        const stageParts = [...perStage.entries()]
+          .map(([stageId, count]) => {
+            const stage = stages.find((item) => item.id === stageId);
+            return {
+              id: stageId,
+              count,
+              name: stage?.name ?? purchaseStatusLabel(stageId as PurchaseStatus),
+              order: stage?.order ?? Number.MAX_SAFE_INTEGER,
+            };
+          })
+          .sort((a, b) => a.order - b.order);
+
+        return {
+          value: option.value,
+          label: option.label,
+          pending: pending.length,
+          urgent: pending.filter((row) => row.priority === 'URGENTE').length,
+          stageParts,
+        };
+    });
+  }, [rows, stages]);
 
   const isWeg = source === 'WEG_CONTRATO';
 
@@ -230,6 +296,64 @@ export function ComprasDashboard(props: { rows: PurchaseRequest[]; loading: bool
           data={priorityDistribution}
           loading={loading}
         />
+      </div>
+
+      {/* Por fornecedor */}
+      <div className="erp-module-card p-4">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--erp-fg)]">
+              Por Fornecedor
+            </h3>
+            <p className="text-xs text-[var(--erp-fg-muted)]">
+              Onde buscar o item: SPOT ou Amanda. Clique para filtrar a lista de
+              Compras.
+            </p>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="mt-4 h-32 animate-pulse rounded-xl bg-gray-100" />
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {supplierBreakdown.map((item) => (
+              <li key={item.value}>
+                <button
+                  type="button"
+                  onClick={() => onSelectSupplier(item.value)}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left transition hover:border-[#2AACE2]/40 hover:bg-[#2AACE2]/[0.04]"
+                >
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[var(--erp-fg-secondary)]">
+                    <Truck className="h-4 w-4" aria-hidden />
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-[var(--erp-fg)]">
+                      {item.label}
+                    </span>
+                    <span className="block truncate text-xs text-[var(--erp-fg-muted)]">
+                      {item.stageParts.length === 0
+                        ? 'Nenhuma solicitação pendente'
+                        : item.stageParts
+                            .map((part) => `${part.count} em ${part.name}`)
+                            .join(', ')}
+                    </span>
+                  </span>
+
+                  <span className="shrink-0 text-sm font-semibold text-[var(--erp-fg)]">
+                    {item.pending} pendente{item.pending === 1 ? '' : 's'}
+                  </span>
+
+                  {item.urgent > 0 ? (
+                    <span className="shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                      {item.urgent} urgente{item.urgent === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Lista */}

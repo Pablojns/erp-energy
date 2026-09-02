@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ImagePlus, Loader2, Plus, X } from 'lucide-react';
+import { ImagePlus, Loader2, Plus, Search, X } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import {
+  listQuoteCatalog,
+  type QuoteCatalogProductDto,
+} from '@/src/services/api/quotes-api';
+import { catalogCodeToSave, supplierCodeLabel } from '@/src/lib/supplier-code';
 import { ComprasModalShell } from './compras-modal-shell';
 import type {
   ProductListResponse,
@@ -21,6 +26,11 @@ import {
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGES = 10;
+const CATALOG_SEARCH_DEBOUNCE_MS = 280;
+const CATALOG_SEARCH_MIN_CHARS = 2;
+
+/** Busca no catálogo (search) ou digitação livre para itens fora dele. */
+type ItemMode = 'search' | 'manual';
 
 type ImageDraft = {
   id: string;
@@ -131,6 +141,7 @@ export function ComprasNewRequestModal(props: {
   const [supplierMode, setSupplierMode] = useState<'select' | 'text'>('select');
   const [supplierName, setSupplierName] = useState('');
   const [supplierSku, setSupplierSku] = useState('');
+  const [engravingVendor, setEngravingVendor] = useState(false);
   const [sku, setSku] = useState('');
   const [itemName, setItemName] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -146,14 +157,56 @@ export function ComprasNewRequestModal(props: {
   const [saving, setSaving] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [duplicatePrompt, setDuplicatePrompt] = useState<DuplicateConflictPayload | null>(null);
+  const [itemMode, setItemMode] = useState<ItemMode>('search');
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogResults, setCatalogResults] = useState<QuoteCatalogProductDto[]>([]);
+  const [catalogSearching, setCatalogSearching] = useState(false);
+  const [catalogPick, setCatalogPick] = useState<QuoteCatalogProductDto | null>(null);
 
   const isWeg = type === 'WEG_CONTRATO';
   const isMarketplace = type === 'MARKETPLACE';
+  const isVendaExterna = type === 'VENDA_EXTERNA';
+
+  /** Busca de catálogo só existe em Venda Externa; os demais tipos seguem manuais. */
+  const showCatalogSearch = isVendaExterna && itemMode === 'search' && !catalogPick;
+  const showItemFields = !showCatalogSearch;
 
   const handleTypeChange = (nextType: PurchaseType) => {
     setType(nextType);
     setItemPrice('');
     setQuantity('');
+    setItemMode('search');
+    setCatalogPick(null);
+    setCatalogResults([]);
+    setCatalogSearch('');
+  };
+
+  /**
+   * Preenche os campos a partir do catálogo. Só acelera o preenchimento:
+   * todos os campos seguem editáveis e é o valor editado que é salvo.
+   */
+  const applyCatalogProduct = (product: QuoteCatalogProductDto) => {
+    const supplier = product.supplier?.trim() ?? '';
+    setCatalogPick(product);
+    setSku(catalogCodeToSave(product));
+    setItemName(product.name?.trim() || product.description?.trim() || '');
+    setItemPrice(product.salePrice ?? '');
+    setSupplierName(supplier);
+    // XBZ/SPOT normalmente não existem no cadastro de fornecedores.
+    if (supplier) setSupplierMode('text');
+    setCatalogResults([]);
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.itemName;
+      delete next.form;
+      return next;
+    });
+  };
+
+  const resetCatalogPick = () => {
+    setCatalogPick(null);
+    setItemMode('search');
+    setCatalogResults([]);
   };
 
   useEffect(() => {
@@ -199,10 +252,49 @@ export function ComprasNewRequestModal(props: {
     };
   }, [imageDrafts]);
 
+  useEffect(() => {
+    if (!showCatalogSearch) return;
+
+    const term = catalogSearch.trim();
+    if (term.length < CATALOG_SEARCH_MIN_CHARS) {
+      setCatalogResults([]);
+      setCatalogSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCatalogSearching(true);
+    const timer = window.setTimeout(() => {
+      void listQuoteCatalog({
+        search: term,
+        active: true,
+        page: 1,
+        pageSize: 12,
+        includeTotal: false,
+      })
+        .then((res) => {
+          if (!cancelled) setCatalogResults(res.data);
+        })
+        .catch(() => {
+          if (!cancelled) setCatalogResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogSearching(false);
+        });
+    }, CATALOG_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [catalogSearch, showCatalogSearch]);
+
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
   useEffect(() => {
     if (!selectedProduct) {
+      // Fornecedor veio do catálogo (Venda Externa): não limpa o preenchimento.
+      if (catalogPick) return;
       setSupplierName('');
       setSupplierSku('');
       return;
@@ -211,7 +303,7 @@ export function ComprasNewRequestModal(props: {
     setItemPrice(productBaseCost(selectedProduct));
     setSupplierName(resolveSupplierForProduct(selectedProduct, suppliers) ?? '');
     setSupplierSku(selectedProduct.supplierSku?.trim() ?? '');
-  }, [selectedProduct, suppliers]);
+  }, [catalogPick, selectedProduct, suppliers]);
 
   const lineQty = isWeg ? Number(suggestedQty) : Number(quantity);
   const calculatedTotal = useMemo(() => {
@@ -276,6 +368,9 @@ export function ComprasNewRequestModal(props: {
       if (!Number.isInteger(Number(suggestedQty)) || Number(suggestedQty) < 1) {
         next.suggestedQty = 'Informe uma quantidade mínima de 1.';
       }
+    } else if (showCatalogSearch) {
+      next.form =
+        'Selecione um item do catálogo ou use "Não encontrei, preencher manualmente".';
     } else {
       if (!itemName.trim()) next.itemName = 'Informe o nome do item.';
       if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) {
@@ -291,6 +386,9 @@ export function ComprasNewRequestModal(props: {
     formData.set('priority', priority);
     if (!isWeg && supplierName.trim()) {
       formData.set('supplierName', supplierName.trim());
+    }
+    if (engravingVendor) {
+      formData.set('engravingVendor', 'Amanda');
     }
     if (isWeg) {
       formData.set('itemPrice', itemPrice.trim() || '0');
@@ -327,6 +425,8 @@ export function ComprasNewRequestModal(props: {
       formData.set('quantity', quantity);
       if (clientDeadline) formData.set('clientDeadline', clientDeadline);
       if (link.trim()) formData.set('link', link.trim());
+      const catalogImageUrl = catalogPick?.imageUrl?.trim();
+      if (catalogImageUrl) formData.set('productImageUrl', catalogImageUrl);
     }
 
     return formData;
@@ -422,6 +522,115 @@ export function ComprasNewRequestModal(props: {
       )}
     </label>
   );
+
+  const catalogSearchTerm = catalogSearch.trim();
+  const catalogNoResults =
+    showCatalogSearch &&
+    !catalogSearching &&
+    catalogSearchTerm.length >= CATALOG_SEARCH_MIN_CHARS &&
+    catalogResults.length === 0;
+
+  const catalogPanel = (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-gray-600">
+          Buscar item no catálogo (XBZ / SPOT)
+        </span>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            value={catalogSearch}
+            onChange={(e) => setCatalogSearch(e.target.value)}
+            className={`${fieldClass()} pl-9`}
+            placeholder="Código SAP, SKU ou nome do produto"
+          />
+          {catalogSearching ? (
+            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
+          ) : null}
+        </div>
+      </label>
+
+      {catalogResults.length > 0 ? (
+        <div className="max-h-56 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50">
+          {catalogResults.map((product) => (
+            <button
+              key={product.id}
+              type="button"
+              onClick={() => applyCatalogProduct(product)}
+              className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-gray-600 transition hover:bg-gray-100"
+            >
+              {product.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={product.imageUrl}
+                  alt=""
+                  className="mt-0.5 h-10 w-10 shrink-0 rounded border border-gray-200 object-cover"
+                />
+              ) : (
+                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400">
+                  —
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-gray-900">
+                  {supplierCodeLabel(product)}
+                </span>
+                <span className="block truncate">— {product.name}</span>
+                <span className="block text-xs text-gray-500">
+                  {product.supplier} · {formatMoneyNumber(Number(product.salePrice))} · Est.{' '}
+                  {product.availableQty}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {catalogNoResults ? (
+        <p className="text-xs text-gray-500">
+          Nenhum item encontrado para “{catalogSearchTerm}”.
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setItemMode('manual')}
+        className="text-xs font-semibold text-[#1d7fa8] underline underline-offset-2"
+      >
+        Não encontrei, preencher manualmente
+      </button>
+    </div>
+  );
+
+  const catalogPickBanner = catalogPick ? (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#2AACE2]/40 bg-[#2AACE2]/10 px-3 py-2 text-xs text-gray-700">
+      <span className="min-w-0">
+        Preenchido pelo catálogo:{' '}
+        <span className="font-semibold text-gray-900">
+          {supplierCodeLabel(catalogPick)}
+        </span>
+        {catalogPick.supplier ? ` · ${catalogPick.supplier}` : ''} — os campos abaixo
+        continuam editáveis.
+      </span>
+      <button
+        type="button"
+        onClick={resetCatalogPick}
+        className="shrink-0 font-semibold text-[#1d7fa8] underline underline-offset-2"
+      >
+        Trocar item
+      </button>
+    </div>
+  ) : itemMode === 'manual' ? (
+    <div className="flex justify-end">
+      <button
+        type="button"
+        onClick={() => setItemMode('search')}
+        className="text-xs font-semibold text-[#1d7fa8] underline underline-offset-2"
+      >
+        Buscar no catálogo
+      </button>
+    </div>
+  ) : null;
 
   const imagesField = (
     <div>
@@ -585,52 +794,76 @@ export function ComprasNewRequestModal(props: {
             </label>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-600">SKU (opcional)</span>
-              <input value={sku} onChange={(e) => setSku(e.target.value)} className={fieldClass()} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-600">Nome do item</span>
-              <input
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                className={fieldClass(Boolean(errors.itemName))}
-              />
-              {errors.itemName ? <p className="mt-1 text-xs text-rose-600">{errors.itemName}</p> : null}
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-600">Quantidade</span>
-              <input
-                type="number"
-                min={1}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className={fieldClass(Boolean(errors.quantity))}
-              />
-              {errors.quantity ? <p className="mt-1 text-xs text-rose-600">{errors.quantity}</p> : null}
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-600">Data entrega cliente</span>
-              <input
-                type="date"
-                value={clientDeadline}
-                onChange={(e) => setClientDeadline(e.target.value)}
-                className={fieldClass()}
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-gray-600">Link (opcional)</span>
-              <input
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                className={fieldClass()}
-                placeholder="https://..."
-              />
-            </label>
-            <div className="sm:col-span-2">{supplierField}</div>
+          <div className="space-y-3">
+            {showCatalogSearch ? catalogPanel : null}
+            {isVendaExterna ? catalogPickBanner : null}
+            {showItemFields ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">SKU (opcional)</span>
+                  <input value={sku} onChange={(e) => setSku(e.target.value)} className={fieldClass()} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Nome do item</span>
+                  <input
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    className={fieldClass(Boolean(errors.itemName))}
+                  />
+                  {errors.itemName ? <p className="mt-1 text-xs text-rose-600">{errors.itemName}</p> : null}
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Quantidade</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    className={fieldClass(Boolean(errors.quantity))}
+                  />
+                  {errors.quantity ? <p className="mt-1 text-xs text-rose-600">{errors.quantity}</p> : null}
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Data entrega cliente</span>
+                  <input
+                    type="date"
+                    value={clientDeadline}
+                    onChange={(e) => setClientDeadline(e.target.value)}
+                    className={fieldClass()}
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-sm font-medium text-gray-600">Link (opcional)</span>
+                  <input
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    className={fieldClass()}
+                    placeholder="https://..."
+                  />
+                </label>
+                <div className="sm:col-span-2">{supplierField}</div>
+              </div>
+            ) : null}
           </div>
         )}
+
+        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={engravingVendor}
+            onChange={(e) => setEngravingVendor(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#2AACE2] focus:ring-[#2AACE2]"
+          />
+          <span>
+            <span className="block text-sm font-medium text-gray-700">
+              Este item está com a Amanda?
+            </span>
+            <span className="mt-0.5 block text-xs text-gray-500">
+              Marque se o produto está fisicamente com o gravador, independente
+              do fornecedor.
+            </span>
+          </span>
+        </label>
 
         <div className="grid gap-3 sm:grid-cols-2">
           {isWeg ? (
@@ -679,7 +912,7 @@ export function ComprasNewRequestModal(props: {
                 </div>
               </div>
             </div>
-          ) : (
+          ) : showItemFields ? (
             <>
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-gray-600">Preço item</span>
@@ -721,7 +954,7 @@ export function ComprasNewRequestModal(props: {
                 </span>
               </div>
             </>
-          )}
+          ) : null}
           {isMarketplace ? (
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-sm font-medium text-gray-600">Referência pedido venda</span>

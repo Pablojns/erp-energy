@@ -76,19 +76,26 @@ export function usePedidosTableColumns(userId: string) {
 
 export function PedidosListaToolbar(props: {
   columnPrefs: ReturnType<typeof usePedidosTableColumns>;
+  hideColumnsPicker?: boolean;
+  extra?: ReactNode;
 }) {
-  const { columnPrefs } = props;
+  const { columnPrefs, hideColumnsPicker = false, extra } = props;
   return (
     <div className="exp-pedidos-table-toolbar">
-      <p className="exp-pedidos-table-toolbar-title">Lista de pedidos</p>
-      <TableColumnsPicker
-        definitions={columnPrefs.definitions}
-        preferences={columnPrefs.preferences}
-        onToggle={columnPrefs.setVisible}
-        onReorder={columnPrefs.reorder}
-        onReset={columnPrefs.reset}
-        ariaLabel="Configurar colunas da tabela de pedidos"
-      />
+      <div className="exp-pedidos-table-toolbar-left">
+        <p className="exp-pedidos-table-toolbar-title">Lista de pedidos</p>
+        {extra}
+      </div>
+      {hideColumnsPicker ? null : (
+        <TableColumnsPicker
+          definitions={columnPrefs.definitions}
+          preferences={columnPrefs.preferences}
+          onToggle={columnPrefs.setVisible}
+          onReorder={columnPrefs.reorder}
+          onReset={columnPrefs.reset}
+          ariaLabel="Configurar colunas da tabela de pedidos"
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,11 @@ import { OrderQueueCard } from '@/src/components/expedicao/workspace/order-queue
 import { SeparationQueueList } from '@/src/components/expedicao/workspace/separation-queue-list';
 import { SeparationQueueFilters } from '@/src/components/expedicao/workspace/separation-queue-filters';
 import {
+  PedidosItemsExpandedList,
+  PedidosViewToggle,
+  type PedidosViewMode,
+} from '@/src/components/expedicao/workspace/pedidos-items-expanded-list';
+import {
   PedidosListaToolbar,
   PedidosOrdersTable,
   usePedidosTableColumns,
@@ -62,6 +67,27 @@ import {
 import { splitOrdersPartialFirst } from '@/src/components/expedicao/shared/order-helpers';
 
 type OrdersData = ReturnType<typeof useExpeditionPedidosBridge>;
+
+const PEDIDOS_VIEW_STORAGE_KEY = 'erp:expedicao-pedidos-view';
+
+function readPedidosViewMode(): PedidosViewMode {
+  if (typeof window === 'undefined') return 'compact';
+  try {
+    return window.localStorage.getItem(PEDIDOS_VIEW_STORAGE_KEY) === 'items'
+      ? 'items'
+      : 'compact';
+  } catch {
+    return 'compact';
+  }
+}
+
+function writePedidosViewMode(mode: PedidosViewMode) {
+  try {
+    window.localStorage.setItem(PEDIDOS_VIEW_STORAGE_KEY, mode);
+  } catch {
+    // quota / modo privado
+  }
+}
 
 /** Consolida itens dos pedidos selecionados no formato da Lista de Coleta. */
 function buildColetaListaFromOrders(
@@ -260,6 +286,8 @@ export function OrderQueue(props: {
   } = props;
 
   const isPedidosMode = queueMode === 'orders';
+  const [pedidosViewMode, setPedidosViewMode] = useState<PedidosViewMode>('compact');
+  const isPedidosItemsView = isPedidosMode && pedidosViewMode === 'items';
   const { user } = useNavPermissions();
   const pedidosFiltersKey = pedidosFiltersStorageKey(user.id);
   const pedidosColumnPrefs = usePedidosTableColumns(user.id);
@@ -407,6 +435,10 @@ export function OrderQueue(props: {
     data.orders.every((o) => selectedForPrintIds.has(o.id));
 
   useEffect(() => {
+    setPedidosViewMode(readPedidosViewMode());
+  }, []);
+
+  useEffect(() => {
     if (!data.ordersLoadingMore) {
       loadMoreQueuedRef.current = false;
     }
@@ -417,15 +449,16 @@ export function OrderQueue(props: {
     const isPhone =
       typeof window !== 'undefined' &&
       window.matchMedia('(max-width: 767px)').matches;
+    const useDesktopPedidosScroll = isPedidosMode && (isPedidosItemsView || !isPhone);
     const sentinel = isPedidosMode
-      ? isPhone
-        ? loadMoreSentinelMobileRef.current
-        : loadMoreSentinelDesktopRef.current
+      ? useDesktopPedidosScroll
+        ? loadMoreSentinelDesktopRef.current
+        : loadMoreSentinelMobileRef.current
       : loadMoreSentinelRef.current;
     const root = isPedidosMode
-      ? isPhone
-        ? pedidosMobileScrollRef.current
-        : pedidosTableScrollRef.current
+      ? useDesktopPedidosScroll
+        ? pedidosTableScrollRef.current
+        : pedidosMobileScrollRef.current
       : listScrollRef.current;
     if (!sentinel || !root) return;
 
@@ -445,6 +478,7 @@ export function OrderQueue(props: {
     return () => observer.disconnect();
   }, [
     isPedidosMode,
+    isPedidosItemsView,
     data.ordersHasMore,
     data.loadMoreOrders,
     data.orders.length,
@@ -1040,7 +1074,49 @@ export function OrderQueue(props: {
           </div>
         ) : isPedidosMode ? (
           <>
-            <PedidosListaToolbar columnPrefs={pedidosColumnPrefs} />
+            <PedidosListaToolbar
+              columnPrefs={pedidosColumnPrefs}
+              hideColumnsPicker={isPedidosItemsView}
+              extra={
+                <PedidosViewToggle
+                  value={pedidosViewMode}
+                  onChange={(mode) => {
+                    setPedidosViewMode(mode);
+                    writePedidosViewMode(mode);
+                  }}
+                />
+              }
+            />
+            {isPedidosItemsView ? (
+              <PedidosItemsExpandedList
+                orders={data.orders}
+                data={data}
+                selectedOrderId={selectedOrderId}
+                onSelectOrder={onSelectOrder}
+                onOrderChosen={onOrderChosen}
+                selectedForPrintIds={selectedForPrintIds}
+                onTogglePrint={togglePrintSelection}
+                isAdmin={isAdmin}
+                onEditOrder={onEditOrder}
+                onDeleteOrder={onDeleteOrder}
+                scrollContainerRef={pedidosTableScrollRef}
+                listFooter={
+                  <>
+                    {data.ordersHasMore ? (
+                      <div
+                        ref={loadMoreSentinelDesktopRef}
+                        className="exp-queue-load-more-sentinel shrink-0"
+                        aria-hidden
+                      />
+                    ) : null}
+                    {data.ordersLoadingMore ? (
+                      <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
+                    ) : null}
+                  </>
+                }
+              />
+            ) : (
+              <>
             <div className="hidden min-h-0 flex-1 flex-col overflow-hidden md:flex">
               <PedidosOrdersTable
                 userId={user.id}
@@ -1091,6 +1167,8 @@ export function OrderQueue(props: {
                 <InlineLoadMoreSkeleton label="Carregando mais pedidos" />
               ) : null}
             </div>
+              </>
+            )}
           </>
         ) : (
           <>

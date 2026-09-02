@@ -905,7 +905,7 @@ export class QuotesService {
       if (!catalog) {
         throw new NotFoundException('Produto do catálogo não encontrado.');
       }
-      sku = sku || catalog.supplierCode;
+      sku = sku || catalog.compositeCode?.trim() || catalog.supplierCode;
       description = description || catalog.name;
       imageUrl = imageUrl ?? catalog.imageUrl;
       supplier = supplier || catalog.supplier || null;

@@ -87,6 +87,12 @@ export class CreatePurchaseRequestDto {
   @MaxLength(200)
   supplierName?: string;
 
+  /** Gravador terceirizado (ex.: "Amanda"). Texto livre, independente do fornecedor. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  engravingVendor?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -108,4 +114,10 @@ export class CreatePurchaseRequestDto {
   @IsString()
   @MaxLength(2000)
   observation?: string;
+
+  /** Foto do catálogo (XBZ/SPOT) capturada na busca inteligente. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  productImageUrl?: string;
 }

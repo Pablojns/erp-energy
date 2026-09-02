@@ -65,6 +65,11 @@ type PurchaseRequestRow = Prisma.PurchaseRequestGetPayload<{
   include: typeof PURCHASE_REQUEST_INCLUDE;
 }>;
 
+type CatalogLookup = {
+  compositeCode: string | null;
+  imageUrl: string | null;
+};
+
 const MIME_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -274,6 +279,47 @@ export class PurchaseRequestService {
       ];
     }
 
+    const andFilters: Prisma.PurchaseRequestWhereInput[] = [];
+
+    // Fornecedor: texto livre em supplierName ou no cadastro ligado ao produto.
+    const supplier = query.supplier?.trim();
+    if (supplier) {
+      andFilters.push({
+        OR: [
+          {
+            supplierName: {
+              contains: supplier,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            product: {
+              supplier: {
+                name: {
+                  contains: supplier,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    const engravingVendor = query.engravingVendor?.trim();
+    if (engravingVendor) {
+      andFilters.push({
+        engravingVendor: {
+          contains: engravingVendor,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      });
+    }
+
+    if (andFilters.length > 0) {
+      where.AND = andFilters;
+    }
+
     const startDate = query.startDate?.trim();
     const endDate = query.endDate?.trim();
     if (startDate || endDate) {
@@ -295,8 +341,12 @@ export class PurchaseRequestService {
       include: PURCHASE_REQUEST_INCLUDE,
     });
 
+    const catalogLookupBySku = await this.loadCatalogLookupBySku(rows);
+
     return {
-      data: await Promise.all(rows.map((row) => this.serialize(row))),
+      data: await Promise.all(
+        rows.map((row) => this.serialize(row, false, catalogLookupBySku)),
+      ),
       meta: {
         page,
         pageSize,
@@ -391,7 +441,16 @@ export class PurchaseRequestService {
     return this.serialize(updated, true);
   }
 
-  async atualizarStatus(id: string, status: string, userId: string) {
+  async atualizarStatus(
+    id: string,
+    status: string,
+    userId: string,
+    detalhes?: {
+      purchaseValue?: number;
+      purchasedAt?: string;
+      refusalReason?: string;
+    },
+  ) {
     const existing = await this.prisma.client.purchaseRequest.findUnique({
       where: { id },
       select: { id: true, status: true },
@@ -399,15 +458,37 @@ export class PurchaseRequestService {
     if (!existing) {
       throw new NotFoundException('Solicitação de compra não encontrada.');
     }
-    if (existing.status === 'RECUSADO') {
-      throw new BadRequestException(
-        'Solicitações recusadas não podem ser movidas no fluxo.',
-      );
+
+    const stage = await this.prisma.client.purchaseStage.findUnique({
+      where: { id: status },
+    });
+    if (!stage) {
+      throw new BadRequestException('Etapa de destino inválida.');
+    }
+
+    const refusalReason = detalhes?.refusalReason?.trim();
+    if (stage.requiresReason && !refusalReason) {
+      throw new BadRequestException('Informe o motivo para mover a esta etapa.');
+    }
+
+    const extra: Prisma.PurchaseRequestUpdateInput = {};
+    if (stage.requiresPurchaseDetails) {
+      extra.resolvedBy = { connect: { id: userId } };
+      extra.resolvedAt = new Date();
+      extra.purchasedAt = detalhes?.purchasedAt
+        ? new Date(detalhes.purchasedAt)
+        : new Date();
+      if (detalhes?.purchaseValue != null) {
+        extra.purchaseValue = new Prisma.Decimal(detalhes.purchaseValue);
+      }
+    }
+    if (refusalReason) {
+      extra.refusalReason = refusalReason;
     }
 
     const updated = await this.prisma.client.purchaseRequest.update({
       where: { id },
-      data: { status },
+      data: { status, ...extra },
       include: PURCHASE_REQUEST_INCLUDE,
     });
 
@@ -493,6 +574,7 @@ export class PurchaseRequestService {
         sku: true,
         itemName: true,
         supplierName: true,
+        engravingVendor: true,
         deliveryAddress: true,
         observation: true,
         saleOrderRef: true,
@@ -569,6 +651,10 @@ export class PurchaseRequestService {
         dto.supplierName == null ? null : dto.supplierName.trim() || null;
     }
 
+    if (dto.engravingVendor !== undefined) {
+      data.engravingVendor = this.normalizeEngravingVendor(dto.engravingVendor);
+    }
+
     if (dto.deliveryAddress !== undefined) {
       data.deliveryAddress =
         dto.deliveryAddress == null ? null : dto.deliveryAddress.trim() || null;
@@ -590,6 +676,13 @@ export class PurchaseRequestService {
 
     if (dto.link !== undefined) {
       data.link = dto.link == null ? null : dto.link.trim() || null;
+    }
+
+    if (dto.productImageUrl !== undefined) {
+      data.productImageUrl =
+        dto.productImageUrl == null
+          ? null
+          : dto.productImageUrl.trim() || null;
     }
 
     // Técnica de gravação fica no QuoteItem; sem vínculo, guarda em observation.
@@ -721,6 +814,7 @@ export class PurchaseRequestService {
       sku: existing.sku,
       itemName: existing.itemName,
       supplierName: existing.supplierName,
+      engravingVendor: existing.engravingVendor,
       quantity: existing.quantity,
       suggestedQty: existing.suggestedQty,
       itemPrice: existing.itemPrice?.toString() ?? null,
@@ -737,6 +831,7 @@ export class PurchaseRequestService {
       sku: refreshed.sku,
       itemName: refreshed.itemName,
       supplierName: refreshed.supplierName,
+      engravingVendor: refreshed.engravingVendor,
       quantity: refreshed.quantity,
       suggestedQty: refreshed.suggestedQty,
       itemPrice: refreshed.itemPrice?.toString() ?? null,
@@ -1038,6 +1133,13 @@ export class PurchaseRequestService {
     });
   }
 
+  private normalizeEngravingVendor(value?: string | null): string | null {
+    if (value == null) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return /amanda/i.test(trimmed) ? 'Amanda' : null;
+  }
+
   private buildCommonFields(userId: string, dto: CreatePurchaseRequestDto) {
     return {
       priority: dto.priority ?? 'NORMAL',
@@ -1045,6 +1147,7 @@ export class PurchaseRequestService {
       observation: dto.observation?.trim() || null,
       requestedById: userId,
       supplierName: dto.supplierName?.trim() || null,
+      engravingVendor: this.normalizeEngravingVendor(dto.engravingVendor),
       itemPrice:
         dto.itemPrice != null ? new Prisma.Decimal(dto.itemPrice) : null,
       engravingPrice:
@@ -1053,6 +1156,7 @@ export class PurchaseRequestService {
           : null,
       saleOrderRef: dto.saleOrderRef?.trim() || null,
       customerName: dto.customerName?.trim() || null,
+      productImageUrl: dto.productImageUrl?.trim() || null,
     };
   }
 
@@ -1138,7 +1242,87 @@ export class PurchaseRequestService {
     return 'jpg';
   }
 
-  private async serialize(row: PurchaseRequestRow, withImageUrls = false) {
+  /**
+   * Código composto (SAP) e foto do catálogo, indexados pelo código salvo.
+   * Usado para evitar N+1 ao serializar listas.
+   */
+  private async loadCatalogLookupBySku(
+    rows: PurchaseRequestRow[],
+  ): Promise<Map<string, CatalogLookup>> {
+    const skus = [
+      ...new Set(
+        rows
+          .map((row) => row.sku?.trim())
+          .filter((sku): sku is string => Boolean(sku)),
+      ),
+    ];
+
+    const map = new Map<string, CatalogLookup>();
+    if (skus.length === 0) return map;
+
+    const catalogRows = await this.prisma.client.quoteCatalogProduct.findMany({
+      where: {
+        OR: [
+          { supplierCode: { in: skus } },
+          { compositeCode: { in: skus } },
+        ],
+      },
+      select: {
+        supplier: true,
+        supplierCode: true,
+        compositeCode: true,
+        imageUrl: true,
+      },
+    });
+    for (const row of catalogRows) {
+      const composite =
+        row.supplier === 'XBZ' ? row.compositeCode?.trim() || null : null;
+      const imageUrl = row.imageUrl?.trim() || null;
+      const merge = (key: string) => {
+        const prev = map.get(key);
+        map.set(key, {
+          compositeCode: prev?.compositeCode ?? composite,
+          imageUrl: prev?.imageUrl ?? imageUrl,
+        });
+      };
+      merge(row.supplierCode);
+      const compositeKey = row.compositeCode?.trim();
+      if (compositeKey) merge(compositeKey);
+    }
+    return map;
+  }
+
+  private async serialize(
+    row: PurchaseRequestRow,
+    withImageUrls = false,
+    catalogLookupBySku?: Map<string, CatalogLookup>,
+  ) {
+    const catalogSku = row.sku?.trim() || null;
+    let compositeCode: string | null = null;
+    let catalogImageUrl: string | null = null;
+    if (catalogSku) {
+      if (catalogLookupBySku) {
+        const lookup = catalogLookupBySku.get(catalogSku);
+        compositeCode = lookup?.compositeCode ?? null;
+        catalogImageUrl = lookup?.imageUrl ?? null;
+      } else {
+        const catalogRows = await this.prisma.client.quoteCatalogProduct.findMany({
+          where: {
+            OR: [{ supplierCode: catalogSku }, { compositeCode: catalogSku }],
+          },
+          select: { supplier: true, compositeCode: true, imageUrl: true },
+        });
+        for (const catalog of catalogRows) {
+          if (!compositeCode && catalog.supplier === 'XBZ') {
+            compositeCode = catalog.compositeCode?.trim() || null;
+          }
+          if (!catalogImageUrl) {
+            catalogImageUrl = catalog.imageUrl?.trim() || null;
+          }
+        }
+      }
+    }
+
     const images = await Promise.all(
       row.images.map(async (image) => {
         let url: string | null = null;
@@ -1173,6 +1357,7 @@ export class PurchaseRequestService {
         row.type === 'WEG_CONTRATO'
           ? row.sku?.trim() || row.product?.supplierSku?.trim() || null
           : row.sku,
+      compositeCode,
       itemName: row.itemName,
       quantity: row.quantity,
       customerName: row.customerName,
@@ -1184,12 +1369,17 @@ export class PurchaseRequestService {
         row.supplierName?.trim() ||
         row.product?.supplier?.name?.trim() ||
         null,
+      engravingVendor: row.engravingVendor?.trim() || null,
       itemPrice: row.itemPrice?.toString() ?? null,
       engravingPrice: row.engravingPrice?.toString() ?? null,
       saleOrderRef: row.saleOrderRef,
       quoteId: row.quoteId ?? null,
       quoteItemId: row.quoteItemId ?? null,
-      productImageUrl: row.quoteItem?.imageUrl?.trim() || null,
+      productImageUrl:
+        row.productImageUrl?.trim() ||
+        row.quoteItem?.imageUrl?.trim() ||
+        catalogImageUrl ||
+        null,
       engravingName: row.quoteItem?.engraving?.trim() || null,
       deliveryAddress: row.deliveryAddress ?? null,
       expectedArrival: row.expectedArrival?.toISOString() ?? null,

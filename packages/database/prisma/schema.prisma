@@ -875,7 +875,10 @@ model Despesa {
 model PurchaseRequest {
   id              String    @id @default(uuid()) @db.Uuid
   type            String    // WEG_CONTRATO | VENDA_EXTERNA | MARKETPLACE
-  status          String    @default("SOLICITADO") // SOLICITADO | COMPRADO | RECUSADO
+  /// Referencia PurchaseStage.id. As 8 etapas seed usam ids legíveis
+  /// (SOLICITADO, PEDIDO_ENVIADO_APROVADO, …) por compatibilidade com dados
+  /// e filtros antigos. COMPRADO é valor legado do endpoint /comprado.
+  status          String    @default("SOLICITADO")
   priority        String    @default("NORMAL") // URGENTE | NORMAL
 
   // Campos WEG contrato
@@ -892,6 +895,12 @@ model PurchaseRequest {
   link            String?
   logoPlaceholder String? // campo reservado para logo futura
   supplierName    String?
+  /// Gravador terceirizado com o item (ex.: "Amanda"), quando a gravação não é
+  /// feita na sede. Texto livre e independente de supplierName: o produto pode
+  /// ser XBZ/Ásia Imports e estar fisicamente com o gravador.
+  engravingVendor String?
+  /// Foto do catálogo (XBZ/SPOT) capturada na busca inteligente.
+  productImageUrl String?
   itemPrice       Decimal?  @db.Decimal(12, 2)
   engravingPrice  Decimal?  @db.Decimal(12, 2)
   saleOrderRef    String?
@@ -934,6 +943,22 @@ model PurchaseRequestImage {
   purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
   imageKey          String
   createdAt         DateTime        @default(now())
+}
+
+/// Etapas customizáveis do Kanban de Compras (cada registro é uma coluna).
+/// Mesmo padrão de CrmFunil. PurchaseRequest.status guarda o id da etapa.
+model PurchaseStage {
+  id                      String   @id @default(cuid())
+  name                    String
+  order                   Int
+  color                   String?
+  /// Ao mover um card para cá, pede valor e data da compra.
+  requiresPurchaseDetails Boolean  @default(false)
+  /// Ao mover um card para cá, pede um motivo.
+  requiresReason          Boolean  @default(false)
+  createdAt               DateTime @default(now())
+
+  @@index([order])
 }
 
 model CrmFunil {

@@ -3,10 +3,12 @@
 import { useCallback, useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { isXbzSupplier } from '@/src/lib/supplier-code';
 import type { PurchaseRequest } from './compras-types';
 import { typeLabel } from './compras-types';
 import {
   calcPaidTotalFromRow,
+  displayEngravingVendor,
   displayName,
   displayQty,
   displaySupplierName,
@@ -43,6 +45,10 @@ function formatQuoteCodeDisplay(code: string | null | undefined) {
 function supplierSkuLine(row: PurchaseRequest): string | null {
   const supplier = displaySupplierName(row);
   const sku = row.sku?.trim() || row.product?.sku?.trim() || null;
+
+  const composite = row.compositeCode?.trim();
+  if (isXbzSupplier(supplier) && composite) return `SAP - ${composite}`;
+
   if (supplier && sku) return `${supplier} - ${sku}`;
   if (supplier) return supplier;
   if (sku) return sku;
@@ -150,6 +156,16 @@ export function ComprasCard(props: {
           {supplierSkuLine(row)}
         </p>
       ) : null}
+      {displaySupplierName(row) ? (
+        <p className="mt-0.5 truncate text-xs text-[var(--erp-fg-muted)]">
+          Fornecedor: {displaySupplierName(row)}
+        </p>
+      ) : null}
+      {displayEngravingVendor(row) ? (
+        <p className="mt-0.5 truncate text-xs text-[var(--erp-fg-muted)]">
+          Gravador: {displayEngravingVendor(row)}
+        </p>
+      ) : null}
       <p className="mt-1 truncate text-xs text-[var(--erp-fg-secondary)] md:mt-2">
         Qtd. <span className="font-semibold text-[var(--erp-fg)]">{displayQty(row)}</span>
         <span className="hidden md:inline">
@@ -179,11 +195,6 @@ export function ComprasCard(props: {
           Previsão: {formatDate(row.expectedArrival)}
         </p>
       ) : null}
-      {row.status === 'RECUSADO' && row.refusalReason?.trim() ? (
-        <p className="mt-1 line-clamp-2 text-xs text-rose-600 md:mt-1.5">
-          Motivo: {row.refusalReason.trim()}
-        </p>
-      ) : null}
     </article>
   );
 }
@@ -208,6 +219,16 @@ export function ComprasCardPreview(props: { row: PurchaseRequest }) {
       <h3 className="line-clamp-2 text-sm font-semibold text-[var(--erp-fg)]">{displayName(row)}</h3>
       {supplierSkuLine(row) ? (
         <p className="mt-1 truncate text-xs text-[var(--erp-fg-muted)]">{supplierSkuLine(row)}</p>
+      ) : null}
+      {displaySupplierName(row) ? (
+        <p className="mt-0.5 truncate text-xs text-[var(--erp-fg-muted)]">
+          Fornecedor: {displaySupplierName(row)}
+        </p>
+      ) : null}
+      {displayEngravingVendor(row) ? (
+        <p className="mt-0.5 truncate text-xs text-[var(--erp-fg-muted)]">
+          Gravador: {displayEngravingVendor(row)}
+        </p>
       ) : null}
     </article>
   );

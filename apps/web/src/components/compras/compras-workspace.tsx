@@ -3,16 +3,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Plus, Search, X } from 'lucide-react';
-import { fetchPurchaseRequests } from './compras-api';
+import { ChevronDown, Plus, Search, Settings, X } from 'lucide-react';
+import { fetchPurchaseRequests, listPurchaseStages } from './compras-api';
 import { ComprasDetailModal } from './compras-detail-modal';
 import { ComprasNewRequestModal } from './compras-new-request-modal';
 import {
   ComprasPeriodFilter,
 } from './compras-period-filter';
 import { ComprasResolveModal } from './compras-resolve-modal';
-import type { PurchasePriority, PurchaseRequest, PurchaseType } from './compras-types';
-import { TYPE_FILTER_OPTIONS } from './compras-types';
+import { ComprasStagesSettingsModal } from './compras-stages-settings-modal';
+import type {
+  PurchasePriority,
+  PurchaseRequest,
+  PurchaseStage,
+  PurchaseType,
+} from './compras-types';
+import {
+  SUPPLIER_FILTER_OPTIONS,
+  supplierFilterMatch,
+  supplierFilterTerm,
+  TYPE_FILTER_OPTIONS,
+} from './compras-types';
 
 const ComprasDashboard = dynamic(
   () => import('./compras-dashboard').then((m) => m.ComprasDashboard),
@@ -81,6 +92,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | PurchaseType>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | PurchasePriority>('all');
+  const [supplierFilter, setSupplierFilter] = useState('all');
   const [filtersHydrated, setFiltersHydrated] = useState(false);
   // Sem filtro de data no load: pedidos WEG_CONTRATO fora do mês atual também aparecem
   const [dateFrom, setDateFrom] = useState('');
@@ -95,15 +107,35 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     row: PurchaseRequest;
     action: 'comprado' | 'recusar';
   } | null>(null);
+  const [stages, setStages] = useState<PurchaseStage[]>([]);
+  const [stagesOpen, setStagesOpen] = useState(false);
+  /** Movimento aguardando o popup exigido pela etapa de destino. */
+  const [stageMove, setStageMove] = useState<{
+    row: PurchaseRequest;
+    stage: PurchaseStage;
+  } | null>(null);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
+
+  const loadStages = useCallback(async () => {
+    try {
+      setStages(await listPurchaseStages());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar etapas.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStages();
+  }, [loadStages]);
 
   const handlePeriodChange = useCallback((from: string, to: string) => {
     setDateFrom(from);
     setDateTo(to);
   }, []);
 
-  const hasActiveFilters = typeFilter !== 'all' || priorityFilter !== 'all';
+  const hasActiveFilters =
+    typeFilter !== 'all' || priorityFilter !== 'all' || supplierFilter !== 'all';
 
   useEffect(() => {
     const stored = readStoredFilters();
@@ -121,6 +153,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
   const clearFilters = useCallback(() => {
     setTypeFilter('all');
     setPriorityFilter('all');
+    setSupplierFilter('all');
   }, []);
 
   useEffect(() => {
@@ -140,6 +173,16 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         // Tipo/prioridade em ambas as views — inclui WEG_CONTRATO quando Tipo = Todos
         if (typeFilter !== 'all') params.set('type', typeFilter);
         if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+
+        const supplierTerm = supplierFilterTerm(supplierFilter);
+        const supplierMatch = supplierFilterMatch(supplierFilter);
+        if (supplierTerm) {
+          if (supplierMatch === 'engravingVendor') {
+            params.set('engravingVendor', supplierTerm);
+          } else {
+            params.set('supplier', supplierTerm);
+          }
+        }
 
         if (activeView === 'compras') {
           const cleanSearch = search.trim();
@@ -172,6 +215,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
     priorityFilter,
     refreshToken,
     search,
+    supplierFilter,
     typeFilter,
   ]);
 
@@ -246,6 +290,13 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
           />
 
+          <FilterDropdown
+            label="Fornecedor"
+            value={supplierFilter}
+            options={SUPPLIER_FILTER_OPTIONS}
+            onChange={setSupplierFilter}
+          />
+
           {hasActiveFilters ? (
             <button
               type="button"
@@ -263,10 +314,24 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
             onChange={handlePeriodChange}
           />
 
+          {activeView === 'compras' && props.isAdmin ? (
+            <button
+              type="button"
+              onClick={() => setStagesOpen(true)}
+              title="Configurar etapas"
+              aria-label="Configurar etapas"
+              className="erp-focus-ring erp-btn erp-btn-secondary erp-btn--md ml-auto shrink-0"
+            >
+              <Settings className="erp-icon-sm" aria-hidden />
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="erp-focus-ring erp-btn erp-btn-primary erp-btn--md ml-auto hidden shrink-0 md:inline-flex"
+            className={`erp-focus-ring erp-btn erp-btn-primary erp-btn--md hidden shrink-0 md:inline-flex ${
+              activeView === 'compras' && props.isAdmin ? '' : 'ml-auto'
+            }`}
           >
             <Plus className="erp-icon-sm" aria-hidden />
             Nova Solicitação
@@ -279,15 +344,25 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
       ) : null}
 
       {activeView === 'dashboard' ? (
-        <ComprasDashboard rows={rows} loading={loading} />
+        <ComprasDashboard
+          rows={rows}
+          stages={stages}
+          loading={loading}
+          onSelectSupplier={(value) => {
+            setSupplierFilter(value);
+            setActiveView('compras');
+          }}
+        />
       ) : (
         <section className="erp-module-panel flex min-h-0 flex-1 flex-col overflow-hidden p-3">
           <ComprasKanbanBoard
             rows={rows}
+            stages={stages}
             loading={loading}
             onOpenCard={(row) => setDetailId(row.id)}
             onStatusChanged={handleStatusChanged}
             onError={setError}
+            onStageRequiresInput={(row, stage) => setStageMove({ row, stage })}
           />
         </section>
       )}
@@ -317,6 +392,7 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
         <ComprasDetailModal
           rowId={detailId}
           isAdmin={props.isAdmin}
+          stages={stages}
           onClose={() => setDetailId(null)}
           onAction={(action, row) => {
             setDetailId(null);
@@ -337,6 +413,29 @@ export function ComprasWorkspace(props: { isAdmin: boolean }) {
           onClose={() => setResolveAction(null)}
           onResolved={() => {
             setResolveAction(null);
+            refresh();
+          }}
+        />
+      ) : null}
+
+      {stageMove ? (
+        <ComprasResolveModal
+          row={stageMove.row}
+          stage={stageMove.stage}
+          onClose={() => setStageMove(null)}
+          onResolved={(updated) => {
+            setStageMove(null);
+            if (updated) handleStatusChanged(updated);
+            else refresh();
+          }}
+        />
+      ) : null}
+
+      {stagesOpen ? (
+        <ComprasStagesSettingsModal
+          onClose={() => setStagesOpen(false)}
+          onChanged={async () => {
+            await loadStages();
             refresh();
           }}
         />

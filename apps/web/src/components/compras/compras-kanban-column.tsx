@@ -2,7 +2,7 @@
 
 import { useDroppable } from '@dnd-kit/core';
 import { ShoppingCart } from 'lucide-react';
-import type { KanbanColumnId, PurchaseRequest } from './compras-types';
+import type { PurchaseRequest } from './compras-types';
 import { ComprasCard } from './compras-card';
 import { EmptyState } from '@/src/components/ui/empty-state';
 
@@ -20,8 +20,9 @@ function ColumnSkeleton() {
 }
 
 export function ComprasKanbanColumn(props: {
-  id: KanbanColumnId;
+  id: string;
   label: string;
+  color?: string | null;
   items: PurchaseRequest[];
   loading: boolean;
   onOpenCard: (row: PurchaseRequest) => void;
@@ -39,7 +40,16 @@ export function ComprasKanbanColumn(props: {
       }`}
     >
       <header className="shrink-0 border-b border-[var(--erp-border)] px-3 py-3">
-        <h2 className="text-sm font-semibold text-[var(--erp-fg)]">{props.label}</h2>
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: props.color ?? 'var(--erp-accent)' }}
+            aria-hidden
+          />
+          <h2 className="min-w-0 truncate text-sm font-semibold text-[var(--erp-fg)]">
+            {props.label}
+          </h2>
+        </div>
         <p className="mt-0.5 text-xs text-[var(--erp-fg-muted)]">
           {props.items.length} solicitações
         </p>
@@ -70,9 +80,7 @@ export function ComprasKanbanColumn(props: {
               row={row}
               onOpen={() => props.onOpenCard(row)}
               isDragging={props.activeDragId === row.id}
-              dragEnabled={
-                props.dragEnabled !== false && row.status !== 'RECUSADO'
-              }
+              dragEnabled={props.dragEnabled !== false}
             />
           ))
         )}

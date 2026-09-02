@@ -3,30 +3,68 @@
 import { useState } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { updatePurchaseStatus } from './compras-api';
 import { ComprasModalShell } from './compras-modal-shell';
-import type { PurchaseRequest } from './compras-types';
+import type { PurchaseRequest, PurchaseStage } from './compras-types';
 import { displayName, fieldClass } from './compras-utils';
 
+/**
+ * Popup de confirmação de movimento.
+ *
+ * Dois modos:
+ * - `action`: modo legado dos botões do detalhe (endpoints /comprado e /recusar).
+ * - `stage`: movimento para uma etapa que pede valor/data (requiresPurchaseDetails)
+ *   e/ou motivo (requiresReason).
+ */
 export function ComprasResolveModal(props: {
   row: PurchaseRequest;
-  action: 'comprado' | 'recusar';
+  action?: 'comprado' | 'recusar';
+  stage?: PurchaseStage;
   onClose: () => void;
-  onResolved: () => void;
+  onResolved: (updated?: PurchaseRequest) => void;
 }) {
-  const { row, action, onClose, onResolved } = props;
+  const { row, action, stage, onClose, onResolved } = props;
   const [purchaseValue, setPurchaseValue] = useState('');
+  const [purchasedAt, setPurchasedAt] = useState(
+    () => new Date().toISOString().slice(0, 10),
+  );
   const [refusalReason, setRefusalReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const needsPurchaseDetails = stage
+    ? stage.requiresPurchaseDetails
+    : action === 'comprado';
+  const needsReason = stage ? stage.requiresReason : action === 'recusar';
+
+  const title = stage
+    ? `Mover para ${stage.name}`
+    : action === 'comprado'
+      ? 'Aprovar Requisição'
+      : 'Recusar Solicitação';
+
   const submit = async () => {
     setError(null);
-    if (action === 'recusar' && !refusalReason.trim()) {
-      setError('Informe o motivo da recusa.');
+    if (needsReason && !refusalReason.trim()) {
+      setError('Informe o motivo.');
       return;
     }
     setSaving(true);
     try {
+      if (stage) {
+        const updated = await updatePurchaseStatus(row.id, stage.id, {
+          ...(needsPurchaseDetails && purchaseValue
+            ? { purchaseValue: Number(purchaseValue) }
+            : {}),
+          ...(needsPurchaseDetails && purchasedAt
+            ? { purchasedAt: new Date(purchasedAt).toISOString() }
+            : {}),
+          ...(needsReason ? { refusalReason: refusalReason.trim() } : {}),
+        });
+        onResolved(updated);
+        return;
+      }
+
       await erpFetchJson(`api/compras/${row.id}/${action}`, {
         method: 'PATCH',
         body: JSON.stringify(
@@ -44,30 +82,44 @@ export function ComprasResolveModal(props: {
   };
 
   return (
-    <ComprasModalShell
-      title={action === 'comprado' ? 'Aprovar Requisição' : 'Recusar Solicitação'}
-      onClose={onClose}
-      size="sm"
-    >
+    <ComprasModalShell title={title} onClose={onClose} size="sm">
       <p className="mb-4 text-sm text-gray-600">{displayName(row)}</p>
-      {action === 'comprado' ? (
+
+      {needsPurchaseDetails ? (
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-600">
+              Valor de compra (opcional)
+            </span>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={purchaseValue}
+              onChange={(e) => setPurchaseValue(e.target.value)}
+              className={fieldClass()}
+              placeholder="0,00"
+            />
+          </label>
+          {stage ? (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-600">
+                Data da compra
+              </span>
+              <input
+                type="date"
+                value={purchasedAt}
+                onChange={(e) => setPurchasedAt(e.target.value)}
+                className={fieldClass()}
+              />
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {needsReason ? (
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-gray-600">
-            Valor de compra (opcional)
-          </span>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={purchaseValue}
-            onChange={(e) => setPurchaseValue(e.target.value)}
-            className={fieldClass()}
-            placeholder="0,00"
-          />
-        </label>
-      ) : (
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-gray-600">Motivo da recusa</span>
+          <span className="mb-1 block text-sm font-medium text-gray-600">Motivo</span>
           <textarea
             value={refusalReason}
             onChange={(e) => setRefusalReason(e.target.value)}
@@ -75,7 +127,8 @@ export function ComprasResolveModal(props: {
             placeholder="Explique o motivo..."
           />
         </label>
-      )}
+      ) : null}
+
       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
       <div className="mt-5 flex justify-end gap-2">
         <button

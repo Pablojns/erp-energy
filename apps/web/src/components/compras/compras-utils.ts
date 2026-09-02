@@ -2,11 +2,12 @@ import type {
   KanbanColumnId,
   ProductLite,
   PurchaseRequest,
+  PurchaseStage,
   PurchaseStatus,
   PurchaseType,
   SupplierLite,
 } from './compras-types';
-import { KANBAN_COLUMNS } from './compras-types';
+import { KANBAN_COLUMNS, purchaseStatusLabel } from './compras-types';
 import { productMatchesSearch as matchProductSearch } from '@/src/lib/product-search';
 
 export function productMatchesSearch(product: ProductLite, query: string) {
@@ -52,6 +53,53 @@ export function displaySupplierName(row: PurchaseRequest): string | null {
     row.product?.supplierName?.trim() ||
     null
   );
+}
+
+export function displayEngravingVendor(row: PurchaseRequest): string | null {
+  return row.engravingVendor?.trim() || null;
+}
+
+/** Minúsculas e sem acento, para comparar nomes escritos de formas diferentes. */
+function normalizeSupplierText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Verifica se a solicitação é do fornecedor informado.
+ *
+ * Compara contra todas as origens do nome (campo livre + cadastro do produto),
+ * não só a exibida, para não perder linhas em que o nome bate em outro campo.
+ */
+export function rowMatchesSupplier(row: PurchaseRequest, term: string): boolean {
+  const needle = normalizeSupplierText(term);
+  if (!needle) return true;
+
+  const haystack = [
+    row.supplierName,
+    row.product?.supplier?.name,
+    row.product?.supplierName,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map(normalizeSupplierText)
+    .join(' | ');
+
+  return haystack.includes(needle);
+}
+
+/** Gravador terceirizado (ex.: "Amanda"), independente do fornecedor. */
+export function rowMatchesEngravingVendor(
+  row: PurchaseRequest,
+  term: string,
+): boolean {
+  const needle = normalizeSupplierText(term);
+  if (!needle) return true;
+  const vendor = displayEngravingVendor(row);
+  if (!vendor) return false;
+  return normalizeSupplierText(vendor).includes(needle);
 }
 
 export function resolveSupplierForProduct(
@@ -140,6 +188,35 @@ export function kanbanColumnForStatus(status: PurchaseStatus): KanbanColumnId | 
     return status as KanbanColumnId;
   }
   return 'SOLICITADO';
+}
+
+/**
+ * Etapa (coluna) em que o card deve aparecer.
+ * `status` guarda o id da etapa; 'COMPRADO' é status legado do endpoint
+ * /comprado e cai na etapa que pede valor/data da compra.
+ */
+export function stageIdForStatus(
+  status: string,
+  stages: PurchaseStage[],
+): string | null {
+  if (stages.length === 0) return null;
+  if (stages.some((stage) => stage.id === status)) return status;
+
+  if (status === 'COMPRADO') {
+    const comprado =
+      stages.find((stage) => stage.id === 'PEDIDO_ENVIADO_APROVADO') ??
+      stages.find((stage) => stage.requiresPurchaseDetails);
+    if (comprado) return comprado.id;
+  }
+
+  // Etapa excluída ou status desconhecido: cai na primeira etapa.
+  return stages[0]?.id ?? null;
+}
+
+export function stageLabel(status: string, stages: PurchaseStage[]): string {
+  const stageId = stageIdForStatus(status, stages);
+  const stage = stages.find((item) => item.id === stageId);
+  return stage?.name ?? purchaseStatusLabel(status as PurchaseStatus);
 }
 
 export function fieldClass(invalid?: boolean) {

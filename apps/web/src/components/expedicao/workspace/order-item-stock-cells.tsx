@@ -43,6 +43,21 @@ export function OrderItemStockOnHandCell(props: { stock: OrderItemStockState }) 
   );
 }
 
+export function OrderItemStockReservedCell(props: { stock: OrderItemStockState }) {
+  const { stock } = props;
+  if (stock.loading || stock.reserved === null) {
+    return <StockPlaceholder loading={stock.loading} />;
+  }
+  return (
+    <span
+      className="exp-wb-cell-num text-xs font-semibold tabular-nums"
+      title="Reservado em todos os pedidos (reservas ativas do produto)"
+    >
+      {stock.reserved}
+    </span>
+  );
+}
+
 export function OrderItemStockAvailableCell(props: {
   stock: OrderItemStockState;
   orderedQty: number;
@@ -63,13 +78,13 @@ export function OrderItemStockAvailableCell(props: {
   );
 }
 
-/** Três números: pedido | real | disponível — para cards compactos. */
+/** Quatro números: pedido | real | reservado | disponível — para cards compactos. */
 export function OrderItemStockFiguresInline(props: {
   orderedQty: number;
   stock: OrderItemStockState;
 }) {
   return (
-    <span className="exp-wb-stock-triple" aria-label="Quantidade do pedido, estoque real e disponível">
+    <span className="exp-wb-stock-triple" aria-label="Quantidade do pedido, estoque real, reservado e disponível">
       <span className="exp-wb-stock-triple-item">
         <span className="exp-wb-stock-triple-label">Pedido</span>
         <OrderItemOrderedQtyCell qty={props.orderedQty} />
@@ -77,6 +92,10 @@ export function OrderItemStockFiguresInline(props: {
       <span className="exp-wb-stock-triple-item">
         <span className="exp-wb-stock-triple-label">Real</span>
         <OrderItemStockOnHandCell stock={props.stock} />
+      </span>
+      <span className="exp-wb-stock-triple-item">
+        <span className="exp-wb-stock-triple-label">Reservado</span>
+        <OrderItemStockReservedCell stock={props.stock} />
       </span>
       <span className="exp-wb-stock-triple-item">
         <span className="exp-wb-stock-triple-label">Disponível</span>
