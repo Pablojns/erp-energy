@@ -32,6 +32,7 @@ import { AuditService } from '../common/audit.service';
 import { AppLogger } from '../common/logger/app-logger';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { allocateInboundToPendingSeparation } from './stock-reservation.helpers';
 
 
 
@@ -83,8 +84,8 @@ export class StockService {
 
     const reservations = rows.map((r) => {
       const orderNumber =
-        r.orderNumber?.trim() ||
         r.order.externalOrderNumber?.trim() ||
+        r.orderNumber?.trim() ||
         r.order.code;
       return {
         id: r.id,
@@ -924,6 +925,8 @@ export class StockService {
 
         });
 
+        await allocateInboundToPendingSeparation(tx, dto.productId, userId);
+
       } else if (
 
         type === StockMovementType.OUTBOUND ||
@@ -951,14 +954,19 @@ export class StockService {
         }
 
       } else if (type === StockMovementType.RESERVE_CANCEL) {
-
-        await tx.product.update({
-
+        // Reserva física: Disponível = stockQty - reservedQty. Liberar só reduz
+        // reservedQty — somar de volta em stockQty duplicava o saldo livre.
+        const product = await tx.product.findUnique({
           where: { id: dto.productId },
-
-          data: { stockQty: { increment: qty } },
-
+          select: { reservedQty: true },
         });
+        const dec = Math.min(qty, product?.reservedQty ?? 0);
+        if (dec > 0) {
+          await tx.product.update({
+            where: { id: dto.productId },
+            data: { reservedQty: { decrement: dec } },
+          });
+        }
 
       } else if (
         type === StockMovementType.RESERVA ||
@@ -1476,6 +1484,14 @@ export class StockService {
     });
 
     for (const m of movements) {
+      // Reserva física já foi liberada acima (reservedQty). Reverter RESERVA /
+      // RESERVE_CANCEL de novo somaria ou subtrairia a mesma quantidade duas vezes.
+      if (
+        m.movementType === StockMovementType.RESERVA ||
+        m.movementType === StockMovementType.RESERVE_CANCEL
+      ) {
+        continue;
+      }
       await this.revertMovementForOrderDelete(tx, m);
     }
     const delMov =

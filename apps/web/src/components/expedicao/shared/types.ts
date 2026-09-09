@@ -165,6 +165,7 @@ export type FilterFormState = {
 
 export type StatusFilterId =
   | 'all'
+  | 'abertos'
   | 'novo'
   | 'urgente'
   | 'atrasado'
@@ -236,6 +237,14 @@ export type OrderExitItemDto = {
   description: string;
   quantity: number;
   pickedQty: number;
+  invoicedQty?: number;
+};
+
+export type OrderExitParcelaDto = {
+  id: string;
+  invoiceNumber: string;
+  exitDate: string;
+  quantity: number;
 };
 
 export type OrderExitDto = {
@@ -252,6 +261,7 @@ export type OrderExitDto = {
   requestedDeliveryDate: string | null;
   createdAt: string;
   updatedAt: string;
+  parcelas?: OrderExitParcelaDto[];
   order: {
     id: string;
     code: string;

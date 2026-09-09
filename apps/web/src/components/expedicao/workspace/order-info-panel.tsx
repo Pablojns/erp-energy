@@ -1020,7 +1020,6 @@ export const OrderInfoPanel = forwardRef<
             <OrderClickableStatusBadge
               order={order}
               onStatusChanged={onStatusChanged}
-              readOnly={fieldsReadOnly}
             />
           </div>
           {headerTrailing ? (

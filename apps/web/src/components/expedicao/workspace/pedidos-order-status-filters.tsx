@@ -4,6 +4,7 @@ const PEDIDOS_STATUS_FILTERS: Array<{
   id: StatusFilterId;
   label: string;
 }> = [
+  { id: 'abertos', label: 'Abertos' },
   { id: 'all', label: 'Todos' },
   { id: 'novo', label: 'Novo' },
   { id: 'em_separacao', label: 'Em Separação' },
@@ -15,6 +16,7 @@ const PEDIDOS_STATUS_FILTERS: Array<{
 export function pedidosStatusFilterLabel(id: StatusFilterId): string {
   if (id === 'parcial') return 'Parcial';
   if (id === 'urgente') return 'Urgente';
+  if (id === 'abertos') return 'Abertos';
   return PEDIDOS_STATUS_FILTERS.find((f) => f.id === id)?.label ?? id;
 }
 

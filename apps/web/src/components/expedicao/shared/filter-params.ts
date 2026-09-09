@@ -32,6 +32,9 @@ export function applyStatusFilter(
   switch (filter) {
     case 'all':
       break;
+    case 'abertos':
+      params.set('status', 'active');
+      break;
     case 'novo':
       params.set('status', 'NOVO');
       break;
@@ -78,8 +81,13 @@ export function buildFilterParams(opts: {
 }): URLSearchParams {
   const params = new URLSearchParams();
   const f = opts.appliedFilters;
+  const search = opts.searchDebounced.trim();
+  const fieldSearch = Boolean(f.filterField && f.filterValue.trim());
+  const searching = Boolean(search) || fieldSearch;
+  const statusForApi =
+    searching && opts.statusFilter === 'abertos' ? 'all' : opts.statusFilter;
 
-  applyStatusFilter(opts.statusFilter, params, opts.mode ?? 'expedition');
+  applyStatusFilter(statusForApi, params, opts.mode ?? 'expedition');
 
   if (f.source !== 'all') params.set('source', f.source);
   if (opts.businessContext === 'WEG' || opts.businessContext === 'SITE') {

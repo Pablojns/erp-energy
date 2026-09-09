@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { formatBrlDisplay, formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
-import type { OrderExitDto, OrderExitItemDto } from '@/src/components/expedicao/shared/types';
+import type {
+  OrderExitDto,
+  OrderExitItemDto,
+  OrderExitParcelaDto,
+} from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
@@ -25,23 +29,42 @@ function numeroPedFromExit(exitItem: OrderExitDto): string | null {
   return raw || null;
 }
 
-function DetailRow(props: { label: string; value: string | null | undefined }) {
-  const { label, value } = props;
-  const display = value?.trim() ? value.trim() : '—';
-  return (
-    <p className="text-sm leading-relaxed">
-      <span className="font-medium text-[var(--text-primary)]">{label}:</span>{' '}
-      <span className="text-[var(--text-secondary)]">{display}</span>
-    </p>
-  );
+function sum(nums: number[]): number {
+  return nums.reduce((acc, n) => acc + n, 0);
 }
 
-function ItemStatusBadge(props: { item: OrderExitItemDto }) {
-  const { item } = props;
-  const picked = item.pickedQty ?? 0;
+function sortedParcelas(
+  exit: OrderExitDto,
+  fallbackQty: number,
+): OrderExitParcelaDto[] {
+  const fromApi = [...(exit.parcelas ?? [])].sort((a, b) => {
+    const da = new Date(a.exitDate).getTime();
+    const db = new Date(b.exitDate).getTime();
+    if (da !== db) return da - db;
+    return a.id.localeCompare(b.id);
+  });
+  if (fromApi.length > 0) return fromApi;
+  return [
+    {
+      id: exit.id,
+      invoiceNumber: exit.invoiceNumber,
+      exitDate: exit.exitDate,
+      quantity: fallbackQty,
+    },
+  ];
+}
+
+function ItemStatusBadge(props: {
+  item: OrderExitItemDto;
+  remainingAfterThis: number;
+  completedByThis: boolean;
+  splitShipment: boolean;
+}) {
+  const { item, remainingAfterThis, completedByThis, splitShipment } = props;
+  const sentThis = item.pickedQty ?? 0;
   const ordered = item.quantity ?? 0;
 
-  if (picked === 0) {
+  if (sentThis <= 0) {
     return (
       <span className="inline-flex rounded-md bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-500">
         NÃO ENVIADO
@@ -49,7 +72,15 @@ function ItemStatusBadge(props: { item: OrderExitItemDto }) {
     );
   }
 
-  if (picked === ordered && ordered > 0) {
+  if (completedByThis) {
+    if (splitShipment || sentThis < ordered) {
+      return (
+        <span className="inline-flex max-w-[18rem] flex-col rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold leading-tight text-emerald-600">
+          <span>COMPLETO — parcela final ({sentThis} un.)</span>
+          <span className="font-medium">Pedido finalizado</span>
+        </span>
+      );
+    }
     return (
       <span className="inline-flex rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
         COMPLETO
@@ -58,9 +89,23 @@ function ItemStatusBadge(props: { item: OrderExitItemDto }) {
   }
 
   return (
-    <span className="inline-flex rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
-      PARCIAL ({picked} de {ordered})
+    <span className="inline-flex max-w-[18rem] flex-col rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold leading-tight text-amber-700">
+      <span>
+        PARCIAL — enviado {sentThis} de {ordered} nesta parcela
+      </span>
+      <span className="font-medium">Restam {remainingAfterThis} pendentes</span>
     </span>
+  );
+}
+
+function DetailRow(props: { label: string; value: string | null | undefined }) {
+  const { label, value } = props;
+  const display = value?.trim() ? value.trim() : '—';
+  return (
+    <p className="text-sm leading-relaxed">
+      <span className="font-medium text-[var(--text-primary)]">{label}:</span>{' '}
+      <span className="text-[var(--text-secondary)]">{display}</span>
+    </p>
   );
 }
 
@@ -82,6 +127,37 @@ export function OutputDetailPanel(props: {
     lastSavedRef.current = initial;
     setObsError(null);
   }, [exit.id, exit.order.obsExpedicao]);
+
+  const exitContext = useMemo(() => {
+    const items = exit.order.items ?? [];
+    const orderedTotal = sum(items.map((it) => it.quantity ?? 0));
+    const thisCycleQty = sum(items.map((it) => it.pickedQty ?? 0));
+    const parcelas = sortedParcelas(exit, thisCycleQty);
+    const thisIndex = Math.max(
+      0,
+      parcelas.findIndex((p) => p.id === exit.id),
+    );
+    const shippedUpToThis = sum(
+      parcelas.slice(0, thisIndex + 1).map((p) => p.quantity),
+    );
+    const shippedTotal = sum(parcelas.map((p) => p.quantity));
+    const remainingAfterThis = Math.max(0, orderedTotal - shippedUpToThis);
+    const orderFullyShipped =
+      exit.order.status === 'FINALIZADO' ||
+      (orderedTotal > 0 && shippedTotal >= orderedTotal);
+    const isLastParcela = thisIndex === parcelas.length - 1;
+    const completedByThis =
+      remainingAfterThis <= 0 && (orderFullyShipped || isLastParcela);
+
+    return {
+      orderedTotal,
+      shippedTotal,
+      parcelas,
+      remainingAfterThis,
+      completedByThis,
+      splitShipment: parcelas.length > 1,
+    };
+  }, [exit]);
 
   const saveObsExpedicao = async () => {
     const trimmed = obsExpedicao.trim();
@@ -175,6 +251,34 @@ export function OutputDetailPanel(props: {
         ) : null}
       </div>
 
+      {exitContext.parcelas.length > 0 ? (
+        <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
+          {exitContext.parcelas.map((parcela, index) => {
+            const isCurrent = parcela.id === exit.id;
+            const sep =
+              index < exitContext.parcelas.length - 1 ? ' · ' : ' — ';
+            return (
+              <span key={parcela.id}>
+                <span
+                  className={
+                    isCurrent
+                      ? 'font-medium text-[var(--text-secondary)]'
+                      : undefined
+                  }
+                >
+                  Parcela {index + 1}: {parcela.quantity} un. em{' '}
+                  {formatDayDisplay(parcela.exitDate)}
+                </span>
+                {sep}
+              </span>
+            );
+          })}
+          <span>
+            Total: {exitContext.shippedTotal}/{exitContext.orderedTotal}
+          </span>
+        </p>
+      ) : null}
+
       <div className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] p-3">
         <label
           htmlFor="obs-expedicao"
@@ -235,7 +339,12 @@ export function OutputDetailPanel(props: {
                   </span>
                 </td>
                 <td className="px-3 py-2">
-                  <ItemStatusBadge item={it} />
+                  <ItemStatusBadge
+                    item={it}
+                    remainingAfterThis={exitContext.remainingAfterThis}
+                    completedByThis={exitContext.completedByThis}
+                    splitShipment={exitContext.splitShipment}
+                  />
                 </td>
               </tr>
             ))}

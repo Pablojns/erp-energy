@@ -31,7 +31,7 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   const mode = opts.mode ?? 'expedition';
   const { context: businessContext, orderSource } = useBusinessContext();
   const [statusFilter, setStatusFilter] = useState<StatusFilterId>(
-    opts.initialStatusFilter ?? 'all',
+    opts.initialStatusFilter ?? (mode === 'separation' ? 'all' : 'abertos'),
   );
   const [page, setPage] = useState(1);
   const [appliedFilters, setAppliedFilters] = useState<FilterFormState>(() => ({

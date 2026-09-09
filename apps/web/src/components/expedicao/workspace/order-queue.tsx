@@ -113,6 +113,7 @@ function buildColetaListaFromOrders(
 }
 
 const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
+  'abertos',
   'all',
   'novo',
   'atrasado',
@@ -126,6 +127,8 @@ const PEDIDOS_STATUS_FILTERS: StatusFilterId[] = [
 ];
 
 const HEADER_STATUS_FILTERS: Array<{ id: StatusFilterId; label: string }> = [
+  { id: 'abertos', label: 'Abertos' },
+  { id: 'all', label: 'Todos' },
   { id: 'novo', label: 'Novo' },
   { id: 'atrasado', label: 'Atrasados' },
   { id: 'urgente', label: 'Urgentes' },
@@ -333,7 +336,7 @@ export function OrderQueue(props: {
 
   const filterBadges = useMemo((): FilterBadgeItem[] => {
     const badges: FilterBadgeItem[] = [];
-    if (data.statusFilter !== 'all') {
+    if (data.statusFilter !== (isPedidosMode ? 'abertos' : 'all')) {
       const sepLabel = SEPARATION_STAGE_FILTERS.find(
         (f) => f.id === data.statusFilter,
       )?.label;
@@ -391,7 +394,7 @@ export function OrderQueue(props: {
   const handleClearAll = () => {
     data.setPage(1);
     setActiveCustomFilterId(null);
-    data.setStatusFilter('all');
+    data.setStatusFilter('abertos');
     data.setAppliedFilters((f) => ({
       ...f,
       search: '',

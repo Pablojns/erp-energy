@@ -34,6 +34,11 @@ import {
 } from './order-domain';
 import { CarrierResolverService } from './carrier-resolver.service';
 import {
+  cycleExitQtyFromItems,
+  resolveExitPendingQuantity,
+  resolveExitQuantity,
+} from './exit-quantity';
+import {
   buildOrderFieldFilterWhere,
   buildOrderParcialWhere,
   buildOrderSearchWhere,
@@ -1870,6 +1875,7 @@ export class OrderService {
               productId: true,
               quantity: true,
               pickedQty: true,
+              invoicedQty: true,
               reservedQuantity: true,
             },
           },
@@ -2225,28 +2231,11 @@ export class OrderService {
         );
       }
 
-      const previousInvoice = before.invoiceNumber?.trim() || null;
-
-      const pickedQtyAtTime = before.items.reduce(
-        (sum, it) => sum + (it.pickedQty ?? 0),
-        0,
-      );
-
-      if (previousInvoice && previousInvoice !== inv) {
-        await tx.orderInvoiceHistory.create({
-          data: {
-            orderId,
-            invoiceNumber: previousInvoice,
-            pickedQtyAtTime,
-            createdBy: userId,
-          },
-        });
-      }
-
       // NÃO antecipar invoicedQty aqui. Esse campo representa o já expedido
       // (baixa de estoque); se igualar a pickedQty no atrelamento da NF, a saída
       // seguinte calcula delta 0 e falha com "Nenhuma quantidade nova separada".
       // generateExitFromInvoice / finalizeExpedition atualizam invoicedQty na saída.
+      // Histórico oficial só é gravado quando a saída é registrada (não ao digitar a NF).
 
       const updated = await tx.order.update({
         where: { id: orderId },
@@ -2258,23 +2247,6 @@ export class OrderService {
         },
         include: OrderService.orderInclude(),
       });
-
-      // Registra a NF atual no histórico (primeira ou nova).
-      const alreadyLogged = await tx.orderInvoiceHistory.findFirst({
-        where: { orderId, invoiceNumber: inv },
-        select: { id: true },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!alreadyLogged) {
-        await tx.orderInvoiceHistory.create({
-          data: {
-            orderId,
-            invoiceNumber: inv,
-            pickedQtyAtTime,
-            createdBy: userId,
-          },
-        });
-      }
 
       await this.audit.log({
         userId,
@@ -2361,6 +2333,18 @@ export class OrderService {
       // Saída órfã (sem shippedAt / sem histórico PARCIAL) não impede reset completo a NOVO.
       const hadPriorPartial = Boolean(before.shippedAt) || cameFromParcial;
 
+      await this.releaseReservations(
+        tx,
+        userId,
+        orderStockReference(before),
+        orderId,
+        before.items.map((it) => ({
+          id: it.id,
+          productId: it.productId,
+          reservedQuantity: it.reservedQuantity,
+        })),
+      );
+
       if (hadPriorPartial) {
         for (const it of before.items) {
           const qty = Math.max(0, it.quantity);
@@ -2372,6 +2356,7 @@ export class OrderService {
             data: {
               pickedQty: fullyInvoiced ? qty : confirmed,
               missingQty: Math.max(0, qty - confirmed),
+              reservedQuantity: 0,
               // Completos mantêm OK; pendentes liberam para o próximo ciclo.
               mercadoEletronicoItemStatus: fullyInvoiced
                 ? existing || 'OK'
@@ -2424,83 +2409,20 @@ export class OrderService {
         return this.serializeOrder(updated);
       }
 
-      // Tentativa sem separação/faturamento confirmado: reset completo.
-      for (const it of before.items) {
-        await tx.orderItem.update({
-          where: { id: it.id },
-          data: {
-            pickedQty: 0,
-            invoicedQty: 0,
-            missingQty: 0,
-            // Limpa flag de recebimento da planilha (OK / Recebido).
-            mercadoEletronicoItemStatus: null,
-          },
-        });
-      }
-
-      // Remove saída vinculada para não permanecer na lista de Saídas.
-      await tx.orderExit.deleteMany({ where: { orderId } });
-
-      // Remove só o histórico criado nesta tentativa de separação.
-      if (enteredSeparationAt) {
-        await tx.orderInvoiceHistory.deleteMany({
-          where: {
-            orderId,
-            createdAt: { gte: enteredSeparationAt },
-          },
-        });
-      } else {
-        await tx.orderInvoiceHistory.deleteMany({
-          where: {
-            orderId,
-            createdBy: { not: null },
-          },
-        });
-      }
-
-      const remainingHistory = await tx.orderInvoiceHistory.findMany({
-        where: { orderId },
-        orderBy: { createdAt: 'desc' },
-        select: { invoiceNumber: true },
-      });
-
-      let nextInvoice = remainingHistory[0]?.invoiceNumber?.trim() || null;
-
-      // NF de importação WEG sem histórico restante: preserva o número no pedido.
-      if (
-        !nextInvoice &&
-        before.source === OrderSource.WEG_MERCADO_ELETRONICO &&
-        before.invoiceNumber?.trim()
-      ) {
-        const current = before.invoiceNumber.trim();
-        const wasOnlyFromThisAttempt =
-          enteredSeparationAt != null &&
-          before.invoiceHistory.some(
-            (h) =>
-              h.invoiceNumber.trim() === current &&
-              h.createdAt >= enteredSeparationAt,
-          ) &&
-          !before.invoiceHistory.some(
-            (h) =>
-              h.invoiceNumber.trim() === current &&
-              h.createdAt < enteredSeparationAt,
-          );
-        if (!wasOnlyFromThisAttempt) {
-          nextInvoice = current;
-        }
-      }
+      // Tentativa sem faturamento confirmado: reset completo (saída + estoque + reserva).
+      await this.hardResetOrderOnReturnToNovo(tx, orderId, userId);
 
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
           status: OrderStatus.NOVO,
-          invoiceNumber: nextInvoice,
-          invoiceStatus: nextInvoice
-            ? InvoiceStatus.PENDING
-            : InvoiceStatus.NOT_FOUND,
-          invoicedAt: nextInvoice ? before.invoicedAt : null,
+          invoiceNumber: null,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          invoicedAt: null,
           volumes: null,
           sentToSeparationAt: null,
+          shippedAt: null,
+          trackingCode: null,
         },
         include: OrderService.orderInclude(),
       });
@@ -2515,7 +2437,6 @@ export class OrderService {
           mode: 'novo',
           from: before.status,
           to: OrderStatus.NOVO,
-          preservedInvoice: nextInvoice,
         },
       });
 
@@ -2629,7 +2550,7 @@ export class OrderService {
           (it) =>
             (it.pickedQty ?? 0) > 0 &&
             (it.invoicedQty ?? 0) > 0 &&
-            OrderService.resolveExitPendingQuantity(it) <= 0,
+            resolveExitPendingQuantity(it) <= 0,
         );
         if (premature) {
           for (const it of before.items) {
@@ -2668,7 +2589,7 @@ export class OrderService {
         const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
-        const qtyOut = OrderService.resolveExitPendingQuantity(it);
+        const qtyOut = resolveExitPendingQuantity(it);
         if (qtyOut <= 0) continue;
 
         const reservation = reservationByItem.get(it.id);
@@ -2746,7 +2667,7 @@ export class OrderService {
 
       // Itens sem baixa (SKU sem produto / qtyOut 0) ainda precisam de missingQty.
       for (const it of before.items) {
-        const qtyOut = OrderService.resolveExitPendingQuantity(it);
+        const qtyOut = resolveExitPendingQuantity(it);
         if (qtyOut > 0) continue;
         await tx.orderItem.update({
           where: { id: it.id },
@@ -2758,7 +2679,7 @@ export class OrderService {
 
       if (movedUnits === 0 && before.items.length > 0) {
         const nothingNewPicked = before.items.every(
-          (it) => OrderService.resolveExitPendingQuantity(it) <= 0,
+          (it) => resolveExitPendingQuantity(it) <= 0,
         );
         throw new BadRequestException(
           nothingNewPicked
@@ -2792,6 +2713,13 @@ export class OrderService {
           carrierName: before.carrier?.name ?? null,
           trackingCode: tracking,
         },
+      });
+
+      await OrderService.recordInvoiceHistoryOnExit(tx, {
+        orderId,
+        invoiceNumber: inv,
+        userId,
+        items: before.items,
       });
 
       await this.audit.log({
@@ -2948,6 +2876,19 @@ export class OrderService {
             trackingCode: before.trackingCode?.trim() || null,
           },
         });
+        const createdInv = inv || before.notaRemessa?.trim() || before.code;
+        await OrderService.recordInvoiceHistoryOnExit(tx, {
+          orderId,
+          invoiceNumber: createdInv,
+          userId,
+          items: [
+            {
+              quantity: item.quantity,
+              pickedQty: item.invoicedQty + remaining,
+              invoicedQty: item.invoicedQty,
+            },
+          ],
+        });
       }
 
       const updated = await tx.order.update({
@@ -3023,7 +2964,7 @@ export class OrderService {
         const productId = productIdByItem.get(it.id);
         if (!productId) continue;
 
-        const qtyOut = OrderService.resolveExitPendingQuantity(it);
+        const qtyOut = resolveExitPendingQuantity(it);
         if (qtyOut <= 0) continue;
 
         const r = reservationByItem.get(it.id);
@@ -3099,7 +3040,7 @@ export class OrderService {
       }
 
       for (const it of before.items) {
-        const qtyOut = OrderService.resolveExitPendingQuantity(it);
+        const qtyOut = resolveExitPendingQuantity(it);
         if (qtyOut > 0) continue;
         await tx.orderItem.update({
           where: { id: it.id },
@@ -3123,6 +3064,13 @@ export class OrderService {
           shippedAt: new Date(),
         },
         include: OrderService.orderInclude(),
+      });
+
+      await OrderService.recordInvoiceHistoryOnExit(tx, {
+        orderId,
+        invoiceNumber: inv,
+        userId,
+        items: before.items,
       });
 
       await this.audit.log({
@@ -3352,6 +3300,14 @@ export class OrderService {
   }
 
   private assertTransition(from: OrderStatus, to: OrderStatus) {
+    // Correção administrativa: FINALIZADO/EXPEDIDO pode voltar a NOVO
+    // (hardReset devolve estoque, apaga saídas e limpa Correios).
+    if (
+      (from === OrderStatus.FINALIZADO || from === OrderStatus.EXPEDIDO) &&
+      to === OrderStatus.NOVO
+    ) {
+      return;
+    }
     if (
       from === OrderStatus.FINALIZADO ||
       from === OrderStatus.CANCELADO ||
@@ -3840,8 +3796,8 @@ export class OrderService {
   }
 
   /**
-   * Garante NF corrente no histórico antes de iniciar um novo ciclo de separação.
-   * O campo invoiceNumber do pedido é limpo na transição; o histórico permanece.
+   * Garante NF no histórico oficial somente se já houve saída com esse número.
+   * Digitar/corrigir a NF no pedido não gera linha no histórico.
    */
   private static async archiveCurrentInvoiceForNewSeparationCycle(
     tx: Tx,
@@ -3849,22 +3805,58 @@ export class OrderService {
       orderId: string;
       userId: string;
       invoiceNumber: string | null;
-      items: Array<{ pickedQty: number }>;
+      items: Array<{
+        quantity?: number;
+        pickedQty: number;
+        invoicedQty?: number;
+      }>;
     },
   ) {
     const inv = opts.invoiceNumber?.trim();
     if (!inv) return;
 
+    const confirmedExit = await tx.orderExit.findFirst({
+      where: { orderId: opts.orderId, invoiceNumber: inv },
+      select: { id: true },
+    });
+    if (!confirmedExit) return;
+
+    await OrderService.recordInvoiceHistoryOnExit(tx, {
+      orderId: opts.orderId,
+      invoiceNumber: inv,
+      userId: opts.userId,
+      items: opts.items,
+    });
+  }
+
+  private static async recordInvoiceHistoryOnExit(
+    tx: Tx,
+    opts: {
+      orderId: string;
+      invoiceNumber: string;
+      userId: string;
+      items: Array<{
+        quantity?: number;
+        pickedQty: number;
+        invoicedQty?: number;
+      }>;
+    },
+  ) {
+    const inv = opts.invoiceNumber.trim();
+    if (!inv) return;
     const already = await tx.orderInvoiceHistory.findFirst({
       where: { orderId: opts.orderId, invoiceNumber: inv },
       select: { id: true },
     });
     if (already) return;
-
-    const pickedQtyAtTime = opts.items.reduce(
-      (sum, it) => sum + (it.pickedQty ?? 0),
-      0,
+    const pickedQtyAtTime = cycleExitQtyFromItems(
+      opts.items.map((it) => ({
+        quantity: it.quantity ?? it.pickedQty ?? 0,
+        pickedQty: it.pickedQty ?? 0,
+        invoicedQty: it.invoicedQty ?? 0,
+      })),
     );
+    if (pickedQtyAtTime <= 0) return;
     await tx.orderInvoiceHistory.create({
       data: {
         orderId: opts.orderId,
@@ -3946,12 +3938,36 @@ export class OrderService {
     return normalized === 'ok' || normalized.includes('recebido');
   }
 
+  async releaseActiveReservations(
+    tx: Tx,
+    userId: string,
+    order: {
+      id: string;
+      code: string;
+      externalOrderNumber?: string | null;
+      items: Array<{
+        id: string;
+        productId: string | null;
+        reservedQuantity: number;
+      }>;
+    },
+  ) {
+    await this.releaseReservations(
+      tx,
+      userId,
+      orderStockReference(order),
+      order.id,
+      order.items,
+    );
+  }
+
   /**
-   * Reset total e incondicional ao voltar o pedido para NOVO (mudança manual de status).
-   * Diferente de resetItemsForNewSeparationCycle (reenvio à separação), que preserva
-   * itens já faturados em ciclos parciais.
+   * Reset total e incondicional ao voltar o pedido para NOVO.
+   * Reverte saídas de todos os ciclos, libera reserva física (sem alterar stockQty
+   * físico, salvo devolução das baixas de expedição), zera progresso dos itens
+   * e remove etiquetas/pré-postagens Correios locais (rastreio expirado incluso).
    */
-  private async hardResetOrderOnReturnToNovo(
+  async hardResetOrderOnReturnToNovo(
     tx: Tx,
     orderId: string,
     userId: string,
@@ -3960,55 +3976,71 @@ export class OrderService {
       where: { id: orderId },
       select: {
         code: true,
+        externalOrderNumber: true,
+        invoiceNumber: true,
+        trackingCode: true,
         items: {
           select: { id: true, productId: true, reservedQuantity: true },
         },
+        exits: { select: { trackingCode: true } },
       },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
 
-    // Pedido já expedido: devolve ao estoque o que saiu e apaga a movimentação,
-    // senão o saldo ficava furado e a saída "fantasma" seguia no histórico.
-    const exit = await tx.orderExit.findFirst({ where: { orderId } });
-    if (exit) {
-      const outbound = await tx.stockMovement.findMany({
-        where: {
-          reference: order.code,
-          movementType: {
-            in: [
-              StockMovementType.SAIDA_EXPEDICAO,
-              StockMovementType.BAIXA_EXPEDICAO,
-            ],
-          },
-        },
-        select: { id: true, productId: true, quantity: true },
-        orderBy: { productId: 'asc' },
-      });
+    const refs = new Set<string>([order.code]);
+    const ext = order.externalOrderNumber?.trim();
+    if (ext) refs.add(ext);
+    const inv = order.invoiceNumber?.trim();
+    if (inv) refs.add(inv);
 
-      for (const mov of outbound) {
-        await tx.product.update({
-          where: { id: mov.productId },
-          data: { stockQty: { increment: mov.quantity } },
-        });
-      }
-      if (outbound.length > 0) {
-        await tx.stockMovement.deleteMany({
-          where: { id: { in: outbound.map((m) => m.id) } },
-        });
-      }
+    const outboundWhere: Prisma.StockMovementWhereInput[] = [
+      { reference: { in: [...refs] } },
+      { notes: { contains: order.code, mode: 'insensitive' } },
+    ];
+    if (ext) {
+      outboundWhere.push({ notes: { contains: ext, mode: 'insensitive' } });
+    }
+    if (inv) {
+      outboundWhere.push({ invoiceNumber: inv });
     }
 
-    // Reservas remanescentes voltam ao saldo disponível (ciclo do zero).
+    const outbound = await tx.stockMovement.findMany({
+      where: {
+        movementType: {
+          in: [
+            StockMovementType.SAIDA_EXPEDICAO,
+            StockMovementType.BAIXA_EXPEDICAO,
+          ],
+        },
+        OR: outboundWhere,
+      },
+      select: { id: true, productId: true, quantity: true },
+      orderBy: { productId: 'asc' },
+    });
+
+    for (const mov of outbound) {
+      await tx.product.update({
+        where: { id: mov.productId },
+        data: { stockQty: { increment: mov.quantity } },
+      });
+    }
+    if (outbound.length > 0) {
+      await tx.stockMovement.deleteMany({
+        where: { id: { in: outbound.map((m) => m.id) } },
+      });
+    }
+
     await this.releaseReservations(
       tx,
       userId,
-      order.code,
+      orderStockReference(order),
       orderId,
       order.items,
     );
 
     await tx.orderExit.deleteMany({ where: { orderId } });
     await tx.orderInvoiceHistory.deleteMany({ where: { orderId } });
+    await this.clearCorreiosEtiquetasForOrder(tx, order);
     await tx.orderItem.updateMany({
       where: { orderId },
       data: {
@@ -4018,6 +4050,34 @@ export class OrderService {
         reservedQuantity: 0,
         mercadoEletronicoItemStatus: null,
       },
+    });
+  }
+
+  private async clearCorreiosEtiquetasForOrder(
+    tx: Tx,
+    order: {
+      trackingCode?: string | null;
+      invoiceNumber?: string | null;
+      exits?: Array<{ trackingCode: string | null }>;
+    },
+  ) {
+    const codes = new Set<string>();
+    const push = (raw: string | null | undefined) => {
+      const v = raw?.trim();
+      if (!v) return;
+      codes.add(v);
+      codes.add(v.toUpperCase());
+    };
+    push(order.trackingCode);
+    if (isCorreiosTrackingCode(order.invoiceNumber)) {
+      push(order.invoiceNumber);
+    }
+    for (const exit of order.exits ?? []) {
+      push(exit.trackingCode);
+    }
+    if (codes.size === 0) return;
+    await tx.correiosEtiqueta.deleteMany({
+      where: { codigoRastreio: { in: [...codes] } },
     });
   }
 
@@ -4061,34 +4121,6 @@ export class OrderService {
     return data;
   }
 
-  private static resolveExitQuantity(item: {
-    quantity: number;
-    pickedQty: number;
-    invoicedQty: number;
-  }): number {
-    if (item.pickedQty > 0) return item.pickedQty;
-    if (item.invoicedQty > 0) return item.invoicedQty;
-    // Itens pendentes (sem separado/faturado) não devem gerar baixa de saída.
-    return 0;
-  }
-
-  /**
-   * Quantidade que ainda não saiu: no reenvio à separação `pickedQty` já vem com
-   * o piso do que foi expedido antes (`invoicedQty`), então a saída do ciclo só
-   * pode baixar a diferença — senão o estoque era debitado duas vezes.
-   */
-  private static resolveExitPendingQuantity(item: {
-    quantity: number;
-    pickedQty: number;
-    invoicedQty: number;
-  }): number {
-    const target = Math.min(
-      Math.max(item.quantity, 0),
-      OrderService.resolveExitQuantity(item),
-    );
-    return Math.max(0, target - Math.max(0, item.invoicedQty));
-  }
-
   /**
    * Saída do ciclo de separação corrente (a partir de `sentToSeparationAt`).
    * Mantém a idempotência dentro do ciclo — dois cliques em "Imprimir Etiqueta"
@@ -4112,7 +4144,7 @@ export class OrderService {
     if (items.length === 0) return OrderStatus.FINALIZADO;
     const fullyShipped = items.every((it) => {
       if (it.quantity <= 0) return true;
-      return OrderService.resolveExitQuantity(it) >= it.quantity;
+      return resolveExitQuantity(it) >= it.quantity;
     });
     return fullyShipped ? OrderStatus.FINALIZADO : OrderStatus.PARCIAL;
   }
@@ -4518,7 +4550,11 @@ export class OrderService {
       return;
     }
 
-    /** Pedidos reservados antes da reserva física (baixa direta em stockQty). */
+    /**
+     * Sem StockReservation ativa: só zera reservedQuantity e, se o produto ainda
+     * tiver reservedQty preso nesta linha, reduz reservedQty. Nunca incrementa
+     * stockQty — Disponível = stockQty - reservedQty.
+     */
     const sortedLegacy = [...items].sort((a, b) =>
       String(a.productId).localeCompare(String(b.productId)),
     );
@@ -4526,20 +4562,27 @@ export class OrderService {
       const q = it.reservedQuantity;
       if (q <= 0 || !it.productId) continue;
 
-      await tx.product.update({
+      const product = await tx.product.findUnique({
         where: { id: it.productId },
-        data: { stockQty: { increment: q } },
+        select: { reservedQty: true },
       });
-      await tx.stockMovement.create({
-        data: {
-          productId: it.productId,
-          movementType: StockMovementType.RESERVE_CANCEL,
-          quantity: q,
-          reference: orderCode,
-          notes: `Liberação de reserva (${orderCode})`,
-          movedById: userId,
-        },
-      });
+      const dec = Math.min(q, product?.reservedQty ?? 0);
+      if (dec > 0) {
+        await tx.product.update({
+          where: { id: it.productId },
+          data: { reservedQty: { decrement: dec } },
+        });
+        await tx.stockMovement.create({
+          data: {
+            productId: it.productId,
+            movementType: StockMovementType.RESERVE_CANCEL,
+            quantity: dec,
+            reference: orderCode,
+            notes: `Liberação reserva física (${orderCode})`,
+            movedById: userId,
+          },
+        });
+      }
       await tx.orderItem.update({
         where: { id: it.id },
         data: { reservedQuantity: 0 },

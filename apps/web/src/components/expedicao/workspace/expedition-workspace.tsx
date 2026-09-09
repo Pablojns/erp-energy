@@ -35,7 +35,7 @@ export function ExpeditionWorkspace(props: {
   const data = useExpeditionPedidosBridge({
     mode: mode === 'separation' ? 'separation' : 'expedition',
     initialStatusFilter:
-      initialStatusFilter ?? 'all',
+      initialStatusFilter ?? (mode === 'orders' ? 'abertos' : 'all'),
     initialOrderSource:
       mode === 'orders'
         ? businessContext === 'SITE'
@@ -426,7 +426,7 @@ export function ExpeditionWorkspace(props: {
               setEditOrder(null);
             }}
             onCreated={async (created) => {
-              data.setStatusFilter('all');
+              data.setStatusFilter('abertos');
               data.setPage(1);
               data.setAppliedFilters((f) => ({
                 ...f,
@@ -451,7 +451,7 @@ export function ExpeditionWorkspace(props: {
             isOpen={siteOrderOpen}
             onClose={() => setSiteOrderOpen(false)}
             onCreated={async (created) => {
-              data.setStatusFilter('all');
+              data.setStatusFilter('abertos');
               data.setPage(1);
               await data.refetchFromStart();
               if (created?.id) {
@@ -469,7 +469,7 @@ export function ExpeditionWorkspace(props: {
             isOpen={vendaExternaOpen}
             onClose={() => setVendaExternaOpen(false)}
             onCreated={async (created) => {
-              data.setStatusFilter('all');
+              data.setStatusFilter('abertos');
               data.setPage(1);
               data.setAppliedFilters((f) => ({
                 ...f,

@@ -4,6 +4,7 @@ import type { StatusFilterId } from '@/src/components/expedicao/shared/types';
 
 const ALLOWED_FILTERS: StatusFilterId[] = [
   'all',
+  'abertos',
   'novo',
   'em_separacao',
   'aguardando_nf',
@@ -22,7 +23,7 @@ export default async function ExpedicaoPedidosPage(props: {
   const raw = Array.isArray(params.filter) ? params.filter[0] : params.filter;
   const filter = ALLOWED_FILTERS.includes(raw as StatusFilterId)
     ? (raw as StatusFilterId)
-    : 'all';
+    : 'abertos';
   const rawSearch = Array.isArray(params.search) ? params.search[0] : params.search;
   const initialSearch = typeof rawSearch === 'string' ? rawSearch.trim() : '';
   return (

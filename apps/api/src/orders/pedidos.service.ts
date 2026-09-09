@@ -31,6 +31,7 @@ import {
   normalizeOrderSearchTerm,
 } from './order-search';
 import { OrderService } from './order.service';
+import { shippedQtyFromInvoiceHistory, cycleQtysFromInvoiceHistory } from './exit-quantity';
 import { WEG_TAB_ORDER_SOURCES, ORDER_STATUS } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
@@ -410,6 +411,7 @@ export class PedidosService {
         orderDate: true,
         requestedDeliveryDate: true,
         status: true,
+        carrier: { select: { name: true } },
         items: {
           select: {
             sku: true,
@@ -423,6 +425,8 @@ export class PedidosService {
                 sku: true,
                 stockQty: true,
                 reservedQty: true,
+                category: true,
+                productCategory: { select: { name: true } },
               },
             },
           },
@@ -438,10 +442,12 @@ export class PedidosService {
       orderDate: string | null;
       requestedDeliveryDate: string | null;
       status: OrderStatus;
+      carrierName: string | null;
     };
     type AggProduct = {
       sku: string;
       productName: string;
+      categoryName: string | null;
       totalQty: number;
       orderCount: number;
       stockAvailable: number | null;
@@ -463,6 +469,7 @@ export class PedidosService {
           qty: number;
           productName: string;
           sku: string;
+          categoryName: string | null;
           stockAvailable: number | null;
         }
       >();
@@ -483,6 +490,10 @@ export class PedidosService {
         const stockAvailable = item.product
           ? Math.max(0, item.product.stockQty - item.product.reservedQty)
           : null;
+        const categoryName =
+          item.product?.productCategory?.name?.trim() ||
+          item.product?.category?.trim() ||
+          null;
 
         const prev = qtyBySku.get(skuKey);
         if (prev) {
@@ -490,11 +501,13 @@ export class PedidosService {
           if (prev.stockAvailable === null && stockAvailable !== null) {
             prev.stockAvailable = stockAvailable;
           }
+          if (!prev.categoryName && categoryName) prev.categoryName = categoryName;
         } else {
           qtyBySku.set(skuKey, {
             qty: pending,
             productName,
             sku: displaySku,
+            categoryName,
             stockAvailable,
           });
         }
@@ -506,6 +519,7 @@ export class PedidosService {
           agg = {
             sku: entry.sku,
             productName: entry.productName,
+            categoryName: entry.categoryName,
             totalQty: 0,
             orderCount: 0,
             stockAvailable: entry.stockAvailable,
@@ -518,6 +532,9 @@ export class PedidosService {
         ) {
           agg.stockAvailable = entry.stockAvailable;
         }
+        if (!agg.categoryName && entry.categoryName) {
+          agg.categoryName = entry.categoryName;
+        }
         agg.totalQty += entry.qty;
         agg.orderCount += 1;
         agg.orders.push({
@@ -528,6 +545,7 @@ export class PedidosService {
           requestedDeliveryDate:
             order.requestedDeliveryDate?.toISOString() ?? null,
           status: order.status,
+          carrierName: order.carrier?.name?.trim() || null,
         });
       }
     }
@@ -739,6 +757,39 @@ export class PedidosService {
     }
 
     await this.prisma.client.$transaction(async (tx) => {
+      if (
+        dto.status === OrderStatus.NOVO &&
+        before.status !== OrderStatus.NOVO
+      ) {
+        await this.orders.hardResetOrderOnReturnToNovo(
+          tx,
+          before.id,
+          userId,
+        );
+        Object.assign(data, {
+          volumes: null,
+          shippedAt: null,
+          invoiceStatus: InvoiceStatus.NOT_FOUND,
+          invoicedAt: null,
+          sentToSeparationAt: null,
+        });
+        if (data.invoiceNumber === undefined) {
+          data.invoiceNumber = null;
+        }
+        if (data.trackingCode === undefined) {
+          data.trackingCode = null;
+        }
+      } else if (
+        dto.status === OrderStatus.CANCELADO &&
+        before.status !== OrderStatus.CANCELADO
+      ) {
+        await this.orders.releaseActiveReservations(
+          tx,
+          userId,
+          before,
+        );
+      }
+
       await tx.order.update({ where: { id: before.id }, data });
 
       const linkedCustomerId =
@@ -1272,48 +1323,6 @@ export class PedidosService {
         data,
       });
 
-      // Campo "Nota Fiscal" manual: registra no histórico (novos e parciais).
-      if (nextInvoice !== undefined) {
-        const previous = order.invoiceNumber?.trim() || null;
-        if (nextInvoice && nextInvoice !== previous) {
-          const pickedQtyAtTime = order.items.reduce(
-            (sum, it) => sum + (it.pickedQty ?? 0),
-            0,
-          );
-          if (previous && previous !== nextInvoice && !isCorreiosTrackingCode(previous)) {
-            const prevLogged = await tx.orderInvoiceHistory.findFirst({
-              where: { orderId: order.id, invoiceNumber: previous },
-              select: { id: true },
-            });
-            if (!prevLogged) {
-              await tx.orderInvoiceHistory.create({
-                data: {
-                  orderId: order.id,
-                  invoiceNumber: previous,
-                  pickedQtyAtTime,
-                  createdBy: userId,
-                },
-              });
-            }
-          }
-          const alreadyLogged = await tx.orderInvoiceHistory.findFirst({
-            where: { orderId: order.id, invoiceNumber: nextInvoice },
-            select: { id: true },
-            orderBy: { createdAt: 'desc' },
-          });
-          if (!alreadyLogged) {
-            await tx.orderInvoiceHistory.create({
-              data: {
-                orderId: order.id,
-                invoiceNumber: nextInvoice,
-                pickedQtyAtTime,
-                createdBy: userId,
-              },
-            });
-          }
-        }
-      }
-
       return updated;
     });
   }
@@ -1456,27 +1465,56 @@ export class PedidosService {
     }
 
     if (trackingExistente && !opts?.nova) {
-      const prePostagemExistente =
-        await this.correiosService.buscarPrePostagemPorCodigoObjeto(
-          trackingExistente,
-        );
-      const prePostagemId =
-        typeof prePostagemExistente?.id === 'string'
-          ? prePostagemExistente.id
-          : null;
-      const podeReimprimir =
-        prePostagemExistente?.statusAtual === 2 ||
-        prePostagemExistente?.descStatusAtual === 'Pré-postado';
+      try {
+        const prePostagemExistente =
+          await this.correiosService.buscarPrePostagemPorCodigoObjeto(
+            trackingExistente,
+          );
+        const prePostagemId =
+          typeof prePostagemExistente?.id === 'string'
+            ? prePostagemExistente.id
+            : null;
+        const podeReimprimir =
+          prePostagemExistente?.statusAtual === 2 ||
+          prePostagemExistente?.descStatusAtual === 'Pré-postado';
 
-      if (prePostagemId && podeReimprimir) {
-        const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
-        await this.ensureSaidaAposEtiqueta(
-          order.id,
-          userId,
-          trackingExistente,
-        );
-        return { buffer, filename };
+        if (prePostagemId && podeReimprimir) {
+          const buffer = await this.correiosService.gerarRotulo([prePostagemId]);
+          await this.ensureSaidaAposEtiqueta(
+            order.id,
+            userId,
+            trackingExistente,
+          );
+          return { buffer, filename };
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/expir|cancelad|não encontr|nao encontr|indispon/i.test(msg)) {
+          throw err;
+        }
       }
+    }
+
+    if (trackingExistente) {
+      // Pré-postagem expirada, cancelada, indisponível ou pedido de etiqueta nova:
+      // não reutilizar o rastreio antigo (senão a nova emissão conflita com o código morto).
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: { trackingCode: null },
+      });
+      if (exit) {
+        await this.prisma.client.orderExit.update({
+          where: { id: exit.id },
+          data: { trackingCode: null },
+        });
+      }
+      await this.prisma.client.correiosEtiqueta.deleteMany({
+        where: {
+          codigoRastreio: {
+            in: [trackingExistente, trackingExistente.toUpperCase()],
+          },
+        },
+      });
     }
 
     const remetente = await this.buildRemetenteCorreios();
@@ -2268,20 +2306,14 @@ export class PedidosService {
 
     const rows = await this.prisma.client.orderInvoiceHistory.findMany({
       where: { orderId: order.id },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' },
     });
+    const cycleQtys = cycleQtysFromInvoiceHistory(rows);
 
     return {
       orderId: order.id,
       currentInvoiceNumber: order.invoiceNumber,
-      historico: rows.map((row) => ({
-        id: row.id,
-        invoiceNumber: row.invoiceNumber,
-        invoiceValue: row.invoiceValue?.toString() ?? null,
-        pickedQtyAtTime: row.pickedQtyAtTime,
-        createdAt: row.createdAt.toISOString(),
-        createdBy: row.createdBy,
-      })),
+      historico: this.serializeInvoiceHistoryDisplay(rows, cycleQtys),
     };
   }
 
@@ -2640,8 +2672,8 @@ export class PedidosService {
 
   /**
    * Recalcula invoicedQty por item a partir do histórico restante.
-   * Sem histórico → 0 em todos. Com histórico → redistribui a soma das
-   * quantidades (pickedQtyAtTime) das NFs restantes, respeitando quantity.
+   * Sem histórico → 0 em todos. Com histórico → redistribui o total já
+   * expedido (snapshot cumulativo legado ou soma dos deltas novos).
    */
   private async recalculateInvoicedQtyFromHistory(orderId: string): Promise<void> {
     const history = await this.prisma.client.orderInvoiceHistory.findMany({
@@ -2676,15 +2708,7 @@ export class PedidosService {
       return;
     }
 
-    // Deltas: pickedQtyAtTime é cumulativo no momento da NF; a contribuição
-    // de cada entrada é o acréscimo vs. a anterior (mín. 0).
-    let prevCum = 0;
-    let remainingUnits = 0;
-    for (const row of history) {
-      const cum = Math.max(0, row.pickedQtyAtTime ?? 0);
-      remainingUnits += Math.max(0, cum - prevCum);
-      prevCum = Math.max(prevCum, cum);
-    }
+    const remainingUnits = shippedQtyFromInvoiceHistory(history);
 
     if (remainingUnits <= 0) {
       await this.prisma.client.orderItem.updateMany({
@@ -2814,20 +2838,16 @@ export class PedidosService {
 
     const rows = await this.prisma.client.orderInvoiceHistory.findMany({
       where: { orderId: order.id },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' },
     });
 
     return {
       orderId: order.id,
       currentInvoiceNumber,
-      historico: rows.map((r) => ({
-        id: r.id,
-        invoiceNumber: r.invoiceNumber,
-        invoiceValue: r.invoiceValue?.toString() ?? null,
-        pickedQtyAtTime: r.pickedQtyAtTime,
-        createdAt: r.createdAt.toISOString(),
-        createdBy: r.createdBy,
-      })),
+      historico: this.serializeInvoiceHistoryDisplay(
+        rows,
+        cycleQtysFromInvoiceHistory(rows),
+      ),
     };
   }
 
@@ -3062,8 +3082,20 @@ export class PedidosService {
       },
     });
 
+    const cycleQtyByExit = await this.loadExitCycleQtyByItemId(rows);
+    const parcelasByOrderId = await this.loadParcelasByOrderId(
+      rows,
+      cycleQtyByExit,
+    );
+
     return {
-      data: rows.map((r) => this.serializeOrderExit(r)),
+      data: rows.map((r) =>
+        this.serializeOrderExit(
+          r,
+          cycleQtyByExit.get(r.id),
+          parcelasByOrderId.get(r.orderId),
+        ),
+      ),
       meta: {
         page,
         pageSize,
@@ -3086,7 +3118,16 @@ export class PedidosService {
       },
     });
     if (!row) throw new NotFoundException('Saída não encontrada.');
-    return this.serializeOrderExit(row);
+    const cycleQtyByExit = await this.loadExitCycleQtyByItemId([row]);
+    const parcelasByOrderId = await this.loadParcelasByOrderId(
+      [row],
+      cycleQtyByExit,
+    );
+    return this.serializeOrderExit(
+      row,
+      cycleQtyByExit.get(row.id),
+      parcelasByOrderId.get(row.orderId),
+    );
   }
 
   async deleteSaida(userId: string, exitId: string) {
@@ -4127,22 +4168,257 @@ export class PedidosService {
     return this.orders.findOne(counterpartId);
   }
 
-  private serializeOrderExit(row: Prisma.OrderExitGetPayload<{
-    include: {
+  /**
+   * Histórico de NF na ordem mais recente primeiro, com quantidade do ciclo
+   * (delta), não o snapshot cumulativo legado.
+   */
+  private serializeInvoiceHistoryDisplay(
+    rowsChronological: Array<{
+      id: string;
+      invoiceNumber: string;
+      invoiceValue: Prisma.Decimal | null;
+      pickedQtyAtTime: number;
+      createdAt: Date;
+      createdBy: string | null;
+    }>,
+    cycleQtys: number[],
+  ) {
+    return rowsChronological
+      .map((row, index) => ({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        invoiceValue: row.invoiceValue?.toString() ?? null,
+        pickedQtyAtTime: cycleQtys[index] ?? row.pickedQtyAtTime,
+        createdAt: row.createdAt.toISOString(),
+        createdBy: row.createdBy,
+      }))
+      .reverse();
+  }
+
+  /**
+   * Quantidade efetivamente baixada em cada OrderExit (delta do ciclo), via
+   * StockMovement SAIDA_EXPEDICAO — não o pickedQty acumulado do pedido.
+   */
+  private async loadExitCycleQtyByItemId(
+    rows: Array<{
+      id: string;
+      invoiceNumber: string;
       order: {
-        include: {
-          carrier: { select: { id: true; name: true } };
-          items: true;
+        code: string;
+        externalOrderNumber: string | null;
+        items: Array<{ id: string; productId: string | null }>;
+      };
+    }>,
+  ): Promise<Map<string, Map<string, number>>> {
+    const result = new Map<string, Map<string, number>>();
+    if (rows.length === 0) return result;
+
+    const invoices = [
+      ...new Set(rows.map((r) => r.invoiceNumber).filter(Boolean)),
+    ];
+    const refs = [
+      ...new Set(
+        rows.flatMap((r) =>
+          [r.order.code, r.order.externalOrderNumber?.trim() || ''].filter(
+            Boolean,
+          ),
+        ),
+      ),
+    ];
+    if (invoices.length === 0 || refs.length === 0) return result;
+
+    const movements = await this.prisma.client.stockMovement.findMany({
+      where: {
+        movementType: {
+          in: [
+            StockMovementType.SAIDA_EXPEDICAO,
+            StockMovementType.BAIXA_EXPEDICAO,
+          ],
+        },
+        invoiceNumber: { in: invoices },
+        reference: { in: refs },
+      },
+      select: {
+        productId: true,
+        quantity: true,
+        invoiceNumber: true,
+        reference: true,
+      },
+    });
+
+    for (const row of rows) {
+      const refsForOrder = new Set(
+        [row.order.code, row.order.externalOrderNumber?.trim()].filter(
+          (x): x is string => Boolean(x),
+        ),
+      );
+      const itemByProduct = new Map<string, string>();
+      for (const it of row.order.items) {
+        if (!it.productId) continue;
+        if (!itemByProduct.has(it.productId)) {
+          itemByProduct.set(it.productId, it.id);
+        }
+      }
+      const qtyByItem = new Map<string, number>();
+      for (const m of movements) {
+        if ((m.invoiceNumber ?? '') !== row.invoiceNumber) continue;
+        if (!refsForOrder.has(m.reference ?? '')) continue;
+        const itemId = itemByProduct.get(m.productId);
+        if (!itemId) continue;
+        qtyByItem.set(itemId, (qtyByItem.get(itemId) ?? 0) + m.quantity);
+      }
+      result.set(row.id, qtyByItem);
+    }
+    return result;
+  }
+
+  private async loadParcelasByOrderId(
+    rows: Array<{
+      id: string;
+      orderId: string;
+      invoiceNumber: string;
+      order: {
+        id: string;
+        code: string;
+        externalOrderNumber: string | null;
+        items: Array<{ id: string; productId: string | null }>;
+      };
+    }>,
+    cycleQtyByExit: Map<string, Map<string, number>>,
+  ): Promise<
+    Map<
+      string,
+      Array<{
+        id: string;
+        invoiceNumber: string;
+        exitDate: string;
+        quantity: number;
+      }>
+    >
+  > {
+    const result = new Map<
+      string,
+      Array<{
+        id: string;
+        invoiceNumber: string;
+        exitDate: string;
+        quantity: number;
+      }>
+    >();
+    const orderIds = [...new Set(rows.map((r) => r.orderId))];
+    if (orderIds.length === 0) return result;
+
+    const siblings = await this.prisma.client.orderExit.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        id: true,
+        orderId: true,
+        invoiceNumber: true,
+        exitDate: true,
+      },
+      orderBy: [{ exitDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    const orderById = new Map(rows.map((r) => [r.order.id, r.order]));
+    const missing = siblings.filter((s) => !cycleQtyByExit.has(s.id));
+    if (missing.length > 0) {
+      const extraRows = missing.flatMap((s) => {
+        const order = orderById.get(s.orderId);
+        if (!order) return [];
+        return [
+          {
+            id: s.id,
+            invoiceNumber: s.invoiceNumber,
+            order: {
+              code: order.code,
+              externalOrderNumber: order.externalOrderNumber,
+              items: order.items,
+            },
+          },
+        ];
+      });
+      const extra = await this.loadExitCycleQtyByItemId(extraRows);
+      for (const [exitId, qtyMap] of extra) {
+        cycleQtyByExit.set(exitId, qtyMap);
+      }
+    }
+
+    const historyRows = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        orderId: true,
+        invoiceNumber: true,
+        pickedQtyAtTime: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const historyQtyByOrderInvoice = new Map<string, number>();
+    const historyByOrder = new Map<string, typeof historyRows>();
+    for (const row of historyRows) {
+      const list = historyByOrder.get(row.orderId) ?? [];
+      list.push(row);
+      historyByOrder.set(row.orderId, list);
+    }
+    for (const [orderId, hist] of historyByOrder) {
+      const cycleQtys = cycleQtysFromInvoiceHistory(hist);
+      hist.forEach((row, index) => {
+        historyQtyByOrderInvoice.set(
+          `${orderId}:${row.invoiceNumber}`,
+          cycleQtys[index] ?? 0,
+        );
+      });
+    }
+
+    for (const sibling of siblings) {
+      const qtyMap = cycleQtyByExit.get(sibling.id);
+      let quantity = qtyMap
+        ? [...qtyMap.values()].reduce((sum, qty) => sum + qty, 0)
+        : 0;
+      if (quantity <= 0) {
+        quantity =
+          historyQtyByOrderInvoice.get(
+            `${sibling.orderId}:${sibling.invoiceNumber}`,
+          ) ?? 0;
+      }
+      const list = result.get(sibling.orderId) ?? [];
+      list.push({
+        id: sibling.id,
+        invoiceNumber: sibling.invoiceNumber,
+        exitDate: sibling.exitDate.toISOString(),
+        quantity,
+      });
+      result.set(sibling.orderId, list);
+    }
+    return result;
+  }
+
+  private serializeOrderExit(
+    row: Prisma.OrderExitGetPayload<{
+      include: {
+        order: {
+          include: {
+            carrier: { select: { id: true; name: true } };
+            items: true;
+          };
         };
       };
-    };
-  }>) {
+    }>,
+    cycleQtyByItemId?: Map<string, number>,
+    parcelas?: Array<{
+      id: string;
+      invoiceNumber: string;
+      exitDate: string;
+      quantity: number;
+    }>,
+  ) {
     const requested = row.order.requestedDeliveryDate;
     const diffDays = requested
       ? Math.ceil((row.exitDate.getTime() - requested.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
     const orderCarrierName = row.order.carrier?.name ?? null;
     const rowWithRomaneio = row as typeof row & { romaneioAt?: Date | null };
+    const hasCycleQty = Boolean(cycleQtyByItemId && cycleQtyByItemId.size > 0);
     return {
       id: row.id,
       orderId: row.orderId,
@@ -4157,6 +4433,7 @@ export class PedidosService {
       requestedDeliveryDate: row.order.requestedDeliveryDate?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      parcelas: parcelas ?? [],
       order: {
         id: row.order.id,
         code: row.order.code,
@@ -4183,7 +4460,10 @@ export class PedidosService {
           sku: it.sku,
           description: it.description,
           quantity: it.quantity,
-          pickedQty: it.pickedQty,
+          pickedQty: hasCycleQty
+            ? (cycleQtyByItemId?.get(it.id) ?? 0)
+            : it.pickedQty,
+          invoicedQty: it.invoicedQty ?? 0,
         })),
       },
     };
