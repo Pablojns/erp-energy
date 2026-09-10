@@ -9,12 +9,11 @@ import {
   OrderItemStockOnHandCell,
   OrderItemStockReservedCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
-import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
 import {
   formatOrderItemSaleValue,
   summarizeItemReceiptStatus,
-  resolveItemReceiptStatusForOrder,
+  resolveLineSeparationStatus,
 } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
@@ -162,8 +161,9 @@ export function SeparationItemsTable(props: {
           <tbody>
             {order.items.map((it) => {
               const stock = stockByItemId[it.id] ?? EMPTY_ITEM_STOCK;
-              const picked = it.pickedQty ?? 0;
-              const missing = Math.max(0, (it.quantity ?? 0) - picked);
+              const lineStatus = resolveLineSeparationStatus(it);
+              const picked = lineStatus.picked;
+              const missing = lineStatus.missing;
 
               if (!isOrdersMode) {
                 return (
@@ -225,9 +225,13 @@ export function SeparationItemsTable(props: {
                   </td>
                   {!isVendaExterna ? (
                     <td className="text-center" data-label="Status item">
-                      <OrderItemReceiptStatusBadge
-                        status={resolveItemReceiptStatusForOrder(it, order.status)}
-                      />
+                      <span
+                        className={`exp-wb-line-status exp-wb-line-status--${
+                          lineStatus.label === 'PARCIAL' ? 'parcial' : 'completo'
+                        } text-xs`}
+                      >
+                        {lineStatus.label}
+                      </span>
                     </td>
                   ) : null}
                 </tr>

@@ -29,4 +29,11 @@ export class UpdateNotificationConfigDto {
   @Min(1)
   @Max(168)
   nfPendingHours?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  receivableOverdueDays?: number;
 }

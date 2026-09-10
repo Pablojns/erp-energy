@@ -38,6 +38,7 @@ import {
   resolveExitPendingQuantity,
   resolveExitQuantity,
 } from './exit-quantity';
+import { assertCanFinalizeOrder as assertFinalizeGuard } from './finalize-order-guard';
 import {
   buildOrderFieldFilterWhere,
   buildOrderParcialWhere,
@@ -2689,6 +2690,14 @@ export class OrderService {
       }
 
       const finalStatus = OrderService.resolveExitOrderStatus(before.items);
+      if (finalStatus === OrderStatus.FINALIZADO) {
+        await this.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: inv,
+        });
+      }
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -2850,6 +2859,14 @@ export class OrderService {
         select: { quantity: true, pickedQty: true, invoicedQty: true },
       });
       const finalStatus = OrderService.resolveExitOrderStatus(itemsAfter);
+      if (finalStatus === OrderStatus.FINALIZADO) {
+        await this.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: inv,
+        });
+      }
 
       // Uma saída por ciclo de separação: a do ciclo anterior fica no histórico.
       const existingExit = await tx.orderExit.findFirst({
@@ -2939,7 +2956,9 @@ export class OrderService {
       }
       const inv = before.invoiceNumber?.trim();
       if (!inv) {
-        throw new BadRequestException('Pedido sem número de NF.');
+        throw new BadRequestException(
+          'Não é possível finalizar: NF não vinculada',
+        );
       }
 
       const productIdByItem = await this.resolveOrderItemProductIdsBatch(
@@ -3057,6 +3076,14 @@ export class OrderService {
       }
 
       const finalStatus = OrderService.resolveExitOrderStatus(before.items);
+      if (finalStatus === OrderStatus.FINALIZADO) {
+        await this.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: inv,
+        });
+      }
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -3113,6 +3140,15 @@ export class OrderService {
       }
 
       this.assertTransition(from, to);
+
+      if (to === OrderStatus.FINALIZADO) {
+        await this.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: before.invoiceNumber,
+        });
+      }
 
       if (to === OrderStatus.CANCELADO) {
         await this.releaseReservations(
@@ -3189,6 +3225,15 @@ export class OrderService {
       if (from === to) {
         const full = await this.loadOrderFull(tx, id);
         return this.serializeOrder(full);
+      }
+
+      if (to === OrderStatus.FINALIZADO) {
+        await this.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: before.invoiceNumber,
+        });
       }
 
       if (to === OrderStatus.CANCELADO) {
@@ -4147,6 +4192,33 @@ export class OrderService {
       return resolveExitQuantity(it) >= it.quantity;
     });
     return fullyShipped ? OrderStatus.FINALIZADO : OrderStatus.PARCIAL;
+  }
+
+  /**
+   * Guard rígido: nenhum caminho de API pode marcar FINALIZADO sem NF,
+   * invoicedQty fechado e SAIDA_EXPEDICAO real. Furo de estoque loga crítico.
+   */
+  async assertCanFinalizeOrder(
+    tx: Tx,
+    order: {
+      id: string;
+      code: string;
+      externalOrderNumber: string | null;
+      invoiceNumber: string | null;
+    },
+  ): Promise<void> {
+    await assertFinalizeGuard(tx, order, (message) => {
+      this.logger.error(
+        'FINALIZE_BLOCKED_MISSING_STOCK_MOVEMENT',
+        undefined,
+        {
+          orderId: order.id,
+          code: order.code,
+          invoiceNumber: order.invoiceNumber,
+          message,
+        },
+      );
+    });
   }
 
   private async resolveOrderItemProductId(

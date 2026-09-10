@@ -43,8 +43,7 @@ function sortedParcelas(
     if (da !== db) return da - db;
     return a.id.localeCompare(b.id);
   });
-  if (fromApi.length > 0) return fromApi;
-  return [
+  const parcelas = fromApi.length > 0 ? fromApi : [
     {
       id: exit.id,
       invoiceNumber: exit.invoiceNumber,
@@ -52,6 +51,11 @@ function sortedParcelas(
       quantity: fallbackQty,
     },
   ];
+  return parcelas.map((p) =>
+    p.id === exit.id && (p.quantity ?? 0) <= 0
+      ? { ...p, quantity: fallbackQty }
+      : p,
+  );
 }
 
 function ItemStatusBadge(props: {
@@ -328,7 +332,17 @@ export function OutputDetailPanel(props: {
             </tr>
           </thead>
           <tbody>
-            {exit.order.items.map((it) => (
+            {exit.order.items.map((it) => {
+              const sentThis = it.pickedQty ?? 0;
+              const ordered = it.quantity ?? 0;
+              const lineComplete =
+                (ordered > 0 && sentThis >= ordered) ||
+                exitContext.completedByThis;
+              const remainingItem =
+                ordered > 0 && sentThis >= ordered
+                  ? 0
+                  : exitContext.remainingAfterThis;
+              return (
               <tr key={it.id} className="border-t border-[var(--border-color)]">
                 <td className="px-3 py-2 text-xs text-[var(--text-primary)]">{it.lineNumber}</td>
                 <td className="px-3 py-2 text-xs font-mono text-[var(--text-primary)]">{it.sku}</td>
@@ -341,13 +355,14 @@ export function OutputDetailPanel(props: {
                 <td className="px-3 py-2">
                   <ItemStatusBadge
                     item={it}
-                    remainingAfterThis={exitContext.remainingAfterThis}
-                    completedByThis={exitContext.completedByThis}
+                    remainingAfterThis={remainingItem}
+                    completedByThis={lineComplete}
                     splitShipment={exitContext.splitShipment}
                   />
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

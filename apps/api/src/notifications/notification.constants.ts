@@ -23,6 +23,8 @@ export const NOTIFICATION_TYPES = {
   MENTION: 'MENTION',
   SYSTEM: 'SYSTEM',
   DAILY_DIGEST: 'DAILY_DIGEST',
+  RECEIVABLE_OVERDUE: 'RECEIVABLE_OVERDUE',
+  STOCK_EXIT_GAP: 'STOCK_EXIT_GAP',
 } as const;
 
 export type NotificationType =
@@ -117,6 +119,18 @@ export const CONFIGURABLE_NOTIFICATION_TYPES: {
     type: NOTIFICATION_TYPES.DAILY_DIGEST,
     label: 'Resumo diário',
     description: 'Resumo matinal do dia',
+    defaultPriority: NOTIFICATION_PRIORITY.HIGH,
+  },
+  {
+    type: NOTIFICATION_TYPES.RECEIVABLE_OVERDUE,
+    label: 'Título em atraso',
+    description: 'Conta a receber com vencimento ultrapassado',
+    defaultPriority: NOTIFICATION_PRIORITY.HIGH,
+  },
+  {
+    type: NOTIFICATION_TYPES.STOCK_EXIT_GAP,
+    label: 'Divergência de estoque',
+    description: 'Pedido finalizado sem baixa de estoque correspondente',
     defaultPriority: NOTIFICATION_PRIORITY.HIGH,
   },
 ];

@@ -99,6 +99,20 @@ export function resolveItemReceiptStatusForOrder(
   return raw || null;
 }
 
+/** Status da linha pela quantidade separada — OK só com Falta = 0. */
+export function resolveLineSeparationStatus(item: {
+  quantity: number;
+  pickedQty?: number | null;
+}): { picked: number; missing: number; label: 'OK' | 'PARCIAL' } {
+  const picked = Math.max(0, item.pickedQty ?? 0);
+  const missing = Math.max(0, (item.quantity ?? 0) - picked);
+  return {
+    picked,
+    missing,
+    label: missing > 0 ? 'PARCIAL' : 'OK',
+  };
+}
+
 /**
  * Valor de venda da linha do pedido (`unitPrice`/`totalPrice`), nunca o custo
  * do produto. Fonte única usada no detalhe do pedido e na Separação.

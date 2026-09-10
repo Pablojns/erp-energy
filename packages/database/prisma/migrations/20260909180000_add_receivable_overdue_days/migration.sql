@@ -1,0 +1,1 @@
+ALTER TABLE "NotificationConfig" ADD COLUMN IF NOT EXISTS "receivableOverdueDays" INTEGER NOT NULL DEFAULT 1;

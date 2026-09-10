@@ -45,6 +45,16 @@ export class FinanceiroController {
     return this.financeiro.getNFsEmAberto(page, pageSize);
   }
 
+  @Get('contas-atraso')
+  contasAtraso() {
+    return this.financeiro.getContasEmAtraso();
+  }
+
+  @Get('reconciliacao-estoque')
+  reconciliacaoEstoque() {
+    return this.financeiro.listFinalizeStockGaps();
+  }
+
   @Patch('nfs/:id/pagar')
   @RequirePermission('financeiro', 'editar')
   pagar(

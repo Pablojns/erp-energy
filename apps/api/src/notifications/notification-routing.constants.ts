@@ -25,6 +25,8 @@ export const NOTIFICATION_ROUTING: Record<string, UserDepartment[]> = {
   QUOTE_PENDING_APPROVAL: ['GESTAO', 'ADMIN'],
   MENTION: [],
   SYSTEM: ['ADMIN', 'GESTAO'],
+  RECEIVABLE_OVERDUE: ['FINANCEIRO', 'GESTAO', 'ADMIN'],
+  STOCK_EXIT_GAP: ['ADMIN', 'GESTAO'],
 };
 
 /** Tipos que escalam para ADMIN após 4h sem leitura pelos responsáveis primários. */
@@ -35,6 +37,8 @@ export const ADMIN_ESCALATION_TYPES = new Set([
   'STOCK_LOW',
   'STOCK_OUT',
   'PURCHASE_OVERDUE',
+  'RECEIVABLE_OVERDUE',
+  'STOCK_EXIT_GAP',
 ]);
 
 /** Tipos agrupáveis em digest (uma notificação por tipo com contador). */
@@ -48,6 +52,7 @@ export const DIGEST_ELIGIBLE_TYPES = new Set([
   'PURCHASE_OVERDUE',
   'CRM_FOLLOWUP',
   'CRM_PROPOSAL_EXPIRING',
+  'RECEIVABLE_OVERDUE',
 ]);
 
 export function primaryDepartmentsForType(type: string): UserDepartment[] {
@@ -112,6 +117,10 @@ export const DIGEST_TITLES: Record<
     singular: '1 proposta vencendo',
     plural: (n) => `${n} propostas vencendo`,
   },
+  RECEIVABLE_OVERDUE: {
+    singular: '1 título em atraso',
+    plural: (n) => `${n} títulos em atraso`,
+  },
 };
 
 /** Tipos relevantes por departamento para o resumo diário. */
@@ -128,6 +137,8 @@ export const DAILY_DIGEST_TYPES_BY_DEPARTMENT: Record<
     'PURCHASE_OVERDUE',
     'CRM_FOLLOWUP',
     'CRM_PROPOSAL_EXPIRING',
+    'RECEIVABLE_OVERDUE',
+    'STOCK_EXIT_GAP',
   ],
   COMERCIAL: ['CRM_FOLLOWUP', 'CRM_PROPOSAL_EXPIRING', 'CRM_LEAD_ASSIGNED'],
   LOGISTICA: [
@@ -138,7 +149,7 @@ export const DAILY_DIGEST_TYPES_BY_DEPARTMENT: Record<
     'STOCK_OUT',
     'PURCHASE_RECEIVED',
   ],
-  FINANCEIRO: ['NF_PENDING', 'PURCHASE_OVERDUE'],
+  FINANCEIRO: ['NF_PENDING', 'PURCHASE_OVERDUE', 'RECEIVABLE_OVERDUE'],
   ADMIN: [
     'ORDER_DELAYED',
     'ORDER_URGENT',
@@ -146,6 +157,8 @@ export const DAILY_DIGEST_TYPES_BY_DEPARTMENT: Record<
     'STOCK_LOW',
     'STOCK_OUT',
     'PURCHASE_OVERDUE',
+    'RECEIVABLE_OVERDUE',
+    'STOCK_EXIT_GAP',
     'SYSTEM',
   ],
   MARKETING: ['CRM_FOLLOWUP', 'CRM_PROPOSAL_EXPIRING'],

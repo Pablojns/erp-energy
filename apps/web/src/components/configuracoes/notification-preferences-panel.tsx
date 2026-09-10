@@ -65,6 +65,16 @@ const PREFERENCE_ITEMS = [
     label: 'Sistema',
     description: 'Avisos gerais do sistema',
   },
+  {
+    type: 'RECEIVABLE_OVERDUE',
+    label: 'Título em atraso',
+    description: 'Conta a receber com vencimento ultrapassado',
+  },
+  {
+    type: 'STOCK_EXIT_GAP',
+    label: 'Divergência de estoque',
+    description: 'Pedido finalizado sem baixa de estoque correspondente',
+  },
 ] as const;
 
 const DEPARTMENT_OPTIONS = [
@@ -290,6 +300,28 @@ export function NotificationPreferencesPanel(props: { isAdmin?: boolean }) {
                       ? {
                           ...prev,
                           nfPendingHours: Number(e.target.value) || 1,
+                        }
+                      : prev,
+                  );
+                  setConfigSaved(false);
+                }}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--erp-fg-muted)]">
+                Título a receber em atraso (dias)
+              </span>
+              <input
+                type="number"
+                min={0}
+                className="erp-module-input"
+                value={config.receivableOverdueDays}
+                onChange={(e) => {
+                  setConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          receivableOverdueDays: Number(e.target.value) || 0,
                         }
                       : prev,
                   );

@@ -216,11 +216,11 @@ export function FinanceiroNfsTab(props: {
               style={{ background: 'var(--fin-card-muted)' }}
             >
               <tr className="border-b" style={{ borderColor: 'var(--fin-border)' }}>
-                <th className="px-4 py-3">NF</th>
-                <th className="px-4 py-3">Pedido</th>
-                <th className="px-4 py-3">Valor</th>
-                <th className="px-4 py-3">Data emissão</th>
-                <th className="px-4 py-3 text-center">Dias em aberto</th>
+                <th className="px-4 py-3">Número da Nota</th>
+                <th className="px-4 py-3">Número do Pedido</th>
+                <th className="px-4 py-3">Valor da Nota</th>
+                <th className="px-4 py-3">Data de Emissão</th>
+                <th className="px-4 py-3 text-center">Dias em Aberto</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
@@ -240,7 +240,7 @@ export function FinanceiroNfsTab(props: {
                   const status = nfDisplayStatus(nf);
                   return (
                     <tr
-                      key={nf.id}
+                      key={nf.rowKey ?? nf.id}
                       className="border-b transition hover:bg-[var(--fin-card-muted)]"
                       style={{ borderColor: 'var(--fin-border)' }}
                     >
@@ -335,11 +335,11 @@ export function nfsToCsvRows(rows: NfEmAberto[]): string[][] {
 }
 
 export const NFS_CSV_HEADERS = [
-  'NF',
-  'Pedido',
+  'Número da Nota',
+  'Número do Pedido',
   'Recebedor',
-  'Valor',
-  'Data emissão',
-  'Dias em aberto',
+  'Valor da Nota',
+  'Data de Emissão',
+  'Dias em Aberto',
   'Status',
 ];

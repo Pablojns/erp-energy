@@ -1,6 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import {
+  NOTIFICATION_PRIORITY,
+  NOTIFICATION_TYPES,
+} from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  diasAtrasoFromDue,
+  dueDateFromEmissao,
+  NF_PRAZO_DIAS,
+  tituloCompletouXDiasAtraso,
+} from './contas-atraso';
 import { FinanceiroService } from './financeiro.service';
 
 @Injectable()
@@ -17,7 +27,8 @@ export class FinanceiroCron {
     try {
       const { synced } = await this.financeiro.syncNFs();
       this.logger.log(`Financeiro: ${synced} NF(s) sincronizada(s).`);
-      await this.notifyOverdueNfs();
+      await this.notifyOverdueReceivables();
+      await this.notifyFinalizeStockGaps();
     } catch (error) {
       this.logger.error(
         'Falha na sincronização financeira agendada',
@@ -26,21 +37,52 @@ export class FinanceiroCron {
     }
   }
 
-  private async notifyOverdueNfs(): Promise<void> {
+  private async notifyOverdueReceivables(): Promise<void> {
+    const config = await this.notifications.getConfig();
+    const threshold = config.receivableOverdueDays;
     const overdue = await this.financeiro.listNfsAtrasadas();
-    if (overdue.length === 0) {
-      return;
-    }
+    const now = new Date();
 
-    const type = 'nf_financeira_atrasada';
-    const link = 'financeiro:nfs-atrasadas';
+    for (const nf of overdue) {
+      const due = dueDateFromEmissao(nf.dataEmissao, NF_PRAZO_DIAS);
+      const dias = diasAtrasoFromDue(due, now);
+      if (!tituloCompletouXDiasAtraso(dias, threshold)) continue;
+
+      const pedido = nf.order.externalOrderNumber ?? nf.order.code;
+      const label = `NF ${nf.invoiceNumber}`;
+      await this.notifications.notifyRouted({
+        type: NOTIFICATION_TYPES.RECEIVABLE_OVERDUE,
+        title: 'Título em atraso',
+        body: `${label} (pedido ${pedido}) completou ${dias} dia(s) de atraso.`,
+        link: '/app/financeiro',
+        entityId: nf.id,
+        entityType: 'financeiro_nf',
+        label,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+        skipBusinessHours: true,
+      });
+    }
+  }
+
+  private async notifyFinalizeStockGaps(): Promise<void> {
+    const { gaps, total } = await this.financeiro.listFinalizeStockGaps(30);
+    if (total === 0) return;
+
+    const type = NOTIFICATION_TYPES.STOCK_EXIT_GAP;
+    const link = '/app/financeiro';
     if (await this.notifications.hasRecentDuplicate(type, link)) {
       return;
     }
 
+    const sample = gaps
+      .slice(0, 8)
+      .map((g) => `${g.pedido}${g.invoiceNumber ? ` / NF ${g.invoiceNumber}` : ''}`)
+      .join('; ');
+    const extra = total > 8 ? ` (+${total - 8} outros)` : '';
+
     await this.notifications.createForAdmins(
-      'NFs financeiras atrasadas',
-      `${overdue.length} nota(s) fiscal(is) com mais de 12 dias em aberto.`,
+      'Divergência de estoque em pedidos finalizados',
+      `${total} pedido(s) FINALIZADO sem baixa de estoque correspondente: ${sample}${extra}.`,
       type,
       link,
     );

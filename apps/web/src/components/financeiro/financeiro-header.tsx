@@ -10,6 +10,7 @@ import type {
 const TABS: { id: FinanceiroTab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'nfs', label: 'NFs em Aberto' },
+  { id: 'atraso', label: 'Em Atraso' },
   { id: 'despesas', label: 'Despesas' },
   { id: 'extrato', label: 'Extrato' },
 ];
@@ -31,6 +32,7 @@ export function FinanceiroHeader(props: {
   onSync: () => void;
   onExport: () => void;
   nfsCount?: number;
+  atrasoCount?: number;
 }) {
   const {
     tab,
@@ -43,6 +45,7 @@ export function FinanceiroHeader(props: {
     onSync,
     onExport,
     nfsCount,
+    atrasoCount,
   } = props;
 
   return (
@@ -163,6 +166,17 @@ export function FinanceiroHeader(props: {
                   }}
                 >
                   {nfsCount}
+                </span>
+              ) : null}
+              {t.id === 'atraso' && atrasoCount != null && atrasoCount > 0 ? (
+                <span
+                  className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                  style={{
+                    background: 'var(--fin-danger-soft)',
+                    color: 'var(--fin-danger)',
+                  }}
+                >
+                  {atrasoCount}
                 </span>
               ) : null}
             </button>

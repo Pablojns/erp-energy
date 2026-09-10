@@ -1,4 +1,4 @@
-export type FinanceiroTab = 'dashboard' | 'nfs' | 'despesas' | 'extrato';
+export type FinanceiroTab = 'dashboard' | 'nfs' | 'atraso' | 'despesas' | 'extrato';
 
 export type FinanceiroPeriod = {
   dataInicio: string;
@@ -21,6 +21,7 @@ export type FinanceiroDashboard = {
 
 export type NfEmAberto = {
   id: string;
+  rowKey?: string;
   invoiceNumber: string;
   pedido: string;
   recebedor: string;
@@ -91,4 +92,48 @@ export type RevenueChartPoint = {
   label: string;
   faturado: number;
   recebido: number;
+};
+
+export type ContaAtrasoTone = 'critico' | 'atencao' | 'normal';
+
+export type ContaAtrasoTitulo = {
+  id: string;
+  invoiceNumber: string;
+  pedido: string;
+  cnpj: string;
+  cnpjKey: string;
+  valor: number;
+  dataEmissao: string;
+  dueDate: string;
+  diasAtraso: number;
+  tone: ContaAtrasoTone;
+};
+
+export type ContaAtrasoGrupo = {
+  cnpj: string;
+  cnpjKey: string;
+  titulos: number;
+  valorTotal: number;
+  diasAtrasoMaisAntigo: number;
+  tone: ContaAtrasoTone;
+  itens: ContaAtrasoTitulo[];
+};
+
+export type ContasAtrasoResponse = {
+  grupos: ContaAtrasoGrupo[];
+  totalClientes: number;
+  totalTitulos: number;
+  valorTotal: number;
+};
+
+export type ReconciliacaoEstoqueGap = {
+  orderId: string;
+  pedido: string;
+  invoiceNumber: string | null;
+  message: string;
+};
+
+export type ReconciliacaoEstoqueResponse = {
+  gaps: ReconciliacaoEstoqueGap[];
+  total: number;
 };

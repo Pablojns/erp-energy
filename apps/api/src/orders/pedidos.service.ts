@@ -788,6 +788,22 @@ export class PedidosService {
           userId,
           before,
         );
+      } else if (
+        dto.status === OrderStatus.FINALIZADO &&
+        before.status !== OrderStatus.FINALIZADO
+      ) {
+        const invoiceNumber =
+          data.invoiceNumber !== undefined
+            ? typeof data.invoiceNumber === 'string'
+              ? data.invoiceNumber
+              : null
+            : before.invoiceNumber;
+        await this.orders.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber,
+        });
       }
 
       await tx.order.update({ where: { id: before.id }, data });
@@ -4281,7 +4297,13 @@ export class PedidosService {
         id: string;
         code: string;
         externalOrderNumber: string | null;
-        items: Array<{ id: string; productId: string | null }>;
+        items: Array<{
+          id: string;
+          productId: string | null;
+          quantity?: number;
+          pickedQty?: number;
+          invoicedQty?: number;
+        }>;
       };
     }>,
     cycleQtyByExit: Map<string, Map<string, number>>,
@@ -4380,6 +4402,17 @@ export class PedidosService {
           historyQtyByOrderInvoice.get(
             `${sibling.orderId}:${sibling.invoiceNumber}`,
           ) ?? 0;
+      }
+      if (quantity <= 0) {
+        const exitsOfOrder = siblings.filter((s) => s.orderId === sibling.orderId);
+        if (exitsOfOrder.length === 1) {
+          const order = orderById.get(sibling.orderId);
+          quantity = (order?.items ?? []).reduce((sum, it) => {
+            const ordered = Math.max(0, it.quantity ?? 0);
+            const shipped = Math.max(it.pickedQty ?? 0, it.invoicedQty ?? 0);
+            return sum + (ordered > 0 ? Math.min(ordered, shipped) : shipped);
+          }, 0);
+        }
       }
       const list = result.get(sibling.orderId) ?? [];
       list.push({

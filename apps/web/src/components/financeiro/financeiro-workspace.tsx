@@ -1,6 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ATRASO_CSV_HEADERS,
+  FinanceiroAtrasoTab,
+  contasAtrasoToCsvRows,
+} from '@/src/components/financeiro/atraso-tab';
 import { FinanceiroDashboardTab } from '@/src/components/financeiro/dashboard-tab';
 import {
   DESPESAS_CSV_HEADERS,
@@ -24,6 +29,7 @@ import type {
   FinanceiroDashboard,
   FinanceiroPeriodPreset,
   FinanceiroTab,
+  ContasAtrasoResponse,
 } from '@/src/components/financeiro/types';
 import {
   buildFinanceiroPeriodQuery,
@@ -48,6 +54,7 @@ export function FinanceiroWorkspace() {
   const [syncing, setSyncing] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [nfsCount, setNfsCount] = useState(0);
+  const [atrasoCount, setAtrasoCount] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const period = useMemo(
@@ -59,6 +66,9 @@ export function FinanceiroWorkspace() {
     void fetchAllNfsEmAberto()
       .then((nfs) => setNfsCount(nfs.length))
       .catch(() => setNfsCount(0));
+    void erpFetchJson<ContasAtrasoResponse>('api/financeiro/contas-atraso')
+      .then((res) => setAtrasoCount(res.totalTitulos))
+      .catch(() => setAtrasoCount(0));
   }, [refreshToken]);
 
   const handlePeriodPresetChange = (preset: FinanceiroPeriodPreset) => {
@@ -138,6 +148,18 @@ export function FinanceiroWorkspace() {
         return;
       }
 
+      if (tab === 'atraso') {
+        const atraso = await erpFetchJson<ContasAtrasoResponse>(
+          'api/financeiro/contas-atraso',
+        );
+        downloadCsv(
+          'financeiro-contas-atraso.csv',
+          ATRASO_CSV_HEADERS,
+          contasAtrasoToCsvRows(atraso.grupos),
+        );
+        return;
+      }
+
       if (tab === 'despesas') {
         const despesas = await erpFetchJson<Despesa[]>(
           `api/financeiro/despesas${periodQuery}`,
@@ -180,6 +202,7 @@ export function FinanceiroWorkspace() {
           onSync={() => void handleSync()}
           onExport={() => void handleExport()}
           nfsCount={nfsCount}
+          atrasoCount={atrasoCount}
         />
       </div>
 
@@ -201,6 +224,9 @@ export function FinanceiroWorkspace() {
             refreshToken={refreshToken}
             onCountChange={setNfsCount}
           />
+        ) : null}
+        {tab === 'atraso' ? (
+          <FinanceiroAtrasoTab refreshToken={refreshToken} />
         ) : null}
         {tab === 'despesas' ? (
           <FinanceiroDespesasTab period={period} refreshToken={refreshToken} />

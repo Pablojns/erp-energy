@@ -264,6 +264,7 @@ export class NotificationsService {
       orderDelayedDays: row.orderDelayedDays,
       leadFollowupDays: row.leadFollowupDays,
       nfPendingHours: row.nfPendingHours,
+      receivableOverdueDays: await this.readReceivableOverdueDays(row.id),
     };
   }
 
@@ -287,12 +288,31 @@ export class NotificationsService {
       },
     });
 
+    if (dto.receivableOverdueDays !== undefined) {
+      await this.prisma.client.$executeRaw`
+        UPDATE "NotificationConfig"
+        SET "receivableOverdueDays" = ${dto.receivableOverdueDays}
+        WHERE id = ${row.id}
+      `;
+    }
+
     return {
       criticalStockThreshold: updated.criticalStockThreshold,
       orderDelayedDays: updated.orderDelayedDays,
       leadFollowupDays: updated.leadFollowupDays,
       nfPendingHours: updated.nfPendingHours,
+      receivableOverdueDays: await this.readReceivableOverdueDays(row.id),
     };
+  }
+
+  private async readReceivableOverdueDays(configId: string): Promise<number> {
+    const rows = await this.prisma.client.$queryRaw<
+      Array<{ receivableOverdueDays: number }>
+    >`
+      SELECT "receivableOverdueDays" FROM "NotificationConfig" WHERE id = ${configId}
+    `;
+    const value = Number(rows[0]?.receivableOverdueDays);
+    return Number.isFinite(value) ? value : 1;
   }
 
   async wakeSnoozedNotifications(): Promise<number> {

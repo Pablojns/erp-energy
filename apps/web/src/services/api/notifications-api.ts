@@ -34,6 +34,7 @@ export type NotificationConfigDto = {
   orderDelayedDays: number;
   leadFollowupDays: number;
   nfPendingHours: number;
+  receivableOverdueDays: number;
 };
 
 export type SnoozeDuration = '1h' | '2h' | '4h' | 'tomorrow';
@@ -67,6 +68,8 @@ export const NOTIFICATION_TYPE_META: Record<
   MENTION: { label: 'Menção', color: '#7c3aed', bg: '#f5f3ff' },
   SYSTEM: { label: 'Sistema', color: '#64748b', bg: '#f8fafc' },
   DAILY_DIGEST: { label: 'Resumo', color: '#f59e0b', bg: '#fffbeb' },
+  RECEIVABLE_OVERDUE: { label: 'Financeiro', color: '#dc2626', bg: '#fef2f2' },
+  STOCK_EXIT_GAP: { label: 'Estoque', color: '#dc2626', bg: '#fef2f2' },
 };
 
 export function resolveNotificationHref(

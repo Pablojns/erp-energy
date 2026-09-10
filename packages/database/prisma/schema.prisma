@@ -662,6 +662,8 @@ model NotificationConfig {
   orderDelayedDays       Int      @default(1)
   leadFollowupDays       Int      @default(3)
   nfPendingHours         Int      @default(24)
+  /// Dias em atraso (após o vencimento) para alertar contas a receber.
+  receivableOverdueDays  Int      @default(1)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 }

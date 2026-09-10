@@ -3,9 +3,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@erp/database';
+import { Prisma, OrderStatus, StockMovementType } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CriarDespesaDto } from './dto/financeiro.dto';
+import {
+  atrasoTone,
+  buyerCnpj,
+  diasAtrasoFromDue,
+  dueDateFromEmissao,
+  groupContasEmAtraso,
+  NF_PRAZO_DIAS,
+  resolveNfLines,
+  type ContaAtrasoTitulo,
+} from './contas-atraso';
+import { validateFinalizeOrder } from '../orders/finalize-order-guard';
 
 const NF_STATUS = {
   ABERTO: 'ABERTO',
@@ -13,7 +24,7 @@ const NF_STATUS = {
   ATRASADO: 'ATRASADO',
 } as const;
 
-const DIAS_ATRASO_LIMITE = 12;
+const DIAS_ATRASO_LIMITE = NF_PRAZO_DIAS;
 const CONTA_AZUL_FATURADO = 'Faturado';
 
 function decimalToNumber(value: Prisma.Decimal | null | undefined): number {
@@ -87,7 +98,6 @@ export class FinanceiroService {
       select: {
         id: true,
         invoiceNumber: true,
-        totalValue: true,
         updatedAt: true,
         invoicedAt: true,
       },
@@ -114,6 +124,23 @@ export class FinanceiroService {
       existingRows.map((row) => [row.orderId, row]),
     );
 
+    const exitRows = await this.prisma.client.orderExit.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        orderId: true,
+        invoiceNumber: true,
+        invoiceValue: true,
+        exitDate: true,
+      },
+      orderBy: { exitDate: 'asc' },
+    });
+    const exitsByOrderId = new Map<string, typeof exitRows>();
+    for (const exit of exitRows) {
+      const list = exitsByOrderId.get(exit.orderId);
+      if (list) list.push(exit);
+      else exitsByOrderId.set(exit.orderId, [exit]);
+    }
+
     const toCreate: Prisma.FinanceiroNFCreateManyInput[] = [];
     const toUpdate: Array<{
       orderId: string;
@@ -127,7 +154,15 @@ export class FinanceiroService {
       const invoiceNumber = order.invoiceNumber?.trim();
       if (!invoiceNumber) continue;
 
-      const dataEmissao = order.invoicedAt ?? order.updatedAt;
+      const exits = exitsByOrderId.get(order.id) ?? [];
+      const matching =
+        exits.find((e) => e.invoiceNumber.trim() === invoiceNumber) ??
+        exits[exits.length - 1];
+      const valor = matching?.invoiceValue ?? existingByOrderId.get(order.id)?.valor;
+      if (valor == null) continue;
+
+      const dataEmissao =
+        matching?.exitDate ?? order.invoicedAt ?? order.updatedAt;
       const existing = existingByOrderId.get(order.id);
       const dataPagamento = existing?.dataPagamento ?? null;
       const status = computeStatus(dataEmissao, dataPagamento);
@@ -136,7 +171,7 @@ export class FinanceiroService {
         toCreate.push({
           orderId: order.id,
           invoiceNumber,
-          valor: order.totalValue,
+          valor,
           dataEmissao,
           dataPagamento,
           observacao: null,
@@ -147,7 +182,7 @@ export class FinanceiroService {
 
       const sameInvoice = existing.invoiceNumber === invoiceNumber;
       const sameValor =
-        decimalToNumber(existing.valor) === decimalToNumber(order.totalValue);
+        decimalToNumber(existing.valor) === decimalToNumber(valor);
       const sameEmissao =
         existing.dataEmissao.getTime() === dataEmissao.getTime();
       const sameStatus = existing.status === status;
@@ -158,7 +193,7 @@ export class FinanceiroService {
       toUpdate.push({
         orderId: order.id,
         invoiceNumber,
-        valor: order.totalValue,
+        valor,
         dataEmissao,
         status,
       });
@@ -311,23 +346,40 @@ export class FinanceiroService {
               externalOrderNumber: true,
               receiverName: true,
               customerName: true,
+              deliveryCnpj: true,
+              customerDocument: true,
             },
           },
         },
       }),
     ]);
 
-    const data = rows.map((nf) => ({
-      id: nf.id,
-      invoiceNumber: nf.invoiceNumber,
-      pedido: nf.order.externalOrderNumber ?? nf.order.code,
-      recebedor: nf.order.receiverName ?? nf.order.customerName,
-      valor: decimalToNumber(nf.valor),
-      dataEmissao: nf.dataEmissao.toISOString(),
-      diasEmAberto: diasEmAberto(nf.dataEmissao),
-      status: nf.status,
-      observacao: nf.observacao,
-    }));
+    const exitsByOrderId = await this.loadExitsByOrderIds(
+      rows.map((r) => r.orderId),
+    );
+
+    const data = rows.flatMap((nf) => {
+      const lines = resolveNfLines({
+        invoiceNumber: nf.invoiceNumber,
+        fallbackValor: decimalToNumber(nf.valor),
+        fallbackEmissao: nf.dataEmissao,
+        exits: exitsByOrderId.get(nf.orderId) ?? [],
+      });
+      const pedido = nf.order.externalOrderNumber ?? nf.order.code;
+      const recebedor = nf.order.receiverName ?? nf.order.customerName;
+      return lines.map((line, idx) => ({
+        id: nf.id,
+        rowKey: `${nf.id}:${idx}:${line.invoiceNumber}`,
+        invoiceNumber: line.invoiceNumber,
+        pedido,
+        recebedor,
+        valor: line.valor,
+        dataEmissao: line.dataEmissao.toISOString(),
+        diasEmAberto: diasEmAberto(line.dataEmissao),
+        status: computeStatus(line.dataEmissao, nf.dataPagamento),
+        observacao: nf.observacao,
+      }));
+    });
 
     return {
       data,
@@ -529,6 +581,194 @@ export class FinanceiroService {
         },
       },
     });
+  }
+
+  async getContasEmAtraso() {
+    const rows = await this.prisma.client.financeiroNF.findMany({
+      where: {
+        dataPagamento: null,
+        NOT: { status: NF_STATUS.PAGO },
+      },
+      include: {
+        order: {
+          select: {
+            code: true,
+            externalOrderNumber: true,
+            deliveryCnpj: true,
+            customerDocument: true,
+          },
+        },
+      },
+    });
+
+    const exitsByOrderId = await this.loadExitsByOrderIds(
+      rows.map((r) => r.orderId),
+    );
+
+    const now = new Date();
+    const titulos: ContaAtrasoTitulo[] = [];
+    for (const nf of rows) {
+      const { cnpj, cnpjKey } = buyerCnpj(
+        nf.order.deliveryCnpj,
+        nf.order.customerDocument,
+      );
+      const pedido = nf.order.externalOrderNumber ?? nf.order.code;
+      const lines = resolveNfLines({
+        invoiceNumber: nf.invoiceNumber,
+        fallbackValor: decimalToNumber(nf.valor),
+        fallbackEmissao: nf.dataEmissao,
+        exits: exitsByOrderId.get(nf.orderId) ?? [],
+      });
+      for (const [idx, line] of lines.entries()) {
+        const due = dueDateFromEmissao(line.dataEmissao, DIAS_ATRASO_LIMITE);
+        const diasAtraso = diasAtrasoFromDue(due, now);
+        if (diasAtraso <= 0) continue;
+        titulos.push({
+          id: `${nf.id}:${idx}:${line.invoiceNumber}`,
+          invoiceNumber: line.invoiceNumber,
+          pedido,
+          cnpj,
+          cnpjKey,
+          valor: line.valor,
+          dataEmissao: line.dataEmissao.toISOString(),
+          dueDate: due.toISOString(),
+          diasAtraso,
+          tone: atrasoTone(diasAtraso),
+        });
+      }
+    }
+
+    const grupos = groupContasEmAtraso(titulos);
+    return {
+      grupos,
+      totalClientes: grupos.length,
+      totalTitulos: titulos.length,
+      valorTotal: titulos.reduce((sum, t) => sum + t.valor, 0),
+    };
+  }
+
+  /**
+   * Auditoria retroativa: pedidos FINALIZADO sem SAIDA_EXPEDICAO
+   * correspondente (mesma checagem da trava de finalização).
+   */
+  async listFinalizeStockGaps(limit = 200) {
+    const orders = await this.prisma.client.order.findMany({
+      where: { status: OrderStatus.FINALIZADO },
+      select: {
+        id: true,
+        code: true,
+        externalOrderNumber: true,
+        invoiceNumber: true,
+        items: {
+          select: {
+            sku: true,
+            quantity: true,
+            invoicedQty: true,
+            productId: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 2000,
+    });
+
+    const refs = new Set<string>();
+    for (const order of orders) {
+      refs.add(order.code);
+      const ext = order.externalOrderNumber?.trim();
+      if (ext) refs.add(ext);
+      const inv = order.invoiceNumber?.trim();
+      if (inv) refs.add(inv);
+    }
+
+    const movements =
+      refs.size === 0
+        ? []
+        : await this.prisma.client.stockMovement.findMany({
+            where: {
+              movementType: StockMovementType.SAIDA_EXPEDICAO,
+              OR: [
+                { reference: { in: [...refs] } },
+                { invoiceNumber: { in: [...refs] } },
+              ],
+            },
+            select: {
+              productId: true,
+              quantity: true,
+              reference: true,
+              invoiceNumber: true,
+            },
+          });
+
+    const gaps: Array<{
+      orderId: string;
+      pedido: string;
+      invoiceNumber: string | null;
+      message: string;
+    }> = [];
+
+    for (const order of orders) {
+      if (gaps.length >= limit) break;
+      const ext = order.externalOrderNumber?.trim() || null;
+      const inv = order.invoiceNumber?.trim() || null;
+      const orderMovements = movements.filter((m) => {
+        const ref = m.reference?.trim() || '';
+        const movInv = m.invoiceNumber?.trim() || '';
+        return (
+          ref === order.code ||
+          (ext != null && (ref === ext || movInv === ext)) ||
+          (inv != null && (ref === inv || movInv === inv))
+        );
+      });
+      const result = validateFinalizeOrder({
+        invoiceNumber: order.invoiceNumber,
+        items: order.items,
+        movements: orderMovements,
+      });
+      if (result.ok) continue;
+      gaps.push({
+        orderId: order.id,
+        pedido: order.externalOrderNumber ?? order.code,
+        invoiceNumber: order.invoiceNumber,
+        message: result.message,
+      });
+    }
+
+    return { gaps, total: gaps.length };
+  }
+
+  private async loadExitsByOrderIds(orderIds: string[]) {
+    if (orderIds.length === 0) {
+      return new Map<
+        string,
+        Array<{ invoiceNumber: string; invoiceValue: number; exitDate: Date }>
+      >();
+    }
+    const exits = await this.prisma.client.orderExit.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        orderId: true,
+        invoiceNumber: true,
+        invoiceValue: true,
+        exitDate: true,
+      },
+      orderBy: { exitDate: 'asc' },
+    });
+    const map = new Map<
+      string,
+      Array<{ invoiceNumber: string; invoiceValue: number; exitDate: Date }>
+    >();
+    for (const exit of exits) {
+      const row = {
+        invoiceNumber: exit.invoiceNumber,
+        invoiceValue: decimalToNumber(exit.invoiceValue),
+        exitDate: exit.exitDate,
+      };
+      const list = map.get(exit.orderId);
+      if (list) list.push(row);
+      else map.set(exit.orderId, [row]);
+    }
+    return map;
   }
 
   private normalizeDateParam(value?: string): string | undefined {
