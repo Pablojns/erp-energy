@@ -770,8 +770,18 @@ export function AdminOrderEditModal(props: {
   const handleItemStatusChange = (idx: number, nextStatus: string) => {
     const row = items[idx];
     const isRecebido = nextStatus.trim().toLowerCase() === 'recebido';
-    const alreadyReceived =
-      row?.mercadoEletronicoItemStatus.trim().toLowerCase() === 'recebido';
+    const original = row
+      ? order.items.find((o) => o.id === row.id)
+      : undefined;
+    const displayed = row
+      ? resolveItemReceiptStatusForOrder({
+          quantity: Number(row.quantity) || 0,
+          pickedQty: row.pickedQty,
+          invoicedQty: original?.invoicedQty,
+          mercadoEletronicoItemStatus: row.mercadoEletronicoItemStatus,
+        })
+      : null;
+    const alreadyReceived = displayed?.trim().toLowerCase() === 'recebido';
     if (
       row &&
       isRecebido &&
@@ -1331,6 +1341,13 @@ export function AdminOrderEditModal(props: {
                   const missing = Math.max(0, qtyNum - picked);
                   const stock = stockByItemId[it.id] ?? EMPTY_ITEM_STOCK;
                   const orderItemForStatus = order.items.find((o) => o.id === it.id);
+                  const itemStatusDisplay =
+                    resolveItemReceiptStatusForOrder({
+                      quantity: qtyNum,
+                      pickedQty: picked,
+                      invoicedQty: orderItemForStatus?.invoicedQty,
+                      mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus,
+                    }) ?? '';
 
                   if (isSiteOrder) {
                     return (
@@ -1389,14 +1406,7 @@ export function AdminOrderEditModal(props: {
                         </td>
                         <td className="px-2 py-2 text-center">
                           <OrderItemReceiptStatusBadge
-                            status={
-                              orderItemForStatus
-                                ? resolveItemReceiptStatusForOrder(
-                                    orderItemForStatus,
-                                    order.status,
-                                  )
-                                : it.mercadoEletronicoItemStatus || null
-                            }
+                            status={itemStatusDisplay || null}
                           />
                         </td>
                       </tr>
@@ -1494,7 +1504,7 @@ export function AdminOrderEditModal(props: {
                         <td className="px-2 py-2">
                           <select
                             className={fieldClass()}
-                            value={it.mercadoEletronicoItemStatus}
+                            value={itemStatusDisplay}
                             onChange={(e) =>
                               handleItemStatusChange(idx, e.target.value)
                             }

@@ -91,12 +91,30 @@ export function summarizeItemReceiptStatus(items: OrderItemDto[]): {
 }
 
 export function resolveItemReceiptStatusForOrder(
-  item: OrderItemDto,
+  item: {
+    quantity: number;
+    pickedQty?: number | null;
+    invoicedQty?: number | null;
+    mercadoEletronicoItemStatus?: string | null;
+  },
   _orderStatus?: string,
 ): string | null | undefined {
-  // Sempre o dado real da planilha — não inferir OK a partir do status do pedido.
   const raw = item.mercadoEletronicoItemStatus?.trim();
-  return raw || null;
+  if (raw) {
+    // Marcação manual/persistida: não sobrescreve (OK da planilha ≡ Recebido no modal).
+    const visual = getItemReceiptStatusVisual(raw);
+    if (visual.tone === 'recebido') return 'Recebido';
+    return raw;
+  }
+
+  const qty = item.quantity ?? 0;
+  if (qty <= 0) return null;
+  const picked = Math.max(0, item.pickedQty ?? 0);
+  const invoiced = Math.max(0, item.invoicedQty ?? 0);
+  const fulfilled = Math.max(picked, invoiced);
+  // Falta = 0 (separado ou faturado por completo) → Recebido, inclusive pedidos antigos.
+  if (fulfilled >= qty) return 'Recebido';
+  return null;
 }
 
 /** Status da linha pela quantidade separada — OK só com Falta = 0. */
