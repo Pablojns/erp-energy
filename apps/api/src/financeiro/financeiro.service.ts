@@ -17,6 +17,11 @@ import {
   type ContaAtrasoTitulo,
 } from './contas-atraso';
 import { validateFinalizeOrder } from '../orders/finalize-order-guard';
+import {
+  isCaOverdue,
+  tituloFromDbRow,
+  type CaTitulo,
+} from './conta-azul.titulos';
 
 const NF_STATUS = {
   ABERTO: 'ABERTO',
@@ -267,6 +272,7 @@ export class FinanceiroService {
       atrasadoAgg,
       pagoAgg,
       despesasAgg,
+      caReceber,
     ] = await Promise.all([
       this.prisma.client.financeiroNF.aggregate({
         where: nfPeriodWhere,
@@ -303,11 +309,18 @@ export class FinanceiroService {
         where: despesaPeriodWhere,
         _sum: { valor: true },
       }),
+      this.loadCaReceberIfSynced(),
     ]);
 
     const faturamentoMes = decimalToNumber(faturamentoAgg._sum.valor);
     const totalPago = decimalToNumber(pagoAgg._sum.valor);
     const despesasMes = decimalToNumber(despesasAgg._sum.valor);
+    const now = new Date();
+    const usingCa = caReceber.synced;
+    const caOpen = caReceber.titulos.filter((t) => !t.pago);
+    const totalAtrasado = usingCa
+      ? caOpen.filter((t) => isCaOverdue(t, now)).reduce((s, t) => s + t.valorAberto, 0)
+      : decimalToNumber(atrasadoAgg._sum.valor);
 
     return {
       faturamentoMes,
@@ -315,17 +328,25 @@ export class FinanceiroService {
       valorFaturadoPeriodo: decimalToNumber(valorFaturadoPeriodoAgg._sum.totalValue),
       valorPedidosHistorico: decimalToNumber(valorPedidosHistoricoAgg._sum.totalValue),
       valorFaturadoHistorico: decimalToNumber(valorFaturadoHistoricoAgg._sum.totalValue),
-      totalEmAberto: decimalToNumber(emAbertoAgg._sum.valor),
-      totalAtrasado: decimalToNumber(atrasadoAgg._sum.valor),
+      totalEmAberto: usingCa
+        ? caOpen.reduce((s, t) => s + t.valorAberto, 0)
+        : decimalToNumber(emAbertoAgg._sum.valor),
+      totalAtrasado,
       totalPago,
       despesasMes,
       lucroBruto: totalPago - despesasMes,
+      fonte: usingCa ? 'conta_azul' : 'erp',
     };
   }
 
   async getNFsEmAberto(page = 1, pageSize = 20) {
     const safePage = Math.max(1, page);
     const safePageSize = Math.min(100, Math.max(1, pageSize));
+    const ca = await this.loadCaReceberIfSynced();
+    if (ca.synced) {
+      return this.nfsEmAbertoFromCa(ca.titulos, safePage, safePageSize);
+    }
+
     const where: Prisma.FinanceiroNFWhereInput = {
       status: { in: [NF_STATUS.ABERTO, NF_STATUS.ATRASADO] },
     };
@@ -584,6 +605,11 @@ export class FinanceiroService {
   }
 
   async getContasEmAtraso() {
+    const ca = await this.loadCaReceberIfSynced();
+    if (ca.synced) {
+      return this.contasAtrasoFromCa(ca.titulos);
+    }
+
     const rows = await this.prisma.client.financeiroNF.findMany({
       where: {
         dataPagamento: null,
@@ -795,5 +821,105 @@ export class FinanceiroService {
     }
 
     return { start, end };
+  }
+
+  private async loadCaReceberIfSynced(): Promise<{
+    synced: boolean;
+    titulos: CaTitulo[];
+  }> {
+    try {
+      const meta = await this.prisma.client.$queryRaw<
+        Array<{ lastSyncAt: Date | null }>
+      >`
+        SELECT "lastSyncAt"
+        FROM "ContaAzulSession"
+        WHERE "id" = 'default'
+        LIMIT 1
+      `;
+      if (!meta[0]?.lastSyncAt) {
+        return { synced: false, titulos: [] };
+      }
+      const rows = await this.prisma.client.$queryRaw<
+        Array<Parameters<typeof tituloFromDbRow>[0]>
+      >`
+        SELECT "contaAzulId", "tipo", "origem", "numero", "descricao",
+               "contraParte", "documento", "valor", "valorPago", "valorAberto",
+               "vencimento", "competencia", "status", "pago"
+        FROM "ContaAzulTitulo"
+        WHERE "tipo" = 'RECEBER'
+      `;
+      return { synced: true, titulos: rows.map(tituloFromDbRow) };
+    } catch {
+      return { synced: false, titulos: [] };
+    }
+  }
+
+  private nfsEmAbertoFromCa(
+    titulos: CaTitulo[],
+    page: number,
+    pageSize: number,
+  ) {
+    const now = new Date();
+    const open = titulos
+      .filter((t) => !t.pago)
+      .sort((a, b) => a.vencimento.getTime() - b.vencimento.getTime());
+    const total = open.length;
+    const slice = open.slice((page - 1) * pageSize, page * pageSize);
+    const data = slice.map((t) => {
+      const ref = t.competencia ?? t.vencimento;
+      const overdue = isCaOverdue(t, now);
+      return {
+        id: t.contaAzulId,
+        rowKey: t.contaAzulId,
+        invoiceNumber: t.numero || t.descricao,
+        pedido: t.descricao,
+        recebedor: t.contraParte,
+        valor: t.valorAberto || t.valor,
+        dataEmissao: ref.toISOString(),
+        diasEmAberto: diasEmAberto(ref, now),
+        status: overdue ? NF_STATUS.ATRASADO : NF_STATUS.ABERTO,
+        observacao: t.status,
+      };
+    });
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+      fonte: 'conta_azul' as const,
+    };
+  }
+
+  private contasAtrasoFromCa(titulos: CaTitulo[]) {
+    const now = new Date();
+    const atraso: ContaAtrasoTitulo[] = [];
+    for (const t of titulos) {
+      if (t.pago || !isCaOverdue(t, now)) continue;
+      const { cnpj, cnpjKey } = buyerCnpj(t.documento, t.documento);
+      const dias = diasAtrasoFromDue(t.vencimento, now);
+      atraso.push({
+        id: t.contaAzulId,
+        invoiceNumber: t.numero || t.descricao,
+        pedido: t.descricao,
+        cnpj: cnpj || t.contraParte || '—',
+        cnpjKey: cnpjKey || t.contraParte || '—',
+        valor: t.valorAberto || t.valor,
+        dataEmissao: (t.competencia ?? t.vencimento).toISOString(),
+        dueDate: t.vencimento.toISOString(),
+        diasAtraso: dias,
+        tone: atrasoTone(dias),
+      });
+    }
+    const grupos = groupContasEmAtraso(atraso);
+    return {
+      grupos,
+      totalClientes: grupos.length,
+      totalTitulos: atraso.length,
+      valorTotal: atraso.reduce((sum, t) => sum + t.valor, 0),
+      fonte: 'conta_azul' as const,
+    };
   }
 }

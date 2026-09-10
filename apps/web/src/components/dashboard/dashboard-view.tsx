@@ -8,6 +8,7 @@ import { TabOverview } from '@/src/components/dashboard/tab-overview';
 import { TabExpedicao } from '@/src/components/dashboard/tab-expedicao';
 import { TabFinanceiro } from '@/src/components/dashboard/tab-financeiro';
 import { TabEstoque } from '@/src/components/dashboard/tab-estoque';
+import { TabCalendario } from '@/src/components/dashboard/tab-calendario';
 import { NewOrderModal } from '@/src/components/expedicao/workspace/new-order-modal';
 import type { OverviewModuleFilter } from '@/src/components/dashboard/types';
 import { getCurrentMonthRange } from '@/src/components/compras/compras-period-filter';
@@ -77,6 +78,8 @@ export function DashboardView() {
           <TabExpedicao period={period} refreshKey={refreshKey} />
         ) : overviewModule === 'financeiro' ? (
           <TabFinanceiro period={period} refreshKey={refreshKey} />
+        ) : overviewModule === 'calendario' ? (
+          <TabCalendario refreshKey={refreshKey} />
         ) : (
           <TabEstoque period={period} refreshKey={refreshKey} />
         )}

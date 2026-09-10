@@ -17,6 +17,7 @@ export type FinanceiroDashboard = {
   totalPago: number;
   despesasMes: number;
   lucroBruto: number;
+  fonte?: 'conta_azul' | 'erp';
 };
 
 export type NfEmAberto = {

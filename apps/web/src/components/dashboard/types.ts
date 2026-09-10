@@ -111,7 +111,7 @@ export type DelayedOrderRow = {
 
 export type PeriodPreset = 'todos' | 'mes' | 'trimestre' | 'ano' | 'personalizado';
 
-export type OverviewModuleFilter = 'geral' | 'expedicao' | 'estoque' | 'financeiro';
+export type OverviewModuleFilter = 'geral' | 'expedicao' | 'estoque' | 'financeiro' | 'calendario';
 
 export type DateRange = {
   dataInicio: string;

@@ -39,14 +39,47 @@ import {
   filterNfsByPeriod,
 } from '@/src/components/financeiro/utils';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import {
   adjustRangeOnDateChange,
   normalizeDateRange,
 } from '@/src/lib/period-range';
 import '@/src/components/financeiro/financeiro.css';
 
+type CaSyncJob = {
+  jobId: string;
+  status: 'processando' | 'concluido' | 'erro';
+  processedWindows: number;
+  totalWindows: number;
+  message: string;
+  error?: string;
+};
+
+async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
+  const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
+    method: 'POST',
+  });
+  onProgress(started.message);
+  let current = started;
+  while (current.status === 'processando') {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    current = await erpFetchJson<CaSyncJob>(
+      `api/financeiro/conta-azul/sync-status/${started.jobId}`,
+    );
+    onProgress(current.message);
+  }
+  if (current.status === 'erro') {
+    throw new Error(
+      current.error || current.message || 'Falha na sincronização da Conta Azul.',
+    );
+  }
+  return current;
+}
+
 export function FinanceiroWorkspace() {
   const defaultRange = useMemo(() => defaultMonthRange(), []);
+  const { hasPermission } = useNavPermissions();
+  const canEditCa = hasPermission('financeiro', 'editar');
   const [tab, setTab] = useState<FinanceiroTab>('dashboard');
   const [periodPreset, setPeriodPreset] = useState<FinanceiroPeriodPreset>('mes');
   const [dataInicio, setDataInicio] = useState(defaultRange.dataInicio);
@@ -56,6 +89,13 @@ export function FinanceiroWorkspace() {
   const [nfsCount, setNfsCount] = useState(0);
   const [atrasoCount, setAtrasoCount] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [caConnected, setCaConnected] = useState(false);
+  const [caLastSync, setCaLastSync] = useState<string | null>(null);
+  const [caBusy, setCaBusy] = useState(false);
+  const [caSyncProgress, setCaSyncProgress] = useState<string | null>(null);
+  const [caCodeOpen, setCaCodeOpen] = useState(false);
+  const [caCode, setCaCode] = useState('');
+  const [caState, setCaState] = useState('');
 
   const period = useMemo(
     () => normalizeDateRange({ dataInicio, dataFim }),
@@ -69,6 +109,17 @@ export function FinanceiroWorkspace() {
     void erpFetchJson<ContasAtrasoResponse>('api/financeiro/contas-atraso')
       .then((res) => setAtrasoCount(res.totalTitulos))
       .catch(() => setAtrasoCount(0));
+    void erpFetchJson<{
+      connected: boolean;
+      lastSyncAt: string | null;
+    }>('api/financeiro/conta-azul/status')
+      .then((s) => {
+        setCaConnected(s.connected);
+        setCaLastSync(s.lastSyncAt);
+      })
+      .catch(() => {
+        setCaConnected(false);
+      });
   }, [refreshToken]);
 
   const handlePeriodPresetChange = (preset: FinanceiroPeriodPreset) => {
@@ -98,6 +149,70 @@ export function FinanceiroWorkspace() {
       const next = adjustRangeOnDateChange('dataFim', patch.dataFim, base);
       setDataInicio(next.dataInicio);
       setDataFim(next.dataFim);
+    }
+  };
+
+  const handleConnectCa = async () => {
+    setExportError(null);
+    setCaBusy(true);
+    try {
+      const res = await erpFetchJson<{ url: string; state: string }>(
+        'api/financeiro/conta-azul/auth-url',
+      );
+      setCaState(res.state);
+      setCaCode('');
+      setCaCodeOpen(true);
+      window.open(res.url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Erro ao abrir autorização da Conta Azul.');
+    } finally {
+      setCaBusy(false);
+    }
+  };
+
+  const submitCaCode = async () => {
+    const raw = caCode.trim();
+    const fromUrl = /[?&]code=([^&]+)/.exec(raw);
+    const code = decodeURIComponent(fromUrl?.[1] ?? raw);
+    if (!code) return;
+    setCaBusy(true);
+    setExportError(null);
+    try {
+      await erpFetchJson('api/financeiro/conta-azul/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state: caState || undefined }),
+      });
+      setCaCodeOpen(false);
+      setCaCode('');
+      setCaConnected(true);
+      setCaSyncProgress('Sincronizando...');
+      await pollCaSync(setCaSyncProgress);
+      setRefreshToken((t) => t + 1);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Erro ao conectar Conta Azul.');
+    } finally {
+      setCaBusy(false);
+      setCaSyncProgress(null);
+    }
+  };
+
+  const handleSyncCa = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setCaBusy(true);
+    setExportError(null);
+    setCaSyncProgress('Sincronizando...');
+    try {
+      await pollCaSync(setCaSyncProgress);
+      setRefreshToken((t) => t + 1);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Erro ao sincronizar Conta Azul.');
+    } finally {
+      setCaBusy(false);
+      setCaSyncProgress(null);
     }
   };
 
@@ -203,8 +318,49 @@ export function FinanceiroWorkspace() {
           onExport={() => void handleExport()}
           nfsCount={nfsCount}
           atrasoCount={atrasoCount}
+          caConnected={caConnected}
+          caLastSync={caLastSync}
+          caBusy={caBusy}
+          caSyncProgress={caSyncProgress}
+          canEditCa={canEditCa}
+          onConnectCa={() => void handleConnectCa()}
+          onSyncCa={() => void handleSyncCa()}
         />
       </div>
+
+      {caCodeOpen ? (
+        <div className="fin-card shrink-0 rounded-2xl p-4">
+          <p className="text-sm text-[var(--fin-text)]">
+            Autorize no navegador e cole aqui o <strong>code</strong> da URL
+            (ou a URL completa) para conectar a conta real da Conta Azul.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={caCode}
+              onChange={(e) => setCaCode(e.target.value)}
+              placeholder="code=... ou https://contaazul.com/?code=..."
+              className="fin-input h-9 flex-1 rounded-lg px-3 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => void submitCaCode()}
+              disabled={caBusy || !caCode.trim()}
+              className="inline-flex h-9 items-center justify-center rounded-lg px-4 text-xs font-semibold text-white disabled:opacity-60"
+              style={{ background: 'var(--fin-accent)' }}
+            >
+              Conectar
+            </button>
+            <button
+              type="button"
+              onClick={() => setCaCodeOpen(false)}
+              className="inline-flex h-9 items-center justify-center rounded-lg border px-4 text-xs font-semibold"
+              style={{ borderColor: 'var(--fin-border)' }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {exportError ? (
         <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">

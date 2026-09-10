@@ -142,6 +142,10 @@ async function proxy(request: NextRequest, segments: string[]) {
     /etiqueta-correios$/i.test(path) ||
     /(^|\/)correios\/rotulo(\/|$)/i.test(path);
 
+  /** Sync Conta Azul percorre janelas de 15 dias; POST inicia job, GET polla status. */
+  const isLongContaAzulSync =
+    /conta-azul\/sync(-status\/[^/]+)?$/i.test(path);
+
   const init: RequestInit = {
     method,
     headers,
@@ -151,7 +155,9 @@ async function proxy(request: NextRequest, segments: string[]) {
         ? LONG_PROXY_TIMEOUT_MS
         : isLongCorreiosEtiqueta
           ? 120_000
-          : PROXY_TIMEOUT_MS,
+          : isLongContaAzulSync
+            ? 180_000
+            : PROXY_TIMEOUT_MS,
     ),
   };
 

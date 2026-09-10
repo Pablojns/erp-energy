@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, Download, RefreshCw } from 'lucide-react';
+import { Calendar, Download, Link2, RefreshCw } from 'lucide-react';
 import type {
   FinanceiroPeriod,
   FinanceiroPeriodPreset,
@@ -33,6 +33,13 @@ export function FinanceiroHeader(props: {
   onExport: () => void;
   nfsCount?: number;
   atrasoCount?: number;
+  caConnected?: boolean;
+  caLastSync?: string | null;
+  caBusy?: boolean;
+  caSyncProgress?: string | null;
+  onConnectCa?: () => void;
+  onSyncCa?: () => void;
+  canEditCa?: boolean;
 }) {
   const {
     tab,
@@ -46,6 +53,13 @@ export function FinanceiroHeader(props: {
     onExport,
     nfsCount,
     atrasoCount,
+    caConnected,
+    caLastSync,
+    caBusy,
+    caSyncProgress,
+    onConnectCa,
+    onSyncCa,
+    canEditCa,
   } = props;
 
   return (
@@ -124,6 +138,57 @@ export function FinanceiroHeader(props: {
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
             Sincronizar NFs
           </button>
+
+          <div className="flex flex-col gap-1.5">
+            <p
+              className="text-[10px] font-semibold uppercase tracking-wider"
+              style={{
+                color: caConnected ? 'var(--fin-success)' : 'var(--fin-text-muted)',
+              }}
+            >
+              {caConnected
+                ? `Conta Azul: conectada${
+                    caLastSync
+                      ? ` · sync ${new Date(caLastSync).toLocaleString('pt-BR')}`
+                      : ''
+                  }`
+                : 'Conta Azul: não conectada'}
+            </p>
+            {caBusy && caSyncProgress ? (
+              <p className="text-[11px] text-[var(--fin-text-secondary)]">
+                {caSyncProgress}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {!caConnected ? (
+                <button
+                  type="button"
+                  onClick={onConnectCa}
+                  disabled={caBusy || !canEditCa}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-xs font-semibold text-white transition disabled:opacity-60 sm:text-sm"
+                  style={{ background: 'var(--fin-accent)' }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Conectar Conta Azul
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onSyncCa}
+                disabled={caBusy || !caConnected || !canEditCa}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold text-[var(--fin-text)] transition hover:bg-[var(--fin-card-muted)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                style={{ borderColor: 'var(--fin-border)' }}
+                title={
+                  caConnected
+                    ? undefined
+                    : 'Conecte a Conta Azul antes de sincronizar'
+                }
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${caBusy ? 'animate-spin' : ''}`} />
+                Sincronizar Conta Azul
+              </button>
+            </div>
+          </div>
 
           <button
             type="button"

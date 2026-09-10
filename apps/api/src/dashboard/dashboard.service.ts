@@ -2,6 +2,10 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { ORDER_STATUS } from '../orders/order-domain';
+import {
+  ymdUtc,
+  type CalendarioDia,
+} from '../financeiro/conta-azul.titulos';
 
 const FLUXO_STATUSES: OrderStatus[] = [
   OrderStatus.NOVO,
@@ -276,6 +280,73 @@ export class DashboardService {
         pedidosSemNF,
       },
     };
+  }
+
+  async attachComprasToCalendario(input: {
+    source: 'conta_azul' | 'erp';
+    year: number;
+    month: number;
+    days: Record<string, CalendarioDia>;
+  }) {
+    const start = new Date(Date.UTC(input.year, input.month - 1, 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(input.year, input.month, 0, 23, 59, 59, 999));
+    const today = startOfUtcDay(new Date());
+    const rows = await this.prisma.client.purchaseRequest.findMany({
+      where: {
+        expectedArrival: { gte: start, lte: end },
+        status: { notIn: ['RECEBIDO', 'RECUSADO'] },
+      },
+      select: {
+        id: true,
+        itemName: true,
+        sku: true,
+        quantity: true,
+        supplierName: true,
+        customerName: true,
+        expectedArrival: true,
+        status: true,
+        product: { select: { name: true, sku: true } },
+      },
+    });
+
+    const days = { ...input.days };
+    for (const row of rows) {
+      if (!row.expectedArrival) continue;
+      const ymd = ymdUtc(row.expectedArrival);
+      const overdue = startOfUtcDay(row.expectedArrival).getTime() < today.getTime();
+      let day = days[ymd];
+      if (!day) {
+        day = {
+          ymd,
+          aPagar: 0,
+          aReceber: 0,
+          compras: 0,
+          overdue: false,
+          items: [],
+        };
+      } else {
+        day = { ...day, items: [...day.items] };
+      }
+      day.compras += 1;
+      if (overdue) day.overdue = true;
+      const nome =
+        row.itemName ?? row.product?.name ?? row.sku ?? row.product?.sku ?? 'Item';
+      day.items.push({
+        id: row.id,
+        tipo: 'COMPRAS',
+        numero: row.sku ?? row.product?.sku ?? null,
+        descricao: nome,
+        contraParte: row.supplierName ?? row.customerName,
+        valor: row.quantity ?? 0,
+        status: row.status,
+        pago: false,
+        vencimento: row.expectedArrival.toISOString(),
+        overdue,
+      });
+      days[ymd] = day;
+    }
+
+    return { ...input, days };
   }
 
   private normalizeDateParam(value?: string): string | undefined {

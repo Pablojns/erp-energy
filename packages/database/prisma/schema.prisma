@@ -1364,6 +1364,45 @@ model SpotSession {
   createdAt DateTime @default(now())
 }
 
+/// OAuth2 da Conta Azul API v2 (access + refresh). Uma sessão por instalação.
+model ContaAzulSession {
+  id            String    @id @default("default")
+  accessToken   String
+  refreshToken  String
+  tokenType     String    @default("Bearer")
+  expiresAt     DateTime
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+/// Títulos sincronizados da Conta Azul (contas a pagar/receber).
+model ContaAzulTitulo {
+  id           String   @id @default(uuid()) @db.Uuid
+  contaAzulId  String   @unique
+  tipo         String
+  origem       String
+  numero       String?
+  descricao    String
+  contraParte  String?
+  documento    String?
+  valor        Decimal  @db.Decimal(12, 2)
+  valorPago    Decimal  @default(0) @db.Decimal(12, 2)
+  valorAberto  Decimal  @db.Decimal(12, 2)
+  vencimento   DateTime
+  competencia  DateTime?
+  status       String
+  pago         Boolean  @default(false)
+  syncedAt     DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tipo, vencimento])
+  @@index([pago, vencimento])
+  @@index([tipo, pago])
+}
+
 /// Opções de gravação do catálogo SPOT (por SKU).
 model QuoteCatalogEngravingOption {
   id            String   @id @default(cuid())

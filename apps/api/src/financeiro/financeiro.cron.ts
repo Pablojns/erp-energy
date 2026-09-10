@@ -11,6 +11,7 @@ import {
   NF_PRAZO_DIAS,
   tituloCompletouXDiasAtraso,
 } from './contas-atraso';
+import { ContaAzulIntegrationService } from './conta-azul-integration.service';
 import { FinanceiroService } from './financeiro.service';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class FinanceiroCron {
   constructor(
     private readonly financeiro: FinanceiroService,
     private readonly notifications: NotificationsService,
+    private readonly contaAzul: ContaAzulIntegrationService,
   ) {}
 
   @Cron('0 6 * * *')
@@ -27,6 +29,16 @@ export class FinanceiroCron {
     try {
       const { synced } = await this.financeiro.syncNFs();
       this.logger.log(`Financeiro: ${synced} NF(s) sincronizada(s).`);
+      try {
+        const ca = await this.contaAzul.syncAll();
+        this.logger.log(
+          `Conta Azul: ${ca.receber} receber, ${ca.pagar} pagar, ${ca.nfs} NF(s).`,
+        );
+      } catch (caErr) {
+        this.logger.warn(
+          `Conta Azul sync diário ignorado: ${caErr instanceof Error ? caErr.message : String(caErr)}`,
+        );
+      }
       await this.notifyOverdueReceivables();
       await this.notifyFinalizeStockGaps();
     } catch (error) {

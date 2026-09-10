@@ -7,6 +7,7 @@ const MODULES: { id: OverviewModuleFilter; label: string }[] = [
   { id: 'expedicao', label: 'Expedição' },
   { id: 'estoque', label: 'Estoque' },
   { id: 'financeiro', label: 'Financeiro' },
+  { id: 'calendario', label: 'Calendário' },
 ];
 
 type OverviewModuleFilterProps = {

@@ -34,14 +34,25 @@ function nestErrorMessage(payload: unknown, fallbackStatus: number): string {
  * requisição mais recente termina).
  */
 const ERP_FETCH_TIMEOUT_MS = 35_000;
+const LONG_ERP_FETCH_TIMEOUT_MS = 180_000;
 
 function isTimeoutError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'TimeoutError';
 }
 
+function timeoutMsForPath(path: string): number {
+  if (/conta-azul\/sync(-status\/[^/?]+)?$/i.test(path)) {
+    return LONG_ERP_FETCH_TIMEOUT_MS;
+  }
+  return ERP_FETCH_TIMEOUT_MS;
+}
+
 /** Combina o sinal do chamador (cancelamento por digitação) com o timeout. */
-function buildSignal(external: AbortSignal | null | undefined): AbortSignal {
-  const timeout = AbortSignal.timeout(ERP_FETCH_TIMEOUT_MS);
+function buildSignal(
+  external: AbortSignal | null | undefined,
+  path: string,
+): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMsForPath(path));
   if (!external) return timeout;
   const anyAbort = (
     AbortSignal as unknown as {
@@ -75,7 +86,7 @@ export async function erpFetchJson<T>(
       cache: 'no-store',
       ...init,
       credentials: 'include',
-      signal: buildSignal(init?.signal),
+      signal: buildSignal(init?.signal, path),
       headers: {
         'Content-Type': 'application/json',
         'x-request-id': requestId,

@@ -29,6 +29,11 @@ const HEADER_META: Record<
     subtitle: 'Acompanhe o fluxo financeiro da sua empresa em tempo real.',
     cta: 'Nova Receita / Despesa',
   },
+  calendario: {
+    title: 'Calendário',
+    subtitle: 'Vencimentos de contas a pagar e a receber (DDA).',
+    cta: '',
+  },
 };
 
 type DashboardHeaderProps = {
@@ -73,10 +78,12 @@ export function DashboardHeader({
               onChange={onPeriodChange}
             />
 
-            <button type="button" className="dash-btn-primary" onClick={onPrimaryClick}>
-              <Plus size={16} strokeWidth={2} />
-              {meta.cta}
-            </button>
+            {meta.cta ? (
+              <button type="button" className="dash-btn-primary" onClick={onPrimaryClick}>
+                <Plus size={16} strokeWidth={2} />
+                {meta.cta}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>

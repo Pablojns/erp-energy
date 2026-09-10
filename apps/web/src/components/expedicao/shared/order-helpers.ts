@@ -99,13 +99,10 @@ export function resolveItemReceiptStatusForOrder(
   },
   _orderStatus?: string,
 ): string | null | undefined {
+  if (isWegItemAlreadyReceived(item)) return 'Recebido';
+
   const raw = item.mercadoEletronicoItemStatus?.trim();
-  if (raw) {
-    // Marcação manual/persistida: não sobrescreve (OK da planilha ≡ Recebido no modal).
-    const visual = getItemReceiptStatusVisual(raw);
-    if (visual.tone === 'recebido') return 'Recebido';
-    return raw;
-  }
+  if (raw) return raw;
 
   const qty = item.quantity ?? 0;
   if (qty <= 0) return null;
@@ -117,13 +114,17 @@ export function resolveItemReceiptStatusForOrder(
   return null;
 }
 
-/** Status da linha pela quantidade separada — OK só com Falta = 0. */
+/** Status da linha: marcação Recebido/OK prevalece; senão Falta = 0 → OK. */
 export function resolveLineSeparationStatus(item: {
   quantity: number;
   pickedQty?: number | null;
+  mercadoEletronicoItemStatus?: string | null;
 }): { picked: number; missing: number; label: 'OK' | 'PARCIAL' } {
   const picked = Math.max(0, item.pickedQty ?? 0);
   const missing = Math.max(0, (item.quantity ?? 0) - picked);
+  if (isWegItemAlreadyReceived(item)) {
+    return { picked, missing, label: 'OK' };
+  }
   return {
     picked,
     missing,

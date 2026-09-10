@@ -151,8 +151,8 @@ export function FinanceiroAtrasoTab(props: { refreshToken: number }) {
         </h3>
         <p className="mt-1 text-xs text-[var(--fin-text-muted)]">
           Auditoria interna: pedidos já finalizados sem movimentação SAIDA_EXPEDICAO
-          correspondente. O sync com Conta Azul não é via API — só replica NFs dos
-          pedidos do ERP.
+          correspondente. Títulos em atraso passam a usar a Conta Azul quando a
+          sincronização já rodou.
         </p>
         {(gaps?.total ?? 0) === 0 ? (
           <p className="mt-3 text-sm text-[var(--fin-success)]">
