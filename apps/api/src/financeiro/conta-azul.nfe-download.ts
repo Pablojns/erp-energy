@@ -8,6 +8,15 @@ export function nfNumberKey(raw: string | number | null | undefined): string {
   return invoiceDigits(raw).replace(/^0+/, '');
 }
 
+/** Regex POSIX do PostgreSQL (~*) para NF-e/NF na descrição, sem substring de pedido WEG. */
+export function invoiceDescricaoMatchPattern(
+  invoiceNumber: string,
+): string | null {
+  const n = nfNumberKey(invoiceNumber);
+  if (!n || !/^\d+$/.test(n)) return null;
+  return `(^|[^0-9a-z])nf[-.[:space:]]*e?[[:space:]]*[:.]?[[:space:]]*0*${n}([^0-9]|$)`;
+}
+
 export function tituloMatchesInvoiceNumber(
   titulo: { numero: string | null; descricao: string },
   invoiceNumber: string,

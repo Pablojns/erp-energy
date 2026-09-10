@@ -145,13 +145,15 @@ async function proxy(request: NextRequest, segments: string[]) {
   /** Sync Conta Azul percorre janelas de 15 dias; POST inicia job, GET polla status. */
   const isLongContaAzulSync =
     /conta-azul\/sync(-status\/[^/]+)?$/i.test(path);
+  const isLongContaAzulPreview =
+    /conta-azul\/sincronizar-(cadastros|vendas)/i.test(path);
 
   const init: RequestInit = {
     method,
     headers,
     cache: 'no-store',
     signal: AbortSignal.timeout(
-      isLongRunningCatalogSync
+      isLongRunningCatalogSync || isLongContaAzulPreview
         ? LONG_PROXY_TIMEOUT_MS
         : isLongCorreiosEtiqueta
           ? 120_000

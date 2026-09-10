@@ -10,12 +10,13 @@ function ModalShell(props: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  wide?: boolean;
 }) {
-  const { title, onClose, children } = props;
+  const { title, onClose, children, wide } = props;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div
-        className="fin-card w-full max-w-md overflow-hidden rounded-2xl shadow-2xl"
+        className={`fin-card w-full overflow-hidden rounded-2xl shadow-2xl ${wide ? 'max-w-2xl' : 'max-w-md'}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="fin-modal-title"
@@ -278,6 +279,79 @@ export function NovaDespesaModal(props: {
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             Criar despesa
           </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+export function CaPreviewModal(props: {
+  open: boolean;
+  title: string;
+  loading: boolean;
+  applying: boolean;
+  error: string | null;
+  applied: boolean;
+  appliedMessage: string | null;
+  onClose: () => void;
+  onApply: () => void;
+  children: ReactNode;
+}) {
+  const {
+    open,
+    title,
+    loading,
+    applying,
+    error,
+    applied,
+    appliedMessage,
+    onClose,
+    onApply,
+    children,
+  } = props;
+  if (!open) return null;
+
+  return (
+    <ModalShell title={title} onClose={onClose} wide>
+      <div className="erp-scrollbar max-h-[70vh] space-y-4 overflow-y-auto p-4">
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm text-[var(--fin-text-secondary)]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Consultando a Conta Azul (preview, sem alterar dados)...
+          </p>
+        ) : null}
+        {error ? (
+          <p className="text-sm text-[var(--fin-danger)]" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {!loading && !error ? children : null}
+        {applied && appliedMessage ? (
+          <p className="text-sm font-medium text-[var(--fin-success)]">
+            {appliedMessage}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border px-3 py-1.5 text-xs text-[var(--fin-text-secondary)]"
+            style={{ borderColor: 'var(--fin-border)' }}
+          >
+            {applied ? 'Fechar' : 'Cancelar'}
+          </button>
+          {!applied && !loading && !error ? (
+            <button
+              type="button"
+              disabled={applying}
+              onClick={onApply}
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              style={{ background: 'var(--fin-accent)' }}
+            >
+              {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Aplicar
+            </button>
+          ) : null}
         </div>
       </div>
     </ModalShell>

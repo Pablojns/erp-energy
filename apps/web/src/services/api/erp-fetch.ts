@@ -41,6 +41,9 @@ function isTimeoutError(error: unknown): boolean {
 }
 
 function timeoutMsForPath(path: string): number {
+  if (/conta-azul\/sincronizar-(cadastros|vendas)/i.test(path)) {
+    return 10 * 60 * 1000;
+  }
   if (/conta-azul\/sync(-status\/[^/?]+)?$/i.test(path)) {
     return LONG_ERP_FETCH_TIMEOUT_MS;
   }

@@ -46,6 +46,7 @@ import {
 import {
   CA_NF_NOT_SYNCED_MESSAGE,
   detectCaNfFile,
+  invoiceDescricaoMatchPattern,
   nfNumberKey,
   nfeDownloadFilename,
   tituloMatchesInvoiceNumber,
@@ -975,7 +976,9 @@ export class ContaAzulIntegrationService {
     const around = titulo.competencia ?? titulo.vencimento;
     const chave = await this.resolveChaveAcesso(numero, around);
     if (!chave) {
-      throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
+      throw new NotFoundException(
+        'Título financeiro encontrado, mas o XML da NF-e não foi localizado na Conta Azul. Confira o número da nota ou sincronize de novo.',
+      );
     }
     let buffer: Buffer;
     try {
@@ -2039,14 +2042,19 @@ export class ContaAzulIntegrationService {
   private async findSyncedTituloByInvoice(
     numero: string,
   ): Promise<CaTitulo | null> {
-    const like = `%${numero}%`;
+    const pattern = invoiceDescricaoMatchPattern(numero);
+    if (!pattern) return null;
     try {
       const rows = await this.prisma.client.$queryRaw<StoredTituloRow[]>`
         SELECT * FROM "ContaAzulTitulo"
         WHERE "tipo" = 'RECEBER'
           AND (
-            "numero" = ${numero}
-            OR "descricao" ILIKE ${like}
+            regexp_replace(
+              regexp_replace(COALESCE("numero", ''), '[^0-9]', '', 'g'),
+              '^0+',
+              ''
+            ) = ${numero}
+            OR "descricao" ~* ${pattern}
           )
         LIMIT 50
       `;
@@ -2112,7 +2120,7 @@ export class ContaAzulIntegrationService {
       ),
     );
     const windows: Array<{ start: string; end: string }> = [];
-    for (const shiftDays of [0, -15, 15]) {
+    for (const shiftDays of [0, -15, 15, -45, 45, -90, 90]) {
       const mid = new Date(center);
       mid.setUTCDate(mid.getUTCDate() + shiftDays);
       const start = new Date(mid);

@@ -18,6 +18,7 @@ import {
   extratoToCsvRows,
 } from '@/src/components/financeiro/extrato-tab';
 import { FinanceiroHeader } from '@/src/components/financeiro/financeiro-header';
+import { CaPreviewModal } from '@/src/components/financeiro/modals';
 import {
   NFS_CSV_HEADERS,
   FinanceiroNfsTab,
@@ -54,6 +55,58 @@ type CaSyncJob = {
   message: string;
   error?: string;
 };
+
+type CadastroFieldDiff = { from: string; to: string };
+
+type PessoaDivergence = {
+  tipo: 'nome' | 'endereco' | 'so_conta_azul' | 'so_erp';
+  kind: string;
+  cnpj: string;
+  name?: CadastroFieldDiff | null;
+  address?: CadastroFieldDiff | null;
+  erpName?: string;
+  caName?: string;
+};
+
+type CadastrosPreview = {
+  applied: boolean;
+  message: string;
+  pessoas: { mapeadas: number };
+  divergencias: {
+    nome: number;
+    endereco: number;
+    soNaContaAzul: number;
+    soNoErp: number;
+    preview: PessoaDivergence[];
+  };
+  catalogos: { categorias: number; centrosCusto: number };
+};
+
+type VendaVinculoPreview = {
+  vendaNumero: string | null;
+  orderCode: string;
+  externalOrderNumber: string | null;
+  reason: string;
+};
+
+type VendaSemMatch = {
+  vendaNumero: string | null;
+  clienteNome: string | null;
+  motivo: string;
+};
+
+type VendasPreview = {
+  applied: boolean;
+  message: string;
+  vendas: number;
+  pedidos: number;
+  vinculados: number;
+  semCorrespondencia: number;
+  previewClaros: VendaVinculoPreview[];
+  previewSemMatch: VendaSemMatch[];
+};
+
+type CaPreviewKind = 'cadastros' | 'vendas';
 
 async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
   const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
@@ -96,6 +149,12 @@ export function FinanceiroWorkspace() {
   const [caCodeOpen, setCaCodeOpen] = useState(false);
   const [caCode, setCaCode] = useState('');
   const [caState, setCaState] = useState('');
+  const [caPreviewKind, setCaPreviewKind] = useState<CaPreviewKind | null>(null);
+  const [caPreviewLoading, setCaPreviewLoading] = useState(false);
+  const [caPreviewApplying, setCaPreviewApplying] = useState(false);
+  const [caPreviewError, setCaPreviewError] = useState<string | null>(null);
+  const [cadastrosPreview, setCadastrosPreview] = useState<CadastrosPreview | null>(null);
+  const [vendasPreview, setVendasPreview] = useState<VendasPreview | null>(null);
 
   const period = useMemo(
     () => normalizeDateRange({ dataInicio, dataFim }),
@@ -216,6 +275,100 @@ export function FinanceiroWorkspace() {
     }
   };
 
+  const closeCaPreview = () => {
+    if (caPreviewLoading || caPreviewApplying) return;
+    setCaPreviewKind(null);
+    setCaPreviewError(null);
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+  };
+
+  const handlePreviewCadastros = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setExportError(null);
+    setCaPreviewKind('cadastros');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await erpFetchJson<CadastrosPreview>(
+        'api/financeiro/conta-azul/sincronizar-cadastros?dry-run=true',
+        { method: 'POST' },
+      );
+      setCadastrosPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error ? e.message : 'Erro ao consultar cadastros da Conta Azul.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaBusy(false);
+    }
+  };
+
+  const handlePreviewVendas = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setExportError(null);
+    setCaPreviewKind('vendas');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await erpFetchJson<VendasPreview>(
+        'api/financeiro/conta-azul/sincronizar-vendas?dry-run=true',
+        { method: 'POST' },
+      );
+      setVendasPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error ? e.message : 'Erro ao consultar vendas da Conta Azul.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaBusy(false);
+    }
+  };
+
+  const handleApplyPreview = async () => {
+    if (!caPreviewKind) return;
+    setCaPreviewApplying(true);
+    setCaPreviewError(null);
+    setCaBusy(true);
+    try {
+      if (caPreviewKind === 'cadastros') {
+        const res = await erpFetchJson<CadastrosPreview>(
+          'api/financeiro/conta-azul/sincronizar-cadastros?apply=true',
+          { method: 'POST' },
+        );
+        setCadastrosPreview(res);
+      } else {
+        const res = await erpFetchJson<VendasPreview>(
+          'api/financeiro/conta-azul/sincronizar-vendas?apply=true',
+          { method: 'POST' },
+        );
+        setVendasPreview(res);
+      }
+      setRefreshToken((t) => t + 1);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error ? e.message : 'Erro ao aplicar a sincronização.',
+      );
+    } finally {
+      setCaPreviewApplying(false);
+      setCaBusy(false);
+    }
+  };
+
   const handleSync = async () => {
     setSyncing(true);
     setExportError(null);
@@ -325,6 +478,8 @@ export function FinanceiroWorkspace() {
           canEditCa={canEditCa}
           onConnectCa={() => void handleConnectCa()}
           onSyncCa={() => void handleSyncCa()}
+          onSyncCadastros={() => void handlePreviewCadastros()}
+          onSyncVendas={() => void handlePreviewVendas()}
         />
       </div>
 
@@ -361,6 +516,132 @@ export function FinanceiroWorkspace() {
           </div>
         </div>
       ) : null}
+
+      <CaPreviewModal
+        open={caPreviewKind != null}
+        title={
+          caPreviewKind === 'vendas'
+            ? 'Vincular vendas a pedidos'
+            : 'Sincronizar cadastros'
+        }
+        loading={caPreviewLoading}
+        applying={caPreviewApplying}
+        error={caPreviewError}
+        applied={
+          caPreviewKind === 'vendas'
+            ? Boolean(vendasPreview?.applied)
+            : Boolean(cadastrosPreview?.applied)
+        }
+        appliedMessage={
+          caPreviewKind === 'vendas'
+            ? vendasPreview?.applied
+              ? vendasPreview.message
+              : null
+            : cadastrosPreview?.applied
+              ? cadastrosPreview.message
+              : null
+        }
+        onClose={closeCaPreview}
+        onApply={() => void handleApplyPreview()}
+      >
+        {caPreviewKind === 'cadastros' && cadastrosPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>
+              <strong>{cadastrosPreview.pessoas.mapeadas}</strong> pessoas
+              encontradas na Conta Azul.
+            </p>
+            <p>
+              Divergências: {cadastrosPreview.divergencias.nome} nome,{' '}
+              {cadastrosPreview.divergencias.endereco} endereço,{' '}
+              {cadastrosPreview.divergencias.soNaContaAzul} só na Conta Azul,{' '}
+              {cadastrosPreview.divergencias.soNoErp} só no ERP.
+            </p>
+            <p className="text-xs text-[var(--fin-text-secondary)]">
+              Catálogos: {cadastrosPreview.catalogos.categorias} categorias,{' '}
+              {cadastrosPreview.catalogos.centrosCusto} centros de custo. Aplicar
+              grava só os espelhos da Conta Azul — não altera cadastros do ERP.
+            </p>
+            {cadastrosPreview.divergencias.preview.length > 0 ? (
+              <ul className="space-y-1.5 text-xs">
+                {cadastrosPreview.divergencias.preview.map((row, idx) => {
+                  const before =
+                    row.name?.from ??
+                    row.address?.from ??
+                    row.erpName ??
+                    '—';
+                  const after =
+                    row.name?.to ??
+                    row.address?.to ??
+                    row.caName ??
+                    '—';
+                  const label =
+                    row.tipo === 'nome'
+                      ? 'Nome'
+                      : row.tipo === 'endereco'
+                        ? 'Endereço'
+                        : row.tipo === 'so_conta_azul'
+                          ? 'Só na Conta Azul'
+                          : 'Só no ERP';
+                  return (
+                    <li key={`${row.cnpj}-${idx}`}>
+                      <span className="font-semibold">{label}</span>
+                      {row.cnpj ? ` · ${row.cnpj}` : ''}
+                      {row.tipo === 'nome' || row.tipo === 'endereco'
+                        ? `: ${before} → ${after}`
+                        : row.caName || row.erpName
+                          ? `: ${row.caName || row.erpName}`
+                          : ''}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--fin-text-secondary)]">
+                Nenhum exemplo de divergência neste preview.
+              </p>
+            )}
+          </div>
+        ) : null}
+        {caPreviewKind === 'vendas' && vendasPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>
+              <strong>{vendasPreview.vinculados}</strong> vínculos claros em{' '}
+              {vendasPreview.vendas} vendas × {vendasPreview.pedidos} pedidos.{' '}
+              <strong>{vendasPreview.semCorrespondencia}</strong> sem
+              correspondência.
+            </p>
+            {vendasPreview.previewClaros.length > 0 ? (
+              <ul className="space-y-1.5 text-xs">
+                {vendasPreview.previewClaros.map((row) => (
+                  <li key={`${row.orderCode}-${row.vendaNumero ?? ''}`}>
+                    Pedido {row.orderCode}
+                    {row.externalOrderNumber
+                      ? ` (${row.externalOrderNumber})`
+                      : ''}{' '}
+                    ← venda {row.vendaNumero ?? '—'} ({row.reason})
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {vendasPreview.previewSemMatch.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Sem correspondência (amostra)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {vendasPreview.previewSemMatch.map((row, idx) => (
+                    <li key={`${row.vendaNumero ?? 'v'}-${idx}`}>
+                      Venda {row.vendaNumero ?? '—'}
+                      {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
+                      {row.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </CaPreviewModal>
 
       {exportError ? (
         <p className="shrink-0 text-sm text-[var(--fin-danger)]" role="alert">

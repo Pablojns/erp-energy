@@ -1,5 +1,6 @@
 import {
   detectCaNfFile,
+  invoiceDescricaoMatchPattern,
   nfNumberKey,
   nfeDownloadFilename,
   tituloMatchesInvoiceNumber,
@@ -24,6 +25,25 @@ describe('conta-azul.nfe-download', () => {
         '2070',
       ),
     ).toBe(false);
+    expect(
+      tituloMatchesInvoiceNumber(
+        { numero: null, descricao: 'Venda 4519082159 / NF-e:2070' },
+        '2159',
+      ),
+    ).toBe(false);
+    expect(
+      tituloMatchesInvoiceNumber(
+        { numero: null, descricao: 'Venda 4519 / NF-e:2159' },
+        '2159',
+      ),
+    ).toBe(true);
+  });
+
+  it('monta padrão POSIX da descrição com o número da NF', () => {
+    const pattern = invoiceDescricaoMatchPattern('2159');
+    expect(pattern).toContain('2159');
+    expect(pattern).toContain('nf');
+    expect(invoiceDescricaoMatchPattern('abc')).toBeNull();
   });
 
   it('detecta XML, ZIP e PDF pelo conteúdo', () => {
