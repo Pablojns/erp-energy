@@ -52,6 +52,7 @@ import { PedidosService } from './pedidos.service';
 import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
 import { AuditService } from '../common/audit.service';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
+import { ContaAzulIntegrationService } from '../financeiro/conta-azul-integration.service';
 
 @Controller('api/pedidos')
 @UseGuards(JwtGuard)
@@ -65,6 +66,7 @@ export class PedidosController {
     private readonly nfQueueService: NfQueueService,
     private readonly nfLoteService: NfLoteService,
     private readonly audit: AuditService,
+    private readonly contaAzul: ContaAzulIntegrationService,
   ) {}
 
   /**
@@ -516,6 +518,23 @@ export class PedidosController {
   @Get('nf-fila')
   async listarFila() {
     return this.nfQueueService.listarJobs();
+  }
+
+  @Get(':numeroPed/nota-fiscal')
+  async notaFiscal(
+    @Param('numeroPed') numeroPed: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const order = await this.pedidos.findByNumeroPed(numeroPed);
+    const invoiceNumber =
+      typeof order.invoiceNumber === 'string' ? order.invoiceNumber : '';
+    const { buffer, contentType, filename } =
+      await this.contaAzul.downloadNotaFiscal(invoiceNumber);
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(buffer);
   }
 
   @Get(':numeroPed/etiqueta')

@@ -4,6 +4,7 @@ import { CorreiosModule } from '../correios/correios.module';
 import { AuditService } from '../common/audit.service';
 import { PermissionsModule } from '../common/permissions/permissions.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { StockModule } from '../stock/stock.module';
 import { OrderController } from './order.controller';
 import { OrderImportService } from './order-import.service';
@@ -19,7 +20,14 @@ import { PedidosService } from './pedidos.service';
 import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule, StockModule, PermissionsModule, CorreiosModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    StockModule,
+    PermissionsModule,
+    CorreiosModule,
+    FinanceiroModule,
+  ],
   controllers: [OrderController, PedidosController, PedidosImportController],
   providers: [
     OrderService,

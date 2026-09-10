@@ -108,6 +108,21 @@ describe('conta-azul.titulos', () => {
     expect(extractDocumentoNumero({ descricao: 'FACEBOOK ADS' })).toBeNull();
   });
 
+  it('extrai nomes de categoria e centro de custo do payload', () => {
+    const t = mapContaAzulReceber({
+      id: 'rec-cat',
+      descricao: 'Venda com rateio',
+      status_traduzido: 'EM_ABERTO',
+      total: 10,
+      nao_pago: 10,
+      data_vencimento: '2026-09-20',
+      categorias: [{ nome: 'Vendas de produtos' }, { nome: 'Serviços' }],
+      centros_de_custo: [{ nome: 'Comercial', codigo: '010' }],
+    });
+    expect(t?.categoria).toBe('Vendas de produtos | Serviços');
+    expect(t?.centroCusto).toBe('Comercial');
+  });
+
   it('preenche numero no calendário a partir da descrição já sincronizada', () => {
     const rec = tituloFromDbRow({
       contaAzulId: 'r-2170',

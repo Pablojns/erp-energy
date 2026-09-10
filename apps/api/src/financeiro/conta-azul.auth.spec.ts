@@ -1,9 +1,12 @@
 import {
   basicAuthHeader,
   buildContaAzulAuthorizeUrl,
+  decideAfterInvalidGrant,
   expiryFromExpiresIn,
+  fromDbSessionTimestamp,
   invoiceDigits,
   isAccessTokenExpired,
+  isContaAzulInvalidGrant,
   objectKeys,
 } from './conta-azul.auth';
 
@@ -45,6 +48,14 @@ describe('conta-azul.auth', () => {
     );
   });
 
+  it('reinterpreta TIMESTAMP sem fuso no timezone do processo', () => {
+    const naive = new Date('2026-09-10T18:30:00.000Z');
+    const instant = fromDbSessionTimestamp(naive);
+    expect(instant.getTime()).toBe(
+      naive.getTime() - naive.getTimezoneOffset() * 60_000,
+    );
+  });
+
   it('normaliza número da NF só com dígitos', () => {
     expect(invoiceDigits('NF-2.040')).toBe('2040');
     expect(invoiceDigits(1936)).toBe('1936');
@@ -52,5 +63,64 @@ describe('conta-azul.auth', () => {
 
   it('lista chaves de um objeto de resposta', () => {
     expect(objectKeys({ b: 1, a: 2 })).toEqual(['a', 'b']);
+  });
+
+  it('detecta invalid_grant em corpo OAuth e em Error envelopado', () => {
+    expect(isContaAzulInvalidGrant({ error: 'invalid_grant' })).toBe(true);
+    expect(
+      isContaAzulInvalidGrant(
+        new Error('Falha OAuth Conta Azul: invalid_grant'),
+      ),
+    ).toBe(true);
+    expect(isContaAzulInvalidGrant('network timeout')).toBe(false);
+  });
+
+  it('após invalid_grant reusa o access do banco se outra instância já renovou', () => {
+    const now = new Date('2026-09-10T12:00:00.000Z');
+    expect(
+      decideAfterInvalidGrant({
+        usedRefreshToken: 'old',
+        loaded: {
+          refreshToken: 'new',
+          expiresAt: new Date('2026-09-10T13:00:00.000Z'),
+        },
+        now,
+      }),
+    ).toBe('use_session');
+  });
+
+  it('após invalid_grant tenta o refresh_token novo se o access já expirou', () => {
+    const now = new Date('2026-09-10T12:00:00.000Z');
+    expect(
+      decideAfterInvalidGrant({
+        usedRefreshToken: 'old',
+        loaded: {
+          refreshToken: 'new',
+          expiresAt: new Date('2026-09-10T12:00:30.000Z'),
+        },
+        now,
+      }),
+    ).toBe('retry_refresh');
+  });
+
+  it('após invalid_grant pede reauth só se o refresh do banco é o mesmo que falhou', () => {
+    const now = new Date('2026-09-10T12:00:00.000Z');
+    expect(
+      decideAfterInvalidGrant({
+        usedRefreshToken: 'old',
+        loaded: {
+          refreshToken: 'old',
+          expiresAt: new Date('2026-09-10T12:00:30.000Z'),
+        },
+        now,
+      }),
+    ).toBe('reauth');
+    expect(
+      decideAfterInvalidGrant({
+        usedRefreshToken: 'old',
+        loaded: null,
+        now,
+      }),
+    ).toBe('reauth');
   });
 });

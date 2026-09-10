@@ -1,0 +1,1 @@
+ALTER TABLE "ContaAzulSession" ADD COLUMN IF NOT EXISTS "refreshLockUntil" TIMESTAMP(3);

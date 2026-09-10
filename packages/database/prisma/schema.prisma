@@ -338,6 +338,8 @@ model Order {
   priority                Int                 @default(3)
   mercadoEletronicoStatus String?
   contaAzulStatus         String?
+  /// UUID da venda na Conta Azul quando o match é inequívoco
+  contaAzulVendaId        String?             @unique
   invoiceNumber           String?
   invoiceStatus           InvoiceStatus       @default(NOT_FOUND)
   orderDate               DateTime?
@@ -1373,6 +1375,8 @@ model ContaAzulSession {
   expiresAt     DateTime
   lastSyncAt    DateTime?
   lastSyncError String?
+  /// Lease para serializar refresh rotativo entre processos (PM2/restart).
+  refreshLockUntil DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -1394,6 +1398,8 @@ model ContaAzulTitulo {
   competencia  DateTime?
   status       String
   pago         Boolean  @default(false)
+  categoria    String?
+  centroCusto  String?
   syncedAt     DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -1401,6 +1407,61 @@ model ContaAzulTitulo {
   @@index([tipo, vencimento])
   @@index([pago, vencimento])
   @@index([tipo, pago])
+}
+
+/// Pessoas (clientes/fornecedores) sincronizadas da Conta Azul.
+model ContaAzulPessoa {
+  id               String   @id @default(uuid()) @db.Uuid
+  contaAzulId      String   @unique
+  documento        String
+  documentoDigits  String
+  nome             String
+  tipoPessoa       String?
+  perfis           String   @default("")
+  cep              String?
+  logradouro       String?
+  numero           String?
+  complemento      String?
+  bairro           String?
+  cidade           String?
+  uf               String?
+  enderecoJson     String?
+  ativo            Boolean  @default(true)
+  syncedAt         DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([documentoDigits])
+  @@index([nome])
+}
+
+/// Catálogo de categorias financeiras da Conta Azul.
+model ContaAzulCategoria {
+  id          String   @id @default(uuid()) @db.Uuid
+  contaAzulId String   @unique
+  nome        String
+  paiId       String?
+  ativo       Boolean  @default(true)
+  syncedAt    DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([nome])
+}
+
+/// Catálogo de centros de custo da Conta Azul.
+model ContaAzulCentroCusto {
+  id          String   @id @default(uuid()) @db.Uuid
+  contaAzulId String   @unique
+  codigo      String?
+  nome        String
+  ativo       Boolean  @default(true)
+  syncedAt    DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([nome])
+  @@index([codigo])
 }
 
 /// Opções de gravação do catálogo SPOT (por SKU).

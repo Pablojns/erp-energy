@@ -15,13 +15,17 @@ import {
   CONTA_AZUL_API_BASE,
   CONTA_AZUL_API_TOKEN,
   CONTA_AZUL_AUTH_TOKEN,
+  CONTA_AZUL_REAUTH_MESSAGE,
   CONTA_AZUL_SESSION_ID,
   basicAuthHeader,
   buildContaAzulAuthorizeUrl,
+  decideAfterInvalidGrant,
   expiryFromExpiresIn,
   firstArrayItem,
+  fromDbSessionTimestamp,
   invoiceDigits,
   isAccessTokenExpired,
+  isContaAzulInvalidGrant,
   newOauthState,
   objectKeys,
   type ContaAzulTokenResponse,
@@ -39,6 +43,33 @@ import {
   tituloFromDbRow,
   type CaTitulo,
 } from './conta-azul.titulos';
+import {
+  CA_NF_NOT_SYNCED_MESSAGE,
+  detectCaNfFile,
+  nfNumberKey,
+  nfeDownloadFilename,
+  tituloMatchesInvoiceNumber,
+} from './conta-azul.nfe-download';
+import {
+  documentDigits,
+  mapContaAzulPessoa,
+  planPessoasDivergencias,
+  type CaPessoa,
+  type ErpPartyInput,
+  type PessoaDivergence,
+} from './conta-azul.pessoas';
+import {
+  mapContaAzulCategoria,
+  mapContaAzulCentroCusto,
+  type CaCatalogoItem,
+} from './conta-azul.catalogos';
+import {
+  mapContaAzulVenda,
+  planVendaVinculos,
+  type CaVenda,
+  type VendaSemMatch,
+  type VendaVinculoPreview,
+} from './conta-azul.vendas';
 
 type StoredSession = {
   accessToken: string;
@@ -191,10 +222,18 @@ export const CONTA_AZUL_DOCUMENTED_ENDPOINTS = {
     list: 'GET /v1/pessoas',
     byId: 'GET /v1/pessoas/{id}',
     contaConectada: 'GET /v1/pessoas/conta-conectada',
-    responseListDocs: ['documento', 'nome', 'ativo', 'data_criacao'],
+    responseListDocs: [
+      'id',
+      'documento',
+      'nome',
+      'ativo',
+      'perfis',
+      'endereco (cep, logradouro, numero, complemento, bairro, cidade, estado)',
+    ],
     realApiNotes: [
       'Listagem real usa items/totalItems (inglês), não itens/itens_totais.',
       'conta-conectada devolve id_empresa, razao_social, nome_fantasia, documento, email.',
+      'Detalhe GET /v1/pessoas/{id} pode trazer enderecos[] e nome_empresa; usado só quando o CNPJ casa com pedido/cliente sem endereço na listagem.',
     ],
   },
   categorias: {
@@ -269,6 +308,7 @@ export class ContaAzulIntegrationService {
   >();
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
   private refreshInFlight: Promise<StoredSession> | null = null;
+  private refreshLockColumnAvailable = true;
 
   constructor(
     private readonly config: ConfigService,
@@ -402,6 +442,353 @@ export class ContaAzulIntegrationService {
       );
     }
     return this.toSyncJobPublic(job);
+  }
+
+  /**
+   * P0: pessoas + catálogos + amostra de categoria/centro nos títulos.
+   * Dry-run só reporta. Apply grava espelhos Conta Azul — não sobrescreve cadastro ERP.
+   */
+  async sincronizarCadastros(options: {
+    apply: boolean;
+    previewLimit?: number;
+  }): Promise<{
+    ok: true;
+    apply: boolean;
+    applied: boolean;
+    pessoas: {
+      mapeadas: number;
+      comEndereco: number;
+      detalhesBuscados: number;
+    };
+    cadastrosErp: {
+      customers: number;
+      suppliers: number;
+      carriers: number;
+    };
+    divergencias: {
+      nome: number;
+      endereco: number;
+      soNaContaAzul: number;
+      soNoErp: number;
+      preview: PessoaDivergence[];
+    };
+    catalogos: { categorias: number; centrosCusto: number };
+    titulosAmostra: {
+      total: number;
+      comCategoria: number;
+      comCentroCusto: number;
+    };
+    appliedCounts?: {
+      pessoasGravadas: number;
+      categoriasGravadas: number;
+      centrosGravados: number;
+    };
+    message: string;
+  }> {
+    this.ensureConfigured();
+    const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 20));
+    const [customers, suppliers, carriers] = await Promise.all([
+      this.prisma.client.customer.findMany({
+        select: { id: true, name: true, document: true, deliveryAddress: true },
+      }),
+      this.prisma.client.supplier.findMany({
+        select: { id: true, name: true, document: true },
+      }),
+      this.prisma.client.carrier.findMany({
+        select: {
+          id: true,
+          name: true,
+          document: true,
+          deliveryAddress: true,
+          documents: { select: { document: true } },
+        },
+      }),
+    ]);
+
+    const parties: ErpPartyInput[] = [
+      ...customers.map((row) => ({
+        kind: 'CUSTOMER' as const,
+        id: row.id,
+        name: row.name,
+        document: row.document,
+        deliveryAddress: row.deliveryAddress,
+      })),
+      ...suppliers.map((row) => ({
+        kind: 'SUPPLIER' as const,
+        id: row.id,
+        name: row.name,
+        document: row.document,
+      })),
+      ...carriers.map((row) => ({
+        kind: 'CARRIER' as const,
+        id: row.id,
+        name: row.name,
+        document: row.document,
+        extraDocuments: row.documents.map((d) => d.document),
+        deliveryAddress: row.deliveryAddress,
+      })),
+    ];
+
+    const neededDigits = new Set<string>();
+    for (const party of parties) {
+      const d = documentDigits(party.document);
+      if (d.length >= 11) neededDigits.add(d);
+      for (const extra of party.extraDocuments ?? []) {
+        const x = documentDigits(extra);
+        if (x.length >= 11) neededDigits.add(x);
+      }
+    }
+
+    const listed = await this.listAllPessoas();
+    const { pessoas, detalhesBuscados } = await this.enrichPessoasAddresses(
+      listed,
+      neededDigits,
+    );
+    const plan = planPessoasDivergencias({ pessoas, parties });
+    let categorias: CaCatalogoItem[] = [];
+    let centros: CaCatalogoItem[] = [];
+    try {
+      categorias = await this.listCatalogo('/v1/categorias', mapContaAzulCategoria, {
+        permite_apenas_filhos: false,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `GET /v1/categorias: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
+      centros = await this.listCatalogo(
+        '/v1/centro-de-custo',
+        mapContaAzulCentroCusto,
+        { filtro_rapido: 'TODOS' },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `GET /v1/centro-de-custo: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      try {
+        centros = await this.listCatalogo(
+          '/v1/centro-de-custo',
+          mapContaAzulCentroCusto,
+        );
+      } catch (err2) {
+        this.logger.warn(
+          `GET /v1/centro-de-custo retry: ${err2 instanceof Error ? err2.message : String(err2)}`,
+        );
+      }
+    }
+
+    const today = new Date();
+    const amostraTitulos = await this.listFinanceiroTitulos(
+      '/v1/financeiro/eventos-financeiros/contas-a-receber/buscar',
+      this.ymd(this.addUtcDays(today, -62)),
+      this.ymd(today),
+      'receber',
+    );
+    const amostraPagar = await this.listFinanceiroTitulos(
+      '/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar',
+      this.ymd(this.addUtcDays(today, -62)),
+      this.ymd(today),
+      'pagar',
+    );
+    const titulosAmostra = [...amostraTitulos, ...amostraPagar];
+
+    const byTipo = (tipo: PessoaDivergence['tipo']) =>
+      plan.divergencias.filter((d) => d.tipo === tipo);
+    const preview = [
+      ...byTipo('nome'),
+      ...byTipo('endereco'),
+      ...byTipo('so_conta_azul'),
+      ...byTipo('so_erp'),
+    ].slice(0, previewLimit);
+
+    const report = {
+      ok: true as const,
+      pessoas: {
+        mapeadas: pessoas.length,
+        comEndereco: pessoas.filter((p) => Boolean(p.endereco)).length,
+        detalhesBuscados,
+      },
+      cadastrosErp: {
+        customers: customers.length,
+        suppliers: suppliers.length,
+        carriers: carriers.length,
+      },
+      divergencias: {
+        nome: byTipo('nome').length,
+        endereco: byTipo('endereco').length,
+        soNaContaAzul: byTipo('so_conta_azul').length,
+        soNoErp: byTipo('so_erp').length,
+        preview,
+      },
+      catalogos: {
+        categorias: categorias.length,
+        centrosCusto: centros.length,
+      },
+      titulosAmostra: {
+        total: titulosAmostra.length,
+        comCategoria: titulosAmostra.filter((t) => Boolean(t.categoria)).length,
+        comCentroCusto: titulosAmostra.filter((t) => Boolean(t.centroCusto)).length,
+      },
+    };
+
+    if (!options.apply) {
+      return {
+        ...report,
+        apply: false,
+        applied: false,
+        message:
+          'Dry-run P0: nenhum cadastro do ERP foi alterado. apply=true só grava espelhos Conta Azul (pessoas/catálogos).',
+      };
+    }
+
+    const pessoasGravadas = await this.replacePessoas(pessoas);
+    const categoriasGravadas = await this.replaceCatalogo(
+      'ContaAzulCategoria',
+      categorias,
+    );
+    const centrosGravados = await this.replaceCatalogo(
+      'ContaAzulCentroCusto',
+      centros,
+    );
+    this.logger.log(
+      `Conta Azul P0 apply: ${pessoasGravadas} pessoas, ${categoriasGravadas} categorias, ${centrosGravados} centros.`,
+    );
+    return {
+      ...report,
+      apply: true,
+      applied: true,
+      appliedCounts: {
+        pessoasGravadas,
+        categoriasGravadas,
+        centrosGravados,
+      },
+      message:
+        'Aplicado P0: espelhos gravados. Customer/Supplier/Carrier do ERP não foram sobrescritos.',
+    };
+  }
+
+  /**
+   * P1: GET /v1/venda/busca cruzado com pedidos do ERP.
+   * Apply só preenche Order.contaAzulVendaId em matches claros.
+   */
+  async sincronizarVendas(options: {
+    apply: boolean;
+    previewLimit?: number;
+  }): Promise<{
+    ok: true;
+    apply: boolean;
+    applied: boolean;
+    vendas: number;
+    pedidos: number;
+    vinculados: number;
+    semCorrespondencia: number;
+    jaVinculados: number;
+    porRazao: Record<string, number>;
+    previewClaros: VendaVinculoPreview[];
+    previewSemMatch: VendaSemMatch[];
+    appliedCounts?: { pedidosVinculados: number };
+    message: string;
+  }> {
+    this.ensureConfigured();
+    const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 20));
+    const [orderRows, pessoas] = await Promise.all([
+      this.prisma.client.order.findMany({
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          customerDocument: true,
+          deliveryCnpj: true,
+          total: true,
+          totalValue: true,
+          status: true,
+        },
+      }),
+      this.listAllPessoas(),
+    ]);
+    const linkedRows = await this.prisma.client.$queryRaw<
+      Array<{ id: string; contaAzulVendaId: string | null }>
+    >`SELECT id::text AS id, "contaAzulVendaId" FROM "Order"`;
+    const linkedById = new Map(
+      linkedRows.map((row) => [row.id, row.contaAzulVendaId]),
+    );
+    const orders = orderRows.map((o) => ({
+      ...o,
+      contaAzulVendaId: linkedById.get(o.id) ?? null,
+    }));
+    const pessoaById = new Map(pessoas.map((p) => [p.contaAzulId, p]));
+    const today = new Date();
+    const dataFinal = this.ymd(today);
+    const dataInicial = await this.findHistoryStart(today);
+    const vendasRaw = await this.listAllVendas(dataInicial, dataFinal);
+    const vendas: CaVenda[] = vendasRaw.map((v) => {
+      if (v.clienteDocumento || !v.clienteId) return v;
+      const pessoa = pessoaById.get(v.clienteId);
+      return pessoa
+        ? { ...v, clienteDocumento: pessoa.documento }
+        : v;
+    });
+
+    const plan = planVendaVinculos({
+      vendas,
+      orders: orders.map((o) => ({
+        id: o.id,
+        code: o.code,
+        externalOrderNumber: o.externalOrderNumber,
+        customerDocument: o.customerDocument,
+        deliveryCnpj: o.deliveryCnpj,
+        total: Number(o.totalValue ?? o.total) || 0,
+        status: String(o.status),
+        contaAzulVendaId: o.contaAzulVendaId,
+      })),
+    });
+
+    const porRazao: Record<string, number> = {};
+    for (const row of plan.claros) {
+      porRazao[row.reason] = (porRazao[row.reason] ?? 0) + 1;
+    }
+
+    const jaVinculados = orders.filter((o) => Boolean(o.contaAzulVendaId)).length;
+    const report = {
+      ok: true as const,
+      vendas: vendas.length,
+      pedidos: orders.length,
+      vinculados: plan.claros.length,
+      semCorrespondencia: plan.semCorrespondencia.length,
+      jaVinculados,
+      porRazao,
+      previewClaros: plan.claros.slice(0, previewLimit),
+      previewSemMatch: plan.semCorrespondencia.slice(0, previewLimit),
+    };
+
+    if (!options.apply) {
+      return {
+        ...report,
+        apply: false,
+        applied: false,
+        message:
+          'Dry-run P1: nenhum pedido foi vinculado. apply=true grava Order.contaAzulVendaId só nos matches claros.',
+      };
+    }
+
+    let pedidosVinculados = 0;
+    for (const row of plan.claros) {
+      await this.prisma.client.$executeRaw`
+        UPDATE "Order"
+        SET "contaAzulVendaId" = ${row.vendaId}, "updatedAt" = NOW()
+        WHERE id = CAST(${row.orderId} AS UUID)
+          AND ("contaAzulVendaId" IS NULL OR "contaAzulVendaId" = ${row.vendaId})
+      `;
+      pedidosVinculados += 1;
+    }
+    return {
+      ...report,
+      apply: true,
+      applied: true,
+      appliedCounts: { pedidosVinculados },
+      message: `Aplicado P1: ${pedidosVinculados} pedido(s) vinculados à venda da Conta Azul.`,
+    };
   }
 
   private toSyncJobPublic(job: CaSyncJobInternal): CaSyncJobState {
@@ -563,6 +950,53 @@ export class ContaAzulIntegrationService {
       year: y,
       month: m,
       days: groupTitulosByDay(titulos),
+    };
+  }
+
+  /**
+   * XML (ou ZIP com CC-e) da NF-e na Conta Azul.
+   * A API v2 não oferece DANFE/PDF neste endpoint — confirmado na conta real.
+   */
+  async downloadNotaFiscal(invoiceNumber: string): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    filename: string;
+  }> {
+    const numero = nfNumberKey(invoiceNumber);
+    if (!numero) {
+      throw new BadRequestException(
+        'Informe o número da Nota de Venda (NF) para baixar o arquivo.',
+      );
+    }
+    const titulo = await this.findSyncedTituloByInvoice(numero);
+    if (!titulo) {
+      throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
+    }
+    const around = titulo.competencia ?? titulo.vencimento;
+    const chave = await this.resolveChaveAcesso(numero, around);
+    if (!chave) {
+      throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
+    }
+    let buffer: Buffer;
+    try {
+      buffer = await this.apiGetBuffer(`/v1/notas-fiscais/${chave}`);
+    } catch (err) {
+      const ax = err as AxiosError;
+      if (ax.response?.status === 404) {
+        throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
+      }
+      throw err;
+    }
+    if (!buffer.length) {
+      throw new ServiceUnavailableException(
+        'A Conta Azul devolveu um arquivo vazio para esta nota.',
+      );
+    }
+    const kind = detectCaNfFile(buffer);
+    return {
+      buffer,
+      contentType: 'application/octet-stream',
+      filename: nfeDownloadFilename(numero, kind.ext),
     };
   }
 
@@ -959,6 +1393,244 @@ export class ContaAzulIntegrationService {
     return out;
   }
 
+  private async listAllPessoas(): Promise<CaPessoa[]> {
+    const out: CaPessoa[] = [];
+    const pageSize = 50;
+    let pagina = 1;
+    while (pagina <= 200) {
+      const payload = await this.withRetry(`pessoas p${pagina}`, () =>
+        this.apiGet('/v1/pessoas', {
+          pagina,
+          tamanho_pagina: pageSize,
+        }),
+      );
+      const itens = this.payloadItems(payload);
+      for (const item of itens) {
+        const mapped = mapContaAzulPessoa(item);
+        if (mapped) out.push(mapped);
+      }
+      if (itens.length < pageSize) break;
+      pagina += 1;
+    }
+    return out;
+  }
+
+  private async enrichPessoasAddresses(
+    pessoas: CaPessoa[],
+    neededDigits: Set<string>,
+  ): Promise<{ pessoas: CaPessoa[]; detalhesBuscados: number }> {
+    const out = [...pessoas];
+    let detalhesBuscados = 0;
+    for (let i = 0; i < out.length; i += 1) {
+      const pessoa = out[i];
+      if (!neededDigits.has(pessoa.documentoDigits) || pessoa.endereco) {
+        continue;
+      }
+      try {
+        const detail = await this.withRetry(
+          `pessoa ${pessoa.contaAzulId}`,
+          () => this.apiGet(`/v1/pessoas/${encodeURIComponent(pessoa.contaAzulId)}`),
+        );
+        detalhesBuscados += 1;
+        const rec =
+          detail && typeof detail === 'object' && !Array.isArray(detail)
+            ? (detail as Record<string, unknown>)
+            : null;
+        const mapped = rec ? mapContaAzulPessoa(rec) : null;
+        if (mapped) {
+          out[i] = {
+            ...pessoa,
+            ...mapped,
+            documentoDigits: pessoa.documentoDigits,
+          };
+        }
+      } catch (err) {
+        this.logger.warn(
+          `GET /v1/pessoas/${pessoa.contaAzulId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { pessoas: out, detalhesBuscados };
+  }
+
+  private async replacePessoas(pessoas: CaPessoa[]): Promise<number> {
+    const now = new Date();
+    let saved = 0;
+    for (const p of pessoas) {
+      const id = randomUUID();
+      await this.prisma.client.$executeRaw`
+        INSERT INTO "ContaAzulPessoa" (
+          "id", "contaAzulId", "documento", "documentoDigits", "nome",
+          "tipoPessoa", "perfis", "cep", "logradouro", "numero", "complemento",
+          "bairro", "cidade", "uf", "enderecoJson", "ativo", "syncedAt",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          CAST(${id} AS UUID),
+          ${p.contaAzulId},
+          ${p.documento},
+          ${p.documentoDigits},
+          ${p.nome},
+          ${p.tipoPessoa},
+          ${p.perfis.join(',')},
+          ${p.endereco?.cep ?? null},
+          ${p.endereco?.logradouro ?? null},
+          ${p.endereco?.numero ?? null},
+          ${p.endereco?.complemento ?? null},
+          ${p.endereco?.bairro ?? null},
+          ${p.endereco?.cidade ?? null},
+          ${p.endereco?.uf ?? null},
+          ${p.enderecoJson},
+          ${p.ativo},
+          ${now},
+          ${now},
+          ${now}
+        )
+        ON CONFLICT ("contaAzulId") DO UPDATE SET
+          "documento" = EXCLUDED."documento",
+          "documentoDigits" = EXCLUDED."documentoDigits",
+          "nome" = EXCLUDED."nome",
+          "tipoPessoa" = EXCLUDED."tipoPessoa",
+          "perfis" = EXCLUDED."perfis",
+          "cep" = EXCLUDED."cep",
+          "logradouro" = EXCLUDED."logradouro",
+          "numero" = EXCLUDED."numero",
+          "complemento" = EXCLUDED."complemento",
+          "bairro" = EXCLUDED."bairro",
+          "cidade" = EXCLUDED."cidade",
+          "uf" = EXCLUDED."uf",
+          "enderecoJson" = EXCLUDED."enderecoJson",
+          "ativo" = EXCLUDED."ativo",
+          "syncedAt" = EXCLUDED."syncedAt",
+          "updatedAt" = EXCLUDED."updatedAt"
+      `;
+      saved += 1;
+    }
+    return saved;
+  }
+
+  private async listCatalogo(
+    path: string,
+    mapFn: (item: Record<string, unknown>) => CaCatalogoItem | null,
+    extraParams?: Record<string, string | number | boolean>,
+  ): Promise<CaCatalogoItem[]> {
+    const out: CaCatalogoItem[] = [];
+    const pageSize = 50;
+    let pagina = 1;
+    while (pagina <= 200) {
+      const payload = await this.withRetry(`${path} p${pagina}`, () =>
+        this.apiGet(path, {
+          pagina,
+          tamanho_pagina: pageSize,
+          ...extraParams,
+        }),
+      );
+      const itens = this.payloadItems(payload);
+      for (const item of itens) {
+        const mapped = mapFn(item);
+        if (mapped) out.push(mapped);
+      }
+      if (itens.length < pageSize) break;
+      pagina += 1;
+    }
+    return out;
+  }
+
+  private async replaceCatalogo(
+    table: 'ContaAzulCategoria' | 'ContaAzulCentroCusto',
+    items: CaCatalogoItem[],
+  ): Promise<number> {
+    const now = new Date();
+    let saved = 0;
+    for (const item of items) {
+      const id = randomUUID();
+      if (table === 'ContaAzulCategoria') {
+        await this.prisma.client.$executeRaw`
+          INSERT INTO "ContaAzulCategoria" (
+            "id", "contaAzulId", "nome", "paiId", "ativo",
+            "syncedAt", "createdAt", "updatedAt"
+          ) VALUES (
+            CAST(${id} AS UUID),
+            ${item.contaAzulId},
+            ${item.nome},
+            ${item.paiId},
+            ${item.ativo},
+            ${now},
+            ${now},
+            ${now}
+          )
+          ON CONFLICT ("contaAzulId") DO UPDATE SET
+            "nome" = EXCLUDED."nome",
+            "paiId" = EXCLUDED."paiId",
+            "ativo" = EXCLUDED."ativo",
+            "syncedAt" = EXCLUDED."syncedAt",
+            "updatedAt" = EXCLUDED."updatedAt"
+        `;
+      } else {
+        await this.prisma.client.$executeRaw`
+          INSERT INTO "ContaAzulCentroCusto" (
+            "id", "contaAzulId", "codigo", "nome", "ativo",
+            "syncedAt", "createdAt", "updatedAt"
+          ) VALUES (
+            CAST(${id} AS UUID),
+            ${item.contaAzulId},
+            ${item.codigo},
+            ${item.nome},
+            ${item.ativo},
+            ${now},
+            ${now},
+            ${now}
+          )
+          ON CONFLICT ("contaAzulId") DO UPDATE SET
+            "codigo" = EXCLUDED."codigo",
+            "nome" = EXCLUDED."nome",
+            "ativo" = EXCLUDED."ativo",
+            "syncedAt" = EXCLUDED."syncedAt",
+            "updatedAt" = EXCLUDED."updatedAt"
+        `;
+      }
+      saved += 1;
+    }
+    return saved;
+  }
+
+  private async listAllVendas(
+    dataInicial: string,
+    dataFinal: string,
+  ): Promise<CaVenda[]> {
+    const out: CaVenda[] = [];
+    const pageSize = 50;
+    for (const window of this.dateWindows(dataInicial, dataFinal, 90)) {
+      let pagina = 1;
+      while (pagina <= 200) {
+        try {
+          const payload = await this.withRetry(
+            `vendas ${window.start} p${pagina}`,
+            () =>
+              this.apiGet('/v1/venda/busca', {
+                pagina,
+                tamanho_pagina: pageSize,
+                data_inicio: window.start,
+                data_fim: window.end,
+              }),
+          );
+          const itens = this.payloadItems(payload);
+          for (const item of itens) {
+            const mapped = mapContaAzulVenda(item);
+            if (mapped) out.push(mapped);
+          }
+          if (itens.length < pageSize) break;
+          pagina += 1;
+        } catch (err) {
+          this.logger.warn(
+            `vendas ${window.start}..${window.end} p${pagina}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   private dateWindows(
     startYmd: string,
     endYmd: string,
@@ -1040,7 +1712,8 @@ export class ContaAzulIntegrationService {
         INSERT INTO "ContaAzulTitulo" (
           "id", "contaAzulId", "tipo", "origem", "numero", "descricao",
           "contraParte", "documento", "valor", "valorPago", "valorAberto",
-          "vencimento", "competencia", "status", "pago", "syncedAt",
+          "vencimento", "competencia", "status", "pago", "categoria",
+          "centroCusto", "syncedAt",
           "createdAt", "updatedAt"
         ) VALUES (
           CAST(${id} AS UUID),
@@ -1058,6 +1731,8 @@ export class ContaAzulIntegrationService {
           ${t.competencia},
           ${t.status},
           ${t.pago},
+          ${t.categoria},
+          ${t.centroCusto},
           ${now},
           ${now},
           ${now}
@@ -1361,6 +2036,94 @@ export class ContaAzulIntegrationService {
     }
   }
 
+  private async findSyncedTituloByInvoice(
+    numero: string,
+  ): Promise<CaTitulo | null> {
+    const like = `%${numero}%`;
+    try {
+      const rows = await this.prisma.client.$queryRaw<StoredTituloRow[]>`
+        SELECT * FROM "ContaAzulTitulo"
+        WHERE "tipo" = 'RECEBER'
+          AND (
+            "numero" = ${numero}
+            OR "descricao" ILIKE ${like}
+          )
+        LIMIT 50
+      `;
+      return (
+        rows.map(rowToTitulo).find((t) => tituloMatchesInvoiceNumber(t, numero)) ??
+        null
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Busca de título por NF falhou: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  private async resolveChaveAcesso(
+    numero: string,
+    around: Date,
+  ): Promise<string | null> {
+    const nota = Number(numero);
+    for (const window of this.nfeLookupWindows(around)) {
+      const payload = (await this.apiGet('/v1/notas-fiscais', {
+        pagina: 1,
+        tamanho_pagina: 50,
+        numero_nota: Number.isFinite(nota) ? nota : numero,
+        data_inicial: window.start,
+        data_final: window.end,
+      })) as Record<string, unknown>;
+      const itens = Array.isArray(payload.itens)
+        ? payload.itens
+        : Array.isArray(payload.items)
+          ? payload.items
+          : [];
+      for (const raw of itens) {
+        if (!raw || typeof raw !== 'object') continue;
+        const item = raw as Record<string, unknown>;
+        const rawNumero = item.numero_nota ?? item.numero;
+        const itemNumero =
+          typeof rawNumero === 'string' || typeof rawNumero === 'number'
+            ? rawNumero
+            : null;
+        if (nfNumberKey(itemNumero) !== numero) continue;
+        const chave = String(item.chave_acesso ?? '').replace(/\D/g, '');
+        if (chave.length === 44) return chave;
+      }
+    }
+    return null;
+  }
+
+  /** Janela de 15 dias centrada na competência, mais vizinhas (±15d). */
+  private nfeLookupWindows(
+    around: Date,
+  ): Array<{ start: string; end: string }> {
+    const center = new Date(
+      Date.UTC(
+        around.getUTCFullYear(),
+        around.getUTCMonth(),
+        around.getUTCDate(),
+        12,
+        0,
+        0,
+        0,
+      ),
+    );
+    const windows: Array<{ start: string; end: string }> = [];
+    for (const shiftDays of [0, -15, 15]) {
+      const mid = new Date(center);
+      mid.setUTCDate(mid.getUTCDate() + shiftDays);
+      const start = new Date(mid);
+      start.setUTCDate(start.getUTCDate() - 7);
+      const end = new Date(mid);
+      end.setUTCDate(end.getUTCDate() + 7);
+      windows.push({ start: this.ymd(start), end: this.ymd(end) });
+    }
+    return windows;
+  }
+
   private async apiGet(
     path: string,
     params?: Record<string, string | number | boolean>,
@@ -1371,7 +2134,10 @@ export class ContaAzulIntegrationService {
     } catch (err) {
       const ax = err as AxiosError;
       if (ax.response?.status !== 401) throw err;
-      const refreshed = await this.refreshStoredToken();
+      const refreshed = await this.refreshStoredToken({
+        force: true,
+        rejectAccessToken: token,
+      });
       return this.rawGet(path, refreshed.accessToken, params);
     }
   }
@@ -1389,6 +2155,32 @@ export class ContaAzulIntegrationService {
       validateStatus: (s) => s >= 200 && s < 300,
     });
     return res.data;
+  }
+
+  private async apiGetBuffer(path: string): Promise<Buffer> {
+    const token = await this.getValidAccessToken();
+    try {
+      return await this.rawGetBuffer(path, token);
+    } catch (err) {
+      const ax = err as AxiosError;
+      if (ax.response?.status !== 401) throw err;
+      const refreshed = await this.refreshStoredToken({
+        force: true,
+        rejectAccessToken: token,
+      });
+      return this.rawGetBuffer(path, refreshed.accessToken);
+    }
+  }
+
+  private async rawGetBuffer(path: string, accessToken: string): Promise<Buffer> {
+    const url = `${CONTA_AZUL_API_BASE}${path}`;
+    const res = await axios.get<ArrayBuffer>(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 45_000,
+      responseType: 'arraybuffer',
+      validateStatus: (s) => s >= 200 && s < 300,
+    });
+    return Buffer.from(res.data);
   }
 
   private async probeWrite(
@@ -1434,7 +2226,10 @@ export class ContaAzulIntegrationService {
     } catch (err) {
       const ax = err as AxiosError;
       if (ax.response?.status !== 401) throw err;
-      const refreshed = await this.refreshStoredToken();
+      const refreshed = await this.refreshStoredToken({
+        force: true,
+        rejectAccessToken: token,
+      });
       return this.rawSend(method, path, refreshed.accessToken, body);
     }
   }
@@ -1501,42 +2296,189 @@ export class ContaAzulIntegrationService {
     if (!isAccessTokenExpired(session.expiresAt)) {
       return session.accessToken;
     }
-    const refreshed = await this.refreshStoredToken(session);
+    const refreshed = await this.refreshStoredToken();
     return refreshed.accessToken;
   }
 
-  private async refreshStoredToken(
-    current?: StoredSession | null,
-  ): Promise<StoredSession> {
+  private async refreshStoredToken(opts?: {
+    force?: boolean;
+    rejectAccessToken?: string;
+  }): Promise<StoredSession> {
     if (this.refreshInFlight) return this.refreshInFlight;
-    this.refreshInFlight = this.doRefreshStoredToken(current).finally(() => {
+    this.refreshInFlight = this.doRefreshStoredToken(opts).finally(() => {
       this.refreshInFlight = null;
     });
     return this.refreshInFlight;
   }
 
-  private async doRefreshStoredToken(
-    current?: StoredSession | null,
-  ): Promise<StoredSession> {
-    const session = current ?? (await this.loadSession());
+  private canReuseAccess(
+    session: StoredSession,
+    opts?: { force?: boolean; rejectAccessToken?: string },
+  ): boolean {
+    if (
+      opts?.force &&
+      opts.rejectAccessToken &&
+      session.accessToken === opts.rejectAccessToken
+    ) {
+      return false;
+    }
+    return !isAccessTokenExpired(session.expiresAt);
+  }
+
+  private async doRefreshStoredToken(opts?: {
+    force?: boolean;
+    rejectAccessToken?: string;
+  }): Promise<StoredSession> {
+    const deadline = Date.now() + 20_000;
+    let locked = false;
+    while (Date.now() < deadline) {
+      const waiting = await this.loadSession();
+      if (!waiting?.refreshToken) {
+        throw new BadRequestException(
+          'Sem refresh_token. Refaça o fluxo OAuth da Conta Azul.',
+        );
+      }
+      if (this.canReuseAccess(waiting, opts)) {
+        return waiting;
+      }
+      locked = await this.tryAcquireRefreshLock();
+      if (locked) break;
+      await this.sleep(150);
+    }
+    if (!locked) {
+      const fallback = await this.loadSession();
+      if (fallback && this.canReuseAccess(fallback, opts)) return fallback;
+      throw new ServiceUnavailableException(
+        'Timeout ao renovar token da Conta Azul (outra renovação em andamento). Tente de novo.',
+      );
+    }
+    try {
+      return await this.refreshWhileHoldingLock(opts);
+    } finally {
+      await this.releaseRefreshLock();
+    }
+  }
+
+  private async refreshWhileHoldingLock(opts?: {
+    force?: boolean;
+    rejectAccessToken?: string;
+  }): Promise<StoredSession> {
+    const session = await this.loadSession();
     if (!session?.refreshToken) {
       throw new BadRequestException(
         'Sem refresh_token. Refaça o fluxo OAuth da Conta Azul.',
       );
     }
+    if (this.canReuseAccess(session, opts)) {
+      return session;
+    }
+    const usedRefresh = session.refreshToken;
     try {
-      const tokens = await this.cognitoRefresh(session.refreshToken);
-      return this.persistSession(tokens, session.refreshToken);
-    } catch (cognitoErr) {
+      const tokens = await this.refreshViaOauthThenCognito(usedRefresh);
+      return await this.persistSession(tokens, usedRefresh);
+    } catch (err) {
+      if (!isContaAzulInvalidGrant(err)) throw err;
+      return this.recoverAfterInvalidGrant(usedRefresh);
+    }
+  }
+
+  private async recoverAfterInvalidGrant(
+    usedRefreshToken: string,
+  ): Promise<StoredSession> {
+    const loaded = await this.loadSession();
+    const action = decideAfterInvalidGrant({
+      usedRefreshToken,
+      loaded,
+    });
+    if (action === 'use_session' && loaded) {
       this.logger.warn(
-        `Refresh Cognito falhou, tentando OAuth: ${cognitoErr instanceof Error ? cognitoErr.message : String(cognitoErr)}`,
+        'Refresh retornou invalid_grant, mas o banco já tem access_token válido (outra instância renovou). Usando o token persistido.',
+      );
+      return loaded;
+    }
+    if (action === 'retry_refresh' && loaded) {
+      this.logger.warn(
+        'Refresh retornou invalid_grant no token antigo; o banco já tem refresh_token novo. Tentando de novo uma vez.',
+      );
+      try {
+        const tokens = await this.refreshViaOauthThenCognito(
+          loaded.refreshToken,
+        );
+        return await this.persistSession(tokens, loaded.refreshToken);
+      } catch (retryErr) {
+        if (!isContaAzulInvalidGrant(retryErr)) throw retryErr;
+      }
+    }
+    this.logger.error(CONTA_AZUL_REAUTH_MESSAGE);
+    throw new BadRequestException(CONTA_AZUL_REAUTH_MESSAGE);
+  }
+
+  private async refreshViaOauthThenCognito(
+    refreshToken: string,
+  ): Promise<ContaAzulTokenResponse> {
+    try {
+      return await this.postToken(
+        { grant_type: 'refresh_token', refresh_token: refreshToken },
+        [CONTA_AZUL_API_TOKEN, CONTA_AZUL_AUTH_TOKEN],
+      );
+    } catch (oauthErr) {
+      if (isContaAzulInvalidGrant(oauthErr)) throw oauthErr;
+      if (!this.testUser()) throw oauthErr;
+      this.logger.warn(
+        `Refresh OAuth falhou, tentando Cognito: ${oauthErr instanceof Error ? oauthErr.message : String(oauthErr)}`,
+      );
+      try {
+        return await this.cognitoRefresh(refreshToken);
+      } catch (cognitoErr) {
+        this.logger.warn(
+          `Refresh Cognito falhou: ${cognitoErr instanceof Error ? cognitoErr.message : String(cognitoErr)}`,
+        );
+        throw oauthErr;
+      }
+    }
+  }
+
+  private async tryAcquireRefreshLock(): Promise<boolean> {
+    if (!this.refreshLockColumnAvailable) return true;
+    try {
+      const n = await this.prisma.client.$executeRaw`
+        UPDATE "ContaAzulSession"
+        SET "refreshLockUntil" = NOW() + INTERVAL '45 seconds',
+            "updatedAt" = NOW()
+        WHERE "id" = ${CONTA_AZUL_SESSION_ID}
+          AND ("refreshLockUntil" IS NULL OR "refreshLockUntil" < NOW())
+      `;
+      return Number(n) > 0;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/refreshLockUntil|does not exist/i.test(msg)) {
+        this.refreshLockColumnAvailable = false;
+        this.logger.warn(
+          'Coluna refreshLockUntil ausente; lock só em memória neste processo.',
+        );
+        return true;
+      }
+      throw err;
+    }
+  }
+
+  private async releaseRefreshLock(): Promise<void> {
+    if (!this.refreshLockColumnAvailable) return;
+    try {
+      await this.prisma.client.$executeRaw`
+        UPDATE "ContaAzulSession"
+        SET "refreshLockUntil" = NULL, "updatedAt" = NOW()
+        WHERE "id" = ${CONTA_AZUL_SESSION_ID}
+      `;
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao liberar lock de refresh Conta Azul: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    const tokens = await this.postToken(
-      { grant_type: 'refresh_token', refresh_token: session.refreshToken },
-      [CONTA_AZUL_API_TOKEN, CONTA_AZUL_AUTH_TOKEN],
-    );
-    return this.persistSession(tokens, session.refreshToken);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private cognitoSecretHash(username: string): string {
@@ -1660,9 +2602,9 @@ export class ContaAzulIntegrationService {
         return res.data;
       } catch (err) {
         lastError = err;
-        this.logger.warn(
-          `Falha no token ${url}: ${this.axiosMessage(err as AxiosError)}`,
-        );
+        const msg = this.axiosMessage(err as AxiosError);
+        this.logger.warn(`Falha no token ${url}: ${msg}`);
+        if (isContaAzulInvalidGrant(err)) break;
       }
     }
     throw new ServiceUnavailableException(
@@ -1685,25 +2627,127 @@ export class ContaAzulIntegrationService {
         'Conta Azul não devolveu refresh_token.',
       );
     }
-    await this.prisma.client.$executeRaw`
-      INSERT INTO "ContaAzulSession" ("id", "accessToken", "refreshToken", "tokenType", "expiresAt", "createdAt", "updatedAt")
-      VALUES (
-        ${CONTA_AZUL_SESSION_ID},
-        ${session.accessToken},
-        ${session.refreshToken},
-        ${session.tokenType},
-        ${session.expiresAt},
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT ("id") DO UPDATE SET
-        "accessToken" = EXCLUDED."accessToken",
-        "refreshToken" = EXCLUDED."refreshToken",
-        "tokenType" = EXCLUDED."tokenType",
-        "expiresAt" = EXCLUDED."expiresAt",
-        "updatedAt" = NOW()
-    `;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        const saved = await this.persistSessionOnce(session, previousRefresh);
+        this.logger.log(
+          `Tokens Conta Azul persistidos imediatamente (expira ${saved.expiresAt.toISOString()}).`,
+        );
+        return saved;
+      } catch (err) {
+        lastErr = err;
+        this.logger.error(
+          `Falha ao persistir tokens Conta Azul (tentativa ${attempt}/5): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (attempt === 5) break;
+        await this.sleep(50 * attempt);
+      }
+    }
+    throw new ServiceUnavailableException(
+      `Falha ao gravar tokens da Conta Azul após refresh: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+    );
+  }
+
+  private async persistSessionOnce(
+    session: StoredSession,
+    previousRefresh: string | null,
+  ): Promise<StoredSession> {
+    if (previousRefresh) {
+      const updated = await this.updateSessionTokensCas(session, previousRefresh);
+      if (Number(updated) > 0) return session;
+      const latest = await this.loadSession();
+      if (latest) {
+        this.logger.warn(
+          'Persistência CAS não atualizou a linha (refresh_token já mudou). Mantendo o token do banco.',
+        );
+        return latest;
+      }
+    }
+    await this.upsertSessionTokens(session);
     return session;
+  }
+
+  private async updateSessionTokensCas(
+    session: StoredSession,
+    previousRefresh: string,
+  ): Promise<number> {
+    try {
+      return await this.prisma.client.$executeRaw`
+        UPDATE "ContaAzulSession"
+        SET
+          "accessToken" = ${session.accessToken},
+          "refreshToken" = ${session.refreshToken},
+          "tokenType" = ${session.tokenType},
+          "expiresAt" = ${session.expiresAt},
+          "refreshLockUntil" = NULL,
+          "updatedAt" = NOW()
+        WHERE "id" = ${CONTA_AZUL_SESSION_ID}
+          AND "refreshToken" = ${previousRefresh}
+      `;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/refreshLockUntil|does not exist/i.test(msg)) throw err;
+      this.refreshLockColumnAvailable = false;
+      return this.prisma.client.$executeRaw`
+        UPDATE "ContaAzulSession"
+        SET
+          "accessToken" = ${session.accessToken},
+          "refreshToken" = ${session.refreshToken},
+          "tokenType" = ${session.tokenType},
+          "expiresAt" = ${session.expiresAt},
+          "updatedAt" = NOW()
+        WHERE "id" = ${CONTA_AZUL_SESSION_ID}
+          AND "refreshToken" = ${previousRefresh}
+      `;
+    }
+  }
+
+  private async upsertSessionTokens(session: StoredSession): Promise<void> {
+    try {
+      await this.prisma.client.$executeRaw`
+        INSERT INTO "ContaAzulSession" ("id", "accessToken", "refreshToken", "tokenType", "expiresAt", "refreshLockUntil", "createdAt", "updatedAt")
+        VALUES (
+          ${CONTA_AZUL_SESSION_ID},
+          ${session.accessToken},
+          ${session.refreshToken},
+          ${session.tokenType},
+          ${session.expiresAt},
+          NULL,
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT ("id") DO UPDATE SET
+          "accessToken" = EXCLUDED."accessToken",
+          "refreshToken" = EXCLUDED."refreshToken",
+          "tokenType" = EXCLUDED."tokenType",
+          "expiresAt" = EXCLUDED."expiresAt",
+          "refreshLockUntil" = NULL,
+          "updatedAt" = NOW()
+      `;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/refreshLockUntil|does not exist/i.test(msg)) throw err;
+      this.refreshLockColumnAvailable = false;
+      await this.prisma.client.$executeRaw`
+        INSERT INTO "ContaAzulSession" ("id", "accessToken", "refreshToken", "tokenType", "expiresAt", "createdAt", "updatedAt")
+        VALUES (
+          ${CONTA_AZUL_SESSION_ID},
+          ${session.accessToken},
+          ${session.refreshToken},
+          ${session.tokenType},
+          ${session.expiresAt},
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT ("id") DO UPDATE SET
+          "accessToken" = EXCLUDED."accessToken",
+          "refreshToken" = EXCLUDED."refreshToken",
+          "tokenType" = EXCLUDED."tokenType",
+          "expiresAt" = EXCLUDED."expiresAt",
+          "updatedAt" = NOW()
+      `;
+    }
   }
 
   private async loadSession(): Promise<StoredSession | null> {
@@ -1727,7 +2771,7 @@ export class ContaAzulIntegrationService {
         accessToken: row.accessToken,
         refreshToken: row.refreshToken,
         tokenType: row.tokenType,
-        expiresAt: new Date(row.expiresAt),
+        expiresAt: fromDbSessionTimestamp(new Date(row.expiresAt)),
       };
     } catch (err) {
       this.logger.warn(

@@ -24,6 +24,12 @@ class ContaAzulConnectDto {
   state?: string;
 }
 
+function queryFlagTrue(value?: string): boolean {
+  if (value == null) return false;
+  const v = value.trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
 @Controller('api/financeiro/conta-azul')
 @UseGuards(JwtGuard)
 @RequirePermission('financeiro', 'ver_modulo')
@@ -89,5 +95,29 @@ export class ContaAzulController {
     return this.contaAzul.reconcileTestInvoices(
       Number.isFinite(n) ? n : 90,
     );
+  }
+
+  @Post('sincronizar-cadastros')
+  @RequirePermission('financeiro', 'editar')
+  sincronizarCadastros(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.sincronizarCadastros({ apply: applyNow });
+  }
+
+  @Post('sincronizar-vendas')
+  @RequirePermission('financeiro', 'editar')
+  sincronizarVendas(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.sincronizarVendas({ apply: applyNow });
   }
 }

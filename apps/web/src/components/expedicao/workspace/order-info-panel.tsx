@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, CalendarDays, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Download, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -339,6 +339,8 @@ export const OrderInfoPanel = forwardRef<
   const [savingNfHistory, setSavingNfHistory] = useState(false);
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
+  const [downloadingNf, setDownloadingNf] = useState(false);
+  const [nfDownloadError, setNfDownloadError] = useState<string | null>(null);
 
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
   // Correios → etiqueta via API dos Correios; demais transportadoras → etiqueta
@@ -806,6 +808,62 @@ export const OrderInfoPanel = forwardRef<
       setTrackingCodeError('Não foi possível salvar o código de rastreio.');
     } finally {
       setSavingTrackingCode(false);
+    }
+  };
+
+  const downloadNotaFiscal = async () => {
+    const numeroPed = numeroPedFromOrder(order);
+    const nf = displayInvoiceNumber(notaVendaInput) || notaVenda;
+    if (!numeroPed) {
+      setNfDownloadError('Número do pedido inválido.');
+      return;
+    }
+    if (!nf) {
+      setNfDownloadError('Informe o número da Nota de Venda (NF) para baixar o arquivo.');
+      return;
+    }
+
+    setDownloadingNf(true);
+    setNfDownloadError(null);
+    try {
+      const path = pedidoApiUrl(numeroPed, 'nota-fiscal').replace(/^api\//, '');
+      const res = await fetch(`/api/erp/${path}`, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let message = 'Não foi possível baixar a nota fiscal.';
+        try {
+          const body = JSON.parse(text) as { message?: string | string[] };
+          if (body.message) {
+            message = Array.isArray(body.message)
+              ? body.message.join(' · ')
+              : body.message;
+          }
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = /filename="?([^"]+)"?/i.exec(disposition);
+      const filename = match?.[1] ?? `NF-${nf}.xml`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNfDownloadError(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível baixar a nota fiscal.',
+      );
+    } finally {
+      setDownloadingNf(false);
     }
   };
 
@@ -1338,7 +1396,25 @@ export const OrderInfoPanel = forwardRef<
 
             <HeaderField label="Nota de Venda (NF):">
               {!canEditInvoiceField ? (
-                <span>{notaVenda ?? '—'}</span>
+                <div className="flex items-center gap-1.5">
+                  <span>{notaVenda ?? '—'}</span>
+                  {notaVenda ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                      onClick={() => void downloadNotaFiscal()}
+                      disabled={downloadingNf}
+                      title="Baixar Nota Fiscal"
+                      aria-label="Baixar Nota Fiscal"
+                    >
+                      {downloadingNf ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
               ) : (
                 <>
                   <div className="flex items-center gap-1.5">
@@ -1357,12 +1433,31 @@ export const OrderInfoPanel = forwardRef<
                     {savingNotaVenda ? (
                       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
                     ) : null}
+                    {displayInvoiceNumber(notaVendaInput) || notaVenda ? (
+                      <button
+                        type="button"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                        onClick={() => void downloadNotaFiscal()}
+                        disabled={downloadingNf || savingNotaVenda}
+                        title="Baixar Nota Fiscal"
+                        aria-label="Baixar Nota Fiscal"
+                      >
+                        {downloadingNf ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                   {notaVendaError ? (
                     <p className="mt-1 text-xs text-red-500">{notaVendaError}</p>
                   ) : null}
                 </>
               )}
+              {nfDownloadError ? (
+                <p className="mt-1 text-xs text-red-500">{nfDownloadError}</p>
+              ) : null}
             </HeaderField>
 
             <button

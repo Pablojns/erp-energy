@@ -15,6 +15,8 @@ export type CaTitulo = {
   competencia: Date | null;
   status: string;
   pago: boolean;
+  categoria?: string | null;
+  centroCusto?: string | null;
 };
 
 const PAID_STATUS = new Set([
@@ -95,6 +97,31 @@ export function extractDocumentoNumero(
   return null;
 }
 
+export function extractNamedLabels(raw: unknown): string | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const names: string[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string' && item.trim()) {
+      names.push(item.trim());
+      continue;
+    }
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const nested =
+      asRecord(rec.categoria) ??
+      asRecord(rec.centro_de_custo) ??
+      asRecord(rec.centroCusto);
+    const nome =
+      asText(rec.nome) ??
+      asText(rec.descricao) ??
+      asText(rec.categoria) ??
+      asText(rec.centro_de_custo) ??
+      (nested ? asText(nested.nome) ?? asText(nested.descricao) : null);
+    if (nome) names.push(nome);
+  }
+  return names.length ? [...new Set(names)].join(' | ') : null;
+}
+
 function resolveStatus(item: Record<string, unknown>): string {
   return (
     asText(item.status_traduzido) ??
@@ -154,6 +181,15 @@ function mapTitulo(
     competencia: parseCaDate(item.data_competencia ?? item.data_emissao),
     status,
     pago,
+    categoria: extractNamedLabels(
+      item.categorias ?? item.categoria ?? item.categorias_rateio,
+    ),
+    centroCusto: extractNamedLabels(
+      item.centros_de_custo ??
+        item.centros_custo ??
+        item.centro_de_custo ??
+        item.centrosCusto,
+    ),
   };
 }
 
@@ -191,6 +227,8 @@ export function tituloFromDbRow(row: {
   competencia: Date | null;
   status: string;
   pago: boolean;
+  categoria?: string | null;
+  centroCusto?: string | null;
 }): CaTitulo {
   return {
     contaAzulId: row.contaAzulId,
@@ -207,6 +245,8 @@ export function tituloFromDbRow(row: {
     competencia: row.competencia ? new Date(row.competencia) : null,
     status: row.status,
     pago: Boolean(row.pago),
+    categoria: row.categoria ?? null,
+    centroCusto: row.centroCusto ?? null,
   };
 }
 

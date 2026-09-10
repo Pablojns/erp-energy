@@ -22,6 +22,11 @@ export const CONTA_AZUL_TOKEN_SKEW_MS = 120_000;
 
 export const CONTA_AZUL_SESSION_ID = 'default';
 
+export const CONTA_AZUL_REFRESH_LOCK_MS = 45_000;
+
+export const CONTA_AZUL_REAUTH_MESSAGE =
+  'Refresh token da Conta Azul inválido ou revogado. Reconecte em Financeiro (autorizar de novo). Isso só deveria ocorrer se a conexão foi revogada ou ficou muito tempo sem uso.';
+
 export type ContaAzulTokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -71,6 +76,15 @@ export function expiryFromExpiresIn(
   return new Date(now.getTime() + sec * 1000);
 }
 
+/**
+ * Prisma/$queryRaw lê TIMESTAMP sem time zone como UTC. Na gravação o driver
+ * usa o fuso do processo — sem este ajuste o access_token parece expirado
+ * na hora e o refresh roda a cada request (e queima o refresh rotativo).
+ */
+export function fromDbSessionTimestamp(value: Date): Date {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+}
+
 export function invoiceDigits(raw: string | number | null | undefined): string {
   return String(raw ?? '').replace(/\D/g, '');
 }
@@ -86,4 +100,61 @@ export function firstArrayItem(payload: unknown): unknown {
   const list = rec.itens ?? rec.items ?? rec.data;
   if (Array.isArray(list) && list.length > 0) return list[0];
   return null;
+}
+
+export function stringifyOauthError(raw: unknown): string {
+  if (raw == null) return '';
+  if (typeof raw === 'string') return raw;
+  if (raw instanceof Error) {
+    const data = (raw as Error & { response?: { data?: unknown } }).response
+      ?.data;
+    if (typeof data === 'string') return `${raw.message} ${data}`;
+    if (data && typeof data === 'object') {
+      try {
+        return `${raw.message} ${JSON.stringify(data)}`;
+      } catch {
+        return raw.message;
+      }
+    }
+    return raw.message;
+  }
+  if (typeof raw === 'object') {
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return String(raw);
+    }
+  }
+  return String(raw);
+}
+
+export function isContaAzulInvalidGrant(raw: unknown): boolean {
+  const text = stringifyOauthError(raw).toLowerCase();
+  return (
+    text.includes('invalid_grant') ||
+    text.includes('invalid refresh') ||
+    text.includes('refresh token is expired')
+  );
+}
+
+export type RefreshAfterInvalidGrantAction =
+  | 'use_session'
+  | 'retry_refresh'
+  | 'reauth';
+
+/** Depois de invalid_grant: o banco pode já ter o token novo de outro processo. */
+export function decideAfterInvalidGrant(input: {
+  usedRefreshToken: string;
+  loaded: { refreshToken: string; expiresAt: Date } | null;
+  now?: Date;
+}): RefreshAfterInvalidGrantAction {
+  const loaded = input.loaded;
+  if (!loaded) return 'reauth';
+  if (!isAccessTokenExpired(loaded.expiresAt, input.now)) {
+    return 'use_session';
+  }
+  if (loaded.refreshToken && loaded.refreshToken !== input.usedRefreshToken) {
+    return 'retry_refresh';
+  }
+  return 'reauth';
 }
