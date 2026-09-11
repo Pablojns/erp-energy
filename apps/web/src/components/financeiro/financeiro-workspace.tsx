@@ -80,6 +80,16 @@ type CadastrosPreview = {
     preview: PessoaDivergence[];
   };
   catalogos: { categorias: number; centrosCusto: number };
+  erpApply?: {
+    pedidosVinculados: number;
+    criar?: { customers: number; suppliers: number; carriers: number };
+    atualizar?: { customers: number; suppliers: number; carriers: number };
+    previewPedidos?: {
+      code: string;
+      externalOrderNumber: string | null;
+      cnpj: string;
+    }[];
+  };
 };
 
 type VendaVinculoPreview = {
@@ -629,8 +639,33 @@ export function FinanceiroWorkspace() {
             <p className="text-xs text-[var(--fin-text-secondary)]">
               Catálogos: {cadastrosPreview.catalogos.categorias} categorias,{' '}
               {cadastrosPreview.catalogos.centrosCusto} centros de custo. Aplicar
-              grava só os espelhos da Conta Azul — não altera cadastros do ERP.
+              cria/atualiza Customer, Supplier e Carrier no ERP e vincula
+              pedidos pelo CNPJ de entrega.
             </p>
+            {cadastrosPreview.erpApply &&
+            cadastrosPreview.erpApply.pedidosVinculados > 0 ? (
+              <p>
+                <strong>{cadastrosPreview.erpApply.pedidosVinculados}</strong>{' '}
+                pedido(s) serão vinculados ao cadastro do CNPJ de entrega.
+                {cadastrosPreview.erpApply.criar
+                  ? ` Criar: ${cadastrosPreview.erpApply.criar.customers} cliente(s), ${cadastrosPreview.erpApply.criar.suppliers} fornecedor(es), ${cadastrosPreview.erpApply.criar.carriers} transportadora(s).`
+                  : ''}
+              </p>
+            ) : null}
+            {cadastrosPreview.erpApply?.previewPedidos &&
+            cadastrosPreview.erpApply.previewPedidos.length > 0 ? (
+              <ul className="space-y-1.5 text-xs">
+                {cadastrosPreview.erpApply.previewPedidos.map((row) => (
+                  <li key={`${row.code}-${row.cnpj}`}>
+                    Pedido {row.code}
+                    {row.externalOrderNumber
+                      ? ` (${row.externalOrderNumber})`
+                      : ''}{' '}
+                    ← CNPJ {row.cnpj}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {cadastrosPreview.divergencias.preview.length > 0 ? (
               <ul className="space-y-1.5 text-xs">
                 {cadastrosPreview.divergencias.preview.map((row, idx) => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, CalendarDays, Download, FileText, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronDown, Download, FileText, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -22,6 +22,7 @@ import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import {
   displayInvoiceNumber,
+  hasConfirmedRemessa,
   hasFiscalDocForEtiqueta,
   isCorreiosTrackingCode,
   normalizeInvoiceNumberDigits,
@@ -59,6 +60,17 @@ function formatMoneyBrl(value: string | null | undefined): string {
   const n = Number(String(value).replace(',', '.'));
   if (!Number.isFinite(n)) return String(value);
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatNfPickerDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 function formatNfHistoricoDetail(row: NfHistoricoItem): string {
@@ -343,6 +355,62 @@ export const OrderInfoPanel = forwardRef<
     null,
   );
   const [nfDownloadError, setNfDownloadError] = useState<string | null>(null);
+  const [nfPickerKind, setNfPickerKind] = useState<'xml' | 'danfe' | null>(null);
+  const nfPickerRef = useRef<HTMLDivElement | null>(null);
+
+  const availableNfs = useMemo(() => {
+    const byDigits = new Map<
+      string,
+      { number: string; dateMs: number; dateLabel: string }
+    >();
+    const remessaDigits = normalizeInvoiceNumberDigits(order.notaRemessa);
+    const add = (
+      raw: string | null | undefined,
+      dateIso?: string | null,
+    ) => {
+      const number = displayInvoiceNumber(raw);
+      if (!number) return;
+      const digits = normalizeInvoiceNumberDigits(number);
+      if (!digits) return;
+      if (remessaDigits && digits === remessaDigits) return;
+      const dateLabel = formatNfPickerDate(dateIso);
+      const parsed = dateIso ? new Date(dateIso).getTime() : 0;
+      const dateMs = Number.isFinite(parsed) ? parsed : 0;
+      const prev = byDigits.get(digits);
+      if (
+        !prev ||
+        (dateLabel && (!prev.dateLabel || (dateMs && dateMs < prev.dateMs)))
+      ) {
+        byDigits.set(digits, { number, dateMs, dateLabel });
+      }
+    };
+    add(order.invoiceNumber);
+    for (const saida of order.saidas ?? []) {
+      add(saida.invoiceNumber, saida.exitDate);
+    }
+    for (const row of nfHistorico) {
+      add(row.invoiceNumber, row.createdAt);
+    }
+    return [...byDigits.values()]
+      .sort((a, b) => a.dateMs - b.dateMs)
+      .map((row) => ({
+        number: row.number,
+        label: row.dateLabel
+          ? `NF ${row.number} - ${row.dateLabel}`
+          : `NF ${row.number}`,
+      }));
+  }, [order.invoiceNumber, order.saidas, nfHistorico]);
+
+  useEffect(() => {
+    if (!nfPickerKind) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!nfPickerRef.current?.contains(event.target as Node)) {
+        setNfPickerKind(null);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [nfPickerKind]);
 
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
   // Correios → etiqueta via API dos Correios; demais transportadoras → etiqueta
@@ -813,33 +881,48 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const downloadNotaArquivo = async (kind: 'xml' | 'danfe') => {
+  const downloadNotaArquivo = async (
+    kind: 'xml' | 'danfe',
+    selectedNf?: string,
+  ) => {
     const numeroPed = numeroPedFromOrder(order);
-    const nf = displayInvoiceNumber(notaVendaInput) || notaVenda;
     if (!numeroPed) {
       setNfDownloadError('Número do pedido inválido.');
       return;
     }
+    if (availableNfs.length > 1 && !selectedNf) {
+      setNfPickerKind((prev) => (prev === kind ? null : kind));
+      return;
+    }
+    const nf =
+      selectedNf ||
+      availableNfs[0]?.number ||
+      displayInvoiceNumber(notaVendaInput) ||
+      notaVenda;
     if (!nf) {
       setNfDownloadError('Informe o número da Nota de Venda (NF) para baixar o arquivo.');
       return;
     }
 
+    setNfPickerKind(null);
     setDownloadingNf(kind);
     setNfDownloadError(null);
     try {
       const segment = kind === 'danfe' ? 'danfe' : 'nota-fiscal';
       const path = pedidoApiUrl(numeroPed, segment).replace(/^api\//, '');
-      const res = await fetch(`/api/erp/${path}`, {
-        credentials: 'include',
-        signal: AbortSignal.timeout(90_000),
-      });
+      const res = await fetch(
+        `/api/erp/${path}?nf=${encodeURIComponent(nf)}`,
+        {
+          credentials: 'include',
+          signal: AbortSignal.timeout(90_000),
+        },
+      );
       if (!res.ok) {
         const text = await res.text();
         let message =
           kind === 'danfe'
-            ? 'Não foi possível gerar o DANFE.'
-            : 'Não foi possível baixar a nota fiscal.';
+            ? 'Não foi possível gerar a Nota.'
+            : 'Não foi possível baixar o XML.';
         try {
           const body = JSON.parse(text) as { message?: string | string[] };
           if (body.message) {
@@ -856,7 +939,7 @@ export const OrderInfoPanel = forwardRef<
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const match = /filename="?([^"]+)"?/i.exec(disposition);
       const filename =
-        match?.[1] ?? (kind === 'danfe' ? `DANFE-${nf}.pdf` : `NF-${nf}.xml`);
+        match?.[1] ?? (kind === 'danfe' ? `Nota-${nf}.pdf` : `NF-${nf}.xml`);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -868,47 +951,78 @@ export const OrderInfoPanel = forwardRef<
         error instanceof Error
           ? error.message
           : kind === 'danfe'
-            ? 'Não foi possível gerar o DANFE.'
-            : 'Não foi possível baixar a nota fiscal.',
+            ? 'Não foi possível gerar a Nota.'
+            : 'Não foi possível baixar o XML.',
       );
     } finally {
       setDownloadingNf(null);
     }
   };
 
-  const nfDownloadButtons = (disabled: boolean) => (
-    <>
-      <button
-        type="button"
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
-        onClick={() => void downloadNotaArquivo('xml')}
-        disabled={disabled || downloadingNf !== null}
-        title="Baixar XML"
-        aria-label="Baixar XML"
-      >
-        {downloadingNf === 'xml' ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Download className="h-3.5 w-3.5" />
-        )}
-      </button>
-      <button
-        type="button"
-        className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
-        onClick={() => void downloadNotaArquivo('danfe')}
-        disabled={disabled || downloadingNf !== null}
-        title="Baixar DANFE"
-        aria-label="Baixar DANFE"
-      >
-        {downloadingNf === 'danfe' ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <FileText className="h-3.5 w-3.5" />
-        )}
-        <span>DANFE</span>
-      </button>
-    </>
-  );
+  const nfDownloadButtons = (disabled: boolean) => {
+    const btnClass =
+      'inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5 text-[11px] font-semibold text-[var(--text-primary)] shadow-sm hover:bg-[var(--hover-bg,rgba(0,0,0,0.04))] disabled:opacity-50';
+    const multi = availableNfs.length > 1;
+    return (
+      <div className="relative flex shrink-0 items-center gap-1.5" ref={nfPickerRef}>
+        <button
+          type="button"
+          className={btnClass}
+          onClick={() => void downloadNotaArquivo('xml')}
+          disabled={disabled || downloadingNf !== null}
+          title={multi ? 'Escolher NF para baixar o XML' : 'Baixar XML'}
+          aria-label="Baixar XML"
+          aria-haspopup={multi ? 'listbox' : undefined}
+          aria-expanded={nfPickerKind === 'xml'}
+        >
+          {downloadingNf === 'xml' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          <span>XML</span>
+          {multi ? <ChevronDown className="h-3 w-3 opacity-70" /> : null}
+        </button>
+        <button
+          type="button"
+          className={btnClass}
+          onClick={() => void downloadNotaArquivo('danfe')}
+          disabled={disabled || downloadingNf !== null}
+          title={multi ? 'Escolher NF para baixar a Nota' : 'Baixar Nota'}
+          aria-label="Baixar Nota"
+          aria-haspopup={multi ? 'listbox' : undefined}
+          aria-expanded={nfPickerKind === 'danfe'}
+        >
+          {downloadingNf === 'danfe' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <FileText className="h-3.5 w-3.5" />
+          )}
+          <span>Nota</span>
+          {multi ? <ChevronDown className="h-3 w-3 opacity-70" /> : null}
+        </button>
+        {nfPickerKind && multi ? (
+          <div
+            className="absolute left-0 top-full z-30 mt-1 min-w-[13.5rem] overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--card-bg,var(--input-bg))] py-1 shadow-lg"
+            role="listbox"
+            aria-label="Notas fiscais do pedido"
+          >
+            {availableNfs.map((nf) => (
+              <button
+                key={`${nfPickerKind}-${nf.number}`}
+                type="button"
+                role="option"
+                className="flex w-full items-center px-3 py-1.5 text-left text-[12px] font-medium text-[var(--text-primary)] hover:bg-[var(--input-bg)]"
+                onClick={() => void downloadNotaArquivo(nfPickerKind, nf.number)}
+              >
+                {nf.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   const emitEtiquetaPdf = async (
     kind: EtiquetaKind = isCorreiosOrder ? 'correios' : 'erp',
@@ -965,12 +1079,12 @@ export const OrderInfoPanel = forwardRef<
       if (canRegisterExit) {
         const invoiceDigits = normalizeInvoiceNumberDigits(order.invoiceNumber);
         const remessa = order.notaRemessa?.trim() || '';
-        const body = invoiceDigits
-          ? { invoiceNumber: invoiceDigits }
-          : remessa
-            ? {}
+        const body = hasConfirmedRemessa(order)
+          ? {}
+          : invoiceDigits
+            ? { invoiceNumber: invoiceDigits }
             : {};
-        if (invoiceDigits || remessa) {
+        if (hasConfirmedRemessa(order) || invoiceDigits || remessa) {
           await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {
             method: 'POST',
             body: JSON.stringify(body),
@@ -1441,7 +1555,7 @@ export const OrderInfoPanel = forwardRef<
               {!canEditInvoiceField ? (
                 <div className="flex items-center gap-1.5">
                   <span>{notaVenda ?? '—'}</span>
-                  {notaVenda ? nfDownloadButtons(false) : null}
+                  {availableNfs.length > 0 ? nfDownloadButtons(false) : null}
                 </div>
               ) : (
                 <>
@@ -1461,7 +1575,9 @@ export const OrderInfoPanel = forwardRef<
                     {savingNotaVenda ? (
                       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
                     ) : null}
-                    {displayInvoiceNumber(notaVendaInput) || notaVenda
+                    {availableNfs.length > 0 ||
+                    displayInvoiceNumber(notaVendaInput) ||
+                    notaVenda
                       ? nfDownloadButtons(savingNotaVenda)
                       : null}
                   </div>

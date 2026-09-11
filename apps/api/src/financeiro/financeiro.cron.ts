@@ -24,6 +24,23 @@ export class FinanceiroCron {
     private readonly contaAzul: ContaAzulIntegrationService,
   ) {}
 
+  /** A cada 20 min: XML + DANFE de NFs já emitidas, quando a SEFAZ já processou. */
+  @Cron('*/20 * * * *')
+  async pullNotaArquivos(): Promise<void> {
+    try {
+      const result = await this.contaAzul.syncPendingNotaArquivos();
+      if (result.saved > 0) {
+        this.logger.log(
+          `Conta Azul XML/Nota: ${result.saved} arquivo(s) vinculado(s) automaticamente (${result.scanned} vistos, ${result.skipped} ainda indisponíveis).`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Conta Azul XML/Nota automático ignorado: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   @Cron('0 6 * * *')
   async runDailySync(): Promise<void> {
     try {

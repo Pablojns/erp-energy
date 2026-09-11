@@ -51,6 +51,15 @@ export function danfeDownloadFilename(numero: string): string {
   return `DANFE-${key}.pdf`;
 }
 
+export function nfeStorageKey(
+  orderId: string,
+  numero: string,
+  kind: 'xml' | 'danfe',
+): string {
+  const nf = nfNumberKey(numero) || 'nota';
+  return kind === 'danfe' ? `nfe/${orderId}/${nf}.pdf` : `nfe/${orderId}/${nf}.xml`;
+}
+
 function looksLikeNfeXml(content: Buffer): boolean {
   const head = content.subarray(0, 400).toString('utf8');
   return (

@@ -291,6 +291,10 @@ export function SeparationWorkbench(props: {
       return false;
     }
     const invoiceDigits = normalizeInvoiceNumberDigits(current.invoiceNumber);
+    if (hasConfirmedRemessa(current)) {
+      const ok = await data.attachRemessaExit(current.id);
+      return ok;
+    }
     if (invoiceDigits) {
       try {
         await erpFetchJson(pedidoApiUrl(numeroPed, 'saida'), {

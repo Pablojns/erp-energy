@@ -53,6 +53,43 @@ export function invoiceNumberDigits(raw: string): string {
   return part.replace(/\D/g, '');
 }
 
+export function sameInvoiceNumber(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = invoiceNumberDigits(String(a ?? ''));
+  const right = invoiceNumberDigits(String(b ?? ''));
+  if (left && right) return left === right;
+  return String(a ?? '').trim() === String(b ?? '').trim();
+}
+
+/**
+ * True quando o número informado é a Nota de Remessa do pedido.
+ * Remessa sai de outra conta Conta Azul — nunca deve ser usada como Nota de Venda
+ * (XML/DANFE, cron, download manual).
+ */
+export function invoiceNumberMatchesRemessa(
+  invoiceNumber: string | null | undefined,
+  notaRemessa: string | null | undefined,
+): boolean {
+  const remessa = String(notaRemessa ?? '').trim();
+  if (!remessa || isCorreiosTrackingCode(remessa)) return false;
+  const inv = String(invoiceNumber ?? '').trim();
+  if (!inv || isCorreiosTrackingCode(inv)) return false;
+  return sameInvoiceNumber(inv, remessa);
+}
+
+/** Remessa preenchida e confirmada — documento que transporta a mercadoria. */
+export function confirmedRemessaNumber(order: {
+  notaRemessa?: string | null;
+  notaRemessaConfirmada?: boolean | null;
+}): string {
+  if (!order.notaRemessaConfirmada) return '';
+  const remessa = String(order.notaRemessa ?? '').trim();
+  if (!remessa || isCorreiosTrackingCode(remessa)) return '';
+  return remessa;
+}
+
 /** Termo cru → termo pesquisável (sem `#`, sem espaços nas pontas). */
 export function normalizeOrderSearchTerm(raw: string | undefined | null): string {
   const trimmed = (raw ?? '').trim();

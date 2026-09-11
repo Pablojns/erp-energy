@@ -29,6 +29,7 @@ export type PedidoCadastroPreview = {
   code: string;
   externalOrderNumber: string | null;
   customerId: string | null;
+  targetCustomerId?: string | null;
   cnpj: string;
   receiverName: string | null;
   name: CadastroFieldDiff | null;
@@ -440,6 +441,127 @@ function kindsForPessoa(pessoa: CaPessoa): ErpPartyKind[] {
   if (joined.includes('FORNECEDOR')) kinds.push('SUPPLIER');
   if (joined.includes('TRANSPORT')) kinds.push('CARRIER');
   return kinds.length ? kinds : ['CUSTOMER', 'SUPPLIER', 'CARRIER'];
+}
+
+/** Perfis da CA → cadastro ERP a criar/atualizar. Sem perfil, só Customer. */
+export function kindsToUpsert(pessoa: CaPessoa): ErpPartyKind[] {
+  const kinds: ErpPartyKind[] = [];
+  const joined = pessoa.perfis.join(' ');
+  if (joined.includes('CLIENTE')) kinds.push('CUSTOMER');
+  if (joined.includes('FORNECEDOR')) kinds.push('SUPPLIER');
+  if (joined.includes('TRANSPORT')) kinds.push('CARRIER');
+  return kinds.length ? kinds : ['CUSTOMER'];
+}
+
+export type ErpCadastroMutation = {
+  kind: ErpPartyKind;
+  action: 'create' | 'update';
+  erpId: string | null;
+  pessoa: CaPessoa;
+  name: boolean;
+  address: boolean;
+};
+
+export function planErpCadastroApply(input: {
+  pessoas: CaPessoa[];
+  parties: ErpPartyInput[];
+  orders: CadastroSyncOrderInput[];
+}): {
+  mutations: ErpCadastroMutation[];
+  pedidos: PedidoCadastroPreview[];
+} {
+  const byDocumento = indexPessoasByDocumento(input.pessoas);
+  const byKindDigits = new Map<string, ErpPartyInput>();
+  const key = (kind: ErpPartyKind, digits: string) => `${kind}:${digits}`;
+  for (const party of input.parties) {
+    for (const digits of partyDigits(party)) {
+      const k = key(party.kind, digits);
+      if (!byKindDigits.has(k)) byKindDigits.set(k, party);
+    }
+  }
+
+  const mutations: ErpCadastroMutation[] = [];
+  for (const pessoa of byDocumento.values()) {
+    for (const kind of kindsToUpsert(pessoa)) {
+      const existing = byKindDigits.get(key(kind, pessoa.documentoDigits));
+      if (!existing) {
+        mutations.push({
+          kind,
+          action: 'create',
+          erpId: null,
+          pessoa,
+          name: true,
+          address: kind !== 'SUPPLIER' && Boolean(pessoa.enderecoJson),
+        });
+        continue;
+      }
+      const name = namesDiffer(existing.name, pessoa.nome);
+      const canAddress =
+        kind !== 'SUPPLIER' && Boolean(pessoa.endereco && pessoa.enderecoJson);
+      const address =
+        canAddress && addressesDiffer(existing.deliveryAddress, pessoa.endereco!);
+      if (name || address) {
+        mutations.push({
+          kind,
+          action: 'update',
+          erpId: existing.id,
+          pessoa,
+          name,
+          address: Boolean(address),
+        });
+      }
+    }
+  }
+
+  const customerByDigits = new Map<string, ErpPartyInput>();
+  for (const party of input.parties) {
+    if (party.kind !== 'CUSTOMER') continue;
+    for (const digits of partyDigits(party)) {
+      if (!customerByDigits.has(digits)) customerByDigits.set(digits, party);
+    }
+  }
+
+  const pedidos: PedidoCadastroPreview[] = [];
+  for (const order of input.orders) {
+    const digits = documentDigits(order.deliveryCnpj);
+    if (digits.length < 11) continue;
+    const pessoa = byDocumento.get(digits);
+    if (!pessoa || !kindsToUpsert(pessoa).includes('CUSTOMER')) continue;
+    const existingCustomer = customerByDigits.get(digits);
+    const name = namesDiffer(order.customerName, pessoa.nome)
+      ? { from: order.customerName?.trim() || '', to: pessoa.nome }
+      : null;
+    const address =
+      pessoa.endereco &&
+      pessoa.enderecoJson &&
+      addressesDiffer(order.deliveryAddress, pessoa.endereco)
+        ? {
+            from: formatStoredDeliveryAddressDisplay(order.deliveryAddress) || '',
+            to: formatStoredDeliveryAddressDisplay(pessoa.enderecoJson),
+          }
+        : null;
+    if (
+      existingCustomer &&
+      order.customerId === existingCustomer.id &&
+      !name &&
+      !address
+    ) {
+      continue;
+    }
+    pedidos.push({
+      orderId: order.id,
+      code: order.code,
+      externalOrderNumber: order.externalOrderNumber,
+      customerId: order.customerId,
+      targetCustomerId: existingCustomer?.id ?? null,
+      cnpj: digits,
+      receiverName: order.receiverName ?? null,
+      name,
+      address,
+    });
+  }
+
+  return { mutations, pedidos };
 }
 
 function partyDigits(party: ErpPartyInput): string[] {

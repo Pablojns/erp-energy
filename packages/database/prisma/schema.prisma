@@ -406,6 +406,10 @@ model OrderInvoiceHistory {
   invoiceValue    Decimal? @db.Decimal(12, 2)
   /// Soma de pickedQty no momento desta NF
   pickedQtyAtTime Int
+  /// XML da NF-e persistido no storage (R2)
+  xmlStorageKey   String?
+  /// DANFE/PDF persistido no storage (R2)
+  danfeStorageKey String?
   createdAt       DateTime @default(now())
   createdBy       String?
 

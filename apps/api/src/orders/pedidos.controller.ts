@@ -53,6 +53,27 @@ import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
 import { AuditService } from '../common/audit.service';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { ContaAzulIntegrationService } from '../financeiro/conta-azul-integration.service';
+import { invoiceNumberMatchesRemessa } from './order-search';
+
+function vendaInvoiceForArquivoDownload(
+  order: { invoiceNumber?: string | null; notaRemessa?: string | null },
+  nfQuery: string | undefined,
+): string {
+  const requested =
+    (typeof nfQuery === 'string' && nfQuery.trim()) ||
+    (typeof order.invoiceNumber === 'string' ? order.invoiceNumber.trim() : '');
+  if (!requested) {
+    throw new BadRequestException(
+      'Informe o número da Nota de Venda para baixar XML/DANFE.',
+    );
+  }
+  if (invoiceNumberMatchesRemessa(requested, order.notaRemessa)) {
+    throw new BadRequestException(
+      'Nota de remessa não possui XML/DANFE nesta integração. Informe a Nota de Venda.',
+    );
+  }
+  return requested;
+}
 
 @Controller('api/pedidos')
 @UseGuards(JwtGuard)
@@ -523,13 +544,16 @@ export class PedidosController {
   @Get(':numeroPed/nota-fiscal')
   async notaFiscal(
     @Param('numeroPed') numeroPed: string,
+    @Query('nf') nf: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const order = await this.pedidos.findByNumeroPed(numeroPed);
-    const invoiceNumber =
-      typeof order.invoiceNumber === 'string' ? order.invoiceNumber : '';
+    const invoiceNumber = vendaInvoiceForArquivoDownload(order, nf);
     const { buffer, contentType, filename } =
-      await this.contaAzul.downloadNotaFiscal(invoiceNumber);
+      await this.contaAzul.downloadNotaFiscal(invoiceNumber, {
+        orderId: order.id,
+        persist: true,
+      });
     res.set({
       'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${filename}"`,
@@ -537,17 +561,20 @@ export class PedidosController {
     return new StreamableFile(buffer);
   }
 
-  /** PDF DANFE gerado a partir do XML real da Conta Azul. */
+  /** PDF da nota (DANFE) gerado a partir do XML real da Conta Azul. */
   @Get(':numeroPed/danfe')
   async danfe(
     @Param('numeroPed') numeroPed: string,
+    @Query('nf') nf: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const order = await this.pedidos.findByNumeroPed(numeroPed);
-    const invoiceNumber =
-      typeof order.invoiceNumber === 'string' ? order.invoiceNumber : '';
+    const invoiceNumber = vendaInvoiceForArquivoDownload(order, nf);
     const { buffer, contentType, filename } =
-      await this.contaAzul.downloadDanfe(invoiceNumber);
+      await this.contaAzul.downloadDanfe(invoiceNumber, {
+        orderId: order.id,
+        persist: true,
+      });
     res.set({
       'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${filename}"`,

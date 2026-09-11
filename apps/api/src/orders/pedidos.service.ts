@@ -26,6 +26,7 @@ import { CarrierResolverService } from './carrier-resolver.service';
 import {
   buildOrderFieldFilterWhere,
   buildOrderSearchWhere,
+  confirmedRemessaNumber,
   invoiceNumberDigits,
   isCorreiosTrackingCode,
   normalizeOrderSearchTerm,
@@ -1546,11 +1547,9 @@ export class PedidosService {
       remetente,
       destinatario,
       numeroNotaFiscal:
-        this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '') ||
-        (isCorreiosTrackingCode(order.notaRemessa)
-          ? undefined
-          : order.notaRemessa?.trim()) ||
-        undefined,
+        this.normalizeInvoiceNumberDigits(
+          confirmedRemessaNumber(order) || order.invoiceNumber || '',
+        ) || undefined,
       objeto: {
         codigoServico,
         pesoGramas: 0,
@@ -1617,6 +1616,7 @@ export class PedidosService {
         status: true,
         invoiceNumber: true,
         notaRemessa: true,
+        notaRemessaConfirmada: true,
         sentToSeparationAt: true,
         items: { select: { quantity: true, pickedQty: true } },
       },
@@ -1658,15 +1658,16 @@ export class PedidosService {
       return;
     }
 
+    const remessa = confirmedRemessaNumber(order);
     const invoiceDigits = this.normalizeInvoiceNumberDigits(
       order.invoiceNumber ?? '',
     );
-    const remessa = order.notaRemessa?.trim() || '';
-    // Só NF/remessa reais — nunca gravar rastreio Correios em invoiceNumber.
+    // Remessa confirmada transporta a mercadoria — não usa a NF de venda.
     const nfDigits =
+      (remessa
+        ? this.normalizeInvoiceNumberDigits(remessa) || remessa
+        : '') ||
       invoiceDigits ||
-      this.normalizeInvoiceNumberDigits(remessa) ||
-      (isCorreiosTrackingCode(remessa) ? '' : remessa) ||
       '';
     if (!nfDigits) return;
 
@@ -1941,11 +1942,10 @@ export class PedidosService {
       order.externalOrderNumber?.trim() || order.code?.trim() || trimmed;
     const receiver = order.receiverName?.trim() || '—';
     const unloading = order.unloadingPoint?.trim() || '—';
+    const remessaRef = confirmedRemessaNumber(order);
     const nfDigits = this.normalizeInvoiceNumberDigits(order.invoiceNumber ?? '');
-    const remessaRef = order.notaRemessa?.trim() || '';
-    // Sem NF de venda, a Nota de Remessa é a referência impressa na etiqueta.
-    const docLabel = nfDigits ? 'NF' : remessaRef ? 'REMESSA' : 'NF';
-    const nf = nfDigits || remessaRef || '—';
+    const docLabel = remessaRef ? 'REMESSA' : 'NF';
+    const nf = remessaRef || nfDigits || '—';
 
     const CM = 72 / 2.54;
     const labelW = 10 * CM;
@@ -2950,12 +2950,15 @@ export class PedidosService {
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
-    let nf = this.readInvoiceNumber(dto);
+    let nf = '';
+    const remessaConfirmada = confirmedRemessaNumber(order);
+    if (remessaConfirmada) {
+      nf =
+        this.normalizeInvoiceNumberDigits(remessaConfirmada) ||
+        remessaConfirmada;
+    }
     if (!nf) {
-      const remessa = order.notaRemessa?.trim();
-      if (remessa) {
-        nf = this.normalizeInvoiceNumberDigits(remessa) || remessa;
-      }
+      nf = this.readInvoiceNumber(dto);
     }
     if (!nf) {
       const invoiceDigits = this.normalizeInvoiceNumberDigits(
@@ -2963,6 +2966,12 @@ export class PedidosService {
       );
       if (invoiceDigits) {
         nf = invoiceDigits;
+      }
+    }
+    if (!nf) {
+      const remessa = order.notaRemessa?.trim();
+      if (remessa && !isCorreiosTrackingCode(remessa)) {
+        nf = this.normalizeInvoiceNumberDigits(remessa) || remessa;
       }
     }
     if (!nf) {

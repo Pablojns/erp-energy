@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +11,7 @@ import { OrderStatus } from '@erp/database';
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 import { createHmac, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { R2StorageService } from '../storage/r2-storage.service';
 import { FinanceiroService } from './financeiro.service';
 import {
   CONTA_AZUL_API_BASE,
@@ -51,18 +53,22 @@ import {
   invoiceDescricaoMatchPattern,
   nfNumberKey,
   nfeDownloadFilename,
+  nfeStorageKey,
   tituloMatchesInvoiceNumber,
   xmlToDanfePdf,
 } from './conta-azul.nfe-download';
+import { invoiceNumberMatchesRemessa } from '../orders/order-search';
 import {
   documentDigits,
   mapContaAzulPessoa,
   mapContaAzulPessoaParaPedido,
   orderNeedsPedidoCadastroFill,
+  planErpCadastroApply,
   planPessoasDivergencias,
   planPreencherPedidosCadastro,
   type CaPessoa,
   type CadastroSyncOrderInput,
+  type ErpCadastroMutation,
   type ErpPartyInput,
   type PedidoCadastroPreview,
   type PessoaDivergence,
@@ -318,11 +324,13 @@ export class ContaAzulIntegrationService {
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
   private refreshInFlight: Promise<StoredSession> | null = null;
   private refreshLockColumnAvailable = true;
+  private notaArquivoSyncRunning = false;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly financeiro: FinanceiroService,
+    @Optional() private readonly storage?: R2StorageService,
   ) {}
 
   isConfigured(): boolean {
@@ -454,8 +462,8 @@ export class ContaAzulIntegrationService {
   }
 
   /**
-   * P0: pessoas + catálogos + amostra de categoria/centro nos títulos.
-   * Dry-run só reporta. Apply grava espelhos Conta Azul — não sobrescreve cadastro ERP.
+   * P0: pessoas + catálogos + cadastros reais Customer/Supplier/Carrier.
+   * Dry-run só reporta. Apply grava espelhos e cria/atualiza o ERP.
    */
   async sincronizarCadastros(options: {
     apply: boolean;
@@ -481,6 +489,16 @@ export class ContaAzulIntegrationService {
       soNoErp: number;
       preview: PessoaDivergence[];
     };
+    erpApply: {
+      criar: { customers: number; suppliers: number; carriers: number };
+      atualizar: { customers: number; suppliers: number; carriers: number };
+      pedidosVinculados: number;
+      previewPedidos: Array<{
+        code: string;
+        externalOrderNumber: string | null;
+        cnpj: string;
+      }>;
+    };
     catalogos: { categorias: number; centrosCusto: number };
     titulosAmostra: {
       total: number;
@@ -491,12 +509,19 @@ export class ContaAzulIntegrationService {
       pessoasGravadas: number;
       categoriasGravadas: number;
       centrosGravados: number;
+      customersCreated: number;
+      customersUpdated: number;
+      suppliersCreated: number;
+      suppliersUpdated: number;
+      carriersCreated: number;
+      carriersUpdated: number;
+      pedidosVinculados: number;
     };
     message: string;
   }> {
     this.ensureConfigured();
     const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 20));
-    const [customers, suppliers, carriers] = await Promise.all([
+    const [customers, suppliers, carriers, orders] = await Promise.all([
       this.prisma.client.customer.findMany({
         select: { id: true, name: true, document: true, deliveryAddress: true },
       }),
@@ -510,6 +535,19 @@ export class ContaAzulIntegrationService {
           document: true,
           deliveryAddress: true,
           documents: { select: { document: true } },
+        },
+      }),
+      this.prisma.client.order.findMany({
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          customerId: true,
+          customerName: true,
+          receiverName: true,
+          customerDocument: true,
+          deliveryCnpj: true,
+          deliveryAddress: true,
         },
       }),
     ]);
@@ -547,6 +585,10 @@ export class ContaAzulIntegrationService {
         if (x.length >= 11) neededDigits.add(x);
       }
     }
+    for (const order of orders) {
+      const d = documentDigits(order.deliveryCnpj);
+      if (d.length >= 11) neededDigits.add(d);
+    }
 
     const listed = await this.listAllPessoas();
     const { pessoas, detalhesBuscados } = await this.enrichPessoasAddresses(
@@ -554,6 +596,7 @@ export class ContaAzulIntegrationService {
       neededDigits,
     );
     const plan = planPessoasDivergencias({ pessoas, parties });
+    const erpPlan = planErpCadastroApply({ pessoas, parties, orders });
     let categorias: CaCatalogoItem[] = [];
     let centros: CaCatalogoItem[] = [];
     try {
@@ -610,6 +653,12 @@ export class ContaAzulIntegrationService {
       ...byTipo('so_conta_azul'),
       ...byTipo('so_erp'),
     ].slice(0, previewLimit);
+    const countMut = (
+      action: ErpCadastroMutation['action'],
+      kind: ErpCadastroMutation['kind'],
+    ) =>
+      erpPlan.mutations.filter((m) => m.action === action && m.kind === kind)
+        .length;
 
     const report = {
       ok: true as const,
@@ -630,6 +679,24 @@ export class ContaAzulIntegrationService {
         soNoErp: byTipo('so_erp').length,
         preview,
       },
+      erpApply: {
+        criar: {
+          customers: countMut('create', 'CUSTOMER'),
+          suppliers: countMut('create', 'SUPPLIER'),
+          carriers: countMut('create', 'CARRIER'),
+        },
+        atualizar: {
+          customers: countMut('update', 'CUSTOMER'),
+          suppliers: countMut('update', 'SUPPLIER'),
+          carriers: countMut('update', 'CARRIER'),
+        },
+        pedidosVinculados: erpPlan.pedidos.length,
+        previewPedidos: erpPlan.pedidos.slice(0, previewLimit).map((row) => ({
+          code: row.code,
+          externalOrderNumber: row.externalOrderNumber,
+          cnpj: row.cnpj,
+        })),
+      },
       catalogos: {
         categorias: categorias.length,
         centrosCusto: centros.length,
@@ -647,7 +714,7 @@ export class ContaAzulIntegrationService {
         apply: false,
         applied: false,
         message:
-          'Dry-run P0: nenhum cadastro do ERP foi alterado. apply=true só grava espelhos Conta Azul (pessoas/catálogos).',
+          'Dry-run P0: nenhum cadastro do ERP foi alterado. apply=true cria/atualiza Customer, Supplier e Carrier e vincula pedidos pelo CNPJ de entrega.',
       };
     }
 
@@ -660,8 +727,13 @@ export class ContaAzulIntegrationService {
       'ContaAzulCentroCusto',
       centros,
     );
+    const appliedErp = await this.applyErpCadastros(
+      erpPlan.mutations,
+      erpPlan.pedidos,
+      pessoas,
+    );
     this.logger.log(
-      `Conta Azul P0 apply: ${pessoasGravadas} pessoas, ${categoriasGravadas} categorias, ${centrosGravados} centros.`,
+      `Conta Azul P0 apply: ${pessoasGravadas} pessoas, ${appliedErp.customersCreated} clientes novos, ${appliedErp.customersUpdated} atualizados, ${appliedErp.pedidosVinculados} pedidos vinculados.`,
     );
     return {
       ...report,
@@ -671,11 +743,12 @@ export class ContaAzulIntegrationService {
         pessoasGravadas,
         categoriasGravadas,
         centrosGravados,
+        ...appliedErp,
       },
-      message:
-        'Aplicado P0: espelhos gravados. Customer/Supplier/Carrier do ERP não foram sobrescritos.',
+      message: `Aplicado P0: ${appliedErp.customersCreated + appliedErp.suppliersCreated + appliedErp.carriersCreated} cadastro(s) criado(s), ${appliedErp.customersUpdated + appliedErp.suppliersUpdated + appliedErp.carriersUpdated} atualizado(s), ${appliedErp.pedidosVinculados} pedido(s) vinculado(s).`,
     };
   }
+
 
   /**
    * Preenche Order.customerName e Order.deliveryAddress a partir da CA
@@ -1109,7 +1182,10 @@ export class ContaAzulIntegrationService {
    * XML (ou ZIP com CC-e) da NF-e na Conta Azul.
    * A API v2 não oferece DANFE/PDF neste endpoint — confirmado na conta real.
    */
-  async downloadNotaFiscal(invoiceNumber: string): Promise<{
+  async downloadNotaFiscal(
+    invoiceNumber: string,
+    opts?: { orderId?: string; persist?: boolean },
+  ): Promise<{
     buffer: Buffer;
     contentType: string;
     filename: string;
@@ -1119,6 +1195,15 @@ export class ContaAzulIntegrationService {
       throw new BadRequestException(
         'Informe o número da Nota de Venda (NF) para baixar o arquivo.',
       );
+    }
+    if (opts?.orderId) {
+      await this.assertNotRemessaForDownload(opts.orderId, invoiceNumber);
+      const stored = await this.readStoredNotaArquivo(
+        opts.orderId,
+        numero,
+        'xml',
+      );
+      if (stored) return stored;
     }
     const titulo = await this.findSyncedTituloByInvoice(numero);
     if (!titulo) {
@@ -1147,6 +1232,15 @@ export class ContaAzulIntegrationService {
       );
     }
     const kind = detectCaNfFile(buffer);
+    if (opts?.persist && opts.orderId) {
+      await this.persistNotaArquivo(
+        opts.orderId,
+        numero,
+        'xml',
+        buffer,
+        kind.mime,
+      );
+    }
     return {
       buffer,
       contentType: 'application/octet-stream',
@@ -1158,14 +1252,38 @@ export class ContaAzulIntegrationService {
    * DANFE em PDF a partir do XML real da Conta Azul.
    * A API v2 não entrega PDF; convertemos o XML (ou o XML dentro do ZIP).
    */
-  async downloadDanfe(invoiceNumber: string): Promise<{
+  async downloadDanfe(
+    invoiceNumber: string,
+    opts?: { orderId?: string; persist?: boolean },
+  ): Promise<{
     buffer: Buffer;
     contentType: string;
     filename: string;
   }> {
-    const file = await this.downloadNotaFiscal(invoiceNumber);
+    const numero = nfNumberKey(invoiceNumber);
+    if (opts?.orderId) {
+      await this.assertNotRemessaForDownload(opts.orderId, invoiceNumber);
+    }
+    if (opts?.orderId && numero) {
+      const stored = await this.readStoredNotaArquivo(
+        opts.orderId,
+        numero,
+        'danfe',
+      );
+      if (stored) return stored;
+    }
+    const file = await this.downloadNotaFiscal(invoiceNumber, opts);
     const kind = detectCaNfFile(file.buffer);
     if (kind.ext === 'pdf') {
+      if (opts?.persist && opts.orderId && numero) {
+        await this.persistNotaArquivo(
+          opts.orderId,
+          numero,
+          'danfe',
+          file.buffer,
+          'application/pdf',
+        );
+      }
       return {
         buffer: file.buffer,
         contentType: 'application/pdf',
@@ -1175,6 +1293,15 @@ export class ContaAzulIntegrationService {
     try {
       const xml = extractNfeXml(file.buffer);
       const buffer = await xmlToDanfePdf(xml);
+      if (opts?.persist && opts.orderId && numero) {
+        await this.persistNotaArquivo(
+          opts.orderId,
+          numero,
+          'danfe',
+          buffer,
+          'application/pdf',
+        );
+      }
       return {
         buffer,
         contentType: 'application/pdf',
@@ -1185,6 +1312,56 @@ export class ContaAzulIntegrationService {
       throw new BadRequestException(
         `Não foi possível gerar o DANFE a partir do XML da Conta Azul. ${detail}`,
       );
+    }
+  }
+
+  /**
+   * Pedidos com NF sem XML/Nota persistidos: busca na CA e grava no storage.
+   * 404 / nota em processamento → tenta de novo no próximo ciclo.
+   */
+  async syncPendingNotaArquivos(limit = 40): Promise<{
+    scanned: number;
+    saved: number;
+    skipped: number;
+  }> {
+    if (!this.storageConfigured()) {
+      this.logger.warn(
+        'Conta Azul XML/Nota automático: storage R2 não configurado.',
+      );
+      return { scanned: 0, saved: 0, skipped: 0 };
+    }
+    if (this.notaArquivoSyncRunning) {
+      return { scanned: 0, saved: 0, skipped: 0 };
+    }
+    this.notaArquivoSyncRunning = true;
+    let saved = 0;
+    let skipped = 0;
+    try {
+      const pending = await this.listPendingNotaArquivos(limit);
+      for (const row of pending) {
+        try {
+          await this.downloadDanfe(row.invoiceNumber, {
+            orderId: row.orderId,
+            persist: true,
+          });
+          saved += 1;
+          this.logger.log(
+            `Conta Azul XML/Nota automático: pedido ${row.orderId} NF ${row.invoiceNumber} vinculado.`,
+          );
+        } catch (err) {
+          if (err instanceof NotFoundException) {
+            skipped += 1;
+            continue;
+          }
+          this.logger.warn(
+            `Conta Azul XML/Nota automático NF ${row.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          skipped += 1;
+        }
+      }
+      return { scanned: pending.length, saved, skipped };
+    } finally {
+      this.notaArquivoSyncRunning = false;
     }
   }
 
@@ -1763,6 +1940,443 @@ export class ContaAzulIntegrationService {
       saved += 1;
     }
     return saved;
+  }
+
+  private isPrismaUniqueError(err: unknown): boolean {
+    return Boolean(
+      err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code?: string }).code === 'P2002',
+    );
+  }
+
+  private uniqueCarrierName(base: string, digits: string, taken: Set<string>): string {
+    const tryName = (name: string) => {
+      const key = name.trim().toLowerCase();
+      if (!key || taken.has(key)) return null;
+      taken.add(key);
+      return name.trim();
+    };
+    return (
+      tryName(base) ??
+      tryName(`${base} (${digits})`) ??
+      `${base} (${digits}-${randomUUID().slice(0, 8)})`
+    );
+  }
+
+  private async applyErpCadastros(
+    mutations: ErpCadastroMutation[],
+    pedidos: PedidoCadastroPreview[],
+    pessoas: CaPessoa[],
+  ): Promise<{
+    customersCreated: number;
+    customersUpdated: number;
+    suppliersCreated: number;
+    suppliersUpdated: number;
+    carriersCreated: number;
+    carriersUpdated: number;
+    pedidosVinculados: number;
+  }> {
+    const counts = {
+      customersCreated: 0,
+      customersUpdated: 0,
+      suppliersCreated: 0,
+      suppliersUpdated: 0,
+      carriersCreated: 0,
+      carriersUpdated: 0,
+      pedidosVinculados: 0,
+    };
+    const customerIdByDigits = new Map<string, string>();
+    const existingCustomers = await this.prisma.client.customer.findMany({
+      select: { id: true, document: true, name: true },
+    });
+    for (const row of existingCustomers) {
+      const digits = documentDigits(row.document);
+      if (digits.length >= 11 && !customerIdByDigits.has(digits)) {
+        customerIdByDigits.set(digits, row.id);
+      }
+    }
+    const carrierNames = new Set(
+      (
+        await this.prisma.client.carrier.findMany({ select: { name: true } })
+      ).map((row) => row.name.trim().toLowerCase()),
+    );
+
+    for (const mut of mutations) {
+      const pessoa = mut.pessoa;
+      const digits = pessoa.documentoDigits;
+      if (mut.kind === 'CUSTOMER') {
+        if (mut.action === 'create' && !mut.erpId) {
+          const existingId = customerIdByDigits.get(digits);
+          if (existingId) {
+            await this.prisma.client.customer.update({
+              where: { id: existingId },
+              data: {
+                name: pessoa.nome,
+                document: pessoa.documento,
+                ...(mut.address && pessoa.enderecoJson
+                  ? { deliveryAddress: pessoa.enderecoJson }
+                  : {}),
+                isActive: pessoa.ativo,
+              },
+            });
+            counts.customersUpdated += 1;
+            continue;
+          }
+          const created = await this.prisma.client.customer.create({
+            data: {
+              name: pessoa.nome,
+              document: pessoa.documento,
+              deliveryAddress: pessoa.enderecoJson,
+              isActive: pessoa.ativo,
+            },
+          });
+          customerIdByDigits.set(digits, created.id);
+          counts.customersCreated += 1;
+          continue;
+        }
+        if (mut.action === 'update' && mut.erpId) {
+          await this.prisma.client.customer.update({
+            where: { id: mut.erpId },
+            data: {
+              ...(mut.name ? { name: pessoa.nome } : {}),
+              document: pessoa.documento,
+              ...(mut.address && pessoa.enderecoJson
+                ? { deliveryAddress: pessoa.enderecoJson }
+                : {}),
+            },
+          });
+          customerIdByDigits.set(digits, mut.erpId);
+          counts.customersUpdated += 1;
+        }
+        continue;
+      }
+
+      if (mut.kind === 'SUPPLIER') {
+        if (mut.action === 'create' && !mut.erpId) {
+          await this.prisma.client.supplier.create({
+            data: {
+              name: pessoa.nome,
+              document: pessoa.documento,
+              isActive: pessoa.ativo,
+            },
+          });
+          counts.suppliersCreated += 1;
+          continue;
+        }
+        if (mut.action === 'update' && mut.erpId) {
+          await this.prisma.client.supplier.update({
+            where: { id: mut.erpId },
+            data: {
+              ...(mut.name ? { name: pessoa.nome } : {}),
+              document: pessoa.documento,
+            },
+          });
+          counts.suppliersUpdated += 1;
+        }
+        continue;
+      }
+
+      if (mut.kind === 'CARRIER') {
+        if (mut.action === 'create' && !mut.erpId) {
+          const name = this.uniqueCarrierName(pessoa.nome, digits, carrierNames);
+          try {
+            const created = await this.prisma.client.carrier.create({
+              data: {
+                name,
+                document: pessoa.documento,
+                deliveryAddress: pessoa.enderecoJson,
+                isActive: pessoa.ativo,
+              },
+            });
+            counts.carriersCreated += 1;
+            try {
+              await this.prisma.client.carrierDocument.create({
+                data: { carrierId: created.id, document: digits },
+              });
+            } catch (err) {
+              if (!this.isPrismaUniqueError(err)) throw err;
+            }
+          } catch (err) {
+            if (!this.isPrismaUniqueError(err)) throw err;
+            this.logger.warn(
+              `Transportadora ${pessoa.nome} (${digits}) não criada: nome duplicado.`,
+            );
+          }
+          continue;
+        }
+        if (mut.action === 'update' && mut.erpId) {
+          const data: {
+            name?: string;
+            document?: string | null;
+            deliveryAddress?: string | null;
+          } = {
+            document: pessoa.documento,
+            ...(mut.address && pessoa.enderecoJson
+              ? { deliveryAddress: pessoa.enderecoJson }
+              : {}),
+          };
+          if (mut.name) data.name = pessoa.nome;
+          try {
+            await this.prisma.client.carrier.update({
+              where: { id: mut.erpId },
+              data,
+            });
+          } catch (err) {
+            if (!this.isPrismaUniqueError(err) || !mut.name) throw err;
+            await this.prisma.client.carrier.update({
+              where: { id: mut.erpId },
+              data: { ...data, name: `${pessoa.nome} (${digits})` },
+            });
+          }
+          counts.carriersUpdated += 1;
+        }
+      }
+    }
+
+    const pessoasByDigits = new Map(
+      pessoas.map((p) => [p.documentoDigits, p] as const),
+    );
+    for (const pedido of pedidos) {
+      const customerId =
+        customerIdByDigits.get(pedido.cnpj) ?? pedido.targetCustomerId ?? null;
+      if (!customerId) continue;
+      const pessoa = pessoasByDigits.get(pedido.cnpj);
+      const data: {
+        customerId?: string;
+        customerName?: string;
+        deliveryAddress?: string;
+      } = {};
+      if (pedido.customerId !== customerId) data.customerId = customerId;
+      if (pedido.name && pessoa) data.customerName = pessoa.nome;
+      if (pedido.address && pessoa?.enderecoJson) {
+        data.deliveryAddress = pessoa.enderecoJson;
+      }
+      if (!data.customerId && !data.customerName && !data.deliveryAddress) {
+        continue;
+      }
+      await this.prisma.client.order.update({
+        where: { id: pedido.orderId },
+        data,
+      });
+      counts.pedidosVinculados += 1;
+    }
+    return counts;
+  }
+
+  private storageConfigured(): boolean {
+    const bucket = this.config.get<string>('R2_BUCKET_NAME') ?? '';
+    return Boolean(this.storage && bucket.trim());
+  }
+
+  private async assertNotRemessaForDownload(
+    orderId: string,
+    invoiceNumber: string,
+  ): Promise<void> {
+    const order = await this.prisma.client.order.findUnique({
+      where: { id: orderId },
+      select: { notaRemessa: true },
+    });
+    if (
+      order &&
+      invoiceNumberMatchesRemessa(invoiceNumber, order.notaRemessa)
+    ) {
+      throw new BadRequestException(
+        'Nota de remessa não possui XML/DANFE nesta integração. Use a Nota de Venda.',
+      );
+    }
+  }
+
+  private async readStoredNotaArquivo(
+    orderId: string,
+    invoiceNumber: string,
+    kind: 'xml' | 'danfe',
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string } | null> {
+    if (!this.storageConfigured() || !this.storage) return null;
+    const numero = nfNumberKey(invoiceNumber);
+    if (!numero) return null;
+    try {
+      const rows = await this.prisma.client.$queryRaw<
+        Array<{
+          invoiceNumber: string;
+          xmlStorageKey: string | null;
+          danfeStorageKey: string | null;
+        }>
+      >`
+        SELECT "invoiceNumber", "xmlStorageKey", "danfeStorageKey"
+        FROM "OrderInvoiceHistory"
+        WHERE "orderId" = CAST(${orderId} AS UUID)
+      `;
+      const row = rows.find((item) => nfNumberKey(item.invoiceNumber) === numero);
+      const key = kind === 'danfe' ? row?.danfeStorageKey : row?.xmlStorageKey;
+      if (!key) return null;
+      const stored = await this.storage.getObjectBuffer(key);
+      if (kind === 'danfe') {
+        return {
+          buffer: stored.buffer,
+          contentType: 'application/pdf',
+          filename: danfeDownloadFilename(numero),
+        };
+      }
+      const detected = detectCaNfFile(stored.buffer);
+      return {
+        buffer: stored.buffer,
+        contentType: 'application/octet-stream',
+        filename: nfeDownloadFilename(numero, detected.ext),
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Leitura XML/Nota persistido NF ${numero}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  private async persistNotaArquivo(
+    orderId: string,
+    invoiceNumber: string,
+    kind: 'xml' | 'danfe',
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    if (!this.storageConfigured() || !this.storage) return;
+    const numero = nfNumberKey(invoiceNumber);
+    if (!numero) return;
+    const key = nfeStorageKey(orderId, numero, kind);
+    try {
+      await this.storage.upload(key, buffer, contentType);
+      const rows = await this.prisma.client.$queryRaw<
+        Array<{ id: string; invoiceNumber: string }>
+      >`
+        SELECT id, "invoiceNumber"
+        FROM "OrderInvoiceHistory"
+        WHERE "orderId" = CAST(${orderId} AS UUID)
+      `;
+      const existing = rows.find((row) => nfNumberKey(row.invoiceNumber) === numero);
+      if (existing) {
+        if (kind === 'danfe') {
+          await this.prisma.client.$executeRaw`
+            UPDATE "OrderInvoiceHistory"
+            SET "danfeStorageKey" = ${key}
+            WHERE id = ${existing.id}
+          `;
+        } else {
+          await this.prisma.client.$executeRaw`
+            UPDATE "OrderInvoiceHistory"
+            SET "xmlStorageKey" = ${key}
+            WHERE id = ${existing.id}
+          `;
+        }
+        return;
+      }
+      const id = randomUUID();
+      if (kind === 'danfe') {
+        await this.prisma.client.$executeRaw`
+          INSERT INTO "OrderInvoiceHistory" (
+            id, "orderId", "invoiceNumber", "pickedQtyAtTime",
+            "createdAt", "createdBy", "danfeStorageKey"
+          ) VALUES (
+            ${id},
+            CAST(${orderId} AS UUID),
+            ${numero},
+            0,
+            NOW(),
+            'conta-azul-auto',
+            ${key}
+          )
+        `;
+      } else {
+        await this.prisma.client.$executeRaw`
+          INSERT INTO "OrderInvoiceHistory" (
+            id, "orderId", "invoiceNumber", "pickedQtyAtTime",
+            "createdAt", "createdBy", "xmlStorageKey"
+          ) VALUES (
+            ${id},
+            CAST(${orderId} AS UUID),
+            ${numero},
+            0,
+            NOW(),
+            'conta-azul-auto',
+            ${key}
+          )
+        `;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Persistência XML/Nota NF ${numero}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async listPendingNotaArquivos(
+    limit: number,
+  ): Promise<Array<{ orderId: string; invoiceNumber: string }>> {
+    try {
+      const rows = await this.prisma.client.$queryRaw<
+        Array<{
+          orderId: string;
+          invoiceNumber: string;
+          notaRemessa: string | null;
+        }>
+      >`
+        SELECT q."orderId", q."invoiceNumber", q."notaRemessa"
+        FROM (
+          SELECT o.id::text AS "orderId",
+                 o."invoiceNumber" AS "invoiceNumber",
+                 o."notaRemessa" AS "notaRemessa"
+          FROM "Order" o
+          WHERE o."invoiceNumber" IS NOT NULL AND btrim(o."invoiceNumber") <> ''
+            AND (
+              o."notaRemessa" IS NULL
+              OR btrim(o."notaRemessa") = ''
+              OR regexp_replace(o."invoiceNumber", '[^0-9]', '', 'g')
+                 <> regexp_replace(o."notaRemessa", '[^0-9]', '', 'g')
+            )
+          UNION
+          SELECT h."orderId"::text, h."invoiceNumber", o."notaRemessa"
+          FROM "OrderInvoiceHistory" h
+          JOIN "Order" o ON o.id = h."orderId"
+          WHERE h."invoiceNumber" IS NOT NULL AND btrim(h."invoiceNumber") <> ''
+            AND (
+              o."notaRemessa" IS NULL
+              OR btrim(o."notaRemessa") = ''
+              OR regexp_replace(h."invoiceNumber", '[^0-9]', '', 'g')
+                 <> regexp_replace(o."notaRemessa", '[^0-9]', '', 'g')
+            )
+        ) q
+        LEFT JOIN "OrderInvoiceHistory" stored
+          ON stored."orderId" = CAST(q."orderId" AS UUID)
+         AND regexp_replace(stored."invoiceNumber", '[^0-9]', '', 'g')
+           = regexp_replace(q."invoiceNumber", '[^0-9]', '', 'g')
+        WHERE regexp_replace(q."invoiceNumber", '[^0-9]', '', 'g') <> ''
+          AND (
+            stored.id IS NULL
+            OR stored."xmlStorageKey" IS NULL
+            OR stored."danfeStorageKey" IS NULL
+          )
+        LIMIT ${limit}
+      `;
+      const seen = new Set<string>();
+      const out: Array<{ orderId: string; invoiceNumber: string }> = [];
+      for (const row of rows) {
+        if (invoiceNumberMatchesRemessa(row.invoiceNumber, row.notaRemessa)) {
+          continue;
+        }
+        const numero = nfNumberKey(row.invoiceNumber);
+        if (!numero) continue;
+        const k = `${row.orderId}:${numero}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ orderId: row.orderId, invoiceNumber: numero });
+      }
+      return out;
+    } catch (err) {
+      this.logger.warn(
+        `Lista XML/Nota pendente: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
+    }
   }
 
   private async listCatalogo(

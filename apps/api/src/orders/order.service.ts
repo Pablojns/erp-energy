@@ -43,7 +43,10 @@ import {
   buildOrderFieldFilterWhere,
   buildOrderParcialWhere,
   buildOrderSearchWhere,
+  confirmedRemessaNumber,
+  invoiceNumberDigits,
   isCorreiosTrackingCode,
+  sameInvoiceNumber,
 } from './order-search';
 import { AppLogger } from '../common/logger/app-logger';
 import {
@@ -2473,6 +2476,8 @@ export class OrderService {
         ? null
         : before.invoiceNumber?.trim() || null;
       const inv = invRaw || currentInvoice || '';
+      const remessa = confirmedRemessaNumber(before);
+      const invIsRemessa = Boolean(remessa) && sameInvoiceNumber(inv, remessa);
       const trackingFromInvoice = isCorreiosTrackingCode(before.invoiceNumber)
         ? (before.invoiceNumber ?? '').trim().toUpperCase()
         : '';
@@ -2702,7 +2707,10 @@ export class OrderService {
         where: { id: orderId },
         data: {
           status: finalStatus,
-          invoiceNumber: invRaw || currentInvoice || null,
+          // Remessa confirmada não copia o número para Nota de Venda.
+          invoiceNumber: invIsRemessa
+            ? currentInvoice
+            : invRaw || currentInvoice || null,
           ...(tracking && !before.trackingCode?.trim()
             ? { trackingCode: tracking }
             : {}),
@@ -2730,6 +2738,20 @@ export class OrderService {
         userId,
         items: before.items,
       });
+      if (
+        finalStatus === OrderStatus.FINALIZADO &&
+        invIsRemessa &&
+        currentInvoice &&
+        invoiceNumberDigits(currentInvoice) &&
+        !sameInvoiceNumber(currentInvoice, inv)
+      ) {
+        await OrderService.recordInvoiceHistoryOnExit(tx, {
+          orderId,
+          invoiceNumber: currentInvoice,
+          userId,
+          items: before.items,
+        });
+      }
 
       await this.audit.log({
         userId,

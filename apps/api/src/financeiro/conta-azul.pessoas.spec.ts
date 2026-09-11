@@ -8,6 +8,7 @@ import {
   normalizePersonName,
   orderNeedsPedidoCadastroFill,
   planCadastroSync,
+  planErpCadastroApply,
   planPessoasDivergencias,
   planPreencherPedidosCadastro,
 } from './conta-azul.pessoas';
@@ -303,5 +304,79 @@ describe('conta-azul.pessoas', () => {
       to: 'DIVISAO MOTORES - FABRICA - PARQUE FABRIL I -',
     });
     expect(pedidos[0].address?.to).toContain('VENANCIO DA SILVA PORTO');
+  });
+
+  it('planeja criação de Customer real e vínculo de pedido pelo CNPJ de entrega', () => {
+    const pessoa = mapContaAzulPessoa({
+      id: 'pes-new',
+      nome: 'WEG EQUIPAMENTOS ELETRICOS S/A',
+      documento: '07.175.725/0012-12',
+      perfis: [{ tipo_perfil: 'Cliente' }],
+      endereco: enderecoCa,
+    })!;
+    const { mutations, pedidos } = planErpCadastroApply({
+      pessoas: [pessoa],
+      parties: [],
+      orders: [
+        {
+          id: 'o-weg',
+          code: 'PED-001409',
+          externalOrderNumber: '4518832266',
+          customerId: null,
+          customerName: 'VIVIAN/4905',
+          receiverName: 'VIVIAN/4905',
+          customerDocument: null,
+          deliveryCnpj: '07.175.725/0012-12',
+          deliveryAddress: null,
+        },
+      ],
+    });
+    expect(mutations.some((m) => m.action === 'create' && m.kind === 'CUSTOMER')).toBe(
+      true,
+    );
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0].targetCustomerId).toBeNull();
+    expect(pedidos[0].name?.to).toBe('WEG EQUIPAMENTOS ELETRICOS S/A');
+    expect(pedidos[0].receiverName).toBe('VIVIAN/4905');
+  });
+
+  it('atualiza Customer existente e vincula pedido já cadastrado no CNPJ', () => {
+    const pessoa = mapContaAzulPessoa({
+      id: 'pes-upd',
+      nome: 'Oficial SA',
+      documento: '11222333000181',
+      perfis: ['Cliente'],
+      endereco: enderecoCa,
+    })!;
+    const { mutations, pedidos } = planErpCadastroApply({
+      pessoas: [pessoa],
+      parties: [
+        {
+          kind: 'CUSTOMER',
+          id: 'c1',
+          name: 'Oficial',
+          document: '11.222.333/0001-81',
+          deliveryAddress: null,
+        },
+      ],
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-1',
+          externalOrderNumber: '10',
+          customerId: null,
+          customerName: 'Oficial',
+          receiverName: 'Recebedor',
+          customerDocument: null,
+          deliveryCnpj: '11222333000181',
+          deliveryAddress: null,
+        },
+      ],
+    });
+    expect(mutations.some((m) => m.action === 'update' && m.kind === 'CUSTOMER')).toBe(
+      true,
+    );
+    expect(pedidos[0].targetCustomerId).toBe('c1');
+    expect(pedidos[0].customerId).toBeNull();
   });
 });
