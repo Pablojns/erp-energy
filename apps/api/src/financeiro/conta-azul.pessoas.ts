@@ -30,6 +30,7 @@ export type PedidoCadastroPreview = {
   externalOrderNumber: string | null;
   customerId: string | null;
   cnpj: string;
+  receiverName: string | null;
   name: CadastroFieldDiff | null;
   address: CadastroFieldDiff | null;
 };
@@ -48,6 +49,7 @@ export type CadastroSyncOrderInput = {
   externalOrderNumber: string | null;
   customerId: string | null;
   customerName: string;
+  receiverName?: string | null;
   customerDocument: string | null;
   deliveryCnpj: string | null;
   deliveryAddress: string | null;
@@ -162,6 +164,46 @@ export function mapContaAzulPessoa(
   };
 }
 
+/** Nome do cadastro da pessoa na CA (filial), não a razão social genérica do grupo. */
+export function mapContaAzulPessoaParaPedido(
+  item: Record<string, unknown>,
+): CaPessoa | null {
+  const mapped = mapContaAzulPessoa(item);
+  if (!mapped) return null;
+  const nomeCadastro = asText(item.nome);
+  if (nomeCadastro) mapped.nome = nomeCadastro;
+  return mapped;
+}
+
+export function buyerNameLooksLikeReceiver(input: {
+  customerName: string;
+  receiverName?: string | null;
+}): boolean {
+  const buyer = normalizePersonName(input.customerName);
+  const recv = normalizePersonName(input.receiverName);
+  if (!buyer) return true;
+  if (!recv) return false;
+  if (buyer === recv) return true;
+  const buyerHead = buyer.split(/[/\-]/)[0]?.trim() ?? '';
+  const recvHead = recv.split(/[/\-]/)[0]?.trim() ?? '';
+  return Boolean(buyerHead && recvHead && buyerHead === recvHead);
+}
+
+export function orderNeedsPedidoCadastroFill(input: {
+  deliveryCnpj: string | null;
+  deliveryAddress: string | null;
+  customerName: string;
+  receiverName?: string | null;
+}): boolean {
+  if (documentDigits(input.deliveryCnpj).length < 11) return false;
+  const hasAddress = Boolean(
+    parseDeliveryAddressLoose(input.deliveryAddress) ||
+      input.deliveryAddress?.trim(),
+  );
+  if (!hasAddress) return true;
+  return buyerNameLooksLikeReceiver(input);
+}
+
 function preferPessoa(a: CaPessoa, b: CaPessoa): CaPessoa {
   const score = (p: CaPessoa) =>
     (p.ativo ? 4 : 0) +
@@ -218,6 +260,7 @@ export function diffPedidoCadastro(input: {
   externalOrderNumber: string | null;
   customerId: string | null;
   customerName: string;
+  receiverName?: string | null;
   customerDocument: string | null;
   deliveryCnpj: string | null;
   deliveryAddress: string | null;
@@ -252,6 +295,7 @@ export function diffPedidoCadastro(input: {
     externalOrderNumber: input.externalOrderNumber,
     customerId: input.customerId,
     cnpj,
+    receiverName: input.receiverName ?? null,
     name,
     address,
   };
@@ -313,6 +357,7 @@ export function planCadastroSync(input: {
       externalOrderNumber: order.externalOrderNumber,
       customerId: order.customerId,
       customerName: order.customerName,
+      receiverName: order.receiverName,
       customerDocument: order.customerDocument,
       deliveryCnpj: order.deliveryCnpj,
       deliveryAddress: order.deliveryAddress,
@@ -337,6 +382,32 @@ export function planCadastroSync(input: {
   }
 
   return { byDocumento, pedidos, clientes };
+}
+
+export function planPreencherPedidosCadastro(input: {
+  pessoasByDocumento: Map<string, CaPessoa>;
+  orders: CadastroSyncOrderInput[];
+}): PedidoCadastroPreview[] {
+  const pedidos: PedidoCadastroPreview[] = [];
+  for (const order of input.orders) {
+    const digits = documentDigits(order.deliveryCnpj);
+    const pessoa = digits ? input.pessoasByDocumento.get(digits) : undefined;
+    if (!pessoa?.endereco || !pessoa.enderecoJson) continue;
+    const diff = diffPedidoCadastro({
+      orderId: order.id,
+      code: order.code,
+      externalOrderNumber: order.externalOrderNumber,
+      customerId: order.customerId,
+      customerName: order.customerName,
+      receiverName: order.receiverName,
+      customerDocument: order.customerDocument,
+      deliveryCnpj: order.deliveryCnpj,
+      deliveryAddress: order.deliveryAddress,
+      pessoa,
+    });
+    if (diff) pedidos.push(diff);
+  }
+  return pedidos;
 }
 
 export type ErpPartyKind = 'CUSTOMER' | 'SUPPLIER' | 'CARRIER';

@@ -146,7 +146,10 @@ async function proxy(request: NextRequest, segments: string[]) {
   const isLongContaAzulSync =
     /conta-azul\/sync(-status\/[^/]+)?$/i.test(path);
   const isLongContaAzulPreview =
-    /conta-azul\/sincronizar-(cadastros|vendas)/i.test(path);
+    /conta-azul\/sincronizar-(cadastros|vendas)|conta-azul\/preencher-pedidos-cadastro/i.test(
+      path,
+    );
+  const isLongNfDownload = /(nota-fiscal|danfe)$/i.test(path);
 
   const init: RequestInit = {
     method,
@@ -159,7 +162,9 @@ async function proxy(request: NextRequest, segments: string[]) {
           ? 120_000
           : isLongContaAzulSync
             ? 180_000
-            : PROXY_TIMEOUT_MS,
+            : isLongNfDownload
+              ? 90_000
+              : PROXY_TIMEOUT_MS,
     ),
   };
 

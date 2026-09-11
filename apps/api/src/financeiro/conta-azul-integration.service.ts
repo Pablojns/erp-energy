@@ -45,18 +45,26 @@ import {
 } from './conta-azul.titulos';
 import {
   CA_NF_NOT_SYNCED_MESSAGE,
+  danfeDownloadFilename,
   detectCaNfFile,
+  extractNfeXml,
   invoiceDescricaoMatchPattern,
   nfNumberKey,
   nfeDownloadFilename,
   tituloMatchesInvoiceNumber,
+  xmlToDanfePdf,
 } from './conta-azul.nfe-download';
 import {
   documentDigits,
   mapContaAzulPessoa,
+  mapContaAzulPessoaParaPedido,
+  orderNeedsPedidoCadastroFill,
   planPessoasDivergencias,
+  planPreencherPedidosCadastro,
   type CaPessoa,
+  type CadastroSyncOrderInput,
   type ErpPartyInput,
+  type PedidoCadastroPreview,
   type PessoaDivergence,
 } from './conta-azul.pessoas';
 import {
@@ -670,6 +678,149 @@ export class ContaAzulIntegrationService {
   }
 
   /**
+   * Preenche Order.customerName e Order.deliveryAddress a partir da CA
+   * para CNPJs que não estão no cadastro Customer do ERP.
+   * Não altera receiverName nem deliveryCnpj.
+   */
+  async preencherPedidosCadastro(options: {
+    apply: boolean;
+    previewLimit?: number;
+  }): Promise<{
+    ok: true;
+    apply: boolean;
+    applied: boolean;
+    pedidosElegiveis: number;
+    cnpjsBuscados: number;
+    encontradosNaCa: number;
+    semMatch: number;
+    semDadosCompletos: number;
+    aAtualizar: number;
+    detalhesBuscados: number;
+    preview: PedidoCadastroPreview[];
+    appliedCounts?: { pedidosAtualizados: number };
+    message: string;
+  }> {
+    this.ensureConfigured();
+    const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 20));
+    const [orders, customers] = await Promise.all([
+      this.prisma.client.order.findMany({
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          customerId: true,
+          customerName: true,
+          receiverName: true,
+          customerDocument: true,
+          deliveryCnpj: true,
+          deliveryAddress: true,
+        },
+      }),
+      this.prisma.client.customer.findMany({
+        select: { document: true },
+      }),
+    ]);
+
+    const registeredDigits = new Set<string>();
+    for (const row of customers) {
+      const digits = documentDigits(row.document);
+      if (digits.length >= 11) registeredDigits.add(digits);
+    }
+
+    const eligible: CadastroSyncOrderInput[] = [];
+    for (const row of orders) {
+      const digits = documentDigits(row.deliveryCnpj);
+      if (digits.length < 11 || registeredDigits.has(digits)) continue;
+      if (!orderNeedsPedidoCadastroFill(row)) continue;
+      eligible.push(row);
+    }
+
+    const uniqueDigits = [
+      ...new Set(eligible.map((row) => documentDigits(row.deliveryCnpj))),
+    ];
+    const pessoasByDocumento = new Map<string, CaPessoa>();
+    let detalhesBuscados = 0;
+    let listedPessoas: CaPessoa[] | null = null;
+    for (const digits of uniqueDigits) {
+      const found = await this.findPessoaByDocumento(digits, async () => {
+        listedPessoas ??= await this.listAllPessoas();
+        return listedPessoas;
+      });
+      detalhesBuscados += found.detalheBuscado ? 1 : 0;
+      if (found.pessoa) pessoasByDocumento.set(digits, found.pessoa);
+    }
+
+    const pedidos = planPreencherPedidosCadastro({
+      pessoasByDocumento,
+      orders: eligible,
+    });
+    let semMatch = 0;
+    let semDadosCompletos = 0;
+    for (const row of eligible) {
+      const digits = documentDigits(row.deliveryCnpj);
+      const pessoa = pessoasByDocumento.get(digits);
+      if (!pessoa) {
+        semMatch += 1;
+        continue;
+      }
+      if (!pessoa.endereco || !pessoa.enderecoJson) semDadosCompletos += 1;
+    }
+
+    const preview = [
+      ...pedidos.filter((row) => Boolean(row.name)),
+      ...pedidos.filter((row) => !row.name),
+    ].slice(0, previewLimit);
+    const report = {
+      ok: true as const,
+      pedidosElegiveis: eligible.length,
+      cnpjsBuscados: uniqueDigits.length,
+      encontradosNaCa: pessoasByDocumento.size,
+      semMatch,
+      semDadosCompletos,
+      aAtualizar: pedidos.length,
+      detalhesBuscados,
+      preview,
+    };
+
+    if (!options.apply) {
+      return {
+        ...report,
+        apply: false,
+        applied: false,
+        message:
+          'Dry-run: nenhum pedido foi alterado. apply=true preenche comprador e endereço só nos pedidos listados (Recebedor permanece igual).',
+      };
+    }
+
+    let pedidosAtualizados = 0;
+    for (const row of pedidos) {
+      const pessoa = pessoasByDocumento.get(row.cnpj);
+      if (!pessoa) continue;
+      const data: { customerName?: string; deliveryAddress?: string } = {};
+      if (row.name) data.customerName = pessoa.nome;
+      if (row.address && pessoa.enderecoJson) {
+        data.deliveryAddress = pessoa.enderecoJson;
+      }
+      if (!data.customerName && !data.deliveryAddress) continue;
+      await this.prisma.client.order.update({
+        where: { id: row.orderId },
+        data,
+      });
+      pedidosAtualizados += 1;
+    }
+    this.logger.log(
+      `Conta Azul preencher pedidos: ${pedidosAtualizados} atualizados.`,
+    );
+    return {
+      ...report,
+      apply: true,
+      applied: true,
+      appliedCounts: { pedidosAtualizados },
+      message: `Aplicado: ${pedidosAtualizados} pedido(s) atualizado(s). Recebedor e CNPJ de entrega não foram alterados.`,
+    };
+  }
+
+  /**
    * P1: GET /v1/venda/busca cruzado com pedidos do ERP.
    * Apply só preenche Order.contaAzulVendaId em matches claros.
    */
@@ -1001,6 +1152,40 @@ export class ContaAzulIntegrationService {
       contentType: 'application/octet-stream',
       filename: nfeDownloadFilename(numero, kind.ext),
     };
+  }
+
+  /**
+   * DANFE em PDF a partir do XML real da Conta Azul.
+   * A API v2 não entrega PDF; convertemos o XML (ou o XML dentro do ZIP).
+   */
+  async downloadDanfe(invoiceNumber: string): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    filename: string;
+  }> {
+    const file = await this.downloadNotaFiscal(invoiceNumber);
+    const kind = detectCaNfFile(file.buffer);
+    if (kind.ext === 'pdf') {
+      return {
+        buffer: file.buffer,
+        contentType: 'application/pdf',
+        filename: danfeDownloadFilename(invoiceNumber),
+      };
+    }
+    try {
+      const xml = extractNfeXml(file.buffer);
+      const buffer = await xmlToDanfePdf(xml);
+      return {
+        buffer,
+        contentType: 'application/pdf',
+        filename: danfeDownloadFilename(invoiceNumber),
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `Não foi possível gerar o DANFE a partir do XML da Conta Azul. ${detail}`,
+      );
+    }
   }
 
   async getCategorias(pagina = 1, tamanhoPagina = 10) {
@@ -1416,6 +1601,75 @@ export class ContaAzulIntegrationService {
       pagina += 1;
     }
     return out;
+  }
+
+  private pickPessoaForPedido(pessoas: CaPessoa[]): CaPessoa | null {
+    if (pessoas.length === 0) return null;
+    return pessoas.reduce((best, pessoa) => {
+      const score = (p: CaPessoa) =>
+        (p.ativo ? 4 : 0) +
+        (p.perfis.includes('CLIENTE') ? 2 : 0) +
+        (p.endereco ? 1 : 0);
+      return score(pessoa) > score(best) ? pessoa : best;
+    });
+  }
+
+  /**
+   * Busca a pessoa na CA por CNPJ (`busca`) e completa o endereço no detalhe.
+   */
+  private async findPessoaByDocumento(
+    digits: string,
+    listAll: () => Promise<CaPessoa[]>,
+  ): Promise<{
+    pessoa: CaPessoa | null;
+    detalheBuscado: boolean;
+  }> {
+    const matches: CaPessoa[] = [];
+    try {
+      const payload = await this.withRetry(`pessoas busca ${digits}`, () =>
+        this.apiGet('/v1/pessoas', {
+          pagina: 1,
+          tamanho_pagina: 50,
+          busca: digits,
+        }),
+      );
+      for (const item of this.payloadItems(payload)) {
+        const mapped = mapContaAzulPessoaParaPedido(item);
+        if (mapped && mapped.documentoDigits === digits) matches.push(mapped);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `GET /v1/pessoas?busca=: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    let pessoa = this.pickPessoaForPedido(matches);
+    if (!pessoa) {
+      const listed = await listAll();
+      pessoa = this.pickPessoaForPedido(
+        listed.filter((row) => row.documentoDigits === digits),
+      );
+    }
+    if (!pessoa) return { pessoa: null, detalheBuscado: false };
+    if (pessoa.endereco) return { pessoa, detalheBuscado: false };
+    const pessoaId = pessoa.contaAzulId;
+    try {
+      const detail = await this.withRetry(
+        `pessoa ${pessoaId}`,
+        () => this.apiGet(`/v1/pessoas/${encodeURIComponent(pessoaId)}`),
+      );
+      const rec =
+        detail && typeof detail === 'object' && !Array.isArray(detail)
+          ? (detail as Record<string, unknown>)
+          : null;
+      const mapped = rec ? mapContaAzulPessoaParaPedido(rec) : null;
+      if (mapped) pessoa = mapped;
+      return { pessoa, detalheBuscado: true };
+    } catch (err) {
+      this.logger.warn(
+        `GET /v1/pessoas/${pessoaId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { pessoa, detalheBuscado: true };
+    }
   }
 
   private async enrichPessoasAddresses(

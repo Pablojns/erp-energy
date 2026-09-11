@@ -537,6 +537,24 @@ export class PedidosController {
     return new StreamableFile(buffer);
   }
 
+  /** PDF DANFE gerado a partir do XML real da Conta Azul. */
+  @Get(':numeroPed/danfe')
+  async danfe(
+    @Param('numeroPed') numeroPed: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const order = await this.pedidos.findByNumeroPed(numeroPed);
+    const invoiceNumber =
+      typeof order.invoiceNumber === 'string' ? order.invoiceNumber : '';
+    const { buffer, contentType, filename } =
+      await this.contaAzul.downloadDanfe(invoiceNumber);
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(buffer);
+  }
+
   @Get(':numeroPed/etiqueta')
   async etiqueta(
     @Param('numeroPed') numeroPed: string,

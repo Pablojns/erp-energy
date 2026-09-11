@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, Download, Link2, RefreshCw } from 'lucide-react';
+import { Calendar, Download, Link2, MapPin, RefreshCw } from 'lucide-react';
 import type {
   FinanceiroPeriod,
   FinanceiroPeriodPreset,
@@ -41,6 +41,7 @@ export function FinanceiroHeader(props: {
   onSyncCa?: () => void;
   onSyncCadastros?: () => void;
   onSyncVendas?: () => void;
+  onSyncPedidosCadastro?: () => void;
   canEditCa?: boolean;
 }) {
   const {
@@ -63,6 +64,7 @@ export function FinanceiroHeader(props: {
     onSyncCa,
     onSyncCadastros,
     onSyncVendas,
+    onSyncPedidosCadastro,
     canEditCa,
   } = props;
 
@@ -220,6 +222,21 @@ export function FinanceiroHeader(props: {
               >
                 <Link2 className="h-3.5 w-3.5" />
                 Vincular Vendas a Pedidos
+              </button>
+              <button
+                type="button"
+                onClick={onSyncPedidosCadastro}
+                disabled={caBusy || !caConnected || !canEditCa}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold text-[var(--fin-text)] transition hover:bg-[var(--fin-card-muted)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                style={{ borderColor: 'var(--fin-border)' }}
+                title={
+                  caConnected
+                    ? 'Busca CNPJ na Conta Azul e preenche comprador/endereço nos pedidos; só grava ao confirmar Aplicar'
+                    : 'Conecte a Conta Azul antes de sincronizar'
+                }
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Preencher Pedidos
               </button>
             </div>
           </div>

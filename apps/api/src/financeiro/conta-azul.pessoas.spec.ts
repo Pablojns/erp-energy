@@ -1,11 +1,15 @@
 import { serializeStoredDeliveryAddress } from '../common/delivery-address';
 import {
+  buyerNameLooksLikeReceiver,
   diffPedidoCadastro,
   documentDigits,
   mapContaAzulPessoa,
+  mapContaAzulPessoaParaPedido,
   normalizePersonName,
+  orderNeedsPedidoCadastroFill,
   planCadastroSync,
   planPessoasDivergencias,
+  planPreencherPedidosCadastro,
 } from './conta-azul.pessoas';
 
 const enderecoCa = {
@@ -210,5 +214,94 @@ describe('conta-azul.pessoas', () => {
         (d) => d.tipo === 'so_erp' && d.kind === 'SUPPLIER' && d.erpId === 's1',
       ),
     ).toBe(true);
+  });
+
+  it('detecta comprador WEG copiado do recebedor e endereço vazio', () => {
+    expect(
+      buyerNameLooksLikeReceiver({
+        customerName: 'VIVIAN/4905',
+        receiverName: 'VIVIAN/4905',
+      }),
+    ).toBe(true);
+    expect(
+      buyerNameLooksLikeReceiver({
+        customerName: 'VIVIAN/4905',
+        receiverName: 'VIVIAN',
+      }),
+    ).toBe(true);
+    expect(
+      buyerNameLooksLikeReceiver({
+        customerName: 'WEG EQUIPAMENTOS ELETRICOS S/A',
+        receiverName: 'VIVIAN/4905',
+      }),
+    ).toBe(false);
+    expect(
+      orderNeedsPedidoCadastroFill({
+        deliveryCnpj: '07.175.725/0012-12',
+        deliveryAddress: null,
+        customerName: 'VIVIAN/4905',
+        receiverName: 'VIVIAN/4905',
+      }),
+    ).toBe(true);
+    expect(
+      orderNeedsPedidoCadastroFill({
+        deliveryCnpj: '07.175.725/0012-12',
+        deliveryAddress: serializeStoredDeliveryAddress({
+          cep: '89252230',
+          logradouro: 'Rua Teste',
+          numero: '1',
+          complemento: '',
+          bairro: 'Centro',
+          cidade: 'Jaraguá do Sul',
+          uf: 'SC',
+        }),
+        customerName: 'WEG EQUIPAMENTOS ELETRICOS S/A',
+        receiverName: 'VIVIAN/4905',
+      }),
+    ).toBe(false);
+  });
+
+  it('planeja preenchimento de pedido com nome oficial e endereço da CA', () => {
+    const pessoa = mapContaAzulPessoaParaPedido({
+      id: 'pes-weg',
+      nome: 'DIVISAO MOTORES - FABRICA - PARQUE FABRIL I -',
+      nome_empresa: 'WEG EQUIPAMENTOS ELETRICOS S/A',
+      documento: '07175725001212',
+      enderecos: [
+        {
+          cep: '89252230',
+          logradouro: 'VENANCIO DA SILVA PORTO',
+          numero: '399',
+          complemento: 'BLOCO C',
+          bairro: 'NOVA BRASILIA',
+          cidade: 'Jaraguá do Sul',
+          estado: 'SC',
+        },
+      ],
+    })!;
+    expect(pessoa.nome).toBe('DIVISAO MOTORES - FABRICA - PARQUE FABRIL I -');
+    const pedidos = planPreencherPedidosCadastro({
+      pessoasByDocumento: new Map([[pessoa.documentoDigits, pessoa]]),
+      orders: [
+        {
+          id: 'o-weg',
+          code: 'PED-001409',
+          externalOrderNumber: '4519',
+          customerId: null,
+          customerName: 'VIVIAN/4905',
+          receiverName: 'VIVIAN/4905',
+          customerDocument: null,
+          deliveryCnpj: '07.175.725/0012-12',
+          deliveryAddress: null,
+        },
+      ],
+    });
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0].receiverName).toBe('VIVIAN/4905');
+    expect(pedidos[0].name).toEqual({
+      from: 'VIVIAN/4905',
+      to: 'DIVISAO MOTORES - FABRICA - PARQUE FABRIL I -',
+    });
+    expect(pedidos[0].address?.to).toContain('VENANCIO DA SILVA PORTO');
   });
 });

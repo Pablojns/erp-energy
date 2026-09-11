@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, CalendarDays, Download, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Download, FileText, Loader2, Pencil, Tag, Trash2, X } from 'lucide-react';
 import { formatDeliveryAddressDisplay } from '@/src/components/cadastros/delivery-address';
 import { formatDayDisplay } from '@/src/components/expedicao/expedition-wms-layout';
 import {
@@ -339,7 +339,9 @@ export const OrderInfoPanel = forwardRef<
   const [savingNfHistory, setSavingNfHistory] = useState(false);
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
-  const [downloadingNf, setDownloadingNf] = useState(false);
+  const [downloadingNf, setDownloadingNf] = useState<'xml' | 'danfe' | null>(
+    null,
+  );
   const [nfDownloadError, setNfDownloadError] = useState<string | null>(null);
 
   const isCorreiosOrder = isCorreiosCarrier(order.carrierName);
@@ -811,7 +813,7 @@ export const OrderInfoPanel = forwardRef<
     }
   };
 
-  const downloadNotaFiscal = async () => {
+  const downloadNotaArquivo = async (kind: 'xml' | 'danfe') => {
     const numeroPed = numeroPedFromOrder(order);
     const nf = displayInvoiceNumber(notaVendaInput) || notaVenda;
     if (!numeroPed) {
@@ -823,17 +825,21 @@ export const OrderInfoPanel = forwardRef<
       return;
     }
 
-    setDownloadingNf(true);
+    setDownloadingNf(kind);
     setNfDownloadError(null);
     try {
-      const path = pedidoApiUrl(numeroPed, 'nota-fiscal').replace(/^api\//, '');
+      const segment = kind === 'danfe' ? 'danfe' : 'nota-fiscal';
+      const path = pedidoApiUrl(numeroPed, segment).replace(/^api\//, '');
       const res = await fetch(`/api/erp/${path}`, {
         credentials: 'include',
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(90_000),
       });
       if (!res.ok) {
         const text = await res.text();
-        let message = 'Não foi possível baixar a nota fiscal.';
+        let message =
+          kind === 'danfe'
+            ? 'Não foi possível gerar o DANFE.'
+            : 'Não foi possível baixar a nota fiscal.';
         try {
           const body = JSON.parse(text) as { message?: string | string[] };
           if (body.message) {
@@ -849,7 +855,8 @@ export const OrderInfoPanel = forwardRef<
       const blob = await res.blob();
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const match = /filename="?([^"]+)"?/i.exec(disposition);
-      const filename = match?.[1] ?? `NF-${nf}.xml`;
+      const filename =
+        match?.[1] ?? (kind === 'danfe' ? `DANFE-${nf}.pdf` : `NF-${nf}.xml`);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -860,12 +867,48 @@ export const OrderInfoPanel = forwardRef<
       setNfDownloadError(
         error instanceof Error
           ? error.message
-          : 'Não foi possível baixar a nota fiscal.',
+          : kind === 'danfe'
+            ? 'Não foi possível gerar o DANFE.'
+            : 'Não foi possível baixar a nota fiscal.',
       );
     } finally {
-      setDownloadingNf(false);
+      setDownloadingNf(null);
     }
   };
+
+  const nfDownloadButtons = (disabled: boolean) => (
+    <>
+      <button
+        type="button"
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
+        onClick={() => void downloadNotaArquivo('xml')}
+        disabled={disabled || downloadingNf !== null}
+        title="Baixar XML"
+        aria-label="Baixar XML"
+      >
+        {downloadingNf === 'xml' ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Download className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <button
+        type="button"
+        className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
+        onClick={() => void downloadNotaArquivo('danfe')}
+        disabled={disabled || downloadingNf !== null}
+        title="Baixar DANFE"
+        aria-label="Baixar DANFE"
+      >
+        {downloadingNf === 'danfe' ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <FileText className="h-3.5 w-3.5" />
+        )}
+        <span>DANFE</span>
+      </button>
+    </>
+  );
 
   const emitEtiquetaPdf = async (
     kind: EtiquetaKind = isCorreiosOrder ? 'correios' : 'erp',
@@ -1398,22 +1441,7 @@ export const OrderInfoPanel = forwardRef<
               {!canEditInvoiceField ? (
                 <div className="flex items-center gap-1.5">
                   <span>{notaVenda ?? '—'}</span>
-                  {notaVenda ? (
-                    <button
-                      type="button"
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                      onClick={() => void downloadNotaFiscal()}
-                      disabled={downloadingNf}
-                      title="Baixar Nota Fiscal"
-                      aria-label="Baixar Nota Fiscal"
-                    >
-                      {downloadingNf ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Download className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  ) : null}
+                  {notaVenda ? nfDownloadButtons(false) : null}
                 </div>
               ) : (
                 <>
@@ -1433,22 +1461,9 @@ export const OrderInfoPanel = forwardRef<
                     {savingNotaVenda ? (
                       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-secondary)]" />
                     ) : null}
-                    {displayInvoiceNumber(notaVendaInput) || notaVenda ? (
-                      <button
-                        type="button"
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--input-bg)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                        onClick={() => void downloadNotaFiscal()}
-                        disabled={downloadingNf || savingNotaVenda}
-                        title="Baixar Nota Fiscal"
-                        aria-label="Baixar Nota Fiscal"
-                      >
-                        {downloadingNf ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Download className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    ) : null}
+                    {displayInvoiceNumber(notaVendaInput) || notaVenda
+                      ? nfDownloadButtons(savingNotaVenda)
+                      : null}
                   </div>
                   {notaVendaError ? (
                     <p className="mt-1 text-xs text-red-500">{notaVendaError}</p>

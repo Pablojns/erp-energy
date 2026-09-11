@@ -106,7 +106,26 @@ type VendasPreview = {
   previewSemMatch: VendaSemMatch[];
 };
 
-type CaPreviewKind = 'cadastros' | 'vendas';
+type PedidoCadastroFillPreview = {
+  applied: boolean;
+  message: string;
+  pedidosElegiveis: number;
+  cnpjsBuscados: number;
+  encontradosNaCa: number;
+  semMatch: number;
+  semDadosCompletos: number;
+  aAtualizar: number;
+  preview: {
+    code: string;
+    externalOrderNumber: string | null;
+    cnpj: string;
+    receiverName: string | null;
+    name?: CadastroFieldDiff | null;
+    address?: CadastroFieldDiff | null;
+  }[];
+};
+
+type CaPreviewKind = 'cadastros' | 'vendas' | 'pedidos-cadastro';
 
 async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
   const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
@@ -155,6 +174,8 @@ export function FinanceiroWorkspace() {
   const [caPreviewError, setCaPreviewError] = useState<string | null>(null);
   const [cadastrosPreview, setCadastrosPreview] = useState<CadastrosPreview | null>(null);
   const [vendasPreview, setVendasPreview] = useState<VendasPreview | null>(null);
+  const [pedidosCadastroPreview, setPedidosCadastroPreview] =
+    useState<PedidoCadastroFillPreview | null>(null);
 
   const period = useMemo(
     () => normalizeDateRange({ dataInicio, dataFim }),
@@ -281,6 +302,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewError(null);
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setPedidosCadastroPreview(null);
   };
 
   const handlePreviewCadastros = async () => {
@@ -292,6 +314,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewKind('cadastros');
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setPedidosCadastroPreview(null);
     setCaPreviewError(null);
     setCaPreviewLoading(true);
     setCaBusy(true);
@@ -320,6 +343,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewKind('vendas');
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setPedidosCadastroPreview(null);
     setCaPreviewError(null);
     setCaPreviewLoading(true);
     setCaBusy(true);
@@ -339,6 +363,37 @@ export function FinanceiroWorkspace() {
     }
   };
 
+  const handlePreviewPedidosCadastro = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setExportError(null);
+    setCaPreviewKind('pedidos-cadastro');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setPedidosCadastroPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await erpFetchJson<PedidoCadastroFillPreview>(
+        'api/financeiro/conta-azul/preencher-pedidos-cadastro?dry-run=true',
+        { method: 'POST' },
+      );
+      setPedidosCadastroPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error
+          ? e.message
+          : 'Erro ao consultar pedidos e cadastros da Conta Azul.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaBusy(false);
+    }
+  };
+
   const handleApplyPreview = async () => {
     if (!caPreviewKind) return;
     setCaPreviewApplying(true);
@@ -351,12 +406,18 @@ export function FinanceiroWorkspace() {
           { method: 'POST' },
         );
         setCadastrosPreview(res);
-      } else {
+      } else if (caPreviewKind === 'vendas') {
         const res = await erpFetchJson<VendasPreview>(
           'api/financeiro/conta-azul/sincronizar-vendas?apply=true',
           { method: 'POST' },
         );
         setVendasPreview(res);
+      } else {
+        const res = await erpFetchJson<PedidoCadastroFillPreview>(
+          'api/financeiro/conta-azul/preencher-pedidos-cadastro?apply=true',
+          { method: 'POST' },
+        );
+        setPedidosCadastroPreview(res);
       }
       setRefreshToken((t) => t + 1);
     } catch (e) {
@@ -480,6 +541,7 @@ export function FinanceiroWorkspace() {
           onSyncCa={() => void handleSyncCa()}
           onSyncCadastros={() => void handlePreviewCadastros()}
           onSyncVendas={() => void handlePreviewVendas()}
+          onSyncPedidosCadastro={() => void handlePreviewPedidosCadastro()}
         />
       </div>
 
@@ -522,7 +584,9 @@ export function FinanceiroWorkspace() {
         title={
           caPreviewKind === 'vendas'
             ? 'Vincular vendas a pedidos'
-            : 'Sincronizar cadastros'
+            : caPreviewKind === 'pedidos-cadastro'
+              ? 'Preencher comprador e endereço'
+              : 'Sincronizar cadastros'
         }
         loading={caPreviewLoading}
         applying={caPreviewApplying}
@@ -530,16 +594,22 @@ export function FinanceiroWorkspace() {
         applied={
           caPreviewKind === 'vendas'
             ? Boolean(vendasPreview?.applied)
-            : Boolean(cadastrosPreview?.applied)
+            : caPreviewKind === 'pedidos-cadastro'
+              ? Boolean(pedidosCadastroPreview?.applied)
+              : Boolean(cadastrosPreview?.applied)
         }
         appliedMessage={
           caPreviewKind === 'vendas'
             ? vendasPreview?.applied
               ? vendasPreview.message
               : null
-            : cadastrosPreview?.applied
-              ? cadastrosPreview.message
-              : null
+            : caPreviewKind === 'pedidos-cadastro'
+              ? pedidosCadastroPreview?.applied
+                ? pedidosCadastroPreview.message
+                : null
+              : cadastrosPreview?.applied
+                ? cadastrosPreview.message
+                : null
         }
         onClose={closeCaPreview}
         onApply={() => void handleApplyPreview()}
@@ -639,6 +709,52 @@ export function FinanceiroWorkspace() {
                 </ul>
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {caPreviewKind === 'pedidos-cadastro' && pedidosCadastroPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>
+              <strong>{pedidosCadastroPreview.aAtualizar}</strong> pedidos
+              seriam atualizados de {pedidosCadastroPreview.pedidosElegiveis}{' '}
+              elegíveis ({pedidosCadastroPreview.cnpjsBuscados} CNPJs
+              consultados, {pedidosCadastroPreview.encontradosNaCa} na Conta
+              Azul).
+            </p>
+            <p className="text-xs text-[var(--fin-text-secondary)]">
+              Sem match na Conta Azul: {pedidosCadastroPreview.semMatch}. Sem
+              endereço completo na origem: {pedidosCadastroPreview.semDadosCompletos}.
+              Aplicar preenche comprador e endereço; o Recebedor não muda.
+            </p>
+            {pedidosCadastroPreview.preview.length > 0 ? (
+              <ul className="space-y-2 text-xs">
+                {pedidosCadastroPreview.preview.map((row) => (
+                  <li key={row.code} className="rounded-md border p-2" style={{ borderColor: 'var(--fin-border)' }}>
+                    <p className="font-semibold">
+                      {row.code}
+                      {row.externalOrderNumber ? ` · ${row.externalOrderNumber}` : ''}{' '}
+                      · {row.cnpj}
+                    </p>
+                    {row.name ? (
+                      <p>
+                        Comprador: {row.name.from || '—'} → {row.name.to}
+                      </p>
+                    ) : null}
+                    {row.address ? (
+                      <p>
+                        Endereço: {row.address.from || '(vazio)'} → {row.address.to}
+                      </p>
+                    ) : null}
+                    <p className="text-[var(--fin-text-secondary)]">
+                      Recebedor (sem alteração): {row.receiverName || '—'}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--fin-text-secondary)]">
+                Nenhum pedido para atualizar neste preview.
+              </p>
+            )}
           </div>
         ) : null}
       </CaPreviewModal>

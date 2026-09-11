@@ -120,4 +120,17 @@ export class ContaAzulController {
     const applyNow = wantsApply && !wantsDryRun;
     return this.contaAzul.sincronizarVendas({ apply: applyNow });
   }
+
+  /** Dry-run por padrão; apply=true grava Order.customerName/deliveryAddress. */
+  @Post('preencher-pedidos-cadastro')
+  @RequirePermission('financeiro', 'editar')
+  preencherPedidosCadastro(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.preencherPedidosCadastro({ apply: applyNow });
+  }
 }
