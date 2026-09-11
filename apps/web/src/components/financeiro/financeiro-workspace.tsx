@@ -105,6 +105,20 @@ type VendaSemMatch = {
   motivo: string;
 };
 
+type InvoiceFillPreview = {
+  orderCode: string;
+  externalOrderNumber: string | null;
+  invoiceNumber: string;
+};
+
+type InvoiceFillDivergencia = {
+  orderCode: string;
+  externalOrderNumber: string | null;
+  invoiceNumberErp: string;
+  invoiceNumberCa: string;
+  motivo: string;
+};
+
 type VendasPreview = {
   applied: boolean;
   message: string;
@@ -112,8 +126,12 @@ type VendasPreview = {
   pedidos: number;
   vinculados: number;
   semCorrespondencia: number;
+  nfsAPreencher?: number;
+  nfsDivergentes?: number;
   previewClaros: VendaVinculoPreview[];
   previewSemMatch: VendaSemMatch[];
+  previewNfFill?: InvoiceFillPreview[];
+  previewNfDivergencias?: InvoiceFillDivergencia[];
 };
 
 type PedidoCadastroFillPreview = {
@@ -713,7 +731,13 @@ export function FinanceiroWorkspace() {
               <strong>{vendasPreview.vinculados}</strong> vínculos claros em{' '}
               {vendasPreview.vendas} vendas × {vendasPreview.pedidos} pedidos.{' '}
               <strong>{vendasPreview.semCorrespondencia}</strong> sem
-              correspondência.
+              correspondência.{' '}
+              <strong>{vendasPreview.nfsAPreencher ?? 0}</strong> nota(s) a
+              preencher
+              {(vendasPreview.nfsDivergentes ?? 0) > 0
+                ? ` · ${vendasPreview.nfsDivergentes} divergência(s) (não sobrescreve)`
+                : ''}
+              .
             </p>
             {vendasPreview.previewClaros.length > 0 ? (
               <ul className="space-y-1.5 text-xs">
@@ -727,6 +751,43 @@ export function FinanceiroWorkspace() {
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {(vendasPreview.previewNfFill ?? []).length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Notas de Venda a preencher
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {(vendasPreview.previewNfFill ?? []).map((row) => (
+                    <li key={`${row.orderCode}-${row.invoiceNumber}`}>
+                      Pedido {row.orderCode}
+                      {row.externalOrderNumber
+                        ? ` (${row.externalOrderNumber})`
+                        : ''}{' '}
+                      → NF {row.invoiceNumber}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {(vendasPreview.previewNfDivergencias ?? []).length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Divergências (revisão manual)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {(vendasPreview.previewNfDivergencias ?? []).map((row, idx) => (
+                    <li key={`${row.orderCode}-div-${idx}`}>
+                      Pedido {row.orderCode}
+                      {row.externalOrderNumber
+                        ? ` (${row.externalOrderNumber})`
+                        : ''}{' '}
+                      — ERP {row.invoiceNumberErp || '—'} ≠ CA{' '}
+                      {row.invoiceNumberCa} ({row.motivo})
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             {vendasPreview.previewSemMatch.length > 0 ? (
               <div>

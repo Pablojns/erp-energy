@@ -1,4 +1,5 @@
 import {
+  buildOrderSearchWhere,
   confirmedRemessaNumber,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
@@ -36,6 +37,14 @@ describe('sameInvoiceNumber', () => {
     expect(sameInvoiceNumber('2156', '878')).toBe(false);
     expect(sameInvoiceNumber('878', '878')).toBe(true);
     expect(invoiceNumberDigits('2156')).toBe('2156');
+  });
+});
+
+describe('buildOrderSearchWhere', () => {
+  it('também procura o nome atual do Customer vinculado', () => {
+    const where = buildOrderSearchWhere('Kaik Camargo');
+    expect(JSON.stringify(where)).toContain('"customer"');
+    expect(JSON.stringify(where)).toContain('Kaik Camargo');
   });
 });
 

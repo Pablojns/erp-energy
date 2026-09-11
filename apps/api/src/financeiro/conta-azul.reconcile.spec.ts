@@ -23,6 +23,15 @@ describe('conta-azul.reconcile', () => {
     );
   });
 
+  it('lê id_venda direto ou aninhado em venda.id', () => {
+    expect(mapContaAzulNf({ numero_nota: '1959', id_venda: 'vnd-1' }).idVenda).toBe(
+      'vnd-1',
+    );
+    expect(
+      mapContaAzulNf({ numero_nota: '1959', venda: { id: 'vnd-2' } }).idVenda,
+    ).toBe('vnd-2');
+  });
+
   it('aponta NF só na CA, só no ERP, e gaps da trava de finalização', () => {
     const result = reconcileContaAzulNfs({
       ca: [

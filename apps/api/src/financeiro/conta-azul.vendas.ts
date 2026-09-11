@@ -1,3 +1,8 @@
+import {
+  invoiceNumberDigits,
+  invoiceNumberMatchesRemessa,
+  sameInvoiceNumber,
+} from '../orders/order-search';
 import { documentDigits } from './conta-azul.pessoas';
 
 export type CaVenda = {
@@ -279,4 +284,115 @@ export function planVendaVinculos(input: {
   }
 
   return { claros, semCorrespondencia };
+}
+
+export type ErpOrderForInvoiceFill = {
+  id: string;
+  code: string;
+  externalOrderNumber: string | null;
+  invoiceNumber: string | null;
+  notaRemessa: string | null;
+  contaAzulVendaId: string | null;
+};
+
+export type InvoiceFillPreview = {
+  orderId: string;
+  orderCode: string;
+  externalOrderNumber: string | null;
+  vendaId: string;
+  invoiceNumber: string;
+};
+
+export type InvoiceFillDivergencia = {
+  orderId: string;
+  orderCode: string;
+  externalOrderNumber: string | null;
+  vendaId: string;
+  invoiceNumberErp: string;
+  invoiceNumberCa: string;
+  motivo: string;
+};
+
+export type NotaForInvoiceFill = {
+  idVenda: string | null;
+  numero: string;
+  numeroDigits: string;
+};
+
+function hasRealVendaInvoice(order: ErpOrderForInvoiceFill): boolean {
+  const current = String(order.invoiceNumber ?? '').trim();
+  if (!current || !invoiceNumberDigits(current)) return false;
+  return !invoiceNumberMatchesRemessa(current, order.notaRemessa);
+}
+
+export function planInvoiceFromLinkedVendas(input: {
+  orders: ErpOrderForInvoiceFill[];
+  notas: NotaForInvoiceFill[];
+}): {
+  preencher: InvoiceFillPreview[];
+  divergencias: InvoiceFillDivergencia[];
+} {
+  const notasByVenda = new Map<string, Map<string, string>>();
+  for (const nf of input.notas) {
+    const vendaId = String(nf.idVenda ?? '').trim();
+    const digits = nf.numeroDigits || invoiceNumberDigits(nf.numero);
+    if (!vendaId || !digits) continue;
+    const display = String(nf.numero ?? '').trim() || digits;
+    const byDigits = notasByVenda.get(vendaId) ?? new Map<string, string>();
+    if (!byDigits.has(digits)) byDigits.set(digits, display);
+    notasByVenda.set(vendaId, byDigits);
+  }
+
+  const preencher: InvoiceFillPreview[] = [];
+  const divergencias: InvoiceFillDivergencia[] = [];
+
+  for (const order of input.orders) {
+    const vendaId = String(order.contaAzulVendaId ?? '').trim();
+    if (!vendaId) continue;
+    const byDigits = notasByVenda.get(vendaId);
+    if (!byDigits || byDigits.size === 0) continue;
+
+    const caNumbers = [...byDigits.values()];
+    const caLabel = caNumbers.join(', ');
+    if (byDigits.size > 1) {
+      divergencias.push({
+        orderId: order.id,
+        orderCode: order.code,
+        externalOrderNumber: order.externalOrderNumber,
+        vendaId,
+        invoiceNumberErp: String(order.invoiceNumber ?? '').trim(),
+        invoiceNumberCa: caLabel,
+        motivo: `Venda com ${byDigits.size} notas distintas na Conta Azul`,
+      });
+      continue;
+    }
+
+    const caNumber = caNumbers[0];
+    if (invoiceNumberMatchesRemessa(caNumber, order.notaRemessa)) {
+      continue;
+    }
+    if (!hasRealVendaInvoice(order)) {
+      preencher.push({
+        orderId: order.id,
+        orderCode: order.code,
+        externalOrderNumber: order.externalOrderNumber,
+        vendaId,
+        invoiceNumber: caNumber,
+      });
+      continue;
+    }
+    if (!sameInvoiceNumber(order.invoiceNumber, caNumber)) {
+      divergencias.push({
+        orderId: order.id,
+        orderCode: order.code,
+        externalOrderNumber: order.externalOrderNumber,
+        vendaId,
+        invoiceNumberErp: String(order.invoiceNumber ?? '').trim(),
+        invoiceNumberCa: caNumber,
+        motivo: 'Nota de Venda do ERP diferente da NF da venda na Conta Azul',
+      });
+    }
+  }
+
+  return { preencher, divergencias };
 }

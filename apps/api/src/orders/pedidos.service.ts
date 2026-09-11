@@ -32,6 +32,10 @@ import {
   normalizeOrderSearchTerm,
 } from './order-search';
 import { OrderService } from './order.service';
+import {
+  ORDER_BUYER_CUSTOMER_SELECT,
+  resolveOrderBuyerFields,
+} from './order-buyer';
 import { shippedQtyFromInvoiceHistory, cycleQtysFromInvoiceHistory } from './exit-quantity';
 import { WEG_TAB_ORDER_SOURCES, ORDER_STATUS } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
@@ -1433,6 +1437,7 @@ export class PedidosService {
       orderBy: { createdAt: 'desc' },
       include: {
         carrier: { select: { name: true } },
+        customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
         items: { select: { description: true, sku: true }, take: 5 },
       },
     });
@@ -1535,7 +1540,11 @@ export class PedidosService {
     }
 
     const remetente = await this.buildRemetenteCorreios();
-    const destinatario = this.parseDestinatarioFromOrder(order);
+    const buyer = resolveOrderBuyerFields(order);
+    const destinatario = this.parseDestinatarioFromOrder({
+      ...order,
+      ...buyer,
+    });
     const descricaoConteudo =
       order.items
         .map((item) => item.description?.trim() || item.sku?.trim())
@@ -2489,6 +2498,7 @@ export class PedidosService {
             deliveryCnpj: true,
             customerDocument: true,
             customerName: true,
+            customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
             totalValue: true,
           },
         },
@@ -2510,8 +2520,10 @@ export class PedidosService {
         orderNumber: row.order.externalOrderNumber ?? row.order.code,
         orderCode: row.order.code,
         deliveryCnpj:
-          row.order.deliveryCnpj ?? row.order.customerDocument ?? null,
-        customerName: row.order.customerName,
+          row.order.deliveryCnpj ??
+          resolveOrderBuyerFields(row.order).customerDocument ??
+          null,
+        customerName: resolveOrderBuyerFields(row.order).customerName,
       })),
     };
   }
@@ -3101,6 +3113,7 @@ export class PedidosService {
         order: {
           include: {
             carrier: { select: { id: true, name: true } },
+            customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
             items: { orderBy: { lineNumber: 'asc' } },
           },
         },
@@ -3137,6 +3150,7 @@ export class PedidosService {
         order: {
           include: {
             carrier: { select: { id: true, name: true } },
+            customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
             items: { orderBy: { lineNumber: 'asc' } },
           },
         },
@@ -4441,6 +4455,9 @@ export class PedidosService {
         order: {
           include: {
             carrier: { select: { id: true; name: true } };
+            customer: {
+              select: { name: true; document: true; deliveryAddress: true };
+            };
             items: true;
           };
         };
@@ -4459,6 +4476,7 @@ export class PedidosService {
       ? Math.ceil((row.exitDate.getTime() - requested.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
     const orderCarrierName = row.order.carrier?.name ?? null;
+    const buyer = resolveOrderBuyerFields(row.order);
     const rowWithRomaneio = row as typeof row & { romaneioAt?: Date | null };
     const hasCycleQty = Boolean(cycleQtyByItemId && cycleQtyByItemId.size > 0);
     return {
@@ -4480,11 +4498,11 @@ export class PedidosService {
         id: row.order.id,
         code: row.order.code,
         externalOrderNumber: row.order.externalOrderNumber,
-        customerName: row.order.customerName,
-        customerDocument: row.order.customerDocument,
+        customerName: buyer.customerName,
+        customerDocument: buyer.customerDocument,
         receiverName: row.order.receiverName,
         unloadingPoint: row.order.unloadingPoint,
-        deliveryAddress: row.order.deliveryAddress,
+        deliveryAddress: buyer.deliveryAddress,
         deliveryCity: row.order.deliveryCity,
         deliveryState: row.order.deliveryState,
         status: row.order.status,

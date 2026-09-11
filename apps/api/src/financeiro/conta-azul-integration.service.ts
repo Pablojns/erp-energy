@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OrderStatus } from '@erp/database';
+import { InvoiceStatus, OrderStatus } from '@erp/database';
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 import { createHmac, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -57,7 +57,10 @@ import {
   tituloMatchesInvoiceNumber,
   xmlToDanfePdf,
 } from './conta-azul.nfe-download';
-import { invoiceNumberMatchesRemessa } from '../orders/order-search';
+import {
+  invoiceNumberDigits,
+  invoiceNumberMatchesRemessa,
+} from '../orders/order-search';
 import {
   documentDigits,
   mapContaAzulPessoa,
@@ -80,8 +83,11 @@ import {
 } from './conta-azul.catalogos';
 import {
   mapContaAzulVenda,
+  planInvoiceFromLinkedVendas,
   planVendaVinculos,
   type CaVenda,
+  type InvoiceFillDivergencia,
+  type InvoiceFillPreview,
   type VendaSemMatch,
   type VendaVinculoPreview,
 } from './conta-azul.vendas';
@@ -895,7 +901,7 @@ export class ContaAzulIntegrationService {
 
   /**
    * P1: GET /v1/venda/busca cruzado com pedidos do ERP.
-   * Apply só preenche Order.contaAzulVendaId em matches claros.
+   * Apply preenche Order.contaAzulVendaId e, se a venda já tiver NF-e, invoiceNumber.
    */
   async sincronizarVendas(options: {
     apply: boolean;
@@ -909,10 +915,14 @@ export class ContaAzulIntegrationService {
     vinculados: number;
     semCorrespondencia: number;
     jaVinculados: number;
+    nfsAPreencher: number;
+    nfsDivergentes: number;
     porRazao: Record<string, number>;
     previewClaros: VendaVinculoPreview[];
     previewSemMatch: VendaSemMatch[];
-    appliedCounts?: { pedidosVinculados: number };
+    previewNfFill: InvoiceFillPreview[];
+    previewNfDivergencias: InvoiceFillDivergencia[];
+    appliedCounts?: { pedidosVinculados: number; invoicesPreenchidas: number };
     message: string;
   }> {
     this.ensureConfigured();
@@ -928,6 +938,10 @@ export class ContaAzulIntegrationService {
           total: true,
           totalValue: true,
           status: true,
+          invoiceNumber: true,
+          notaRemessa: true,
+          orderDate: true,
+          createdAt: true,
         },
       }),
       this.listAllPessoas(),
@@ -969,6 +983,37 @@ export class ContaAzulIntegrationService {
       })),
     });
 
+    const vendaByOrder = new Map(
+      orders.map((o) => [o.id, o.contaAzulVendaId] as const),
+    );
+    for (const row of plan.claros) {
+      vendaByOrder.set(row.orderId, row.vendaId);
+    }
+    const invoiceOrders = orders.map((o) => ({
+      id: o.id,
+      code: o.code,
+      externalOrderNumber: o.externalOrderNumber,
+      invoiceNumber: o.invoiceNumber,
+      notaRemessa: o.notaRemessa,
+      contaAzulVendaId: vendaByOrder.get(o.id) ?? null,
+      around: o.orderDate ?? o.createdAt,
+    }));
+    const recemVinculados = new Set(plan.claros.map((row) => row.orderId));
+    const notas = await this.collectNotasForInvoiceFill(
+      invoiceOrders.filter((o) => {
+        if (!o.contaAzulVendaId) return false;
+        if (recemVinculados.has(o.id)) return true;
+        const current = String(o.invoiceNumber ?? '').trim();
+        return (
+          !current || invoiceNumberMatchesRemessa(current, o.notaRemessa)
+        );
+      }),
+    );
+    const invoicePlan = planInvoiceFromLinkedVendas({
+      orders: invoiceOrders,
+      notas,
+    });
+
     const porRazao: Record<string, number> = {};
     for (const row of plan.claros) {
       porRazao[row.reason] = (porRazao[row.reason] ?? 0) + 1;
@@ -982,9 +1027,13 @@ export class ContaAzulIntegrationService {
       vinculados: plan.claros.length,
       semCorrespondencia: plan.semCorrespondencia.length,
       jaVinculados,
+      nfsAPreencher: invoicePlan.preencher.length,
+      nfsDivergentes: invoicePlan.divergencias.length,
       porRazao,
       previewClaros: plan.claros.slice(0, previewLimit),
       previewSemMatch: plan.semCorrespondencia.slice(0, previewLimit),
+      previewNfFill: invoicePlan.preencher.slice(0, previewLimit),
+      previewNfDivergencias: invoicePlan.divergencias.slice(0, previewLimit),
     };
 
     if (!options.apply) {
@@ -993,7 +1042,7 @@ export class ContaAzulIntegrationService {
         apply: false,
         applied: false,
         message:
-          'Dry-run P1: nenhum pedido foi vinculado. apply=true grava Order.contaAzulVendaId só nos matches claros.',
+          'Dry-run P1: nenhum pedido foi alterado. apply=true grava contaAzulVendaId nos matches claros e invoiceNumber quando a venda já tem NF-e.',
       };
     }
 
@@ -1007,13 +1056,221 @@ export class ContaAzulIntegrationService {
       `;
       pedidosVinculados += 1;
     }
+    const invoicesPreenchidas = await this.applyInvoiceFills(invoicePlan.preencher);
     return {
       ...report,
       apply: true,
       applied: true,
-      appliedCounts: { pedidosVinculados },
-      message: `Aplicado P1: ${pedidosVinculados} pedido(s) vinculados à venda da Conta Azul.`,
+      appliedCounts: { pedidosVinculados, invoicesPreenchidas },
+      message: `Aplicado P1: ${pedidosVinculados} pedido(s) vinculados; ${invoicesPreenchidas} Nota(s) de Venda preenchida(s).`,
     };
+  }
+
+  /**
+   * Pedidos já vinculados à venda: preenche invoiceNumber se a NF-e existir
+   * na Conta Azul e o campo ainda estiver vazio (não sobrescreve venda real).
+   */
+  async syncLinkedVendaInvoices(options: {
+    apply: boolean;
+    daysBack?: number;
+  }): Promise<{
+    scanned: number;
+    toFill: number;
+    filled: number;
+    divergencias: number;
+    previewNfFill: InvoiceFillPreview[];
+    previewNfDivergencias: InvoiceFillDivergencia[];
+  }> {
+    this.ensureConfigured();
+    const linkedRows = await this.prisma.client.$queryRaw<
+      Array<{
+        id: string;
+        code: string;
+        externalOrderNumber: string | null;
+        invoiceNumber: string | null;
+        notaRemessa: string | null;
+        contaAzulVendaId: string | null;
+        orderDate: Date | null;
+        createdAt: Date;
+      }>
+    >`
+      SELECT
+        id::text AS id,
+        code,
+        "externalOrderNumber",
+        "invoiceNumber",
+        "notaRemessa",
+        "contaAzulVendaId",
+        "orderDate",
+        "createdAt"
+      FROM "Order"
+      WHERE "contaAzulVendaId" IS NOT NULL AND btrim("contaAzulVendaId") <> ''
+    `;
+    const pending = linkedRows.filter((row) => {
+      const current = String(row.invoiceNumber ?? '').trim();
+      return (
+        !current || invoiceNumberMatchesRemessa(current, row.notaRemessa)
+      );
+    });
+    if (pending.length === 0) {
+      return {
+        scanned: linkedRows.length,
+        toFill: 0,
+        filled: 0,
+        divergencias: 0,
+        previewNfFill: [],
+        previewNfDivergencias: [],
+      };
+    }
+    const notas = await this.collectNotasForInvoiceFill(
+      pending.map((row) => ({
+        ...row,
+        around: row.orderDate ?? row.createdAt,
+      })),
+    );
+    const invoicePlan = planInvoiceFromLinkedVendas({
+      orders: linkedRows,
+      notas,
+    });
+    if (!options.apply) {
+      return {
+        scanned: linkedRows.length,
+        toFill: invoicePlan.preencher.length,
+        filled: 0,
+        divergencias: invoicePlan.divergencias.length,
+        previewNfFill: invoicePlan.preencher.slice(0, 20),
+        previewNfDivergencias: invoicePlan.divergencias.slice(0, 20),
+      };
+    }
+    const filled = await this.applyInvoiceFills(invoicePlan.preencher);
+    return {
+      scanned: linkedRows.length,
+      toFill: invoicePlan.preencher.length,
+      filled,
+      divergencias: invoicePlan.divergencias.length,
+      previewNfFill: invoicePlan.preencher.slice(0, 20),
+      previewNfDivergencias: invoicePlan.divergencias.slice(0, 20),
+    };
+  }
+
+  private async applyInvoiceFills(
+    rows: InvoiceFillPreview[],
+  ): Promise<number> {
+    let filled = 0;
+    for (const row of rows) {
+      const numero = String(row.invoiceNumber ?? '').trim();
+      if (!numero || !invoiceNumberDigits(numero)) continue;
+      const result = await this.prisma.client.$executeRaw`
+        UPDATE "Order"
+        SET
+          "invoiceNumber" = ${numero},
+          "invoiceStatus" = CAST(${InvoiceStatus.INVOICED} AS "InvoiceStatus"),
+          "invoicedAt" = NOW(),
+          "updatedAt" = NOW()
+        WHERE id = CAST(${row.orderId} AS UUID)
+          AND (
+            "invoiceNumber" IS NULL
+            OR btrim("invoiceNumber") = ''
+            OR (
+              "notaRemessa" IS NOT NULL
+              AND btrim("notaRemessa") <> ''
+              AND regexp_replace("invoiceNumber", '[^0-9]', '', 'g')
+                = regexp_replace("notaRemessa", '[^0-9]', '', 'g')
+            )
+          )
+      `;
+      if (Number(result) > 0) filled += 1;
+    }
+    return filled;
+  }
+
+  private async collectNotasForInvoiceFill(
+    orders: Array<{
+      contaAzulVendaId: string | null;
+      around?: Date | null;
+    }>,
+  ): Promise<CaNfResumo[]> {
+    const seen = new Set<string>();
+    const out: CaNfResumo[] = [];
+    for (const order of orders) {
+      const vendaId = String(order.contaAzulVendaId ?? '').trim();
+      if (!vendaId || seen.has(vendaId)) continue;
+      seen.add(vendaId);
+      const notas = await this.listNotasByVendaId(
+        vendaId,
+        order.around ?? new Date(),
+      );
+      out.push(...notas);
+    }
+    return out;
+  }
+
+  /**
+   * A listagem /v1/notas-fiscais aceita id_venda no filtro, mas o item
+   * devolvido não traz esse campo — por isso a busca é por venda, não por
+   * varredura de todas as NFs.
+   */
+  private async listNotasByVendaId(
+    vendaId: string,
+    around: Date,
+  ): Promise<CaNfResumo[]> {
+    const found = await this.listNotasByVendaWindows(vendaId, around);
+    if (found.length > 0) return found;
+    const compromisso = await this.vendaCompromissoDate(vendaId);
+    if (
+      compromisso &&
+      Math.abs(compromisso.getTime() - around.getTime()) > 2 * 86400000
+    ) {
+      return this.listNotasByVendaWindows(vendaId, compromisso);
+    }
+    return [];
+  }
+
+  private async listNotasByVendaWindows(
+    vendaId: string,
+    around: Date,
+  ): Promise<CaNfResumo[]> {
+    for (const window of this.nfeLookupWindows(around).slice(0, 5)) {
+      try {
+        const rows = await this.listNotasWindow('/v1/notas-fiscais', {
+          data_inicial: window.start,
+          data_final: window.end,
+          id_venda: vendaId,
+        });
+        if (rows.length > 0) {
+          return rows.map((nf) => ({
+            ...nf,
+            idVenda: nf.idVenda || vendaId,
+          }));
+        }
+      } catch (err) {
+        this.logger.warn(
+          `NF por venda ${vendaId} ${window.start}..${window.end}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return [];
+  }
+
+  private async vendaCompromissoDate(vendaId: string): Promise<Date | null> {
+    try {
+      const payload = (await this.apiGet(`/v1/venda/${vendaId}`)) as Record<
+        string,
+        unknown
+      >;
+      const venda =
+        payload.venda && typeof payload.venda === 'object'
+          ? (payload.venda as Record<string, unknown>)
+          : payload;
+      const raw = venda.data_compromisso ?? venda.data ?? payload.data;
+      const d = raw ? new Date(String(raw)) : null;
+      return d && Number.isFinite(d.getTime()) ? d : null;
+    } catch (err) {
+      this.logger.warn(
+        `Venda ${vendaId} para data da NF: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   private toSyncJobPublic(job: CaSyncJobInternal): CaSyncJobState {
@@ -1727,7 +1984,7 @@ export class ContaAzulIntegrationService {
 
   private async listNotasWindow(
     path: string,
-    dateParams: Record<string, string>,
+    dateParams: Record<string, string | number>,
   ): Promise<CaNfResumo[]> {
     const out: CaNfResumo[] = [];
     const pageSize = 50;

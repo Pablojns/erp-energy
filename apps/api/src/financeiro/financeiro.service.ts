@@ -18,6 +18,10 @@ import {
 } from './contas-atraso';
 import { validateFinalizeOrder } from '../orders/finalize-order-guard';
 import {
+  ORDER_BUYER_CUSTOMER_SELECT,
+  resolveOrderBuyerFields,
+} from '../orders/order-buyer';
+import {
   isCaOverdue,
   tituloFromDbRow,
   type CaTitulo,
@@ -367,6 +371,7 @@ export class FinanceiroService {
               externalOrderNumber: true,
               receiverName: true,
               customerName: true,
+              customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
               deliveryCnpj: true,
               customerDocument: true,
             },
@@ -387,7 +392,9 @@ export class FinanceiroService {
         exits: exitsByOrderId.get(nf.orderId) ?? [],
       });
       const pedido = nf.order.externalOrderNumber ?? nf.order.code;
-      const recebedor = nf.order.receiverName ?? nf.order.customerName;
+      const recebedor =
+        nf.order.receiverName ??
+        resolveOrderBuyerFields(nf.order).customerName;
       return lines.map((line, idx) => ({
         id: nf.id,
         rowKey: `${nf.id}:${idx}:${line.invoiceNumber}`,

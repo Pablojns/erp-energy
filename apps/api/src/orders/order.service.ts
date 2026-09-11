@@ -14,6 +14,10 @@ import {
   StockMovementType,
 } from '@erp/database';
 import { AuditService } from '../common/audit.service';
+import {
+  ORDER_BUYER_CUSTOMER_SELECT,
+  resolveOrderBuyerFields,
+} from './order-buyer';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateManualPedidoDto } from './dto/create-manual-pedido.dto';
 import type { CreateSitePedidoDto } from './dto/create-site-pedido.dto';
@@ -173,7 +177,11 @@ type OrderSerializeSource = {
   companyEntityId?: string | null;
   carrier?: { id?: string; name: string } | null;
   companyEntity?: { id: string; name: string; cnpj: string } | null;
-  customer?: { deliveryAddress: string | null } | null;
+  customer?: {
+    name?: string | null;
+    document?: string | null;
+    deliveryAddress: string | null;
+  } | null;
   linkedOrderId: string | null;
   isUrgentManual: boolean;
   linkedOrder?: {
@@ -3754,7 +3762,7 @@ export class OrderService {
         select: { id: true, name: true, cnpj: true },
       },
       customer: {
-        select: { deliveryAddress: true },
+        select: ORDER_BUYER_CUSTOMER_SELECT,
       },
       linkedOrder: {
         select: {
@@ -3817,13 +3825,16 @@ export class OrderService {
 
   /**
    * Include enxuto para listagens (fila / separação).
-   * Sem product stock, companyEntity, customer.address, exits —
+   * Sem product stock, companyEntity, exits —
    * o detalhe carrega orderInclude completo sob demanda.
    */
   private static orderListInclude(): Prisma.OrderInclude {
     return {
       carrier: {
         select: { id: true, name: true },
+      },
+      customer: {
+        select: ORDER_BUYER_CUSTOMER_SELECT,
       },
       linkedOrder: {
         select: {
@@ -4846,6 +4857,7 @@ export class OrderService {
       return a + (x.missingQty ?? 0);
     }, 0);
 
+    const buyer = resolveOrderBuyerFields(row);
     const physicalReservationActive =
       (row.stockReservations?.length ?? 0) > 0;
     const stockReserveBlocked = Boolean(row.linkedOrderId);
@@ -4863,8 +4875,8 @@ export class OrderService {
       externalOrderNumber: row.externalOrderNumber,
       mercadoEletronicoNumber: row.mercadoEletronicoNumber,
       customerId: row.customerId,
-      customerName: row.customerName,
-      customerDocument: row.customerDocument,
+      customerName: buyer.customerName,
+      customerDocument: buyer.customerDocument,
       customerCity: row.customerCity,
       customerState: row.customerState,
       receiverName: row.receiverName,
@@ -4872,10 +4884,7 @@ export class OrderService {
       deliveryCnpj: row.deliveryCnpj,
       deliveryCity: row.deliveryCity,
       deliveryState: row.deliveryState,
-      deliveryAddress:
-        row.deliveryAddress?.trim() ||
-        row.customer?.deliveryAddress?.trim() ||
-        null,
+      deliveryAddress: buyer.deliveryAddress,
       notes: row.notes,
       notaRemessa: row.notaRemessa,
       notaRemessaConfirmada: row.notaRemessaConfirmada ?? false,

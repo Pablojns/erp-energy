@@ -177,6 +177,9 @@ export function buildOrderSearchWhere(
     ...containsAny('notaRemessa', variants),
     ...containsAny('receiverName', textVariants),
     ...containsAny('customerName', textVariants),
+    ...textVariants.map((term) => ({
+      customer: { name: { contains: term, mode: INSENSITIVE } },
+    })),
     ...containsAny('unloadingPoint', textVariants),
     ...itemContainsAny('sku', variants),
     ...itemContainsAny('description', textVariants),
@@ -192,6 +195,9 @@ export function buildOrderSearchWhere(
   if (digits.length >= 3) {
     or.push(...containsAny('deliveryCnpj', [digits]));
     or.push(...containsAny('customerDocument', [digits]));
+    or.push({
+      customer: { document: { contains: digits, mode: INSENSITIVE } },
+    });
   }
 
   return { OR: or };

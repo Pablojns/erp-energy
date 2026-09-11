@@ -4,6 +4,10 @@ import {
   buildOrderSearchWhere,
   normalizeOrderSearchTerm,
 } from '../orders/order-search';
+import {
+  ORDER_BUYER_CUSTOMER_SELECT,
+  resolveOrderBuyerFields,
+} from '../orders/order-buyer';
 
 export type SearchResultItem = {
   id: string;
@@ -42,6 +46,7 @@ export class SearchService {
           externalOrderNumber: true,
           receiverName: true,
           customerName: true,
+          customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
           invoiceNumber: true,
         },
       }),
@@ -74,7 +79,8 @@ export class SearchService {
     return {
       orders: orders.map((order) => {
         const displayNumber = order.externalOrderNumber?.trim() || order.code;
-        const receiver = order.receiverName?.trim() || order.customerName;
+        const buyer = resolveOrderBuyerFields(order);
+        const receiver = order.receiverName?.trim() || buyer.customerName;
         const nf = order.invoiceNumber?.trim();
         return {
           id: order.id,

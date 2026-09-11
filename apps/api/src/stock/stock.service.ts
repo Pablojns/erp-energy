@@ -5,6 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { OrderStatus, Prisma, StockMovementType } from '@erp/database';
+import {
+  ORDER_BUYER_CUSTOMER_SELECT,
+  resolveOrderBuyerFields,
+} from '../orders/order-buyer';
 
 import type {
 
@@ -706,6 +710,7 @@ export class StockService {
           status: true,
           customerName: true,
           customerDocument: true,
+          customer: { select: ORDER_BUYER_CUSTOMER_SELECT },
           receiverName: true,
           unloadingPoint: true,
           deliveryCnpj: true,
@@ -725,8 +730,12 @@ export class StockService {
       });
 
       if (full) {
+        const buyer = resolveOrderBuyerFields(full);
         orderDetail = {
           ...full,
+          customerName: buyer.customerName,
+          customerDocument: buyer.customerDocument,
+          deliveryAddress: buyer.deliveryAddress,
           carrierName: full.carrier?.name ?? null,
           orderDate: full.orderDate?.toISOString() ?? null,
           requestedDeliveryDate:

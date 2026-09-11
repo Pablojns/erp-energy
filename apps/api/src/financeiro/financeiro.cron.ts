@@ -24,9 +24,23 @@ export class FinanceiroCron {
     private readonly contaAzul: ContaAzulIntegrationService,
   ) {}
 
-  /** A cada 20 min: XML + DANFE de NFs já emitidas, quando a SEFAZ já processou. */
+  /** A cada 20 min: NF da venda vinculada + XML/DANFE quando a SEFAZ já processou. */
   @Cron('*/20 * * * *')
   async pullNotaArquivos(): Promise<void> {
+    try {
+      const invoices = await this.contaAzul.syncLinkedVendaInvoices({
+        apply: true,
+      });
+      if (invoices.filled > 0) {
+        this.logger.log(
+          `Conta Azul P1 NF: ${invoices.filled} Nota(s) de Venda preenchida(s) a partir da venda vinculada (${invoices.toFill} previstas, ${invoices.divergencias} divergência(s)).`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Conta Azul P1 NF automático ignorado: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     try {
       const result = await this.contaAzul.syncPendingNotaArquivos();
       if (result.saved > 0) {

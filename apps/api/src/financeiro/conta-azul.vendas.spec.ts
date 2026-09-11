@@ -1,6 +1,7 @@
 import {
   mapContaAzulVenda,
   orderNumberVariants,
+  planInvoiceFromLinkedVendas,
   planVendaVinculos,
   valuesClose,
 } from './conta-azul.vendas';
@@ -124,5 +125,67 @@ describe('conta-azul.vendas', () => {
   it('aceita diferença de valor em centavos', () => {
     expect(valuesClose(100, 100.04)).toBe(true);
     expect(valuesClose(100, 102)).toBe(false);
+  });
+
+  it('preenche invoiceNumber vazio com a NF da venda vinculada', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-1',
+          externalOrderNumber: '4518614536',
+          invoiceNumber: null,
+          notaRemessa: null,
+          contaAzulVendaId: 'vnd-1',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+    });
+    expect(plan.preencher).toEqual([
+      expect.objectContaining({
+        orderId: 'o1',
+        invoiceNumber: '1959',
+        vendaId: 'vnd-1',
+      }),
+    ]);
+    expect(plan.divergencias).toHaveLength(0);
+  });
+
+  it('trata remessa copiada em invoiceNumber como campo vazio', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-1',
+          externalOrderNumber: '4518614536',
+          invoiceNumber: '870',
+          notaRemessa: '870',
+          contaAzulVendaId: 'vnd-1',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+    });
+    expect(plan.preencher[0]?.invoiceNumber).toBe('1959');
+  });
+
+  it('não sobrescreve invoiceNumber diferente — só reporta divergência', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-1',
+          externalOrderNumber: '4518614536',
+          invoiceNumber: '2001',
+          notaRemessa: null,
+          contaAzulVendaId: 'vnd-1',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+    });
+    expect(plan.preencher).toHaveLength(0);
+    expect(plan.divergencias[0]).toMatchObject({
+      invoiceNumberErp: '2001',
+      invoiceNumberCa: '1959',
+    });
   });
 });

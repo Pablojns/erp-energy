@@ -63,7 +63,15 @@ export function mapContaAzulNf(item: Record<string, unknown>): CaNfResumo {
           : null,
     chaveAcesso:
       item.chave_acesso != null ? String(item.chave_acesso) : null,
-    idVenda: item.id_venda != null ? String(item.id_venda) : null,
+    idVenda:
+      item.id_venda != null
+        ? String(item.id_venda)
+        : item.venda &&
+            typeof item.venda === 'object' &&
+            !Array.isArray(item.venda) &&
+            (item.venda as { id?: unknown }).id != null
+          ? String((item.venda as { id: unknown }).id)
+          : null,
     valor: extractNfValor(item),
   };
 }

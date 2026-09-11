@@ -114,10 +114,14 @@ export class ContaAzulController {
   sincronizarVendas(
     @Query('dry-run') dryRun?: string,
     @Query('apply') apply?: string,
+    @Query('invoices-only') invoicesOnly?: string,
   ) {
     const wantsDryRun = queryFlagTrue(dryRun);
     const wantsApply = queryFlagTrue(apply);
     const applyNow = wantsApply && !wantsDryRun;
+    if (queryFlagTrue(invoicesOnly)) {
+      return this.contaAzul.syncLinkedVendaInvoices({ apply: applyNow });
+    }
     return this.contaAzul.sincronizarVendas({ apply: applyNow });
   }
 
