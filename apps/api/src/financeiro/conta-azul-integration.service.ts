@@ -91,6 +91,7 @@ import {
   type VendaSemMatch,
   type VendaVinculoPreview,
 } from './conta-azul.vendas';
+import { mapLimit } from './conta-azul.pool';
 
 type StoredSession = {
   accessToken: string;
@@ -142,6 +143,41 @@ export type CaSyncJobState = {
 };
 
 type CaSyncJobInternal = CaSyncJobState & { createdAt: Date };
+
+export type CaVendasReport = {
+  ok: true;
+  apply: boolean;
+  applied: boolean;
+  vendas: number;
+  pedidos: number;
+  vinculados: number;
+  semCorrespondencia: number;
+  jaVinculados: number;
+  nfsAPreencher: number;
+  nfsDivergentes: number;
+  porRazao: Record<string, number>;
+  previewClaros: VendaVinculoPreview[];
+  previewSemMatch: VendaSemMatch[];
+  previewNfFill: InvoiceFillPreview[];
+  previewNfDivergencias: InvoiceFillDivergencia[];
+  appliedCounts?: { pedidosVinculados: number; invoicesPreenchidas: number };
+  message: string;
+};
+
+export type CaVendasJobState = {
+  jobId: string;
+  status: CaSyncJobStatus;
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: CaVendasReport;
+  error?: string;
+};
+
+type CaVendasJobInternal = CaVendasJobState & { createdAt: Date };
+
+const NF_LOOKUP_CONCURRENCY = 8;
 
 export const CONTA_AZUL_DOCUMENTED_ENDPOINTS = {
   auth: {
@@ -328,6 +364,7 @@ export class ContaAzulIntegrationService {
     { createdAt: number }
   >();
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
+  private readonly vendasJobs = new Map<string, CaVendasJobInternal>();
   private refreshInFlight: Promise<StoredSession> | null = null;
   private refreshLockColumnAvailable = true;
   private notaArquivoSyncRunning = false;
@@ -465,6 +502,42 @@ export class ContaAzulIntegrationService {
       );
     }
     return this.toSyncJobPublic(job);
+  }
+
+  /**
+   * P1: inicia dry-run/apply em background e devolve o job na hora
+   * (a busca de NF por venda é longa demais para uma requisição síncrona).
+   */
+  startVendasJob(options: { apply: boolean }): CaVendasJobState {
+    this.ensureConfigured();
+    this.pruneVendasJobs();
+    const running = [...this.vendasJobs.values()].find(
+      (job) => job.status === 'processando' && job.apply === options.apply,
+    );
+    if (running) return this.toVendasJobPublic(running);
+
+    const job: CaVendasJobInternal = {
+      jobId: randomUUID(),
+      status: 'processando',
+      processed: 0,
+      total: 0,
+      apply: options.apply,
+      message: 'Iniciando...',
+      createdAt: new Date(),
+    };
+    this.vendasJobs.set(job.jobId, job);
+    void this.processVendasJob(job.jobId);
+    return this.toVendasJobPublic(job);
+  }
+
+  getVendasJob(jobId: string): CaVendasJobState {
+    const job = this.vendasJobs.get(jobId);
+    if (!job) {
+      throw new NotFoundException(
+        'Vinculação de vendas da Conta Azul não encontrada.',
+      );
+    }
+    return this.toVendasJobPublic(job);
   }
 
   /**
@@ -906,27 +979,20 @@ export class ContaAzulIntegrationService {
   async sincronizarVendas(options: {
     apply: boolean;
     previewLimit?: number;
-  }): Promise<{
-    ok: true;
-    apply: boolean;
-    applied: boolean;
-    vendas: number;
-    pedidos: number;
-    vinculados: number;
-    semCorrespondencia: number;
-    jaVinculados: number;
-    nfsAPreencher: number;
-    nfsDivergentes: number;
-    porRazao: Record<string, number>;
-    previewClaros: VendaVinculoPreview[];
-    previewSemMatch: VendaSemMatch[];
-    previewNfFill: InvoiceFillPreview[];
-    previewNfDivergencias: InvoiceFillDivergencia[];
-    appliedCounts?: { pedidosVinculados: number; invoicesPreenchidas: number };
-    message: string;
-  }> {
+    onProgress?: (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => void;
+  }): Promise<CaVendasReport> {
     this.ensureConfigured();
     const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 20));
+    const reportProgress = (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => options.onProgress?.(update);
+    reportProgress({ message: 'Buscando pedidos e pessoas...' });
     const [orderRows, pessoas] = await Promise.all([
       this.prisma.client.order.findMany({
         select: {
@@ -959,6 +1025,7 @@ export class ContaAzulIntegrationService {
     const pessoaById = new Map(pessoas.map((p) => [p.contaAzulId, p]));
     const today = new Date();
     const dataFinal = this.ymd(today);
+    reportProgress({ message: 'Buscando vendas na Conta Azul...' });
     const dataInicial = await this.findHistoryStart(today);
     const vendasRaw = await this.listAllVendas(dataInicial, dataFinal);
     const vendas: CaVenda[] = vendasRaw.map((v) => {
@@ -999,15 +1066,27 @@ export class ContaAzulIntegrationService {
       around: o.orderDate ?? o.createdAt,
     }));
     const recemVinculados = new Set(plan.claros.map((row) => row.orderId));
+    const invoiceFillOrders = invoiceOrders.filter((o) => {
+      if (!o.contaAzulVendaId) return false;
+      if (recemVinculados.has(o.id)) return true;
+      const current = String(o.invoiceNumber ?? '').trim();
+      return !current || invoiceNumberMatchesRemessa(current, o.notaRemessa);
+    });
+    const vendasAVerificar = this.countUniqueVendaIds(invoiceFillOrders);
+    reportProgress({
+      processed: 0,
+      total: vendasAVerificar,
+      message: this.vendasProgressMessage(0, vendasAVerificar),
+    });
     const notas = await this.collectNotasForInvoiceFill(
-      invoiceOrders.filter((o) => {
-        if (!o.contaAzulVendaId) return false;
-        if (recemVinculados.has(o.id)) return true;
-        const current = String(o.invoiceNumber ?? '').trim();
-        return (
-          !current || invoiceNumberMatchesRemessa(current, o.notaRemessa)
-        );
-      }),
+      invoiceFillOrders,
+      (processed, total) => {
+        reportProgress({
+          processed,
+          total,
+          message: this.vendasProgressMessage(processed, total),
+        });
+      },
     );
     const invoicePlan = planInvoiceFromLinkedVendas({
       orders: invoiceOrders,
@@ -1046,6 +1125,7 @@ export class ContaAzulIntegrationService {
       };
     }
 
+    reportProgress({ message: 'Gravando vínculos...' });
     let pedidosVinculados = 0;
     for (const row of plan.claros) {
       await this.prisma.client.$executeRaw`
@@ -1184,24 +1264,43 @@ export class ContaAzulIntegrationService {
     return filled;
   }
 
+  private countUniqueVendaIds(
+    orders: Array<{ contaAzulVendaId: string | null }>,
+  ): number {
+    const seen = new Set<string>();
+    for (const order of orders) {
+      const vendaId = String(order.contaAzulVendaId ?? '').trim();
+      if (vendaId) seen.add(vendaId);
+    }
+    return seen.size;
+  }
+
   private async collectNotasForInvoiceFill(
     orders: Array<{
       contaAzulVendaId: string | null;
       around?: Date | null;
     }>,
+    onProgress?: (processed: number, total: number) => void,
   ): Promise<CaNfResumo[]> {
     const seen = new Set<string>();
-    const out: CaNfResumo[] = [];
+    const unique: Array<{ vendaId: string; around: Date }> = [];
     for (const order of orders) {
       const vendaId = String(order.contaAzulVendaId ?? '').trim();
       if (!vendaId || seen.has(vendaId)) continue;
       seen.add(vendaId);
-      const notas = await this.listNotasByVendaId(
-        vendaId,
-        order.around ?? new Date(),
-      );
-      out.push(...notas);
+      unique.push({ vendaId, around: order.around ?? new Date() });
     }
+    onProgress?.(0, unique.length);
+    if (unique.length === 0) return [];
+
+    const out: CaNfResumo[] = [];
+    const batches = await mapLimit(
+      unique,
+      NF_LOOKUP_CONCURRENCY,
+      (item) => this.listNotasByVendaId(item.vendaId, item.around),
+      onProgress,
+    );
+    for (const notas of batches) out.push(...notas);
     return out;
   }
 
@@ -1283,6 +1382,57 @@ export class ContaAzulIntegrationService {
       result: job.result,
       error: job.error,
     };
+  }
+
+  private toVendasJobPublic(job: CaVendasJobInternal): CaVendasJobState {
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      apply: job.apply,
+      message: job.message,
+      result: job.result,
+      error: job.error,
+    };
+  }
+
+  private vendasProgressMessage(processed: number, total: number): string {
+    if (total <= 0) return 'Processando... nenhuma venda a verificar';
+    return `Processando... ${processed} de ${total} vendas verificadas`;
+  }
+
+  private pruneVendasJobs(): void {
+    const limit = Date.now() - 6 * 60 * 60 * 1000;
+    for (const [id, job] of this.vendasJobs) {
+      if (job.createdAt.getTime() < limit) {
+        this.vendasJobs.delete(id);
+      }
+    }
+  }
+
+  private async processVendasJob(jobId: string): Promise<void> {
+    const job = this.vendasJobs.get(jobId);
+    if (!job) return;
+    try {
+      const result = await this.sincronizarVendas({
+        apply: job.apply,
+        onProgress: (update) => {
+          if (update.processed != null) job.processed = update.processed;
+          if (update.total != null) job.total = update.total;
+          job.message = update.message;
+        },
+      });
+      job.status = 'concluido';
+      job.result = result;
+      job.message = result.message;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      job.status = 'erro';
+      job.error = message;
+      job.message = message;
+    }
+    this.pruneVendasJobs();
   }
 
   private syncProgressMessage(processed: number, total: number): string {

@@ -122,7 +122,14 @@ export class ContaAzulController {
     if (queryFlagTrue(invoicesOnly)) {
       return this.contaAzul.syncLinkedVendaInvoices({ apply: applyNow });
     }
-    return this.contaAzul.sincronizarVendas({ apply: applyNow });
+    return this.contaAzul.startVendasJob({ apply: applyNow });
+  }
+
+  /** Poll do job iniciado por POST sincronizar-vendas (dry-run e apply). */
+  @Get('vincular-vendas-status/:jobId')
+  @RequirePermission('financeiro', 'editar')
+  vincularVendasStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.contaAzul.getVendasJob(jobId);
   }
 
   /** Dry-run por padrão; apply=true grava Order.customerName/deliveryAddress. */

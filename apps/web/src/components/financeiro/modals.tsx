@@ -293,6 +293,7 @@ export function CaPreviewModal(props: {
   error: string | null;
   applied: boolean;
   appliedMessage: string | null;
+  loadingMessage?: string | null;
   onClose: () => void;
   onApply: () => void;
   children: ReactNode;
@@ -305,6 +306,7 @@ export function CaPreviewModal(props: {
     error,
     applied,
     appliedMessage,
+    loadingMessage,
     onClose,
     onApply,
     children,
@@ -317,7 +319,14 @@ export function CaPreviewModal(props: {
         {loading ? (
           <p className="flex items-center gap-2 text-sm text-[var(--fin-text-secondary)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Consultando a Conta Azul (preview, sem alterar dados)...
+            {loadingMessage ??
+              'Consultando a Conta Azul (preview, sem alterar dados)...'}
+          </p>
+        ) : null}
+        {!loading && applying && loadingMessage ? (
+          <p className="flex items-center gap-2 text-sm text-[var(--fin-text-secondary)]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {loadingMessage}
           </p>
         ) : null}
         {error ? (

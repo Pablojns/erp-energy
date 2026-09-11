@@ -134,6 +134,17 @@ type VendasPreview = {
   previewNfDivergencias?: InvoiceFillDivergencia[];
 };
 
+type CaVendasJob = {
+  jobId: string;
+  status: 'processando' | 'concluido' | 'erro';
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: VendasPreview;
+  error?: string;
+};
+
 type PedidoCadastroFillPreview = {
   applied: boolean;
   message: string;
@@ -176,6 +187,34 @@ async function pollCaSync(onProgress: (message: string) => void): Promise<CaSync
   return current;
 }
 
+async function pollCaVendas(
+  apply: boolean,
+  onProgress: (message: string) => void,
+): Promise<VendasPreview> {
+  const started = await erpFetchJson<CaVendasJob>(
+    `api/financeiro/conta-azul/sincronizar-vendas?${apply ? 'apply=true' : 'dry-run=true'}`,
+    { method: 'POST' },
+  );
+  onProgress(started.message);
+  let current = started;
+  while (current.status === 'processando') {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    current = await erpFetchJson<CaVendasJob>(
+      `api/financeiro/conta-azul/vincular-vendas-status/${started.jobId}`,
+    );
+    onProgress(current.message);
+  }
+  if (current.status === 'erro') {
+    throw new Error(
+      current.error || current.message || 'Falha ao vincular vendas da Conta Azul.',
+    );
+  }
+  if (!current.result) {
+    throw new Error('A vinculação de vendas terminou sem resultado.');
+  }
+  return current.result;
+}
+
 export function FinanceiroWorkspace() {
   const defaultRange = useMemo(() => defaultMonthRange(), []);
   const { hasPermission } = useNavPermissions();
@@ -200,6 +239,7 @@ export function FinanceiroWorkspace() {
   const [caPreviewLoading, setCaPreviewLoading] = useState(false);
   const [caPreviewApplying, setCaPreviewApplying] = useState(false);
   const [caPreviewError, setCaPreviewError] = useState<string | null>(null);
+  const [caPreviewProgress, setCaPreviewProgress] = useState<string | null>(null);
   const [cadastrosPreview, setCadastrosPreview] = useState<CadastrosPreview | null>(null);
   const [vendasPreview, setVendasPreview] = useState<VendasPreview | null>(null);
   const [pedidosCadastroPreview, setPedidosCadastroPreview] =
@@ -328,6 +368,7 @@ export function FinanceiroWorkspace() {
     if (caPreviewLoading || caPreviewApplying) return;
     setCaPreviewKind(null);
     setCaPreviewError(null);
+    setCaPreviewProgress(null);
     setCadastrosPreview(null);
     setVendasPreview(null);
     setPedidosCadastroPreview(null);
@@ -373,13 +414,11 @@ export function FinanceiroWorkspace() {
     setVendasPreview(null);
     setPedidosCadastroPreview(null);
     setCaPreviewError(null);
+    setCaPreviewProgress('Iniciando...');
     setCaPreviewLoading(true);
     setCaBusy(true);
     try {
-      const res = await erpFetchJson<VendasPreview>(
-        'api/financeiro/conta-azul/sincronizar-vendas?dry-run=true',
-        { method: 'POST' },
-      );
+      const res = await pollCaVendas(false, setCaPreviewProgress);
       setVendasPreview(res);
     } catch (e) {
       setCaPreviewError(
@@ -387,6 +426,7 @@ export function FinanceiroWorkspace() {
       );
     } finally {
       setCaPreviewLoading(false);
+      setCaPreviewProgress(null);
       setCaBusy(false);
     }
   };
@@ -435,10 +475,8 @@ export function FinanceiroWorkspace() {
         );
         setCadastrosPreview(res);
       } else if (caPreviewKind === 'vendas') {
-        const res = await erpFetchJson<VendasPreview>(
-          'api/financeiro/conta-azul/sincronizar-vendas?apply=true',
-          { method: 'POST' },
-        );
+        setCaPreviewProgress('Iniciando...');
+        const res = await pollCaVendas(true, setCaPreviewProgress);
         setVendasPreview(res);
       } else {
         const res = await erpFetchJson<PedidoCadastroFillPreview>(
@@ -454,6 +492,7 @@ export function FinanceiroWorkspace() {
       );
     } finally {
       setCaPreviewApplying(false);
+      setCaPreviewProgress(null);
       setCaBusy(false);
     }
   };
@@ -618,6 +657,7 @@ export function FinanceiroWorkspace() {
         }
         loading={caPreviewLoading}
         applying={caPreviewApplying}
+        loadingMessage={caPreviewKind === 'vendas' ? caPreviewProgress : null}
         error={caPreviewError}
         applied={
           caPreviewKind === 'vendas'
