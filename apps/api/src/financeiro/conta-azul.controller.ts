@@ -132,6 +132,28 @@ export class ContaAzulController {
     return this.contaAzul.getVendasJob(jobId);
   }
 
+  /**
+   * Processa XML da NF-e de todas as vendas (Caso 1 completa, Caso 2 cria VENDA_EXTERNA).
+   * Dry-run por padrão; apply=true só após confirmação.
+   */
+  @Post('processar-xml-vendas')
+  @RequirePermission('financeiro', 'editar')
+  processarXmlVendas(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.startXmlVendasJob({ apply: applyNow });
+  }
+
+  @Get('processar-xml-vendas-status/:jobId')
+  @RequirePermission('financeiro', 'editar')
+  processarXmlVendasStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.contaAzul.getXmlVendasJob(jobId);
+  }
+
   /** Dry-run por padrão; apply=true grava Order.customerName/deliveryAddress. */
   @Post('preencher-pedidos-cadastro')
   @RequirePermission('financeiro', 'editar')

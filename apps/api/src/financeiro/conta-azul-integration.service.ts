@@ -7,7 +7,13 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InvoiceStatus, OrderStatus } from '@erp/database';
+import {
+  InvoiceStatus,
+  OrderItemStockStatus,
+  OrderSource,
+  OrderStatus,
+  Prisma,
+} from '@erp/database';
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 import { createHmac, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -92,6 +98,18 @@ import {
   type VendaVinculoPreview,
 } from './conta-azul.vendas';
 import { mapLimit } from './conta-azul.pool';
+import { nfeEmitidaEmDate, parseNfeXml, type NfeXmlDados } from './conta-azul.nfe-xml';
+import {
+  buildProductSkuMap,
+  classifyXmlVendas,
+  planCaso1Completar,
+  planCaso2Criar,
+  reclassifyByInvoice,
+  type Caso1Plan,
+  type Caso2Plan,
+  type ErpOrderForXml,
+  type XmlVendaSkip,
+} from './conta-azul.vendas-xml';
 
 type StoredSession = {
   accessToken: string;
@@ -177,7 +195,51 @@ export type CaVendasJobState = {
 
 type CaVendasJobInternal = CaVendasJobState & { createdAt: Date };
 
+export type CaXmlVendasReport = {
+  ok: true;
+  apply: boolean;
+  applied: boolean;
+  vendas: number;
+  caso1: number;
+  caso1Perfeitos: number;
+  caso1Completar: number;
+  caso1ItensPreenchidos: number;
+  caso1ItensAdicionados: number;
+  caso2: number;
+  caso2Itens: number;
+  ambiguos: number;
+  semXml: number;
+  duplicataEvitada: number;
+  previewCaso1: Caso1Plan[];
+  previewCaso2: Caso2Plan[];
+  previewAmbiguos: XmlVendaSkip[];
+  previewSemXml: XmlVendaSkip[];
+  previewDuplicatas: XmlVendaSkip[];
+  appliedCounts?: {
+    pedidosCompletados: number;
+    itensPreenchidos: number;
+    itensAdicionados: number;
+    pedidosCriados: number;
+  };
+  message: string;
+};
+
+export type CaXmlVendasJobState = {
+  jobId: string;
+  status: CaSyncJobStatus;
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: CaXmlVendasReport;
+  error?: string;
+};
+
+type CaXmlVendasJobInternal = CaXmlVendasJobState & { createdAt: Date };
+
 const NF_LOOKUP_CONCURRENCY = 8;
+const XML_DOWNLOAD_CONCURRENCY = 4;
+const XML_VENDAS_NEXT_CODE_LOCK = 94821002;
 
 export const CONTA_AZUL_DOCUMENTED_ENDPOINTS = {
   auth: {
@@ -365,6 +427,7 @@ export class ContaAzulIntegrationService {
   >();
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
   private readonly vendasJobs = new Map<string, CaVendasJobInternal>();
+  private readonly xmlVendasJobs = new Map<string, CaXmlVendasJobInternal>();
   private refreshInFlight: Promise<StoredSession> | null = null;
   private refreshLockColumnAvailable = true;
   private notaArquivoSyncRunning = false;
@@ -538,6 +601,42 @@ export class ContaAzulIntegrationService {
       );
     }
     return this.toVendasJobPublic(job);
+  }
+
+  /**
+   * Processa XML da NF-e de TODAS as vendas (Caso 1 completa pedido existente;
+   * Caso 2 cria VENDA_EXTERNA). Dry-run por padrão; apply só grava após confirmação.
+   */
+  startXmlVendasJob(options: { apply: boolean }): CaXmlVendasJobState {
+    this.ensureConfigured();
+    this.pruneXmlVendasJobs();
+    const running = [...this.xmlVendasJobs.values()].find(
+      (job) => job.status === 'processando' && job.apply === options.apply,
+    );
+    if (running) return this.toXmlVendasJobPublic(running);
+
+    const job: CaXmlVendasJobInternal = {
+      jobId: randomUUID(),
+      status: 'processando',
+      processed: 0,
+      total: 0,
+      apply: options.apply,
+      message: 'Iniciando...',
+      createdAt: new Date(),
+    };
+    this.xmlVendasJobs.set(job.jobId, job);
+    void this.processXmlVendasJob(job.jobId);
+    return this.toXmlVendasJobPublic(job);
+  }
+
+  getXmlVendasJob(jobId: string): CaXmlVendasJobState {
+    const job = this.xmlVendasJobs.get(jobId);
+    if (!job) {
+      throw new NotFoundException(
+        'Processamento XML das vendas da Conta Azul não encontrado.',
+      );
+    }
+    return this.toXmlVendasJobPublic(job);
   }
 
   /**
@@ -1233,6 +1332,660 @@ export class ContaAzulIntegrationService {
     };
   }
 
+  /**
+   * Todas as vendas CA × XML da NF-e.
+   * Caso 1: completa OrderItem do pedido já vinculado (nunca duplica).
+   * Caso 2: cria VENDA_EXTERNA FINALIZADO sem mexer em estoque.
+   */
+  async processarVendasXml(options: {
+    apply: boolean;
+    previewLimit?: number;
+    onProgress?: (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => void;
+  }): Promise<CaXmlVendasReport> {
+    this.ensureConfigured();
+    const previewLimit = Math.max(1, Math.min(50, options.previewLimit ?? 15));
+    const reportProgress = (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => options.onProgress?.(update);
+
+    reportProgress({ message: 'Carregando pedidos, produtos e cadastros...' });
+    const [orderRows, linkedRows, products, customers, companies] =
+      await Promise.all([
+        this.prisma.client.order.findMany({
+          select: {
+            id: true,
+            code: true,
+            source: true,
+            externalOrderNumber: true,
+            customerName: true,
+            customerDocument: true,
+            deliveryCnpj: true,
+            invoiceNumber: true,
+            notaRemessa: true,
+            status: true,
+            total: true,
+            totalValue: true,
+            orderDate: true,
+            createdAt: true,
+            items: {
+              select: {
+                id: true,
+                lineNumber: true,
+                sku: true,
+                supplierMaterialCode: true,
+                description: true,
+                quantity: true,
+                unit: true,
+                ncm: true,
+                unitPrice: true,
+                totalPrice: true,
+                productId: true,
+              },
+            },
+          },
+        }),
+        this.prisma.client.$queryRaw<
+          Array<{ id: string; contaAzulVendaId: string | null }>
+        >`SELECT id::text AS id, "contaAzulVendaId" FROM "Order"`,
+        this.prisma.client.product.findMany({
+          select: {
+            id: true,
+            sku: true,
+            internalCode: true,
+            supplierSku: true,
+          },
+        }),
+        this.prisma.client.customer.findMany({
+          select: { id: true, document: true },
+        }),
+        this.prisma.client.companyEntity.findMany({
+          select: { id: true, cnpj: true },
+        }),
+      ]);
+    const linkedById = new Map(
+      linkedRows.map((row) => [row.id, row.contaAzulVendaId]),
+    );
+    const orders: ErpOrderForXml[] = orderRows.map((o) => ({
+      id: o.id,
+      code: o.code,
+      source: String(o.source),
+      externalOrderNumber: o.externalOrderNumber,
+      customerName: o.customerName,
+      customerDocument: o.customerDocument,
+      deliveryCnpj: o.deliveryCnpj,
+      invoiceNumber: o.invoiceNumber,
+      notaRemessa: o.notaRemessa,
+      status: String(o.status),
+      total: Number(o.totalValue ?? o.total) || 0,
+      contaAzulVendaId: linkedById.get(o.id) ?? null,
+      items: o.items.map((it) => ({
+        id: it.id,
+        lineNumber: it.lineNumber,
+        sku: it.sku,
+        supplierMaterialCode: it.supplierMaterialCode,
+        description: it.description,
+        quantity: it.quantity,
+        unit: it.unit,
+        ncm: it.ncm,
+        unitPrice: Number(it.unitPrice) || 0,
+        totalPrice: Number(it.totalPrice) || 0,
+        productId: it.productId,
+      })),
+    }));
+    const aroundByOrder = new Map(
+      orderRows.map((o) => [o.id, o.orderDate ?? o.createdAt] as const),
+    );
+    const productsBySku = buildProductSkuMap(products);
+    const customerByDoc = new Map<string, string>();
+    for (const c of customers) {
+      const digits = documentDigits(c.document);
+      if (digits.length >= 11 && !customerByDoc.has(digits)) {
+        customerByDoc.set(digits, c.id);
+      }
+    }
+    const companyByCnpj = new Map<string, string>();
+    for (const c of companies) {
+      const digits = documentDigits(c.cnpj);
+      if (digits.length >= 11 && !companyByCnpj.has(digits)) {
+        companyByCnpj.set(digits, c.id);
+      }
+    }
+
+    reportProgress({ message: 'Buscando vendas na Conta Azul...' });
+    const today = new Date();
+    const dataFinal = this.ymd(today);
+    const earliestOrder = orderRows.reduce<Date | null>((min, o) => {
+      const d = o.orderDate ?? o.createdAt;
+      if (!d) return min;
+      return !min || d < min ? d : min;
+    }, null);
+    const dataInicial = this.ymd(
+      this.addUtcDays(earliestOrder ?? this.addUtcDays(today, -540), -60),
+    );
+    const vendas = await this.listAllVendas(dataInicial, dataFinal);
+    const classified = classifyXmlVendas({ vendas, orders });
+    const caso1Inicial = classified.filter((r) => r.caso === 'caso1').length;
+    const caso2Inicial = classified.filter((r) => r.caso === 'caso2').length;
+    reportProgress({
+      processed: 0,
+      total: classified.length,
+      message: `Classificado: ${caso1Inicial} Caso 1 (pedido existente), ${caso2Inicial} Caso 2 (venda avulsa). Indexando chaves das NF-e...`,
+    });
+    const chaveByNumero = await this.indexNfeChaves(
+      dataInicial,
+      dataFinal,
+      (msg) => reportProgress({ message: msg }),
+    );
+
+    const takenExternal = new Set(
+      orders
+        .map((o) => String(o.externalOrderNumber ?? '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const caso1: Caso1Plan[] = [];
+    const caso2: Caso2Plan[] = [];
+    const ambiguos: XmlVendaSkip[] = [];
+    const semXml: XmlVendaSkip[] = [];
+    const duplicatas: XmlVendaSkip[] = [];
+    const xmlByOrderInvoice = new Map<string, { dados: NfeXmlDados; raw: string }>();
+
+    await mapLimit(
+      classified,
+      XML_DOWNLOAD_CONCURRENCY,
+      async (row) => {
+        if (row.caso === 'ambiguo') {
+          ambiguos.push({
+            vendaId: row.venda.contaAzulId,
+            vendaNumero: row.venda.numero,
+            clienteNome: row.venda.clienteNome,
+            motivo: row.motivo ?? 'Match ambíguo — não cria pedido',
+          });
+          return;
+        }
+        if (
+          row.caso === 'caso2' &&
+          /cancel/i.test(String(row.venda.situacao ?? ''))
+        ) {
+          semXml.push({
+            vendaId: row.venda.contaAzulId,
+            vendaNumero: row.venda.numero,
+            clienteNome: row.venda.clienteNome,
+            motivo: `Venda cancelada (${row.venda.situacao})`,
+          });
+          return;
+        }
+
+        const around =
+          (row.order ? aroundByOrder.get(row.order.id) : null) ??
+          (row.venda.data ? new Date(row.venda.data) : today);
+        const invoiceHint = this.realInvoiceNumber(row.order);
+        const loaded = await this.loadNfeXmlDados({
+          vendaId: row.venda.contaAzulId,
+          orderId: row.order?.id ?? null,
+          invoiceNumber: invoiceHint,
+          around: Number.isFinite(around.getTime()) ? around : today,
+          cache: xmlByOrderInvoice,
+          chaveByNumero,
+        });
+        if ('error' in loaded) {
+          semXml.push({
+            vendaId: row.venda.contaAzulId,
+            vendaNumero: row.venda.numero,
+            clienteNome: row.venda.clienteNome,
+            motivo: loaded.error,
+          });
+          return;
+        }
+
+        let current = row;
+        if (current.caso === 'caso2') {
+          const next = reclassifyByInvoice({
+            row: current,
+            invoiceNumber: loaded.dados.invoiceNumber,
+            orders,
+          });
+          if (next.caso === 'ambiguo') {
+            duplicatas.push({
+              vendaId: current.venda.contaAzulId,
+              vendaNumero: current.venda.numero,
+              clienteNome: current.venda.clienteNome,
+              motivo: next.motivo ?? 'NF já existe em mais de um pedido',
+            });
+            return;
+          }
+          if (next.caso === 'caso1' && next.order) {
+            duplicatas.push({
+              vendaId: current.venda.contaAzulId,
+              vendaNumero: current.venda.numero,
+              clienteNome: current.venda.clienteNome,
+              motivo:
+                next.motivo ??
+                `NF ${loaded.dados.invoiceNumber} já no ERP — completa o pedido existente`,
+            });
+            current = next;
+          }
+        }
+
+        if (current.caso === 'caso1' && current.order) {
+          caso1.push(
+            planCaso1Completar({
+              venda: current.venda,
+              order: current.order,
+              xml: loaded.dados,
+              via: current.via,
+              productsBySku,
+            }),
+          );
+          return;
+        }
+
+        if (!loaded.dados.items.length) {
+          semXml.push({
+            vendaId: current.venda.contaAzulId,
+            vendaNumero: current.venda.numero,
+            clienteNome: current.venda.clienteNome,
+            motivo: 'XML sem itens de produto',
+          });
+          return;
+        }
+        const destDoc = loaded.dados.destDocumento || documentDigits(current.venda.clienteDocumento);
+        caso2.push(
+          planCaso2Criar({
+            venda: current.venda,
+            xml: loaded.dados,
+            takenExternal,
+            customerId: destDoc ? customerByDoc.get(destDoc) ?? null : null,
+            companyEntityId: loaded.dados.emitCnpj
+              ? companyByCnpj.get(loaded.dados.emitCnpj) ?? null
+              : null,
+            productsBySku,
+          }),
+        );
+      },
+      (done, total) => {
+        reportProgress({
+          processed: done,
+          total,
+          message: `XML ${done} de ${total} vendas (Caso 1: ${caso1.length}, Caso 2: ${caso2.length})`,
+        });
+      },
+    );
+
+    const caso1Completar = caso1.filter((p) => !p.perfeito);
+    const report: CaXmlVendasReport = {
+      ok: true,
+      apply: options.apply,
+      applied: false,
+      vendas: vendas.length,
+      caso1: caso1.length,
+      caso1Perfeitos: caso1.filter((p) => p.perfeito).length,
+      caso1Completar: caso1Completar.length,
+      caso1ItensPreenchidos: caso1.reduce((n, p) => n + p.fills.length, 0),
+      caso1ItensAdicionados: caso1.reduce((n, p) => n + p.adds.length, 0),
+      caso2: caso2.length,
+      caso2Itens: caso2.reduce((n, p) => n + p.items.length, 0),
+      ambiguos: ambiguos.length,
+      semXml: semXml.length,
+      duplicataEvitada: duplicatas.length,
+      previewCaso1: caso1Completar.slice(0, previewLimit),
+      previewCaso2: caso2.slice(0, previewLimit),
+      previewAmbiguos: ambiguos.slice(0, previewLimit),
+      previewSemXml: semXml.slice(0, previewLimit),
+      previewDuplicatas: duplicatas.slice(0, previewLimit),
+      message: '',
+    };
+    report.message = options.apply
+      ? ''
+      : `Dry-run XML: ${report.caso1} Caso 1 (${report.caso1Perfeitos} já ok, ${report.caso1Completar} a completar, ${report.caso1ItensPreenchidos} item(ns) a preencher, ${report.caso1ItensAdicionados} item(ns) a adicionar). ${report.caso2} Caso 2 (pedidos VENDA_EXTERNA novos). ${report.duplicataEvitada} duplicata(s) evitada(s). Nada gravado.`;
+
+    if (!options.apply) return report;
+
+    reportProgress({ message: 'Gravando compleções e pedidos novos...' });
+    const appliedCounts = await this.applyVendasXmlPlans({
+      caso1: caso1Completar,
+      caso2,
+    });
+    return {
+      ...report,
+      applied: true,
+      appliedCounts,
+      message: `Aplicado XML: ${appliedCounts.pedidosCompletados} pedido(s) completados (${appliedCounts.itensPreenchidos} itens preenchidos, ${appliedCounts.itensAdicionados} adicionados); ${appliedCounts.pedidosCriados} VENDA_EXTERNA criada(s). Estoque não alterado.`,
+    };
+  }
+
+  private realInvoiceNumber(order?: ErpOrderForXml | null): string | null {
+    if (!order) return null;
+    const current = String(order.invoiceNumber ?? '').trim();
+    if (!current || !invoiceNumberDigits(current)) return null;
+    if (invoiceNumberMatchesRemessa(current, order.notaRemessa)) return null;
+    return current;
+  }
+
+  private async indexNfeChaves(
+    dataInicial: string,
+    dataFinal: string,
+    onProgress?: (message: string) => void,
+  ): Promise<Map<string, string>> {
+    const chaveByNumero = new Map<string, string>();
+    const windows = this.dateWindows(dataInicial, dataFinal, 15);
+    let done = 0;
+    for (const window of windows) {
+      try {
+        const rows = await this.listNotasWindow('/v1/notas-fiscais', {
+          data_inicial: window.start,
+          data_final: window.end,
+        });
+        for (const nf of rows) {
+          const digits = nf.numeroDigits || nfNumberKey(nf.numero);
+          const chave = String(nf.chaveAcesso ?? '').replace(/\D/g, '');
+          if (digits && chave.length === 44 && !chaveByNumero.has(digits)) {
+            chaveByNumero.set(digits, chave);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Índice NF-e ${window.start}..${window.end}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      done += 1;
+      if (done === 1 || done % 8 === 0 || done === windows.length) {
+        onProgress?.(
+          `Indexando chaves das NF-e... ${done} de ${windows.length} janelas (${chaveByNumero.size} notas)`,
+        );
+      }
+    }
+    return chaveByNumero;
+  }
+
+  private async loadNfeXmlDados(opts: {
+    vendaId: string;
+    orderId?: string | null;
+    invoiceNumber?: string | null;
+    around: Date;
+    cache: Map<string, { dados: NfeXmlDados; raw: string }>;
+    chaveByNumero?: Map<string, string>;
+  }): Promise<{ dados: NfeXmlDados; raw: string } | { error: string }> {
+    const invoiceHint = nfNumberKey(opts.invoiceNumber);
+    if (opts.orderId && invoiceHint) {
+      const cacheKey = `${opts.orderId}:${invoiceHint}`;
+      const cached = opts.cache.get(cacheKey);
+      if (cached) return cached;
+      const stored = await this.readStoredXmlString(opts.orderId, invoiceHint);
+      if (stored) {
+        const dados = parseNfeXml(stored);
+        if (dados) {
+          const packed = { dados, raw: stored };
+          opts.cache.set(cacheKey, packed);
+          return packed;
+        }
+      }
+    }
+
+    let numero = invoiceHint;
+    let chave =
+      (numero ? opts.chaveByNumero?.get(numero) : null) ??
+      (numero ? opts.chaveByNumero?.get(numero.replace(/^0+/, '')) : null) ??
+      null;
+    if (!numero) {
+      const notas = await this.listNotasByVendaId(opts.vendaId, opts.around);
+      const nfe = notas.find((n) => nfNumberKey(n.numero) || n.chaveAcesso) ?? notas[0];
+      if (nfe) {
+        numero = nfNumberKey(nfe.numero);
+        const ch = String(nfe.chaveAcesso ?? '').replace(/\D/g, '');
+        if (ch.length === 44) chave = ch;
+        else if (numero) chave = opts.chaveByNumero?.get(numero) ?? chave;
+      }
+    }
+
+    let buffer: Buffer | null = null;
+    if (chave) {
+      try {
+        buffer = await this.apiGetBuffer(`/v1/notas-fiscais/${chave}`);
+      } catch (err) {
+        this.logger.warn(
+          `XML chave ${chave}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    if (!buffer && numero) {
+      try {
+        const file = await this.downloadNotaFiscal(numero, {
+          orderId: opts.orderId ?? undefined,
+        });
+        buffer = file.buffer;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!chave) return { error: msg };
+      }
+    }
+    if (!buffer) {
+      return {
+        error: numero
+          ? `XML da NF ${numero} não encontrado na Conta Azul`
+          : 'Venda sem NF-e de produto na Conta Azul',
+      };
+    }
+    try {
+      const raw = extractNfeXml(buffer);
+      const dados = parseNfeXml(raw);
+      if (!dados) return { error: 'XML da NF-e não pôde ser interpretado' };
+      if (opts.orderId && dados.invoiceNumber) {
+        opts.cache.set(`${opts.orderId}:${nfNumberKey(dados.invoiceNumber)}`, {
+          dados,
+          raw,
+        });
+      }
+      return { dados, raw };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : 'Falha ao extrair XML da NF-e',
+      };
+    }
+  }
+
+  private async readStoredXmlString(
+    orderId: string,
+    invoiceNumber: string,
+  ): Promise<string | null> {
+    const stored = await this.readStoredNotaArquivo(orderId, invoiceNumber, 'xml');
+    if (!stored) return null;
+    try {
+      return extractNfeXml(stored.buffer);
+    } catch {
+      return null;
+    }
+  }
+
+  private async applyVendasXmlPlans(input: {
+    caso1: Caso1Plan[];
+    caso2: Caso2Plan[];
+  }): Promise<{
+    pedidosCompletados: number;
+    itensPreenchidos: number;
+    itensAdicionados: number;
+    pedidosCriados: number;
+  }> {
+    let pedidosCompletados = 0;
+    let itensPreenchidos = 0;
+    let itensAdicionados = 0;
+    let pedidosCriados = 0;
+
+    for (const plan of input.caso1) {
+      const changed = await this.applyCaso1Plan(plan);
+      if (changed) pedidosCompletados += 1;
+      itensPreenchidos += plan.fills.length;
+      itensAdicionados += plan.adds.length;
+    }
+    for (const plan of input.caso2) {
+      const created = await this.applyCaso2Plan(plan);
+      if (created) pedidosCriados += 1;
+    }
+    return {
+      pedidosCompletados,
+      itensPreenchidos,
+      itensAdicionados,
+      pedidosCriados,
+    };
+  }
+
+  private async applyCaso1Plan(plan: Caso1Plan): Promise<boolean> {
+    return this.prisma.client.$transaction(async (tx) => {
+      for (const fill of plan.fills) {
+        const data: Prisma.OrderItemUpdateInput = {};
+        if (fill.sku != null) data.sku = fill.sku;
+        if (fill.description != null) data.description = fill.description;
+        if (fill.unit != null) data.unit = fill.unit;
+        if (fill.ncm != null) data.ncm = fill.ncm;
+        if (fill.unitPrice != null) {
+          data.unitPrice = new Prisma.Decimal(fill.unitPrice.toFixed(2));
+        }
+        if (fill.totalPrice != null) {
+          data.totalPrice = new Prisma.Decimal(fill.totalPrice.toFixed(2));
+        }
+        if (Object.keys(data).length === 0) continue;
+        await tx.orderItem.update({ where: { id: fill.itemId }, data });
+      }
+      for (const add of plan.adds) {
+        await tx.orderItem.create({
+          data: {
+            orderId: plan.orderId,
+            lineNumber: add.lineNumber,
+            sku: add.sku,
+            description: add.description,
+            quantity: add.quantity,
+            reservedQuantity: 0,
+            missingQty: 0,
+            pickedQty: 0,
+            invoicedQty: add.quantity,
+            unit: add.unit,
+            ncm: add.ncm,
+            unitPrice: new Prisma.Decimal(add.unitPrice.toFixed(2)),
+            totalPrice: new Prisma.Decimal(add.totalPrice.toFixed(2)),
+            discount: new Prisma.Decimal(0),
+            productId: add.productId,
+            stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+          },
+        });
+      }
+      const orderPatch: Prisma.OrderUpdateInput = {};
+      if (plan.preencherInvoice && plan.invoiceNumber) {
+        orderPatch.invoiceNumber = plan.invoiceNumber;
+        orderPatch.invoiceStatus = InvoiceStatus.INVOICED;
+        orderPatch.invoicedAt = new Date();
+      }
+      if (Object.keys(orderPatch).length > 0) {
+        await tx.order.update({
+          where: { id: plan.orderId },
+          data: orderPatch,
+        });
+      }
+      if (plan.preencherVendaId) {
+        await tx.$executeRaw`
+          UPDATE "Order"
+          SET "contaAzulVendaId" = ${plan.vendaId}, "updatedAt" = NOW()
+          WHERE id = CAST(${plan.orderId} AS UUID)
+            AND ("contaAzulVendaId" IS NULL OR "contaAzulVendaId" = ${plan.vendaId})
+        `;
+      }
+      return (
+        plan.fills.length > 0 ||
+        plan.adds.length > 0 ||
+        plan.preencherInvoice ||
+        plan.preencherVendaId
+      );
+    });
+  }
+
+  private async applyCaso2Plan(plan: Caso2Plan): Promise<boolean> {
+    const already = await this.prisma.client.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM "Order"
+      WHERE "contaAzulVendaId" = ${plan.vendaId}
+      LIMIT 1
+    `;
+    if (already.length > 0) return false;
+    const invoiceTaken = plan.invoiceNumber
+      ? await this.prisma.client.order.findFirst({
+          where: { invoiceNumber: plan.invoiceNumber },
+          select: { id: true },
+        })
+      : null;
+    if (invoiceTaken) return false;
+
+    const emitida = nfeEmitidaEmDate(plan.emitidaEm) ?? new Date();
+    const total = new Prisma.Decimal(Number(plan.total || 0).toFixed(2));
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${XML_VENDAS_NEXT_CODE_LOCK})`,
+      );
+      const rows = await tx.$queryRaw<Array<{ next: bigint }>>`
+        SELECT (COALESCE(MAX(CAST(SPLIT_PART("code", '-', 2) AS INTEGER)), 0) + 1)::bigint AS next
+        FROM "Order"
+        WHERE "code" ~ '^PED-[0-9]+$'
+      `;
+      const code = `PED-${String(Number(rows[0]?.next ?? 1)).padStart(6, '0')}`;
+      const created = await tx.order.create({
+        data: {
+          source: OrderSource.VENDA_EXTERNA,
+          code,
+          externalOrderNumber: plan.externalOrderNumber,
+          customerId: plan.customerId,
+          customerName: plan.customerName,
+          customerDocument: plan.cnpj,
+          deliveryCnpj: plan.cnpj,
+          deliveryAddress: plan.deliveryAddress,
+          deliveryCity: plan.deliveryCity,
+          deliveryState: plan.deliveryState,
+          receiverName: plan.customerName,
+          invoiceNumber: plan.invoiceNumber,
+          invoiceStatus: InvoiceStatus.INVOICED,
+          invoicedAt: emitida,
+          orderDate: emitida,
+          status: OrderStatus.FINALIZADO,
+          priority: 3,
+          subtotal: total,
+          discount: new Prisma.Decimal(0),
+          total,
+          totalValue: total,
+          companyEntityId: plan.companyEntityId,
+          notes: `Importado da Conta Azul (venda ${plan.vendaNumero ?? plan.vendaId}) — histórico, sem reserva de estoque.`,
+          items: {
+            create: plan.items.map((item) => ({
+              lineNumber: item.lineNumber,
+              sku: item.sku,
+              description: item.description,
+              quantity: item.quantity,
+              reservedQuantity: 0,
+              missingQty: 0,
+              pickedQty: 0,
+              invoicedQty: item.quantity,
+              unit: item.unit,
+              ncm: item.ncm,
+              unitPrice: new Prisma.Decimal(item.unitPrice.toFixed(2)),
+              totalPrice: new Prisma.Decimal(item.totalPrice.toFixed(2)),
+              discount: new Prisma.Decimal(0),
+              productId: item.productId,
+              stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+            })),
+          },
+        },
+        select: { id: true },
+      });
+      await tx.$executeRaw`
+        UPDATE "Order"
+        SET "contaAzulVendaId" = ${plan.vendaId}, "updatedAt" = NOW()
+        WHERE id = CAST(${created.id} AS UUID)
+          AND "contaAzulVendaId" IS NULL
+      `;
+    });
+    return true;
+  }
+
   private async applyInvoiceFills(
     rows: InvoiceFillPreview[],
   ): Promise<number> {
@@ -1433,6 +2186,52 @@ export class ContaAzulIntegrationService {
       job.message = message;
     }
     this.pruneVendasJobs();
+  }
+
+  private toXmlVendasJobPublic(job: CaXmlVendasJobInternal): CaXmlVendasJobState {
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      apply: job.apply,
+      message: job.message,
+      result: job.result,
+      error: job.error,
+    };
+  }
+
+  private pruneXmlVendasJobs(): void {
+    const limit = Date.now() - 6 * 60 * 60 * 1000;
+    for (const [id, job] of this.xmlVendasJobs) {
+      if (job.createdAt.getTime() < limit) {
+        this.xmlVendasJobs.delete(id);
+      }
+    }
+  }
+
+  private async processXmlVendasJob(jobId: string): Promise<void> {
+    const job = this.xmlVendasJobs.get(jobId);
+    if (!job) return;
+    try {
+      const result = await this.processarVendasXml({
+        apply: job.apply,
+        onProgress: (update) => {
+          if (update.processed != null) job.processed = update.processed;
+          if (update.total != null) job.total = update.total;
+          job.message = update.message;
+        },
+      });
+      job.status = 'concluido';
+      job.result = result;
+      job.message = result.message;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      job.status = 'erro';
+      job.error = message;
+      job.message = message;
+    }
+    this.pruneXmlVendasJobs();
   }
 
   private syncProgressMessage(processed: number, total: number): string {

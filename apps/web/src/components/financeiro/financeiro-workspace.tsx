@@ -164,7 +164,67 @@ type PedidoCadastroFillPreview = {
   }[];
 };
 
-type CaPreviewKind = 'cadastros' | 'vendas' | 'pedidos-cadastro';
+type XmlCaso1Preview = {
+  orderCode: string;
+  externalOrderNumber: string | null;
+  vendaNumero: string | null;
+  clienteNome: string | null;
+  invoiceNumber: string;
+  via: string;
+  fills: { lineNumber: number; unitPrice?: number; sku?: string }[];
+  adds: { lineNumber: number; sku: string; description: string; quantity: number }[];
+  perfeito: boolean;
+};
+
+type XmlCaso2Preview = {
+  vendaNumero: string | null;
+  clienteNome: string | null;
+  cnpj: string | null;
+  invoiceNumber: string;
+  total: number;
+  items: { sku: string; description: string; quantity: number }[];
+  externalOrderNumber: string;
+};
+
+type XmlSkipPreview = {
+  vendaNumero: string | null;
+  clienteNome: string | null;
+  motivo: string;
+};
+
+type XmlVendasPreview = {
+  applied: boolean;
+  message: string;
+  vendas: number;
+  caso1: number;
+  caso1Perfeitos: number;
+  caso1Completar: number;
+  caso1ItensPreenchidos: number;
+  caso1ItensAdicionados: number;
+  caso2: number;
+  caso2Itens: number;
+  ambiguos: number;
+  semXml: number;
+  duplicataEvitada: number;
+  previewCaso1: XmlCaso1Preview[];
+  previewCaso2: XmlCaso2Preview[];
+  previewAmbiguos: XmlSkipPreview[];
+  previewSemXml: XmlSkipPreview[];
+  previewDuplicatas: XmlSkipPreview[];
+};
+
+type CaXmlVendasJob = {
+  jobId: string;
+  status: 'processando' | 'concluido' | 'erro';
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: XmlVendasPreview;
+  error?: string;
+};
+
+type CaPreviewKind = 'cadastros' | 'vendas' | 'pedidos-cadastro' | 'xml-vendas';
 
 async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
   const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
@@ -215,6 +275,34 @@ async function pollCaVendas(
   return current.result;
 }
 
+async function pollCaXmlVendas(
+  apply: boolean,
+  onProgress: (message: string) => void,
+): Promise<XmlVendasPreview> {
+  const started = await erpFetchJson<CaXmlVendasJob>(
+    `api/financeiro/conta-azul/processar-xml-vendas?${apply ? 'apply=true' : 'dry-run=true'}`,
+    { method: 'POST' },
+  );
+  onProgress(started.message);
+  let current = started;
+  while (current.status === 'processando') {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    current = await erpFetchJson<CaXmlVendasJob>(
+      `api/financeiro/conta-azul/processar-xml-vendas-status/${started.jobId}`,
+    );
+    onProgress(current.message);
+  }
+  if (current.status === 'erro') {
+    throw new Error(
+      current.error || current.message || 'Falha ao processar XML das vendas da Conta Azul.',
+    );
+  }
+  if (!current.result) {
+    throw new Error('O processamento XML das vendas terminou sem resultado.');
+  }
+  return current.result;
+}
+
 export function FinanceiroWorkspace() {
   const defaultRange = useMemo(() => defaultMonthRange(), []);
   const { hasPermission } = useNavPermissions();
@@ -242,6 +330,7 @@ export function FinanceiroWorkspace() {
   const [caPreviewProgress, setCaPreviewProgress] = useState<string | null>(null);
   const [cadastrosPreview, setCadastrosPreview] = useState<CadastrosPreview | null>(null);
   const [vendasPreview, setVendasPreview] = useState<VendasPreview | null>(null);
+  const [xmlVendasPreview, setXmlVendasPreview] = useState<XmlVendasPreview | null>(null);
   const [pedidosCadastroPreview, setPedidosCadastroPreview] =
     useState<PedidoCadastroFillPreview | null>(null);
 
@@ -371,6 +460,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewProgress(null);
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
   };
 
@@ -383,6 +473,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewKind('cadastros');
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
     setCaPreviewError(null);
     setCaPreviewLoading(true);
@@ -412,6 +503,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewKind('vendas');
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
     setCaPreviewError(null);
     setCaPreviewProgress('Iniciando...');
@@ -431,6 +523,37 @@ export function FinanceiroWorkspace() {
     }
   };
 
+  const handlePreviewXmlVendas = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setExportError(null);
+    setCaPreviewKind('xml-vendas');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setXmlVendasPreview(null);
+    setPedidosCadastroPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewProgress('Iniciando...');
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await pollCaXmlVendas(false, setCaPreviewProgress);
+      setXmlVendasPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error
+          ? e.message
+          : 'Erro ao processar XML das vendas da Conta Azul.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaPreviewProgress(null);
+      setCaBusy(false);
+    }
+  };
+
   const handlePreviewPedidosCadastro = async () => {
     if (!caConnected) {
       setExportError('Conecte a Conta Azul antes de sincronizar.');
@@ -440,6 +563,7 @@ export function FinanceiroWorkspace() {
     setCaPreviewKind('pedidos-cadastro');
     setCadastrosPreview(null);
     setVendasPreview(null);
+    setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
     setCaPreviewError(null);
     setCaPreviewLoading(true);
@@ -478,6 +602,10 @@ export function FinanceiroWorkspace() {
         setCaPreviewProgress('Iniciando...');
         const res = await pollCaVendas(true, setCaPreviewProgress);
         setVendasPreview(res);
+      } else if (caPreviewKind === 'xml-vendas') {
+        setCaPreviewProgress('Iniciando...');
+        const res = await pollCaXmlVendas(true, setCaPreviewProgress);
+        setXmlVendasPreview(res);
       } else {
         const res = await erpFetchJson<PedidoCadastroFillPreview>(
           'api/financeiro/conta-azul/preencher-pedidos-cadastro?apply=true',
@@ -608,6 +736,7 @@ export function FinanceiroWorkspace() {
           onSyncCa={() => void handleSyncCa()}
           onSyncCadastros={() => void handlePreviewCadastros()}
           onSyncVendas={() => void handlePreviewVendas()}
+          onSyncXmlVendas={() => void handlePreviewXmlVendas()}
           onSyncPedidosCadastro={() => void handlePreviewPedidosCadastro()}
         />
       </div>
@@ -651,33 +780,45 @@ export function FinanceiroWorkspace() {
         title={
           caPreviewKind === 'vendas'
             ? 'Vincular vendas a pedidos'
-            : caPreviewKind === 'pedidos-cadastro'
-              ? 'Preencher comprador e endereço'
-              : 'Sincronizar cadastros'
+            : caPreviewKind === 'xml-vendas'
+              ? 'Processar XML das NFs'
+              : caPreviewKind === 'pedidos-cadastro'
+                ? 'Preencher comprador e endereço'
+                : 'Sincronizar cadastros'
         }
         loading={caPreviewLoading}
         applying={caPreviewApplying}
-        loadingMessage={caPreviewKind === 'vendas' ? caPreviewProgress : null}
+        loadingMessage={
+          caPreviewKind === 'vendas' || caPreviewKind === 'xml-vendas'
+            ? caPreviewProgress
+            : null
+        }
         error={caPreviewError}
         applied={
           caPreviewKind === 'vendas'
             ? Boolean(vendasPreview?.applied)
-            : caPreviewKind === 'pedidos-cadastro'
-              ? Boolean(pedidosCadastroPreview?.applied)
-              : Boolean(cadastrosPreview?.applied)
+            : caPreviewKind === 'xml-vendas'
+              ? Boolean(xmlVendasPreview?.applied)
+              : caPreviewKind === 'pedidos-cadastro'
+                ? Boolean(pedidosCadastroPreview?.applied)
+                : Boolean(cadastrosPreview?.applied)
         }
         appliedMessage={
           caPreviewKind === 'vendas'
             ? vendasPreview?.applied
               ? vendasPreview.message
               : null
-            : caPreviewKind === 'pedidos-cadastro'
-              ? pedidosCadastroPreview?.applied
-                ? pedidosCadastroPreview.message
+            : caPreviewKind === 'xml-vendas'
+              ? xmlVendasPreview?.applied
+                ? xmlVendasPreview.message
                 : null
-              : cadastrosPreview?.applied
-                ? cadastrosPreview.message
-                : null
+              : caPreviewKind === 'pedidos-cadastro'
+                ? pedidosCadastroPreview?.applied
+                  ? pedidosCadastroPreview.message
+                  : null
+                : cadastrosPreview?.applied
+                  ? cadastrosPreview.message
+                  : null
         }
         onClose={closeCaPreview}
         onApply={() => void handleApplyPreview()}
@@ -837,6 +978,96 @@ export function FinanceiroWorkspace() {
                 <ul className="mt-1 space-y-1.5 text-xs">
                   {vendasPreview.previewSemMatch.map((row, idx) => (
                     <li key={`${row.vendaNumero ?? 'v'}-${idx}`}>
+                      Venda {row.vendaNumero ?? '—'}
+                      {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
+                      {row.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {caPreviewKind === 'xml-vendas' && xmlVendasPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>
+              <strong>{xmlVendasPreview.vendas}</strong> vendas na Conta Azul.{' '}
+              <strong>{xmlVendasPreview.caso1}</strong> Caso 1 (pedido já no ERP
+              — {xmlVendasPreview.caso1Perfeitos} já ok,{' '}
+              {xmlVendasPreview.caso1Completar} a completar,{' '}
+              {xmlVendasPreview.caso1ItensPreenchidos} item(ns) preenchidos,{' '}
+              {xmlVendasPreview.caso1ItensAdicionados} item(ns) a adicionar).{' '}
+              <strong>{xmlVendasPreview.caso2}</strong> Caso 2 (novos
+              VENDA_EXTERNA, {xmlVendasPreview.caso2Itens} itens).
+            </p>
+            <p className="text-xs text-[var(--fin-text-secondary)]">
+              Duplicatas evitadas: {xmlVendasPreview.duplicataEvitada}. Ambíguos:
+              {' '}
+              {xmlVendasPreview.ambiguos}. Sem XML/NF-e: {xmlVendasPreview.semXml}.
+              Aplicar não mexe em estoque. Confirme só depois de revisar os
+              exemplos.
+            </p>
+            {xmlVendasPreview.previewCaso1.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Caso 1 — completar pedido existente (amostra)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {xmlVendasPreview.previewCaso1.map((row) => (
+                    <li key={`${row.orderCode}-${row.invoiceNumber}`}>
+                      {row.orderCode}
+                      {row.externalOrderNumber
+                        ? ` (${row.externalOrderNumber})`
+                        : ''}{' '}
+                      · NF {row.invoiceNumber}
+                      {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
+                      {row.fills.length} preenchimento(s), {row.adds.length}{' '}
+                      item(ns) novo(s)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {xmlVendasPreview.previewCaso2.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Caso 2 — criar VENDA_EXTERNA (amostra)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {xmlVendasPreview.previewCaso2.map((row) => (
+                    <li key={`${row.vendaNumero ?? 'v'}-${row.invoiceNumber}`}>
+                      {row.clienteNome ?? 'Cliente'} · venda{' '}
+                      {row.vendaNumero ?? '—'} · NF {row.invoiceNumber} ·{' '}
+                      {row.items.length} item(ns) · nº {row.externalOrderNumber}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {xmlVendasPreview.previewDuplicatas.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Duplicatas evitadas
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {xmlVendasPreview.previewDuplicatas.map((row, idx) => (
+                    <li key={`dup-${row.vendaNumero ?? 'v'}-${idx}`}>
+                      Venda {row.vendaNumero ?? '—'}
+                      {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
+                      {row.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {xmlVendasPreview.previewSemXml.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Sem XML (amostra)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {xmlVendasPreview.previewSemXml.map((row, idx) => (
+                    <li key={`xml-${row.vendaNumero ?? 'v'}-${idx}`}>
                       Venda {row.vendaNumero ?? '—'}
                       {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
                       {row.motivo}
