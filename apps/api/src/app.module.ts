@@ -23,6 +23,7 @@ import { CorreiosModule } from './correios/correios.module';
 import { CrmModule } from './crm/crm.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { SearchModule } from './search/search.module';
+import { ExternalItemsModule } from './external-items/external-items.module';
 import { buildNestPinoParams } from './common/logger/pino-options';
 import { RequestContextInterceptor } from './common/logger/request-context.interceptor';
 import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
@@ -58,6 +59,7 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
     DashboardModule,
     ChatModule,
     FinanceiroModule,
+    ExternalItemsModule,
     PermissionsModule,
     StorageModule,
     CorreiosModule,

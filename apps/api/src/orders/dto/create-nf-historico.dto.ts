@@ -28,4 +28,10 @@ export class CreateNfHistoricoDto {
   @IsString()
   @MaxLength(40)
   createdAt?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  volumes?: number;
 }

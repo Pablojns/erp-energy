@@ -47,7 +47,9 @@ export function ItemRecebidoChoiceModal(props: {
               {quantity ? ` · ${quantity} un.` : ''}
             </p>
             <p className="mt-2 text-sm text-[var(--text-secondary)]">
-              O que fazer com esta linha do pedido?
+              A quantidade vai para <strong>Qtd Separada</strong> e a{' '}
+              <strong>Falta</strong> zera. Quer também baixar o estoque desta
+              linha?
             </p>
           </div>
           <button
@@ -76,8 +78,7 @@ export function ItemRecebidoChoiceModal(props: {
             Dar saída deste item
           </button>
           <p className="px-1 text-xs text-[var(--text-muted)]">
-            Baixa o estoque da linha e registra a saída. O pedido segue parcial
-            enquanto houver itens pendentes.
+            Preenche Qtd Separada, baixa o estoque da linha e registra a saída.
           </p>
           <button
             type="button"
@@ -88,6 +89,10 @@ export function ItemRecebidoChoiceModal(props: {
             <CheckCircle2 className="h-4 w-4" aria-hidden />
             Apenas mudar status
           </button>
+          <p className="px-1 text-xs text-[var(--text-muted)]">
+            Preenche Qtd Separada e zera a Falta, sem movimentar estoque. Use
+            em pedidos antigos já enviados fora do ERP.
+          </p>
           <button
             type="button"
             disabled={busy}

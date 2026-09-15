@@ -5,6 +5,7 @@ import { AuditService } from '../common/audit.service';
 import { PermissionsModule } from '../common/permissions/permissions.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
+import { StorageModule } from '../storage/storage.module';
 import { StockModule } from '../stock/stock.module';
 import { OrderController } from './order.controller';
 import { OrderImportService } from './order-import.service';
@@ -27,6 +28,7 @@ import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
     PermissionsModule,
     CorreiosModule,
     FinanceiroModule,
+    StorageModule,
   ],
   controllers: [OrderController, PedidosController, PedidosImportController],
   providers: [

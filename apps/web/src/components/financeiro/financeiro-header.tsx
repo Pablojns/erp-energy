@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, Download, FileCode, Link2, MapPin, RefreshCw } from 'lucide-react';
+import { Calendar, Download, FileCode, Link2, MapPin, Package, RefreshCw } from 'lucide-react';
 import type {
   FinanceiroPeriod,
   FinanceiroPeriodPreset,
@@ -42,6 +42,7 @@ export function FinanceiroHeader(props: {
   onSyncCadastros?: () => void;
   onSyncVendas?: () => void;
   onSyncXmlVendas?: () => void;
+  onSyncItensExternosXml?: () => void;
   onSyncPedidosCadastro?: () => void;
   canEditCa?: boolean;
 }) {
@@ -66,6 +67,7 @@ export function FinanceiroHeader(props: {
     onSyncCadastros,
     onSyncVendas,
     onSyncXmlVendas,
+    onSyncItensExternosXml,
     onSyncPedidosCadastro,
     canEditCa,
   } = props;
@@ -239,6 +241,17 @@ export function FinanceiroHeader(props: {
               >
                 <FileCode className="h-3.5 w-3.5" />
                 Processar XML das NFs
+              </button>
+              <button
+                type="button"
+                onClick={onSyncItensExternosXml}
+                disabled={caBusy || !canEditCa}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold text-[var(--fin-text)] transition hover:bg-[var(--fin-card-muted)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                style={{ borderColor: 'var(--fin-border)' }}
+                title="Dry-run nos XMLs já armazenados: corrige item WEG errado para Item Externo. Só grava ao confirmar Aplicar."
+              >
+                <Package className="h-3.5 w-3.5" />
+                Corrigir itens externos
               </button>
               <button
                 type="button"

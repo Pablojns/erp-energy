@@ -46,6 +46,13 @@ export type OrderItemDto = {
   unitPrice: string;
   totalPrice: string;
   productId: string | null;
+  externalItemId?: string | null;
+  externalItem?: {
+    id: string;
+    name: string;
+    lastKnownPrice: string;
+    source: string;
+  } | null;
   stockQtyOnHand?: number | null;
   reservedQtyProduct?: number | null;
   availableQty?: number | null;

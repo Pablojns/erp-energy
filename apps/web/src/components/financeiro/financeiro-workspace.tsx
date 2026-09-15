@@ -173,6 +173,12 @@ type XmlCaso1Preview = {
   via: string;
   fills: { lineNumber: number; unitPrice?: number; sku?: string }[];
   adds: { lineNumber: number; sku: string; description: string; quantity: number }[];
+  replaces?: {
+    fromDescription: string;
+    toDescription: string;
+    createExternalItem?: boolean;
+    externalItemName?: string;
+  }[];
   perfeito: boolean;
 };
 
@@ -201,6 +207,7 @@ type XmlVendasPreview = {
   caso1Completar: number;
   caso1ItensPreenchidos: number;
   caso1ItensAdicionados: number;
+  caso1ItensCorrigidos?: number;
   caso2: number;
   caso2Itens: number;
   ambiguos: number;
@@ -224,7 +231,43 @@ type CaXmlVendasJob = {
   error?: string;
 };
 
-type CaPreviewKind = 'cadastros' | 'vendas' | 'pedidos-cadastro' | 'xml-vendas';
+type ItensExternosXmlPreview = {
+  applied: boolean;
+  message: string;
+  ordersScanned: number;
+  xmlsParsed: number;
+  xmlsMissing: number;
+  corrections: number;
+  preview: Array<{
+    orderCode: string;
+    externalOrderNumber: string | null;
+    invoiceNumber: string;
+    customerName: string;
+    fromDescription: string;
+    toDescription: string;
+    createExternalItem: boolean;
+    externalItemName: string;
+    itemId?: string;
+  }>;
+};
+
+type CaItensExternosXmlJob = {
+  jobId: string;
+  status: 'processando' | 'concluido' | 'erro';
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: ItensExternosXmlPreview;
+  error?: string;
+};
+
+type CaPreviewKind =
+  | 'cadastros'
+  | 'vendas'
+  | 'pedidos-cadastro'
+  | 'xml-vendas'
+  | 'itens-externos-xml';
 
 async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
   const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
@@ -303,6 +346,37 @@ async function pollCaXmlVendas(
   return current.result;
 }
 
+async function pollItensExternosXml(
+  apply: boolean,
+  onProgress: (message: string) => void,
+  pedido?: string,
+): Promise<ItensExternosXmlPreview> {
+  const params = new URLSearchParams(apply ? { apply: 'true' } : { 'dry-run': 'true' });
+  if (pedido?.trim()) params.set('pedido', pedido.trim());
+  const started = await erpFetchJson<CaItensExternosXmlJob>(
+    `api/financeiro/conta-azul/corrigir-itens-externos-xml?${params.toString()}`,
+    { method: 'POST' },
+  );
+  onProgress(started.message);
+  let current = started;
+  while (current.status === 'processando') {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    current = await erpFetchJson<CaItensExternosXmlJob>(
+      `api/financeiro/conta-azul/corrigir-itens-externos-xml-status/${started.jobId}`,
+    );
+    onProgress(current.message);
+  }
+  if (current.status === 'erro') {
+    throw new Error(
+      current.error || current.message || 'Falha ao corrigir itens externos via XML.',
+    );
+  }
+  if (!current.result) {
+    throw new Error('A correção de itens externos terminou sem resultado.');
+  }
+  return current.result;
+}
+
 export function FinanceiroWorkspace() {
   const defaultRange = useMemo(() => defaultMonthRange(), []);
   const { hasPermission } = useNavPermissions();
@@ -333,6 +407,8 @@ export function FinanceiroWorkspace() {
   const [xmlVendasPreview, setXmlVendasPreview] = useState<XmlVendasPreview | null>(null);
   const [pedidosCadastroPreview, setPedidosCadastroPreview] =
     useState<PedidoCadastroFillPreview | null>(null);
+  const [itensExternosPreview, setItensExternosPreview] =
+    useState<ItensExternosXmlPreview | null>(null);
 
   const period = useMemo(
     () => normalizeDateRange({ dataInicio, dataFim }),
@@ -462,6 +538,7 @@ export function FinanceiroWorkspace() {
     setVendasPreview(null);
     setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
+    setItensExternosPreview(null);
   };
 
   const handlePreviewCadastros = async () => {
@@ -554,6 +631,34 @@ export function FinanceiroWorkspace() {
     }
   };
 
+  const handlePreviewItensExternosXml = async () => {
+    setExportError(null);
+    setCaPreviewKind('itens-externos-xml');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setXmlVendasPreview(null);
+    setPedidosCadastroPreview(null);
+    setItensExternosPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewProgress('Iniciando...');
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await pollItensExternosXml(false, setCaPreviewProgress);
+      setItensExternosPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error
+          ? e.message
+          : 'Erro ao analisar XML armazenado para itens externos.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaPreviewProgress(null);
+      setCaBusy(false);
+    }
+  };
+
   const handlePreviewPedidosCadastro = async () => {
     if (!caConnected) {
       setExportError('Conecte a Conta Azul antes de sincronizar.');
@@ -606,6 +711,10 @@ export function FinanceiroWorkspace() {
         setCaPreviewProgress('Iniciando...');
         const res = await pollCaXmlVendas(true, setCaPreviewProgress);
         setXmlVendasPreview(res);
+      } else if (caPreviewKind === 'itens-externos-xml') {
+        setCaPreviewProgress('Iniciando...');
+        const res = await pollItensExternosXml(true, setCaPreviewProgress);
+        setItensExternosPreview(res);
       } else {
         const res = await erpFetchJson<PedidoCadastroFillPreview>(
           'api/financeiro/conta-azul/preencher-pedidos-cadastro?apply=true',
@@ -737,6 +846,7 @@ export function FinanceiroWorkspace() {
           onSyncCadastros={() => void handlePreviewCadastros()}
           onSyncVendas={() => void handlePreviewVendas()}
           onSyncXmlVendas={() => void handlePreviewXmlVendas()}
+          onSyncItensExternosXml={() => void handlePreviewItensExternosXml()}
           onSyncPedidosCadastro={() => void handlePreviewPedidosCadastro()}
         />
       </div>
@@ -782,14 +892,18 @@ export function FinanceiroWorkspace() {
             ? 'Vincular vendas a pedidos'
             : caPreviewKind === 'xml-vendas'
               ? 'Processar XML das NFs'
-              : caPreviewKind === 'pedidos-cadastro'
-                ? 'Preencher comprador e endereço'
-                : 'Sincronizar cadastros'
+              : caPreviewKind === 'itens-externos-xml'
+                ? 'Corrigir itens externos (XML armazenado)'
+                : caPreviewKind === 'pedidos-cadastro'
+                  ? 'Preencher comprador e endereço'
+                  : 'Sincronizar cadastros'
         }
         loading={caPreviewLoading}
         applying={caPreviewApplying}
         loadingMessage={
-          caPreviewKind === 'vendas' || caPreviewKind === 'xml-vendas'
+          caPreviewKind === 'vendas' ||
+          caPreviewKind === 'xml-vendas' ||
+          caPreviewKind === 'itens-externos-xml'
             ? caPreviewProgress
             : null
         }
@@ -799,9 +913,11 @@ export function FinanceiroWorkspace() {
             ? Boolean(vendasPreview?.applied)
             : caPreviewKind === 'xml-vendas'
               ? Boolean(xmlVendasPreview?.applied)
-              : caPreviewKind === 'pedidos-cadastro'
-                ? Boolean(pedidosCadastroPreview?.applied)
-                : Boolean(cadastrosPreview?.applied)
+              : caPreviewKind === 'itens-externos-xml'
+                ? Boolean(itensExternosPreview?.applied)
+                : caPreviewKind === 'pedidos-cadastro'
+                  ? Boolean(pedidosCadastroPreview?.applied)
+                  : Boolean(cadastrosPreview?.applied)
         }
         appliedMessage={
           caPreviewKind === 'vendas'
@@ -812,13 +928,17 @@ export function FinanceiroWorkspace() {
               ? xmlVendasPreview?.applied
                 ? xmlVendasPreview.message
                 : null
-              : caPreviewKind === 'pedidos-cadastro'
-                ? pedidosCadastroPreview?.applied
-                  ? pedidosCadastroPreview.message
+              : caPreviewKind === 'itens-externos-xml'
+                ? itensExternosPreview?.applied
+                  ? itensExternosPreview.message
                   : null
-                : cadastrosPreview?.applied
-                  ? cadastrosPreview.message
-                  : null
+                : caPreviewKind === 'pedidos-cadastro'
+                  ? pedidosCadastroPreview?.applied
+                    ? pedidosCadastroPreview.message
+                    : null
+                  : cadastrosPreview?.applied
+                    ? cadastrosPreview.message
+                    : null
         }
         onClose={closeCaPreview}
         onApply={() => void handleApplyPreview()}
@@ -996,7 +1116,11 @@ export function FinanceiroWorkspace() {
               — {xmlVendasPreview.caso1Perfeitos} já ok,{' '}
               {xmlVendasPreview.caso1Completar} a completar,{' '}
               {xmlVendasPreview.caso1ItensPreenchidos} item(ns) preenchidos,{' '}
-              {xmlVendasPreview.caso1ItensAdicionados} item(ns) a adicionar).{' '}
+              {xmlVendasPreview.caso1ItensAdicionados} item(ns) a adicionar
+              {xmlVendasPreview.caso1ItensCorrigidos
+                ? `, ${xmlVendasPreview.caso1ItensCorrigidos} item(ns) WEG a corrigir para Item Externo`
+                : ''}
+              ).{' '}
               <strong>{xmlVendasPreview.caso2}</strong> Caso 2 (novos
               VENDA_EXTERNA, {xmlVendasPreview.caso2Itens} itens).
             </p>
@@ -1023,6 +1147,17 @@ export function FinanceiroWorkspace() {
                       {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
                       {row.fills.length} preenchimento(s), {row.adds.length}{' '}
                       item(ns) novo(s)
+                      {row.replaces?.length
+                        ? `, ${row.replaces.length} correção(ões) WEG → Item Externo`
+                        : ''}
+                      {row.replaces?.map((rep) => (
+                        <span
+                          key={`${row.orderCode}-${rep.fromDescription}-${rep.toDescription}`}
+                          className="mt-0.5 block text-[var(--fin-text-secondary)]"
+                        >
+                          {rep.fromDescription} → {rep.toDescription}
+                        </span>
+                      ))}
                     </li>
                   ))}
                 </ul>
@@ -1076,6 +1211,54 @@ export function FinanceiroWorkspace() {
                 </ul>
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {caPreviewKind === 'itens-externos-xml' && itensExternosPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>
+              <strong>{itensExternosPreview.corrections}</strong> item(ns)
+              preenchidos com produto WEG divergente do XML, em{' '}
+              <strong>{itensExternosPreview.ordersScanned}</strong> pedido(s)
+              ({itensExternosPreview.xmlsParsed} XML lido(s),{' '}
+              {itensExternosPreview.xmlsMissing} sem XML).
+            </p>
+            <p className="text-xs text-[var(--fin-text-secondary)]">
+              Dry-run: nada foi gravado. Confirme Aplicar só depois de revisar
+              os exemplos antes → depois. Cada correção cria ou reusa um Item
+              Externo e desvincula o produto WEG errado.
+            </p>
+            {itensExternosPreview.preview.length > 0 ? (
+              <ul className="space-y-2 text-xs">
+                {itensExternosPreview.preview.map((row) => (
+                  <li
+                    key={`${row.orderCode}-${row.itemId ?? row.fromDescription}`}
+                    className="rounded-md border p-2"
+                    style={{ borderColor: 'var(--fin-border)' }}
+                  >
+                    <p className="font-semibold">
+                      {row.orderCode}
+                      {row.externalOrderNumber
+                        ? ` · ${row.externalOrderNumber}`
+                        : ''}{' '}
+                      · NF {row.invoiceNumber}
+                      {row.customerName ? ` · ${row.customerName}` : ''}
+                    </p>
+                    <p>
+                      {row.fromDescription} → {row.toDescription}
+                    </p>
+                    <p className="text-[var(--fin-text-secondary)]">
+                      {row.createExternalItem
+                        ? `Criar Item Externo “${row.externalItemName}”`
+                        : `Reusar Item Externo “${row.externalItemName}”`}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--fin-text-secondary)]">
+                Nenhuma correção encontrada neste dry-run.
+              </p>
+            )}
           </div>
         ) : null}
         {caPreviewKind === 'pedidos-cadastro' && pedidosCadastroPreview ? (

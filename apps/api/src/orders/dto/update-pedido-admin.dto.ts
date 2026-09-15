@@ -56,6 +56,10 @@ export class UpdatePedidoAdminItemDto {
   @IsString()
   @MaxLength(120)
   mercadoEletronicoItemStatus?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  externalItemId?: string | null;
 }
 
 /** Entrada de NF no histórico (editável no modal admin). */
@@ -78,6 +82,12 @@ export class UpdatePedidoAdminInvoiceHistoryDto {
   @IsString()
   @MaxLength(40)
   createdAt?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  volumes?: number;
 }
 
 export class UpdatePedidoAdminDto {

@@ -15,6 +15,7 @@ import { digitsOnly } from '@/src/components/cadastros/document-mask';
 import {
   canEditSiteOrderItems,
   resolveItemReceiptStatusForOrder,
+  resolveLineSeparationStatus,
 } from '@/src/components/expedicao/shared/order-helpers';
 import { EMPTY_ITEM_STOCK, useOrderItemsStock } from '@/src/components/expedicao/shared/use-order-items-stock';
 import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/types';
@@ -28,6 +29,10 @@ import {
   InventoryProductPickerModal,
   type InventoryProductOption,
 } from '@/src/components/expedicao/workspace/inventory-product-picker-modal';
+import {
+  ExternalItemSearchField,
+  type CatalogSearchHit,
+} from '@/src/components/expedicao/workspace/external-item-search-field';
 import {
   ItemRecebidoChoiceModal,
   type ItemRecebidoChoice,
@@ -63,6 +68,7 @@ type EditItemRow = {
   id: string;
   lineNumber: number;
   productId: string;
+  externalItemId: string;
   sku: string;
   description: string;
   quantity: string;
@@ -409,6 +415,7 @@ export function AdminOrderEditModal(props: {
         id: it.id,
         lineNumber: it.lineNumber,
         productId: it.productId ?? '',
+        externalItemId: it.externalItemId ?? '',
         sku: it.sku,
         description: it.description,
         quantity: String(it.quantity),
@@ -505,6 +512,7 @@ export function AdminOrderEditModal(props: {
 
   const isSiteOrder = order.source === 'SITE';
   const isWegOrder = order.source === 'WEG_MERCADO_ELETRONICO';
+  const isVendaExterna = order.source === 'VENDA_EXTERNA';
   const siteItemsEditable = canEditSiteOrderItems(order, 'orders');
   const canAddWegItem = isWegOrder;
   const isSimpleCustomerLayout =
@@ -724,6 +732,7 @@ export function AdminOrderEditModal(props: {
             unitPrice: product.price ?? '0',
             pickedQty: 0,
             mercadoEletronicoItemStatus: '',
+            externalItemId: '',
             isNew: true,
           },
         ];
@@ -745,11 +754,70 @@ export function AdminOrderEditModal(props: {
         sku: product.sku,
         description: product.name,
         unitPrice: product.price ?? current.unitPrice,
+        externalItemId: '',
       };
-      if (isWegOrder) setTotalValue(calcItemsTotal(next));
+      if (isWegOrder || isVendaExterna) setTotalValue(calcItemsTotal(next));
       return next;
     });
     setPickingIndex(null);
+  };
+
+  const addVendaExternaItem = () => {
+    if (!isVendaExterna) return;
+    setItems((prev) => {
+      const nextLine =
+        prev.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 10;
+      const next = [
+        ...prev,
+        {
+          id: nextTempItemId(),
+          lineNumber: nextLine,
+          productId: '',
+          externalItemId: '',
+          sku: '',
+          description: '',
+          quantity: '1',
+          unitPrice: '0',
+          pickedQty: 0,
+          mercadoEletronicoItemStatus: '',
+          isNew: true,
+        },
+      ];
+      setTotalValue(calcItemsTotal(next));
+      return next;
+    });
+  };
+
+  const applyExternalCatalogHit = async (idx: number, hit: CatalogSearchHit) => {
+    try {
+      let externalItemId = hit.kind === 'external' ? hit.id ?? '' : '';
+      let productId = hit.kind === 'weg' ? hit.id ?? '' : '';
+      if (hit.kind === 'create' || hit.kind === 'quote') {
+        const price = Number(String(hit.price ?? '0').replace(',', '.')) || 0;
+        const created = await erpFetchJson<{ id: string }>('api/external-items', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: hit.name,
+            lastKnownPrice: price,
+            source:
+              hit.kind === 'quote' ? hit.supplier?.trim() || 'XBZ/SPOT' : 'Manual',
+          }),
+        });
+        externalItemId = created.id;
+        productId = '';
+      }
+      updateItemField(idx, {
+        description: hit.name,
+        sku: hit.sku ?? '',
+        unitPrice: hit.price ?? items[idx]?.unitPrice ?? '0',
+        productId,
+        externalItemId,
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Falha ao cadastrar item externo.',
+      );
+    }
   };
 
   const updateItemField = (
@@ -761,12 +829,21 @@ export function AdminOrderEditModal(props: {
       const current = next[idx];
       if (!current) return prev;
       next[idx] = { ...current, ...patch };
-      if (isWegOrder) setTotalValue(calcItemsTotal(next));
+      if (isWegOrder || isVendaExterna) setTotalValue(calcItemsTotal(next));
       return next;
     });
   };
 
-  /** Marcar Recebido: oferece dar saída da linha ou só mudar status (qualquer status do pedido). */
+  /** Marcar Recebido: Qtd Separada = Qtd Pedido e Falta = 0 (saída de estoque é opcional). */
+  const markItemRecebido = (idx: number, statusLabel = 'Recebido') => {
+    const row = items[idx];
+    const qty = Number(row?.quantity) || 0;
+    updateItemField(idx, {
+      mercadoEletronicoItemStatus: statusLabel,
+      pickedQty: qty,
+    });
+  };
+
   const handleItemStatusChange = (idx: number, nextStatus: string) => {
     const row = items[idx];
     const isRecebido = nextStatus.trim().toLowerCase() === 'recebido';
@@ -792,6 +869,10 @@ export function AdminOrderEditModal(props: {
       setRecebidoChoiceIndex(idx);
       return;
     }
+    if (isRecebido) {
+      markItemRecebido(idx, nextStatus);
+      return;
+    }
     updateItemField(idx, { mercadoEletronicoItemStatus: nextStatus });
   };
 
@@ -803,7 +884,7 @@ export function AdminOrderEditModal(props: {
       return;
     }
     if (choice === 'status-only') {
-      updateItemField(idx, { mercadoEletronicoItemStatus: 'Recebido' });
+      markItemRecebido(idx);
       setRecebidoChoiceIndex(null);
       return;
     }
@@ -817,7 +898,7 @@ export function AdminOrderEditModal(props: {
         pedidoApiUrl(numeroPed, 'itens', row.id, 'saida'),
         { method: 'POST' },
       );
-      updateItemField(idx, { mercadoEletronicoItemStatus: 'Recebido' });
+      markItemRecebido(idx);
       setRecebidoChoiceIndex(null);
       await onSaved();
       onClose();
@@ -955,7 +1036,10 @@ export function AdminOrderEditModal(props: {
                 description: it.description,
                 quantity: qty,
                 mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus || null,
-                ...(it.productId ? { productId: it.productId } : {}),
+                ...(it.productId ? { productId: it.productId } : { productId: null }),
+                ...(it.externalItemId
+                  ? { externalItemId: it.externalItemId, productId: null }
+                  : { externalItemId: null }),
                 ...(Number.isFinite(unitPrice) ? { unitPrice } : {}),
               };
               if (it.isNew || it.id.startsWith('new-')) {
@@ -1310,6 +1394,21 @@ export function AdminOrderEditModal(props: {
               </button>
             </div>
           ) : null}
+          {isVendaExterna ? (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[var(--text-secondary)]">
+                Busque no catálogo WEG, XBZ/SPOT ou Itens Externos. O preço do pedido continua sempre editável.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={addVendaExternaItem}
+                className="rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-card)] disabled:opacity-60"
+              >
+                + Adicionar Item
+              </button>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
             <table className="min-w-full text-sm">
               <thead className="bg-[var(--input-bg)] text-xs text-[var(--text-secondary)]">
@@ -1318,7 +1417,7 @@ export function AdminOrderEditModal(props: {
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">Item</th>
                   <th className="px-2 py-2 text-center">Qtd Pedido</th>
-                  {isWegOrder ? (
+                  {isWegOrder || isVendaExterna ? (
                     <th className="px-2 py-2 text-right">Preço un.</th>
                   ) : null}
                   {isSiteOrder ? (
@@ -1330,15 +1429,24 @@ export function AdminOrderEditModal(props: {
                       <th className="px-2 py-2 text-center">Status item</th>
                     </>
                   ) : !isSimpleCustomerLayout ? (
-                    <th className="px-2 py-2 text-left">Status item</th>
+                    <>
+                      <th className="px-2 py-2 text-center whitespace-nowrap">Qtd Separada</th>
+                      <th className="px-2 py-2 text-center">Falta</th>
+                      <th className="px-2 py-2 text-left">Status item</th>
+                    </>
                   ) : null}
                 </tr>
               </thead>
               <tbody>
                 {items.map((it, idx) => {
                   const qtyNum = Number(it.quantity) || 0;
-                  const picked = it.pickedQty ?? 0;
-                  const missing = Math.max(0, qtyNum - picked);
+                  const lineSep = resolveLineSeparationStatus({
+                    quantity: qtyNum,
+                    pickedQty: it.pickedQty,
+                    mercadoEletronicoItemStatus: it.mercadoEletronicoItemStatus,
+                  });
+                  const picked = lineSep.picked;
+                  const missing = lineSep.missing;
                   const stock = stockByItemId[it.id] ?? EMPTY_ITEM_STOCK;
                   const orderItemForStatus = order.items.find((o) => o.id === it.id);
                   const itemStatusDisplay =
@@ -1450,7 +1558,23 @@ export function AdminOrderEditModal(props: {
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex min-w-0 items-start gap-2">
-                          {it.isNew ? (
+                          {isVendaExterna ? (
+                            <div className="min-w-0 flex-1">
+                              <ExternalItemSearchField
+                                value={it.description}
+                                onChange={(value) =>
+                                  updateItemField(idx, {
+                                    description: value,
+                                    productId: '',
+                                    externalItemId: '',
+                                  })
+                                }
+                                onPick={(hit) => void applyExternalCatalogHit(idx, hit)}
+                                disabled={busy}
+                                placeholder="Buscar WEG, XBZ/SPOT ou item externo"
+                              />
+                            </div>
+                          ) : it.isNew ? (
                             <span
                               className="min-w-0 flex-1 text-xs font-medium"
                               title={it.description}
@@ -1499,9 +1623,34 @@ export function AdminOrderEditModal(props: {
                             { style: 'currency', currency: 'BRL' },
                           )}
                         </td>
+                      ) : isVendaExterna ? (
+                        <td className="px-2 py-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className={`${fieldClass()} w-28 text-right`}
+                            value={it.unitPrice}
+                            disabled={busy}
+                            onChange={(e) =>
+                              updateItemField(idx, { unitPrice: e.target.value })
+                            }
+                          />
+                        </td>
                       ) : null}
                       {!isSimpleCustomerLayout ? (
-                        <td className="px-2 py-2">
+                        <>
+                          <td className="px-2 py-2 text-center text-xs font-semibold">
+                            {picked}
+                          </td>
+                          <td
+                            className={`px-2 py-2 text-center text-xs font-semibold ${
+                              missing > 0 ? 'text-amber-600' : 'text-emerald-600'
+                            }`}
+                          >
+                            {missing}
+                          </td>
+                          <td className="px-2 py-2">
                           <select
                             className={fieldClass()}
                             value={itemStatusDisplay}
@@ -1516,6 +1665,7 @@ export function AdminOrderEditModal(props: {
                             ))}
                           </select>
                         </td>
+                        </>
                       ) : null}
                     </tr>
                   );

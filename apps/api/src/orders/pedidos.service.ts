@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
@@ -30,6 +31,7 @@ import {
   invoiceNumberDigits,
   isCorreiosTrackingCode,
   normalizeOrderSearchTerm,
+  sameInvoiceNumber,
 } from './order-search';
 import { OrderService } from './order.service';
 import {
@@ -56,6 +58,7 @@ import {
   normalizePlanilhaItemStatus,
   normalizePlanilhaInvoiceNumber,
   parseBrlMoneyToDecimalString,
+  pickedQtyWhenReceived,
   pickFirstLineOfOrderGroup,
   readPedidosSheet,
   resolveOrderStatusFromPlanilha,
@@ -67,6 +70,8 @@ import {
   orderNumberFromOrder,
   upsertStockReservation,
 } from '../stock/stock-reservation.helpers';
+import { nfeEmitidaEmDate, parseNfeXml } from '../financeiro/conta-azul.nfe-xml';
+import { R2StorageService } from '../storage/r2-storage.service';
 
 function mapStatusItemToStockStatus(v: StatusItemValue): OrderItemStockStatus {
   if (v === 'completo') return OrderItemStockStatus.COMPLETO;
@@ -91,6 +96,7 @@ export class PedidosService {
     private readonly notifications: NotificationsService,
     private readonly correiosService: CorreiosService,
     private readonly config: ConfigService,
+    @Optional() private readonly storage?: R2StorageService,
   ) {}
 
   async createManual(userId: string, dto: CreateManualPedidoDto) {
@@ -853,7 +859,11 @@ export class PedidosService {
             const sku = (item.sku ?? '').trim();
             const description = (item.description ?? '').trim() || sku;
             const quantity = item.quantity ?? 1;
-            if (!sku) {
+            const externalItemId = item.externalItemId?.trim() || null;
+            const allowEmptySku =
+              before.source === OrderSource.VENDA_EXTERNA &&
+              Boolean(description || externalItemId);
+            if (!sku && !allowEmptySku) {
               throw new BadRequestException(
                 'SKU obrigatório ao adicionar item ao pedido.',
               );
@@ -869,7 +879,16 @@ export class PedidosService {
             nextLine = Math.max(nextLine, lineNumber + 10);
 
             let productId = item.productId?.trim() || null;
-            if (productId) {
+            if (externalItemId) {
+              const ext = await tx.externalItem.findUnique({
+                where: { id: externalItemId },
+                select: { id: true },
+              });
+              if (!ext) {
+                throw new BadRequestException('Item externo inválido.');
+              }
+              productId = null;
+            } else if (productId) {
               const product = await tx.product.findUnique({
                 where: { id: productId },
                 select: { id: true, isActive: true },
@@ -880,6 +899,15 @@ export class PedidosService {
                 );
               }
             }
+
+            const createdStatus = item.mercadoEletronicoItemStatus
+              ? normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus)
+              : null;
+            const createdPicked = pickedQtyWhenReceived(
+              createdStatus,
+              quantity,
+              0,
+            );
 
             await tx.orderItem.create({
               data: {
@@ -892,13 +920,12 @@ export class PedidosService {
                 totalPrice,
                 discount: new Prisma.Decimal('0.00'),
                 reservedQuantity: 0,
-                missingQty: 0,
-                pickedQty: 0,
+                missingQty: createdPicked?.missingQty ?? 0,
+                pickedQty: createdPicked?.pickedQty ?? 0,
                 invoicedQty: 0,
                 productId,
-                mercadoEletronicoItemStatus: item.mercadoEletronicoItemStatus
-                  ? normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus)
-                  : null,
+                externalItemId,
+                mercadoEletronicoItemStatus: createdStatus,
                 stockStatus: OrderItemStockStatus.NAO_ANALISADO,
               },
             });
@@ -914,6 +941,23 @@ export class PedidosService {
           if (item.quantity !== undefined) itemData.quantity = item.quantity;
           if (item.productId !== undefined) {
             itemData.productId = item.productId?.trim() || null;
+          }
+          if (item.externalItemId !== undefined) {
+            const nextExternal = item.externalItemId?.trim() || null;
+            itemData.externalItemId = nextExternal;
+            if (nextExternal) {
+              const ext = await tx.externalItem.findUnique({
+                where: { id: nextExternal },
+                select: { id: true },
+              });
+              if (!ext) {
+                throw new BadRequestException('Item externo inválido.');
+              }
+              itemData.productId = null;
+            }
+          }
+          if (itemData.productId && item.externalItemId === undefined) {
+            itemData.externalItemId = null;
           }
           if (item.unitPrice !== undefined) {
             const unitPrice = new Prisma.Decimal(String(item.unitPrice)).toDecimalPlaces(2);
@@ -934,6 +978,21 @@ export class PedidosService {
           if (item.mercadoEletronicoItemStatus !== undefined) {
             itemData.mercadoEletronicoItemStatus =
               normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus);
+          }
+          const existing = existingById.get(item.id!);
+          const nextStatus =
+            item.mercadoEletronicoItemStatus !== undefined
+              ? normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus)
+              : (existing?.mercadoEletronicoItemStatus ?? null);
+          const nextQty = item.quantity ?? existing?.quantity ?? 0;
+          const receivedQty = pickedQtyWhenReceived(
+            nextStatus,
+            nextQty,
+            existing?.pickedQty ?? 0,
+          );
+          if (receivedQty) {
+            itemData.pickedQty = receivedQty.pickedQty;
+            itemData.missingQty = receivedQty.missingQty;
           }
           if (Object.keys(itemData).length === 0) continue;
           await tx.orderItem.update({ where: { id: item.id! }, data: itemData });
@@ -979,6 +1038,8 @@ export class PedidosService {
               row.createdAt?.trim()
                 ? this.parseNfHistoryDate(row.createdAt)
                 : new Date(),
+            volumes:
+              row.volumes != null && row.volumes >= 1 ? row.volumes : null,
           }))
           .filter((row) => row.invoiceNumber.length > 0);
 
@@ -991,6 +1052,7 @@ export class PedidosService {
                 invoiceNumber: row.invoiceNumber,
                 invoiceValue: row.invoiceValue,
                 createdAt: row.createdAt,
+                ...(row.volumes != null ? { volumes: row.volumes } : {}),
               },
             });
           } else {
@@ -1000,6 +1062,7 @@ export class PedidosService {
                 invoiceNumber: row.invoiceNumber,
                 invoiceValue: row.invoiceValue,
                 pickedQtyAtTime: 0,
+                volumes: row.volumes,
                 createdAt: row.createdAt,
                 createdBy: userId,
               },
@@ -2324,7 +2387,7 @@ export class PedidosService {
           { code: numeroPed.trim() },
         ],
       },
-      select: { id: true, invoiceNumber: true },
+      select: { id: true, invoiceNumber: true, volumes: true },
       orderBy: { createdAt: 'desc' },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
@@ -2334,11 +2397,27 @@ export class PedidosService {
       orderBy: { createdAt: 'asc' },
     });
     const cycleQtys = cycleQtysFromInvoiceHistory(rows);
+    const exits = await this.prisma.client.orderExit.findMany({
+      where: { orderId: order.id },
+      select: {
+        invoiceNumber: true,
+        invoiceValue: true,
+        volumes: true,
+        exitDate: true,
+      },
+      orderBy: { exitDate: 'asc' },
+    });
+    await this.fillHistoryGapsFromXmlAndExits(
+      rows,
+      exits,
+      order.invoiceNumber,
+      order.volumes,
+    );
 
     return {
       orderId: order.id,
       currentInvoiceNumber: order.invoiceNumber,
-      historico: this.serializeInvoiceHistoryDisplay(rows, cycleQtys),
+      historico: this.serializeInvoiceHistoryDisplay(rows, cycleQtys, exits),
     };
   }
 
@@ -2350,6 +2429,7 @@ export class PedidosService {
       invoiceValue?: string | null;
       pickedQtyAtTime?: number;
       createdAt?: string;
+      volumes?: number;
     },
   ) {
     const order = await this.prisma.client.order.findFirst({
@@ -2380,6 +2460,8 @@ export class PedidosService {
         : new Date();
     const invoiceValue = this.parseNfInvoiceValue(dto.invoiceValue);
     const pickedQtyAtTime = Math.max(0, dto.pickedQtyAtTime ?? 0);
+    const volumes =
+      dto.volumes != null && dto.volumes >= 1 ? dto.volumes : null;
 
     const created = await this.prisma.client.$transaction(async (tx) => {
       const row = await tx.orderInvoiceHistory.create({
@@ -2388,6 +2470,7 @@ export class PedidosService {
           invoiceNumber,
           invoiceValue,
           pickedQtyAtTime,
+          volumes,
           createdAt,
           createdBy: userId,
         },
@@ -2453,6 +2536,7 @@ export class PedidosService {
         invoiceNumber: created.invoiceNumber,
         invoiceValue: created.invoiceValue?.toString() ?? null,
         pickedQtyAtTime: created.pickedQtyAtTime,
+        volumes: created.volumes ?? null,
         createdAt: created.createdAt.toISOString(),
         createdBy: created.createdBy,
       },
@@ -2515,6 +2599,7 @@ export class PedidosService {
           row.order.totalValue?.toString() ??
           null,
         pickedQtyAtTime: row.pickedQtyAtTime,
+        volumes: row.volumes ?? null,
         createdAt: row.createdAt.toISOString(),
         createdBy: row.createdBy,
         orderNumber: row.order.externalOrderNumber ?? row.order.code,
@@ -2571,6 +2656,7 @@ export class PedidosService {
       invoiceValue?: string | null;
       pickedQtyAtTime?: number;
       createdAt?: string;
+      volumes?: number;
     },
   ) {
     const before = await this.prisma.client.orderInvoiceHistory.findUnique({
@@ -2612,6 +2698,9 @@ export class PedidosService {
     if (dto.createdAt !== undefined && dto.createdAt.trim()) {
       data.createdAt = this.parseNfHistoryDate(dto.createdAt);
     }
+    if (dto.volumes !== undefined) {
+      data.volumes = dto.volumes >= 1 ? dto.volumes : null;
+    }
 
     const updated = await this.prisma.client.$transaction(async (tx) => {
       const row = await tx.orderInvoiceHistory.update({
@@ -2634,7 +2723,8 @@ export class PedidosService {
       if (
         dto.invoiceNumber !== undefined ||
         dto.invoiceValue !== undefined ||
-        dto.createdAt !== undefined
+        dto.createdAt !== undefined ||
+        dto.volumes !== undefined
       ) {
         // Pedido pode ter uma saída por ciclo: sincroniza a da NF editada.
         const exit = await tx.orderExit.findFirst({
@@ -2654,6 +2744,9 @@ export class PedidosService {
               ...(nextExitValue ? { invoiceValue: nextExitValue } : {}),
               ...(dto.createdAt !== undefined && dto.createdAt.trim()
                 ? { exitDate: this.parseNfHistoryDate(dto.createdAt) }
+                : {}),
+              ...(dto.volumes !== undefined
+                ? { volumes: dto.volumes >= 1 ? dto.volumes : null }
                 : {}),
             },
           });
@@ -2693,6 +2786,7 @@ export class PedidosService {
       invoiceNumber: updated.invoiceNumber,
       invoiceValue: updated.invoiceValue?.toString() ?? null,
       pickedQtyAtTime: updated.pickedQtyAtTime,
+      volumes: updated.volumes ?? null,
       createdAt: updated.createdAt.toISOString(),
       createdBy: updated.createdBy,
     };
@@ -4217,21 +4311,124 @@ export class PedidosService {
       invoiceNumber: string;
       invoiceValue: Prisma.Decimal | null;
       pickedQtyAtTime: number;
+      volumes?: number | null;
       createdAt: Date;
       createdBy: string | null;
     }>,
     cycleQtys: number[],
+    exits: Array<{
+      invoiceNumber: string;
+      invoiceValue: Prisma.Decimal;
+      volumes: number | null;
+      exitDate: Date;
+    }> = [],
   ) {
     return rowsChronological
-      .map((row, index) => ({
-        id: row.id,
-        invoiceNumber: row.invoiceNumber,
-        invoiceValue: row.invoiceValue?.toString() ?? null,
-        pickedQtyAtTime: cycleQtys[index] ?? row.pickedQtyAtTime,
-        createdAt: row.createdAt.toISOString(),
-        createdBy: row.createdBy,
-      }))
+      .map((row, index) => {
+        const exit = exits.find((item) =>
+          sameInvoiceNumber(item.invoiceNumber, row.invoiceNumber),
+        );
+        const volumes =
+          row.volumes != null && row.volumes >= 1
+            ? row.volumes
+            : exit?.volumes != null && exit.volumes >= 1
+              ? exit.volumes
+              : null;
+        const exitAt = exit?.exitDate ?? row.createdAt;
+        return {
+          id: row.id,
+          invoiceNumber: row.invoiceNumber,
+          invoiceValue:
+            row.invoiceValue?.toString() ??
+            exit?.invoiceValue?.toString() ??
+            null,
+          pickedQtyAtTime: cycleQtys[index] ?? row.pickedQtyAtTime,
+          volumes,
+          createdAt: row.createdAt.toISOString(),
+          exitAt: exitAt.toISOString(),
+          createdBy: row.createdBy,
+        };
+      })
       .reverse();
+  }
+
+  /**
+   * Preenche volumes/valor faltantes a partir da saída ERP, da NF corrente
+   * do pedido ou do XML persistido (notas anteriores ao ERP).
+   */
+  private async fillHistoryGapsFromXmlAndExits(
+    rows: Array<{
+      id: string;
+      invoiceNumber: string;
+      invoiceValue: Prisma.Decimal | null;
+      volumes: number | null;
+      xmlStorageKey: string | null;
+      createdAt: Date;
+    }>,
+    exits: Array<{
+      invoiceNumber: string;
+      invoiceValue: Prisma.Decimal;
+      volumes: number | null;
+      exitDate: Date;
+    }>,
+    currentInvoice: string | null,
+    currentVolumes: number | null,
+  ): Promise<void> {
+    const currentDigits = invoiceNumberDigits(currentInvoice ?? '');
+    for (const row of rows) {
+      const exit = exits.find((item) =>
+        sameInvoiceNumber(item.invoiceNumber, row.invoiceNumber),
+      );
+      if (row.volumes == null) {
+        if (exit?.volumes != null && exit.volumes >= 1) {
+          row.volumes = exit.volumes;
+        } else if (
+          currentDigits &&
+          invoiceNumberDigits(row.invoiceNumber) === currentDigits &&
+          currentVolumes != null &&
+          currentVolumes >= 1
+        ) {
+          row.volumes = currentVolumes;
+        }
+      }
+      if (row.invoiceValue == null && exit?.invoiceValue != null) {
+        row.invoiceValue = exit.invoiceValue;
+      }
+    }
+
+    if (!this.storage) return;
+    for (const row of rows) {
+      if (!row.xmlStorageKey) continue;
+      if (row.volumes != null && row.invoiceValue != null) continue;
+      try {
+        const stored = await this.storage.getObjectBuffer(row.xmlStorageKey);
+        const parsed = parseNfeXml(stored.buffer.toString('utf8'));
+        if (!parsed) continue;
+        const data: Prisma.OrderInvoiceHistoryUpdateInput = {};
+        if (row.volumes == null && parsed.volumes != null && parsed.volumes >= 1) {
+          row.volumes = parsed.volumes;
+          data.volumes = parsed.volumes;
+        }
+        if (row.invoiceValue == null && parsed.total > 0) {
+          row.invoiceValue = new Prisma.Decimal(String(parsed.total));
+          data.invoiceValue = row.invoiceValue;
+        }
+        const xmlDate =
+          nfeEmitidaEmDate(parsed.saiuEm) ?? nfeEmitidaEmDate(parsed.emitidaEm);
+        if (xmlDate && row.createdAt.getUTCHours() === 0 && row.createdAt.getUTCMinutes() === 0) {
+          row.createdAt = xmlDate;
+          data.createdAt = xmlDate;
+        }
+        if (Object.keys(data).length > 0) {
+          await this.prisma.client.orderInvoiceHistory.update({
+            where: { id: row.id },
+            data,
+          });
+        }
+      } catch {
+        /* XML ausente ou ilegível — histórico segue com o que já temos. */
+      }
+    }
   }
 
   /**

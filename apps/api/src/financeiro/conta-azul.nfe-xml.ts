@@ -16,6 +16,8 @@ export type NfeXmlDados = {
   invoiceNumber: string;
   chave: string | null;
   emitidaEm: string | null;
+  saiuEm: string | null;
+  volumes: number | null;
   emitCnpj: string | null;
   destDocumento: string | null;
   destNome: string | null;
@@ -118,6 +120,17 @@ function parseChave(xml: string): string | null {
   return digits.length >= 44 ? digits.slice(-44) : null;
 }
 
+function parseVolumes(inf: string): number | null {
+  const vols = allBlocks(inf, 'vol');
+  let sum = 0;
+  for (const vol of vols) {
+    sum += asQty(text(vol, 'qVol'));
+  }
+  if (sum > 0) return sum;
+  const qVol = asQty(text(inf, 'qVol'));
+  return qVol > 0 ? qVol : null;
+}
+
 function parseDet(block: string, fallbackNItem: number): NfeXmlItem | null {
   const prod = innerTag(block, 'prod') ?? block;
   const description = text(prod, 'xProd');
@@ -169,6 +182,8 @@ export function parseNfeXml(xml: string): NfeXmlDados | null {
     invoiceNumber: invoiceNumber || '',
     chave: parseChave(trimmed),
     emitidaEm: text(ide, 'dhEmi') ?? text(ide, 'dEmi'),
+    saiuEm: text(ide, 'dhSaiEnt') ?? text(ide, 'dSaiEnt'),
+    volumes: parseVolumes(inf),
     emitCnpj: documentDigits(text(emit, 'CNPJ')) || null,
     destDocumento: dest ? destDocumento(dest) : null,
     destNome: dest ? text(dest, 'xNome') : null,

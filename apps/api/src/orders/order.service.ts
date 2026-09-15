@@ -123,6 +123,7 @@ type OrderItemSerializeSource = {
   unitPrice: Prisma.Decimal;
   totalPrice: Prisma.Decimal;
   productId: string | null;
+  externalItemId?: string | null;
   /** Omitido quando o include não carrega relação — serialize trata como null. */
   product?:
     | {
@@ -131,6 +132,14 @@ type OrderItemSerializeSource = {
         sku: string;
         stockQty: number;
         reservedQty: number;
+      }
+    | null;
+  externalItem?:
+    | {
+        id: string;
+        name: string;
+        lastKnownPrice: Prisma.Decimal;
+        source: string;
       }
     | null;
 };
@@ -1263,9 +1272,38 @@ export class OrderService {
         const totalLine = unitPrice.mul(li.quantity).toDecimalPlaces(2);
         subtotalDec = subtotalDec.add(totalLine);
 
+        let productId: string | null = null;
+        let externalItemId: string | null = li.externalItemId?.trim() || null;
+        let sku = '';
+        if (externalItemId) {
+          const ext = await tx.externalItem.findUnique({
+            where: { id: externalItemId },
+            select: { id: true },
+          });
+          if (!ext) {
+            throw new BadRequestException('Item externo inválido.');
+          }
+          if (unitPrice.greaterThan(0)) {
+            await tx.externalItem.update({
+              where: { id: externalItemId },
+              data: { lastKnownPrice: unitPrice },
+            });
+          }
+        } else if (li.productId?.trim()) {
+          const product = await tx.product.findUnique({
+            where: { id: li.productId.trim() },
+            select: { id: true, sku: true, isActive: true },
+          });
+          if (!product?.isActive) {
+            throw new BadRequestException('Produto inválido ou inativo.');
+          }
+          productId = product.id;
+          sku = product.sku;
+        }
+
         creates.push({
           lineNumber,
-          sku: '',
+          sku,
           description,
           quantity: li.quantity,
           reservedQuantity: 0,
@@ -1273,6 +1311,10 @@ export class OrderService {
           totalPrice: totalLine,
           discount: new Prisma.Decimal(0),
           stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+          ...(productId ? { product: { connect: { id: productId } } } : {}),
+          ...(externalItemId
+            ? { externalItem: { connect: { id: externalItemId } } }
+            : {}),
         });
         lineNumber += 10;
       }
@@ -2734,6 +2776,7 @@ export class OrderService {
           orderId: updated.id,
           invoiceNumber: inv,
           invoiceValue: cycleValue.gt(0) ? cycleValue : updated.totalValue,
+          volumes: before.volumes != null && before.volumes >= 1 ? before.volumes : null,
           exitDate: new Date(),
           carrierName: before.carrier?.name ?? null,
           trackingCode: tracking,
@@ -2745,6 +2788,7 @@ export class OrderService {
         invoiceNumber: inv,
         userId,
         items: before.items,
+        volumes: before.volumes,
       });
       if (
         finalStatus === OrderStatus.FINALIZADO &&
@@ -2758,6 +2802,7 @@ export class OrderService {
           invoiceNumber: currentInvoice,
           userId,
           items: before.items,
+          volumes: before.volumes,
         });
       }
 
@@ -2918,6 +2963,10 @@ export class OrderService {
             invoiceNumber:
               inv || before.notaRemessa?.trim() || before.code,
             invoiceValue: itemValue.gt(0) ? itemValue : before.totalValue,
+            volumes:
+              before.volumes != null && before.volumes >= 1
+                ? before.volumes
+                : null,
             exitDate: new Date(),
             carrierName: before.carrier?.name ?? null,
             trackingCode: before.trackingCode?.trim() || null,
@@ -2935,6 +2984,7 @@ export class OrderService {
               invoicedQty: item.invoicedQty,
             },
           ],
+          volumes: before.volumes,
         });
       }
 
@@ -3809,6 +3859,7 @@ export class OrderService {
           unitPrice: true,
           totalPrice: true,
           productId: true,
+          externalItemId: true,
           product: {
             select: {
               id: true,
@@ -3816,6 +3867,14 @@ export class OrderService {
               sku: true,
               stockQty: true,
               reservedQty: true,
+            },
+          },
+          externalItem: {
+            select: {
+              id: true,
+              name: true,
+              lastKnownPrice: true,
+              source: true,
             },
           },
         },
@@ -3868,6 +3927,7 @@ export class OrderService {
           unitPrice: true,
           totalPrice: true,
           productId: true,
+          externalItemId: true,
         },
       },
     };
@@ -3918,15 +3978,26 @@ export class OrderService {
         pickedQty: number;
         invoicedQty?: number;
       }>;
+      volumes?: number | null;
     },
   ) {
     const inv = opts.invoiceNumber.trim();
     if (!inv) return;
     const already = await tx.orderInvoiceHistory.findFirst({
       where: { orderId: opts.orderId, invoiceNumber: inv },
-      select: { id: true },
+      select: { id: true, volumes: true },
     });
-    if (already) return;
+    const volumes =
+      opts.volumes != null && opts.volumes >= 1 ? opts.volumes : null;
+    if (already) {
+      if (volumes != null && (already.volumes == null || already.volumes < 1)) {
+        await tx.orderInvoiceHistory.update({
+          where: { id: already.id },
+          data: { volumes },
+        });
+      }
+      return;
+    }
     const pickedQtyAtTime = cycleExitQtyFromItems(
       opts.items.map((it) => ({
         quantity: it.quantity ?? it.pickedQty ?? 0,
@@ -3940,6 +4011,7 @@ export class OrderService {
         orderId: opts.orderId,
         invoiceNumber: inv,
         pickedQtyAtTime,
+        volumes,
         createdBy: opts.userId,
       },
     });
@@ -4987,6 +5059,15 @@ export class OrderService {
           unitPrice: it.unitPrice.toString(),
           totalPrice: it.totalPrice.toString(),
           productId: it.productId,
+          externalItemId: it.externalItemId ?? null,
+          externalItem: it.externalItem
+            ? {
+                id: it.externalItem.id,
+                name: it.externalItem.name,
+                lastKnownPrice: it.externalItem.lastKnownPrice.toString(),
+                source: it.externalItem.source,
+              }
+            : null,
           stockQtyOnHand: pq,
           reservedQtyProduct: pr,
           availableQty,

@@ -9,6 +9,7 @@ import {
   formatOrderItemSaleValue,
   formatOverdueLabel,
   getOverdueDays,
+  isOrderFullySeparated,
   orderDisplayNumber,
 } from '@/src/components/expedicao/shared/order-helpers';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
@@ -46,7 +47,9 @@ type NfHistoricoItem = {
   invoiceNumber: string;
   invoiceValue?: string | null;
   pickedQtyAtTime: number;
+  volumes?: number | null;
   createdAt: string;
+  exitAt?: string | null;
   createdBy: string | null;
   orderId?: string;
   orderNumber?: string;
@@ -73,17 +76,30 @@ function formatNfPickerDate(iso: string | null | undefined): string {
   });
 }
 
-function formatNfHistoricoDetail(row: NfHistoricoItem): string {
-  const when = new Date(row.createdAt).toLocaleString('pt-BR', {
+function formatNfDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
-    year: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatNfVolumes(volumes: number | null | undefined): string {
+  if (volumes == null || volumes < 1) return '—';
+  return `${volumes} volume${volumes > 1 ? 's' : ''}`;
+}
+
+function formatNfHistoricoDetail(row: NfHistoricoItem): string {
+  const when = formatNfDateTime(row.exitAt ?? row.createdAt);
   const valor = formatMoneyBrl(row.invoiceValue);
+  const volumes = formatNfVolumes(row.volumes);
   const pedido = row.orderNumber ? ` · Pedido ${row.orderNumber}` : '';
-  return `NF ${row.invoiceNumber} — ${valor} — ${when} — ${row.pickedQtyAtTime} un.${pedido}`;
+  return `NF ${row.invoiceNumber} — ${valor} — ${when} — ${volumes}${pedido}`;
 }
 
 function parseVolumesInput(raw: string): number | null {
@@ -294,8 +310,10 @@ export const OrderInfoPanel = forwardRef<
   const notaVenda = displayInvoiceNumber(order.invoiceNumber) || null;
   const isFinalized =
     order.status === 'FINALIZADO' || order.status === 'EXPEDIDO';
-  // Só pedidos finalizados bloqueiam edição; NF residual/histórica não trava o campo.
-  const canEditInvoiceField = !isFinalized;
+  const isFullySeparated = isOrderFullySeparated(order);
+  // Pedidos: nunca edita NF aqui. Completo: só Histórico. Separação/editar: ok.
+  const canEditInvoiceField = !isOrdersMode && !isFinalized && !isFullySeparated;
+  const canMutateNfHistory = !isOrdersMode && !isFinalized;
   const fieldsReadOnly = isFinalized;
 
   const [carriers, setCarriers] = useState<CarrierOption[]>([]);
@@ -348,6 +366,7 @@ export const OrderInfoPanel = forwardRef<
   const [editNfValue, setEditNfValue] = useState('');
   const [editNfPickedQty, setEditNfPickedQty] = useState('');
   const [editNfDate, setEditNfDate] = useState('');
+  const [editNfVolumes, setEditNfVolumes] = useState('');
   const [savingNfHistory, setSavingNfHistory] = useState(false);
   const [deletingNfHistoryId, setDeletingNfHistoryId] = useState<string | null>(null);
   const [clearingNfHistorico, setClearingNfHistorico] = useState(false);
@@ -526,7 +545,8 @@ export const OrderInfoPanel = forwardRef<
     setEditNfNumber(row.invoiceNumber);
     setEditNfValue(row.invoiceValue ?? '');
     setEditNfPickedQty(String(row.pickedQtyAtTime ?? 0));
-    setEditNfDate(row.createdAt.slice(0, 10));
+    setEditNfDate((row.exitAt ?? row.createdAt).slice(0, 10));
+    setEditNfVolumes(row.volumes != null && row.volumes >= 1 ? String(row.volumes) : '');
   };
 
   const openAddNfHistory = () => {
@@ -536,6 +556,7 @@ export const OrderInfoPanel = forwardRef<
     setEditNfValue('');
     setEditNfPickedQty('0');
     setEditNfDate(new Date().toISOString().slice(0, 10));
+    setEditNfVolumes('');
     setNfHistoricoSearchResults(null);
   };
 
@@ -559,6 +580,15 @@ export const OrderInfoPanel = forwardRef<
       window.alert('Informe a data da NF.');
       return;
     }
+    const volumesRaw = editNfVolumes.trim();
+    const volumes =
+      volumesRaw === ''
+        ? undefined
+        : Number.parseInt(volumesRaw, 10);
+    if (volumesRaw !== '' && (!Number.isInteger(volumes) || (volumes ?? 0) < 1)) {
+      window.alert('Volumes inválidos. Informe um número inteiro a partir de 1.');
+      return;
+    }
 
     const numeroPed = numeroPedFromOrder(order);
     if (!numeroPed && addingNf) {
@@ -579,6 +609,7 @@ export const OrderInfoPanel = forwardRef<
             invoiceValue: editNfValue.trim() || null,
             pickedQtyAtTime: picked,
             createdAt: editNfDate.trim(),
+            ...(volumes != null ? { volumes } : {}),
           }),
         });
         setNfHistorico(Array.isArray(res.historico) ? res.historico : []);
@@ -600,6 +631,7 @@ export const OrderInfoPanel = forwardRef<
             invoiceValue: editNfValue.trim() || null,
             pickedQtyAtTime: picked,
             createdAt: editNfDate.trim(),
+            ...(volumes != null ? { volumes } : {}),
           }),
         },
       );
@@ -610,7 +642,9 @@ export const OrderInfoPanel = forwardRef<
               invoiceNumber: updated.invoiceNumber,
               invoiceValue: updated.invoiceValue ?? null,
               pickedQtyAtTime: updated.pickedQtyAtTime,
+              volumes: updated.volumes ?? null,
               createdAt: updated.createdAt,
+              exitAt: updated.exitAt ?? updated.createdAt,
             }
           : row;
       setNfHistorico((prev) => prev.map(mergeRow));
@@ -1020,6 +1054,49 @@ export const OrderInfoPanel = forwardRef<
             ))}
           </div>
         ) : null}
+      </div>
+    );
+  };
+
+  const nfRowDownloadButtons = (nfNumber: string) => {
+    const btnClass =
+      'inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--input-bg)] px-2 text-[10px] font-semibold text-[var(--text-primary)] shadow-sm hover:bg-[var(--hover-bg,rgba(0,0,0,0.04))] disabled:opacity-50';
+    return (
+      <div
+        className="flex shrink-0 items-center gap-1"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className={btnClass}
+          onClick={() => void downloadNotaArquivo('xml', nfNumber)}
+          disabled={downloadingNf !== null}
+          title={`Baixar XML da NF ${nfNumber}`}
+          aria-label={`Baixar XML da NF ${nfNumber}`}
+        >
+          {downloadingNf === 'xml' ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Download className="h-3 w-3" />
+          )}
+          <span>XML</span>
+        </button>
+        <button
+          type="button"
+          className={btnClass}
+          onClick={() => void downloadNotaArquivo('danfe', nfNumber)}
+          disabled={downloadingNf !== null}
+          title={`Baixar Nota da NF ${nfNumber}`}
+          aria-label={`Baixar Nota da NF ${nfNumber}`}
+        >
+          {downloadingNf === 'danfe' ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <FileText className="h-3 w-3" />
+          )}
+          <span>Nota</span>
+        </button>
       </div>
     );
   };
@@ -1551,6 +1628,7 @@ export const OrderInfoPanel = forwardRef<
               </HeaderField>
             ) : null}
 
+            {!isFullySeparated ? (
             <HeaderField label="Nota de Venda (NF):">
               {!canEditInvoiceField ? (
                 <div className="flex items-center gap-1.5">
@@ -1586,25 +1664,30 @@ export const OrderInfoPanel = forwardRef<
                   ) : null}
                 </>
               )}
-              {nfDownloadError ? (
-                <p className="mt-1 text-xs text-red-500">{nfDownloadError}</p>
-              ) : null}
             </HeaderField>
+            ) : null}
 
-            <button
-              type="button"
-              className="exp-wb-nf-history mt-2 w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-3 text-left transition hover:bg-[var(--input-bg)]/70 disabled:cursor-default disabled:opacity-80"
+            <div
+              className="exp-wb-nf-history mt-2 w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/40 p-3 text-left transition hover:bg-[var(--input-bg)]/70"
               style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
+              role="button"
+              tabIndex={nfHistoricoLoading ? -1 : 0}
               onClick={() => {
                 if (!nfHistoricoLoading) {
                   setNfHistoricoModalOpen(true);
                 }
               }}
-              disabled={nfHistoricoLoading}
-              aria-label="Abrir histórico de notas fiscais"
+              onKeyDown={(e) => {
+                if (nfHistoricoLoading) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setNfHistoricoModalOpen(true);
+                }
+              }}
+              aria-label={isFullySeparated ? 'Abrir histórico' : 'Abrir histórico de notas fiscais'}
             >
               <p className="text-sm font-semibold text-[var(--text-primary)]">
-                Histórico de Notas Fiscais
+                {isFullySeparated ? 'Histórico' : 'Histórico de Notas Fiscais'}
               </p>
               {nfHistoricoLoading ? (
                 <p className="mt-2 text-xs text-[var(--text-secondary)]">Carregando…</p>
@@ -1614,13 +1697,16 @@ export const OrderInfoPanel = forwardRef<
                 </p>
               ) : (
                 <>
-                  <ul className="mt-2 flex flex-col gap-1">
+                  <ul className="mt-2 flex flex-col gap-1.5">
                     {nfHistorico.map((row) => (
                       <li
                         key={row.id}
-                        className="font-mono text-sm font-semibold text-[var(--text-primary)]"
+                        className="flex items-center justify-between gap-2"
                       >
-                        NF {row.invoiceNumber}
+                        <span className="font-mono text-sm font-semibold text-[var(--text-primary)]">
+                          NF {row.invoiceNumber}
+                        </span>
+                        {nfRowDownloadButtons(row.invoiceNumber)}
                       </li>
                     ))}
                   </ul>
@@ -1628,11 +1714,14 @@ export const OrderInfoPanel = forwardRef<
                     className="mt-2"
                     style={{ fontSize: 11, color: 'gray', cursor: 'pointer' }}
                   >
-                    Clique para ver e editar
+                    Clique para ver {canMutateNfHistory ? 'e editar' : 'os detalhes'}
                   </p>
                 </>
               )}
-            </button>
+            </div>
+            {nfDownloadError ? (
+              <p className="mt-1 text-xs text-red-500">{nfDownloadError}</p>
+            ) : null}
 
             {nfHistoricoModalOpen ? (
               <div
@@ -1651,10 +1740,12 @@ export const OrderInfoPanel = forwardRef<
                         id="nf-historico-modal-title"
                         className="text-base font-semibold text-[var(--text-primary)]"
                       >
-                        Histórico de Notas Fiscais
+                        {isFullySeparated ? 'Histórico' : 'Histórico de Notas Fiscais'}
                       </h3>
                       <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
-                        Notas vinculadas a este pedido. Clique em Editar para corrigir número, valor ou data.
+                        {canMutateNfHistory
+                          ? 'Notas vinculadas a este pedido. Clique em Editar para corrigir número, valor, volumes ou data.'
+                          : 'Notas vinculadas a este pedido: número, valor, volumes e data/hora da saída.'}
                       </p>
                     </div>
                     <button
@@ -1673,14 +1764,16 @@ export const OrderInfoPanel = forwardRef<
                   </div>
 
                   <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
+                    {canMutateNfHistory ? (
                     <button
                       type="button"
                       className="inline-flex items-center rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                      disabled={savingNfHistory || isFinalized}
+                      disabled={savingNfHistory}
                       onClick={openAddNfHistory}
                     >
                       + Adicionar Nota Fiscal
                     </button>
+                    ) : null}
                     <div className="flex min-w-0 flex-1 gap-2">
                       <input
                         className="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
@@ -1720,7 +1813,7 @@ export const OrderInfoPanel = forwardRef<
                     </button>
                   ) : null}
 
-                  {addingNf || editingNfHistory ? (
+                  {canMutateNfHistory && (addingNf || editingNfHistory) ? (
                     <div className="mt-3 shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)]/50 p-3">
                       <p className="text-xs font-semibold text-[var(--text-primary)]">
                         {addingNf
@@ -1731,7 +1824,7 @@ export const OrderInfoPanel = forwardRef<
                                 : ''
                             }`}
                       </p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <label className="block text-xs text-[var(--text-secondary)] sm:col-span-1">
                           Número da NF
                           <input
@@ -1760,6 +1853,18 @@ export const OrderInfoPanel = forwardRef<
                             value={editNfDate}
                             onChange={(e) => setEditNfDate(e.target.value)}
                             disabled={savingNfHistory}
+                          />
+                        </label>
+                        <label className="block text-xs text-[var(--text-secondary)]">
+                          Volumes
+                          <input
+                            type="number"
+                            min={1}
+                            className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                            value={editNfVolumes}
+                            onChange={(e) => setEditNfVolumes(e.target.value)}
+                            disabled={savingNfHistory}
+                            placeholder="ex.: 3"
                           />
                         </label>
                       </div>
@@ -1804,7 +1909,7 @@ export const OrderInfoPanel = forwardRef<
                     {(nfHistoricoSearchResults ?? nfHistorico).length === 0 ? (
                       <li className="rounded-lg border border-dashed border-[var(--border-color)] px-3 py-4 text-center text-sm text-[var(--text-secondary)]">
                         Nenhuma NF neste histórico.
-                        {!isFinalized ? ' Use “+ Adicionar Nota Fiscal”.' : null}
+                        {canMutateNfHistory ? ' Use “+ Adicionar Nota Fiscal”.' : null}
                       </li>
                     ) : (
                       (nfHistoricoSearchResults ?? nfHistorico).map((row) => (
@@ -1815,20 +1920,28 @@ export const OrderInfoPanel = forwardRef<
                           <button
                             type="button"
                             className="min-w-0 flex-1 text-left hover:opacity-90"
-                            onClick={() => openEditNfHistory(row)}
-                            title="Clique para editar"
+                            onClick={() => {
+                              if (canMutateNfHistory) openEditNfHistory(row);
+                            }}
+                            title={
+                              canMutateNfHistory
+                                ? 'Clique para editar'
+                                : 'Detalhes da nota fiscal'
+                            }
                           >
                             <span className="block font-mono text-sm font-semibold">
                               NF {row.invoiceNumber}
                             </span>
                             <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">
                               {formatMoneyBrl(row.invoiceValue)} ·{' '}
-                              {new Date(row.createdAt).toLocaleDateString('pt-BR')} ·{' '}
-                              {row.pickedQtyAtTime} un.
+                              {formatNfDateTime(row.exitAt ?? row.createdAt)} ·{' '}
+                              {formatNfVolumes(row.volumes)}
                               {row.orderNumber ? ` · Pedido ${row.orderNumber}` : ''}
                             </span>
                           </button>
                           <div className="flex shrink-0 items-center gap-1">
+                            {nfRowDownloadButtons(row.invoiceNumber)}
+                            {canMutateNfHistory ? (
                             <button
                               type="button"
                               className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--input-bg)] disabled:opacity-50"
@@ -1838,7 +1951,8 @@ export const OrderInfoPanel = forwardRef<
                               <Pencil className="h-3.5 w-3.5" />
                               Editar
                             </button>
-                            {!isFinalized && !nfHistoricoSearchResults ? (
+                            ) : null}
+                            {canMutateNfHistory && !nfHistoricoSearchResults ? (
                               <button
                                 type="button"
                                 className="rounded-lg border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
@@ -1861,7 +1975,7 @@ export const OrderInfoPanel = forwardRef<
                       ))
                     )}
                   </ul>
-                  {!isFinalized &&
+                  {canMutateNfHistory &&
                   !nfHistoricoSearchResults &&
                   nfHistorico.length > 0 ? (
                     <div className="mt-3 flex shrink-0 justify-end">

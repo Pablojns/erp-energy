@@ -6,6 +6,10 @@ import { generateUUID } from '@/src/lib/uuid';
 import type { OrderDto } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { normalizePedidoFromApi } from '@/src/services/api/pedidos-normalize';
+import {
+  ExternalItemSearchField,
+  type CatalogSearchHit,
+} from '@/src/components/expedicao/workspace/external-item-search-field';
 
 type CadastroOption = {
   id: string;
@@ -18,6 +22,8 @@ type OrderItemForm = {
   description: string;
   quantity: string;
   unitPrice: string;
+  productId?: string | null;
+  externalItemId?: string | null;
 };
 
 type ItemRowErrors = {
@@ -102,6 +108,8 @@ function newItemRow(): OrderItemForm {
     description: '',
     quantity: '1',
     unitPrice: '',
+    productId: null,
+    externalItemId: null,
   };
 }
 
@@ -301,6 +309,47 @@ export function NewVendaExternaModal(props: {
     [],
   );
 
+  const applyCatalogHit = useCallback(
+    async (rowKey: string, hit: CatalogSearchHit) => {
+      let externalItemId: string | null = hit.kind === 'external' ? hit.id ?? null : null;
+      let productId: string | null = hit.kind === 'weg' ? hit.id ?? null : null;
+      if (hit.kind === 'create' || hit.kind === 'quote') {
+        const price = Number(String(hit.price ?? '0').replace(',', '.')) || 0;
+        const created = await erpFetchJson<{ id: string }>(
+          'api/external-items',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              name: hit.name,
+              lastKnownPrice: price,
+              source:
+                hit.kind === 'quote'
+                  ? hit.supplier?.trim() || 'XBZ/SPOT'
+                  : 'Manual',
+            }),
+          },
+        );
+        externalItemId = created.id;
+        productId = null;
+      }
+      setItems((prev) =>
+        prev.map((r) =>
+          r.key === rowKey
+            ? {
+                ...r,
+                description: hit.name,
+                unitPrice: hit.price ?? r.unitPrice,
+                productId,
+                externalItemId,
+              }
+            : r,
+        ),
+      );
+      clearItemRowError(rowKey, 'description');
+    },
+    [clearItemRowError],
+  );
+
   const resetForm = useCallback(() => {
     setExternalOrderNumber('');
     setRequestedDeliveryDate('');
@@ -458,6 +507,8 @@ export function NewVendaExternaModal(props: {
             description: row.description.trim(),
             quantity: Number(row.quantity),
             unitPrice: Number(row.unitPrice),
+            ...(row.externalItemId ? { externalItemId: row.externalItemId } : {}),
+            ...(row.productId && !row.externalItemId ? { productId: row.productId } : {}),
           })),
         }),
       });
@@ -727,19 +778,35 @@ export function NewVendaExternaModal(props: {
                     className="grid grid-cols-1 gap-2 rounded-lg border border-[var(--border-color)] p-3 sm:grid-cols-[1fr_100px_120px_auto]"
                   >
                     <div>
-                      <input
-                        type="text"
+                      <ExternalItemSearchField
                         value={row.description}
-                        onChange={(e) => {
-                          const value = e.target.value;
+                        onChange={(value) => {
                           setItems((prev) =>
-                            prev.map((r) => (r.key === row.key ? { ...r, description: value } : r)),
+                            prev.map((r) =>
+                              r.key === row.key
+                                ? {
+                                    ...r,
+                                    description: value,
+                                    productId: null,
+                                    externalItemId: null,
+                                  }
+                                : r,
+                            ),
                           );
                           clearItemRowError(row.key, 'description');
                         }}
-                        placeholder={`Descrição do item ${index + 1}`}
-                        className={fieldClass(Boolean(rowErr?.description))}
+                        onPick={(hit) => {
+                          void applyCatalogHit(row.key, hit).catch((err) => {
+                            setSubmitError(
+                              err instanceof Error
+                                ? err.message
+                                : 'Falha ao cadastrar item externo.',
+                            );
+                          });
+                        }}
                         disabled={saving}
+                        invalid={Boolean(rowErr?.description)}
+                        placeholder={`Buscar ou criar item ${index + 1}`}
                       />
                       <FieldError message={rowErr?.description} />
                     </div>
@@ -778,6 +845,9 @@ export function NewVendaExternaModal(props: {
                         disabled={saving}
                       />
                       <FieldError message={rowErr?.unitPrice} />
+                      <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+                        Sempre editável neste pedido
+                      </p>
                     </div>
                     <div className="flex items-start justify-end">
                       <button

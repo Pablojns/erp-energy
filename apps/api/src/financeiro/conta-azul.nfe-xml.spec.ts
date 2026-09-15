@@ -7,6 +7,7 @@ const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
       <ide>
         <nNF>1959</nNF>
         <dhEmi>2026-03-10T14:22:00-03:00</dhEmi>
+        <dhSaiEnt>2026-03-10T18:40:00-03:00</dhSaiEnt>
       </ide>
       <emit><CNPJ>41356091000180</CNPJ><xNome>SUNHUB</xNome></emit>
       <dest>
@@ -43,6 +44,11 @@ const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
         </prod>
       </det>
       <total><ICMSTot><vNF>1700.50</vNF></ICMSTot></total>
+      <transp>
+        <vol>
+          <qVol>3</qVol>
+        </vol>
+      </transp>
     </infNFe>
   </NFe>
 </nfeProc>`;
@@ -57,6 +63,8 @@ describe('parseNfeXml', () => {
       destNome: 'PRATYC COMERCIO',
       destUf: 'SP',
       total: 1700.5,
+      volumes: 3,
+      saiuEm: '2026-03-10T18:40:00-03:00',
     });
     expect(parsed?.items).toEqual([
       expect.objectContaining({

@@ -2,6 +2,10 @@ import { stripAccents } from '../orders/order-search';
 import { documentDigits } from './conta-azul.pessoas';
 import { planVendaVinculos, type CaVenda } from './conta-azul.vendas';
 import type { NfeXmlDados, NfeXmlItem } from './conta-azul.nfe-xml';
+import {
+  planWrongWegItemReplaces,
+  type ItemReplacePatch,
+} from './conta-azul.itens-externos-xml';
 
 export type ErpOrderForXml = {
   id: string;
@@ -31,6 +35,7 @@ export type ErpOrderItemForXml = {
   unitPrice: number;
   totalPrice: number;
   productId: string | null;
+  productName?: string | null;
 };
 
 export type XmlVendaCaso = 'caso1' | 'caso2' | 'ambiguo';
@@ -77,6 +82,7 @@ export type Caso1Plan = {
   invoiceNumber: string;
   fills: ItemFillPatch[];
   adds: ItemAddPatch[];
+  replaces: ItemReplacePatch[];
   preencherInvoice: boolean;
   preencherVendaId: boolean;
   perfeito: boolean;
@@ -236,6 +242,7 @@ export function planCaso1Completar(input: {
   xml: NfeXmlDados;
   via: XmlVendaClassificacao['via'];
   productsBySku?: Map<string, ProductRef>;
+  externalItems?: Array<{ id: string; name: string }>;
 }): Caso1Plan {
   const used = new Set<string>();
   const fills: ItemFillPatch[] = [];
@@ -274,6 +281,25 @@ export function planCaso1Completar(input: {
     if (patch) fills.push(patch);
   }
 
+  const replaces = planWrongWegItemReplaces({
+    orderItems: orderItems.map((it) => ({
+      id: it.id,
+      lineNumber: it.lineNumber,
+      sku: it.sku,
+      description: it.description,
+      quantity: it.quantity,
+      productId: it.productId,
+      productName: it.productName ?? null,
+      unitPrice: it.unitPrice,
+      ncm: it.ncm,
+      unit: it.unit,
+    })),
+    xmlItems: input.xml.items,
+    externalItems: input.externalItems,
+  });
+  const replaceIds = new Set(replaces.map((row) => row.itemId));
+  const fillsSemReplace = fills.filter((row) => !replaceIds.has(row.itemId));
+
   const orderInvoiceDigits = String(input.order.invoiceNumber ?? '')
     .replace(/\D/g, '')
     .replace(/^0+/, '');
@@ -298,13 +324,15 @@ export function planCaso1Completar(input: {
     externalOrderNumber: input.order.externalOrderNumber,
     via: input.via,
     invoiceNumber: input.xml.invoiceNumber,
-    fills,
+    fills: fillsSemReplace,
     adds,
+    replaces,
     preencherInvoice,
     preencherVendaId,
     perfeito:
-      fills.length === 0 &&
+      fillsSemReplace.length === 0 &&
       adds.length === 0 &&
+      replaces.length === 0 &&
       !preencherInvoice &&
       !preencherVendaId,
     qtyDivergencias,

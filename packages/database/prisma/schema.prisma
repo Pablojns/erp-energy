@@ -262,6 +262,22 @@ model Product {
   @@index([createdAt])
 }
 
+/// Produto que não entra no estoque interno WEG (venda avulsa / Venda Externa).
+model ExternalItem {
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String
+  description    String?
+  lastKnownPrice Decimal     @db.Decimal(12, 2)
+  /// Origem: "XML NFe", "Manual", etc.
+  source         String      @default("Manual")
+  orderItems     OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([name])
+  @@index([createdAt])
+}
+
 model Customer {
   id                 String           @id @default(uuid()) @db.Uuid
   name               String
@@ -406,6 +422,8 @@ model OrderInvoiceHistory {
   invoiceValue    Decimal? @db.Decimal(12, 2)
   /// Soma de pickedQty no momento desta NF
   pickedQtyAtTime Int
+  /// Volumes da NF (saída ERP ou qVol do XML)
+  volumes         Int?
   /// XML da NF-e persistido no storage (R2)
   xmlStorageKey   String?
   /// DANFE/PDF persistido no storage (R2)
@@ -425,6 +443,7 @@ model OrderExit {
   orderId       String   @db.Uuid
   invoiceNumber String   @db.VarChar(64)
   invoiceValue  Decimal  @db.Decimal(12, 2)
+  volumes       Int?
   exitDate      DateTime @default(now())
   romaneioAt    DateTime?
   carrierName   String?  @db.VarChar(120)
@@ -470,6 +489,9 @@ model OrderItem {
   unloadingPoint       String?
   order                Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product              Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Item fora do estoque interno (Venda Externa / XML).
+  externalItemId       String?   @db.Uuid
+  externalItem         ExternalItem? @relation(fields: [externalItemId], references: [id], onDelete: SetNull)
   stockReservation     StockReservation?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -477,6 +499,7 @@ model OrderItem {
   @@unique([orderId, lineNumber])
   @@index([orderId])
   @@index([productId])
+  @@index([externalItemId])
   @@index([sku])
   @@index([createdAt])
   @@index([stockStatus])

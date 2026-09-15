@@ -114,22 +114,51 @@ export function resolveItemReceiptStatusForOrder(
   return null;
 }
 
-/** Status da linha: marcação Recebido/OK prevalece; senão Falta = 0 → OK. */
+type OrderLineProgress = {
+  quantity: number;
+  pickedQty?: number | null;
+  invoicedQty?: number | null;
+  mercadoEletronicoItemStatus?: string | null;
+};
+
+/** Status da linha: Recebido/OK preenche Qtd Separada e zera Falta. */
 export function resolveLineSeparationStatus(item: {
   quantity: number;
   pickedQty?: number | null;
   mercadoEletronicoItemStatus?: string | null;
 }): { picked: number; missing: number; label: 'OK' | 'PARCIAL' } {
-  const picked = Math.max(0, item.pickedQty ?? 0);
-  const missing = Math.max(0, (item.quantity ?? 0) - picked);
+  const qty = item.quantity ?? 0;
   if (isWegItemAlreadyReceived(item)) {
-    return { picked, missing, label: 'OK' };
+    return { picked: qty, missing: 0, label: 'OK' };
   }
+  const picked = Math.max(0, item.pickedQty ?? 0);
+  const missing = Math.max(0, qty - picked);
   return {
     picked,
     missing,
     label: missing > 0 ? 'PARCIAL' : 'OK',
   };
+}
+
+export function isOrderLineFullySeparated(item: OrderLineProgress): boolean {
+  const qty = item.quantity ?? 0;
+  if (qty <= 0) return true;
+  if (isWegItemAlreadyReceived(item)) return true;
+  const picked = Math.max(0, item.pickedQty ?? 0);
+  const invoiced = Math.max(0, item.invoicedQty ?? 0);
+  return Math.max(picked, invoiced) >= qty;
+}
+
+/** Pedido 100% separado/recebido — trava Nota de Venda na aba Pedidos. */
+export function isOrderFullySeparated(order: {
+  status?: string | null;
+  items?: OrderLineProgress[] | null;
+}): boolean {
+  const status = (order.status ?? '').trim().toUpperCase();
+  if (status === 'FINALIZADO' || status === 'EXPEDIDO') return true;
+  const items = order.items ?? [];
+  if (items.length === 0) return false;
+  return items.every(isOrderLineFullySeparated);
 }
 
 /**

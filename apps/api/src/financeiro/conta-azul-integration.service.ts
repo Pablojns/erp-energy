@@ -110,6 +110,11 @@ import {
   type ErpOrderForXml,
   type XmlVendaSkip,
 } from './conta-azul.vendas-xml';
+import { ExternalItemsService } from '../external-items/external-items.service';
+import {
+  planWrongWegItemReplaces,
+  type ItemReplacePatch,
+} from './conta-azul.itens-externos-xml';
 
 type StoredSession = {
   accessToken: string;
@@ -215,12 +220,45 @@ export type CaXmlVendasReport = {
   previewAmbiguos: XmlVendaSkip[];
   previewSemXml: XmlVendaSkip[];
   previewDuplicatas: XmlVendaSkip[];
+  caso1ItensCorrigidos: number;
   appliedCounts?: {
     pedidosCompletados: number;
     itensPreenchidos: number;
     itensAdicionados: number;
+    itensCorrigidos: number;
     pedidosCriados: number;
   };
+  message: string;
+};
+
+export type CaItensExternosXmlCorrection = {
+  orderId: string;
+  orderCode: string;
+  externalOrderNumber: string | null;
+  invoiceNumber: string;
+  customerName: string;
+  itemId: string;
+  fromDescription: string;
+  toDescription: string;
+  fromSku: string;
+  toSku: string;
+  productName: string | null;
+  unitPrice: number;
+  createExternalItem: boolean;
+  reuseExternalItemId: string | null;
+  externalItemName: string;
+};
+
+export type CaItensExternosXmlReport = {
+  ok: true;
+  apply: boolean;
+  applied: boolean;
+  ordersScanned: number;
+  xmlsParsed: number;
+  xmlsMissing: number;
+  corrections: number;
+  preview: CaItensExternosXmlCorrection[];
+  appliedCounts?: { itemsUpdated: number; externalItemsCreated: number };
   message: string;
 };
 
@@ -236,6 +274,22 @@ export type CaXmlVendasJobState = {
 };
 
 type CaXmlVendasJobInternal = CaXmlVendasJobState & { createdAt: Date };
+
+export type CaItensExternosXmlJobState = {
+  jobId: string;
+  status: CaSyncJobStatus;
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: CaItensExternosXmlReport;
+  error?: string;
+};
+
+type CaItensExternosXmlJobInternal = CaItensExternosXmlJobState & {
+  createdAt: Date;
+  pedido?: string;
+};
 
 const NF_LOOKUP_CONCURRENCY = 8;
 const XML_DOWNLOAD_CONCURRENCY = 4;
@@ -428,6 +482,10 @@ export class ContaAzulIntegrationService {
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
   private readonly vendasJobs = new Map<string, CaVendasJobInternal>();
   private readonly xmlVendasJobs = new Map<string, CaXmlVendasJobInternal>();
+  private readonly itensExternosXmlJobs = new Map<
+    string,
+    CaItensExternosXmlJobInternal
+  >();
   private refreshInFlight: Promise<StoredSession> | null = null;
   private refreshLockColumnAvailable = true;
   private notaArquivoSyncRunning = false;
@@ -436,6 +494,7 @@ export class ContaAzulIntegrationService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly financeiro: FinanceiroService,
+    private readonly externalItems: ExternalItemsService,
     @Optional() private readonly storage?: R2StorageService,
   ) {}
 
@@ -637,6 +696,50 @@ export class ContaAzulIntegrationService {
       );
     }
     return this.toXmlVendasJobPublic(job);
+  }
+
+  /**
+   * Corrige itens preenchidos com produto WEG errado a partir do XML já
+   * armazenado. Dry-run por padrão; apply só grava após confirmação.
+   * Não depende da Conta Azul.
+   */
+  startItensExternosXmlJob(options: {
+    apply: boolean;
+    pedido?: string;
+  }): CaItensExternosXmlJobState {
+    this.pruneItensExternosXmlJobs();
+    const pedido = options.pedido?.trim() || undefined;
+    const running = [...this.itensExternosXmlJobs.values()].find(
+      (job) =>
+        job.status === 'processando' &&
+        job.apply === options.apply &&
+        (job.pedido ?? '') === (pedido ?? ''),
+    );
+    if (running) return this.toItensExternosXmlJobPublic(running);
+
+    const job: CaItensExternosXmlJobInternal = {
+      jobId: randomUUID(),
+      status: 'processando',
+      processed: 0,
+      total: 0,
+      apply: options.apply,
+      message: 'Iniciando...',
+      createdAt: new Date(),
+      pedido,
+    };
+    this.itensExternosXmlJobs.set(job.jobId, job);
+    void this.processItensExternosXmlJob(job.jobId);
+    return this.toItensExternosXmlJobPublic(job);
+  }
+
+  getItensExternosXmlJob(jobId: string): CaItensExternosXmlJobState {
+    const job = this.itensExternosXmlJobs.get(jobId);
+    if (!job) {
+      throw new NotFoundException(
+        'Correção de itens externos via XML não encontrada.',
+      );
+    }
+    return this.toItensExternosXmlJobPublic(job);
   }
 
   /**
@@ -1355,7 +1458,7 @@ export class ContaAzulIntegrationService {
     }) => options.onProgress?.(update);
 
     reportProgress({ message: 'Carregando pedidos, produtos e cadastros...' });
-    const [orderRows, linkedRows, products, customers, companies] =
+    const [orderRows, linkedRows, products, customers, companies, externalItems] =
       await Promise.all([
         this.prisma.client.order.findMany({
           select: {
@@ -1386,6 +1489,7 @@ export class ContaAzulIntegrationService {
                 unitPrice: true,
                 totalPrice: true,
                 productId: true,
+                product: { select: { name: true } },
               },
             },
           },
@@ -1406,6 +1510,9 @@ export class ContaAzulIntegrationService {
         }),
         this.prisma.client.companyEntity.findMany({
           select: { id: true, cnpj: true },
+        }),
+        this.prisma.client.externalItem.findMany({
+          select: { id: true, name: true },
         }),
       ]);
     const linkedById = new Map(
@@ -1436,6 +1543,7 @@ export class ContaAzulIntegrationService {
         unitPrice: Number(it.unitPrice) || 0,
         totalPrice: Number(it.totalPrice) || 0,
         productId: it.productId,
+        productName: it.product?.name ?? null,
       })),
     }));
     const aroundByOrder = new Map(
@@ -1580,6 +1688,7 @@ export class ContaAzulIntegrationService {
               xml: loaded.dados,
               via: current.via,
               productsBySku,
+              externalItems,
             }),
           );
           return;
@@ -1628,6 +1737,7 @@ export class ContaAzulIntegrationService {
       caso1Completar: caso1Completar.length,
       caso1ItensPreenchidos: caso1.reduce((n, p) => n + p.fills.length, 0),
       caso1ItensAdicionados: caso1.reduce((n, p) => n + p.adds.length, 0),
+      caso1ItensCorrigidos: caso1.reduce((n, p) => n + p.replaces.length, 0),
       caso2: caso2.length,
       caso2Itens: caso2.reduce((n, p) => n + p.items.length, 0),
       ambiguos: ambiguos.length,
@@ -1642,7 +1752,7 @@ export class ContaAzulIntegrationService {
     };
     report.message = options.apply
       ? ''
-      : `Dry-run XML: ${report.caso1} Caso 1 (${report.caso1Perfeitos} já ok, ${report.caso1Completar} a completar, ${report.caso1ItensPreenchidos} item(ns) a preencher, ${report.caso1ItensAdicionados} item(ns) a adicionar). ${report.caso2} Caso 2 (pedidos VENDA_EXTERNA novos). ${report.duplicataEvitada} duplicata(s) evitada(s). Nada gravado.`;
+      : `Dry-run XML: ${report.caso1} Caso 1 (${report.caso1Perfeitos} já ok, ${report.caso1Completar} a completar, ${report.caso1ItensPreenchidos} item(ns) a preencher, ${report.caso1ItensAdicionados} item(ns) a adicionar, ${report.caso1ItensCorrigidos} item(ns) WEG a corrigir para Item Externo). ${report.caso2} Caso 2 (pedidos VENDA_EXTERNA novos). ${report.duplicataEvitada} duplicata(s) evitada(s). Nada gravado.`;
 
     if (!options.apply) return report;
 
@@ -1655,7 +1765,7 @@ export class ContaAzulIntegrationService {
       ...report,
       applied: true,
       appliedCounts,
-      message: `Aplicado XML: ${appliedCounts.pedidosCompletados} pedido(s) completados (${appliedCounts.itensPreenchidos} itens preenchidos, ${appliedCounts.itensAdicionados} adicionados); ${appliedCounts.pedidosCriados} VENDA_EXTERNA criada(s). Estoque não alterado.`,
+      message: `Aplicado XML: ${appliedCounts.pedidosCompletados} pedido(s) completados (${appliedCounts.itensPreenchidos} itens preenchidos, ${appliedCounts.itensAdicionados} adicionados, ${appliedCounts.itensCorrigidos} corrigidos para Item Externo); ${appliedCounts.pedidosCriados} VENDA_EXTERNA criada(s). Estoque não alterado.`,
     };
   }
 
@@ -1809,11 +1919,13 @@ export class ContaAzulIntegrationService {
     pedidosCompletados: number;
     itensPreenchidos: number;
     itensAdicionados: number;
+    itensCorrigidos: number;
     pedidosCriados: number;
   }> {
     let pedidosCompletados = 0;
     let itensPreenchidos = 0;
     let itensAdicionados = 0;
+    let itensCorrigidos = 0;
     let pedidosCriados = 0;
 
     for (const plan of input.caso1) {
@@ -1821,6 +1933,7 @@ export class ContaAzulIntegrationService {
       if (changed) pedidosCompletados += 1;
       itensPreenchidos += plan.fills.length;
       itensAdicionados += plan.adds.length;
+      itensCorrigidos += plan.replaces.length;
     }
     for (const plan of input.caso2) {
       const created = await this.applyCaso2Plan(plan);
@@ -1830,6 +1943,7 @@ export class ContaAzulIntegrationService {
       pedidosCompletados,
       itensPreenchidos,
       itensAdicionados,
+      itensCorrigidos,
       pedidosCriados,
     };
   }
@@ -1873,6 +1987,7 @@ export class ContaAzulIntegrationService {
           },
         });
       }
+      await this.applyItemReplacePatches(tx, plan.replaces);
       const orderPatch: Prisma.OrderUpdateInput = {};
       if (plan.preencherInvoice && plan.invoiceNumber) {
         orderPatch.invoiceNumber = plan.invoiceNumber;
@@ -1896,6 +2011,7 @@ export class ContaAzulIntegrationService {
       return (
         plan.fills.length > 0 ||
         plan.adds.length > 0 ||
+        plan.replaces.length > 0 ||
         plan.preencherInvoice ||
         plan.preencherVendaId
       );
@@ -2232,6 +2348,274 @@ export class ContaAzulIntegrationService {
       job.message = message;
     }
     this.pruneXmlVendasJobs();
+  }
+
+  private toItensExternosXmlJobPublic(
+    job: CaItensExternosXmlJobInternal,
+  ): CaItensExternosXmlJobState {
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      apply: job.apply,
+      message: job.message,
+      result: job.result,
+      error: job.error,
+    };
+  }
+
+  private pruneItensExternosXmlJobs(): void {
+    const limit = Date.now() - 6 * 60 * 60 * 1000;
+    for (const [id, job] of this.itensExternosXmlJobs) {
+      if (job.createdAt.getTime() < limit) {
+        this.itensExternosXmlJobs.delete(id);
+      }
+    }
+  }
+
+  private async processItensExternosXmlJob(jobId: string): Promise<void> {
+    const job = this.itensExternosXmlJobs.get(jobId);
+    if (!job) return;
+    try {
+      const result = await this.processarItensExternosXml({
+        apply: job.apply,
+        pedido: job.pedido,
+        onProgress: (update) => {
+          if (update.processed != null) job.processed = update.processed;
+          if (update.total != null) job.total = update.total;
+          job.message = update.message;
+        },
+      });
+      job.status = 'concluido';
+      job.result = result;
+      job.message = result.message;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      job.status = 'erro';
+      job.error = message;
+      job.message = message;
+    }
+    this.pruneItensExternosXmlJobs();
+  }
+
+  private async readXmlByStorageKey(key: string): Promise<string | null> {
+    if (!this.storageConfigured() || !this.storage) return null;
+    try {
+      const stored = await this.storage.getObjectBuffer(key);
+      return extractNfeXml(stored.buffer);
+    } catch {
+      return null;
+    }
+  }
+
+  private async applyItemReplacePatches(
+    tx: Prisma.TransactionClient,
+    replaces: ItemReplacePatch[],
+  ): Promise<{ created: number }> {
+    let created = 0;
+    for (const replace of replaces) {
+      const existing = await tx.orderItem.findUnique({
+        where: { id: replace.itemId },
+        select: { quantity: true },
+      });
+      if (!existing) continue;
+      const ensured = await this.externalItems.ensureByName({
+        name: replace.externalItemName,
+        lastKnownPrice: replace.unitPrice,
+        source: 'XML NFe',
+      });
+      if (!replace.reuseExternalItemId) created += 1;
+      const unitPrice = new Prisma.Decimal(Number(replace.unitPrice).toFixed(2));
+      await tx.orderItem.update({
+        where: { id: replace.itemId },
+        data: {
+          description: replace.toDescription,
+          sku: replace.toSku,
+          ncm: replace.ncm,
+          unit: replace.unit,
+          unitPrice,
+          totalPrice: unitPrice.mul(existing.quantity).toDecimalPlaces(2),
+          product: { disconnect: true },
+          externalItem: { connect: { id: ensured.id } },
+        },
+      });
+    }
+    return { created };
+  }
+
+  private async processarItensExternosXml(options: {
+    apply: boolean;
+    pedido?: string;
+    onProgress?: (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => void;
+  }): Promise<CaItensExternosXmlReport> {
+    const pedido = options.pedido?.trim();
+    const reportProgress = (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => options.onProgress?.(update);
+
+    reportProgress({ message: 'Buscando XMLs já armazenados...' });
+    const histories = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: {
+        xmlStorageKey: { not: null },
+        ...(pedido
+          ? {
+              order: {
+                OR: [
+                  { externalOrderNumber: pedido },
+                  { code: { equals: pedido, mode: 'insensitive' } },
+                ],
+              },
+            }
+          : {}),
+      },
+      select: {
+        invoiceNumber: true,
+        xmlStorageKey: true,
+        order: {
+          select: {
+            id: true,
+            code: true,
+            externalOrderNumber: true,
+            customerName: true,
+            items: {
+              select: {
+                id: true,
+                lineNumber: true,
+                sku: true,
+                description: true,
+                quantity: true,
+                productId: true,
+                unitPrice: true,
+                ncm: true,
+                unit: true,
+                product: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const catalog = await this.prisma.client.externalItem.findMany({
+      select: { id: true, name: true },
+    });
+    const previewLimit = 40;
+    const preview: CaItensExternosXmlCorrection[] = [];
+    const toApply: Array<{
+      patch: ItemReplacePatch;
+      row: CaItensExternosXmlCorrection;
+    }> = [];
+    const seenItems = new Set<string>();
+    let xmlsParsed = 0;
+    let xmlsMissing = 0;
+    const total = histories.length;
+
+    for (let i = 0; i < histories.length; i += 1) {
+      const history = histories[i];
+      reportProgress({
+        processed: i + 1,
+        total,
+        message: `Lendo XML ${i + 1} de ${total}...`,
+      });
+      const key = history.xmlStorageKey?.trim();
+      if (!key) {
+        xmlsMissing += 1;
+        continue;
+      }
+      const raw = await this.readXmlByStorageKey(key);
+      if (!raw) {
+        xmlsMissing += 1;
+        continue;
+      }
+      const dados = parseNfeXml(raw);
+      if (!dados?.items.length) {
+        xmlsMissing += 1;
+        continue;
+      }
+      xmlsParsed += 1;
+      const patches = planWrongWegItemReplaces({
+        orderItems: history.order.items.map((it) => ({
+          id: it.id,
+          lineNumber: it.lineNumber,
+          sku: it.sku,
+          description: it.description,
+          quantity: it.quantity,
+          productId: it.productId,
+          productName: it.product?.name ?? null,
+          unitPrice: Number(it.unitPrice) || 0,
+          ncm: it.ncm,
+          unit: it.unit,
+        })),
+        xmlItems: dados.items,
+        externalItems: catalog,
+      });
+      for (const patch of patches) {
+        if (seenItems.has(patch.itemId)) continue;
+        seenItems.add(patch.itemId);
+        const row: CaItensExternosXmlCorrection = {
+          orderId: history.order.id,
+          orderCode: history.order.code,
+          externalOrderNumber: history.order.externalOrderNumber,
+          invoiceNumber: history.invoiceNumber,
+          customerName: history.order.customerName,
+          itemId: patch.itemId,
+          fromDescription: patch.fromDescription,
+          toDescription: patch.toDescription,
+          fromSku: patch.fromSku,
+          toSku: patch.toSku,
+          productName: patch.productName,
+          unitPrice: patch.unitPrice,
+          createExternalItem: !patch.reuseExternalItemId,
+          reuseExternalItemId: patch.reuseExternalItemId,
+          externalItemName: patch.externalItemName,
+        };
+        if (preview.length < previewLimit) preview.push(row);
+        toApply.push({ patch, row });
+      }
+    }
+
+    const report: CaItensExternosXmlReport = {
+      ok: true,
+      apply: options.apply,
+      applied: false,
+      ordersScanned: new Set(histories.map((h) => h.order.id)).size,
+      xmlsParsed,
+      xmlsMissing,
+      corrections: toApply.length,
+      preview,
+      message: '',
+    };
+    report.message = options.apply
+      ? ''
+      : `Dry-run: ${report.corrections} item(ns) WEG divergente(s) do XML em ${report.ordersScanned} pedido(s) (${report.xmlsParsed} XML lido(s), ${report.xmlsMissing} sem XML). Nada gravado.`;
+
+    if (!options.apply) return report;
+
+    reportProgress({ message: 'Aplicando correções...' });
+    let itemsUpdated = 0;
+    let externalItemsCreated = 0;
+    await this.prisma.client.$transaction(async (tx) => {
+      const applied = await this.applyItemReplacePatches(
+        tx,
+        toApply.map((row) => row.patch),
+      );
+      itemsUpdated = toApply.length;
+      externalItemsCreated = applied.created;
+    });
+
+    return {
+      ...report,
+      applied: true,
+      appliedCounts: { itemsUpdated, externalItemsCreated },
+      message: `Aplicado: ${itemsUpdated} item(ns) corrigido(s), ${externalItemsCreated} Item Externo criado(s).`,
+    };
   }
 
   private syncProgressMessage(processed: number, total: number): string {
@@ -3473,6 +3857,7 @@ export class ContaAzulIntegrationService {
             SET "xmlStorageKey" = ${key}
             WHERE id = ${existing.id}
           `;
+          await this.fillHistoryFromParsedXml(existing.id, buffer);
         }
         return;
       }
@@ -3493,16 +3878,25 @@ export class ContaAzulIntegrationService {
           )
         `;
       } else {
+        const parsed = parseNfeXml(buffer.toString('utf8'));
+        const volumes =
+          parsed?.volumes != null && parsed.volumes >= 1 ? parsed.volumes : null;
+        const invoiceValue =
+          parsed && parsed.total > 0 ? parsed.total : null;
+        const xmlDate =
+          nfeEmitidaEmDate(parsed?.saiuEm) ?? nfeEmitidaEmDate(parsed?.emitidaEm);
         await this.prisma.client.$executeRaw`
           INSERT INTO "OrderInvoiceHistory" (
             id, "orderId", "invoiceNumber", "pickedQtyAtTime",
-            "createdAt", "createdBy", "xmlStorageKey"
+            "invoiceValue", "volumes", "createdAt", "createdBy", "xmlStorageKey"
           ) VALUES (
             ${id},
             CAST(${orderId} AS UUID),
             ${numero},
             0,
-            NOW(),
+            ${invoiceValue},
+            ${volumes},
+            ${xmlDate ?? new Date()},
             'conta-azul-auto',
             ${key}
           )
@@ -3511,6 +3905,33 @@ export class ContaAzulIntegrationService {
     } catch (err) {
       this.logger.warn(
         `Persistência XML/Nota NF ${numero}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async fillHistoryFromParsedXml(
+    historyId: string,
+    buffer: Buffer,
+  ): Promise<void> {
+    const parsed = parseNfeXml(buffer.toString('utf8'));
+    if (!parsed) return;
+    const volumes =
+      parsed.volumes != null && parsed.volumes >= 1 ? parsed.volumes : null;
+    const invoiceValue = parsed.total > 0 ? parsed.total : null;
+    if (volumes == null && invoiceValue == null) return;
+    try {
+      await this.prisma.client.$executeRaw`
+        UPDATE "OrderInvoiceHistory"
+        SET
+          "volumes" = COALESCE("volumes", ${volumes}),
+          "invoiceValue" = COALESCE("invoiceValue", ${invoiceValue})
+        WHERE id = ${historyId}
+      `;
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao preencher volumes/valor da NF a partir do XML: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       );
     }
   }

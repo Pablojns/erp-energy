@@ -30,6 +30,12 @@ export class UpdateNfHistoricoDto {
   @IsString()
   @MaxLength(40)
   createdAt?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  volumes?: number;
 }
 
 export class SearchNfHistoricoDto {

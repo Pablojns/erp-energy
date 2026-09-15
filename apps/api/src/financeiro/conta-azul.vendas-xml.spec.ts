@@ -57,6 +57,8 @@ const xml: NfeXmlDados = {
   invoiceNumber: '1959',
   chave: null,
   emitidaEm: '2026-03-10T14:22:00-03:00',
+  saiuEm: null,
+  volumes: 3,
   emitCnpj: '41356091000180',
   destDocumento: '29720805000191',
   destNome: 'PRATYC COMERCIO',
@@ -183,6 +185,59 @@ describe('planCaso1Completar', () => {
         unitPrice: 1500.5,
       }),
     ]);
+    expect(plan.replaces).toHaveLength(0);
+  });
+
+  it('substitui item WEG divergente do XML (Copo Térmico Cuia → Copo de Viagem)', () => {
+    const plan = planCaso1Completar({
+      venda: venda({ id: 'vnd-pratyc' }),
+      order: order({
+        code: 'PED-004518',
+        externalOrderNumber: '4518727765',
+        items: [
+          {
+            id: 'i-copo',
+            lineNumber: 10,
+            sku: '50000001',
+            supplierMaterialCode: null,
+            description: 'Copo Térmico Cuia',
+            quantity: 50,
+            unit: 'UN',
+            ncm: null,
+            unitPrice: 22,
+            totalPrice: 1100,
+            productId: 'prod-weg-cuia',
+            productName: 'Copo Térmico Cuia',
+          },
+        ],
+      }),
+      xml: {
+        ...xml,
+        invoiceNumber: '2158',
+        items: [
+          {
+            nItem: 1,
+            sku: 'VIAGEM-01',
+            description: 'Copo de Viagem',
+            ncm: null,
+            unit: 'UN',
+            quantity: 50,
+            unitPrice: 18.9,
+            totalPrice: 945,
+          },
+        ],
+      },
+      via: 'invoiceNumber',
+    });
+    expect(plan.replaces).toEqual([
+      expect.objectContaining({
+        itemId: 'i-copo',
+        fromDescription: 'Copo Térmico Cuia',
+        toDescription: 'Copo de Viagem',
+        reuseExternalItemId: null,
+      }),
+    ]);
+    expect(plan.perfeito).toBe(false);
   });
 
   it('não faz nada quando os itens já batem', () => {
@@ -224,6 +279,7 @@ describe('planCaso1Completar', () => {
     expect(plan.perfeito).toBe(true);
     expect(plan.fills).toHaveLength(0);
     expect(plan.adds).toHaveLength(0);
+    expect(plan.replaces).toHaveLength(0);
   });
 
   it('não sobrescreve preço já preenchido', () => {

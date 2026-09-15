@@ -154,6 +154,33 @@ export class ContaAzulController {
     return this.contaAzul.getXmlVendasJob(jobId);
   }
 
+  /**
+   * Corrige itens WEG divergentes do XML já armazenado (Item Externo).
+   * Dry-run por padrão; apply=true só após confirmação. Não exige Conta Azul.
+   * ?pedido= filtra um número de pedido (ex.: 4518727765).
+   */
+  @Post('corrigir-itens-externos-xml')
+  @RequirePermission('financeiro', 'editar')
+  corrigirItensExternosXml(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+    @Query('pedido') pedido?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.startItensExternosXmlJob({
+      apply: applyNow,
+      pedido,
+    });
+  }
+
+  @Get('corrigir-itens-externos-xml-status/:jobId')
+  @RequirePermission('financeiro', 'editar')
+  corrigirItensExternosXmlStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.contaAzul.getItensExternosXmlJob(jobId);
+  }
+
   /** Dry-run por padrão; apply=true grava Order.customerName/deliveryAddress. */
   @Post('preencher-pedidos-cadastro')
   @RequirePermission('financeiro', 'editar')

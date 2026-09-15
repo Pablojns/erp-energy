@@ -3,8 +3,10 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -25,4 +27,12 @@ export class CreateVendaExternaItemDto {
   @IsNumber()
   @Min(0)
   unitPrice!: number;
+
+  @IsOptional()
+  @IsUUID('4')
+  productId?: string | null;
+
+  @IsOptional()
+  @IsUUID('4')
+  externalItemId?: string | null;
 }

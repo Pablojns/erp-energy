@@ -173,6 +173,34 @@ export function normalizePlanilhaItemStatus(
   return s ? s : null;
 }
 
+/** Recebido / OK na planilha — a linha está concluída para separação. */
+export function isReceivedPlanilhaItemStatus(
+  statusItem: string | null | undefined,
+): boolean {
+  const raw = (statusItem ?? '').trim();
+  if (!raw) return false;
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+  return normalized === 'ok' || normalized.includes('recebido');
+}
+
+/**
+ * Ao marcar Recebido/OK, Qtd Separada = Qtd Pedido e Falta = 0.
+ * Não altera estoque — só o snapshot da linha.
+ */
+export function pickedQtyWhenReceived(
+  statusItem: string | null | undefined,
+  quantity: number,
+  currentPicked = 0,
+): { pickedQty: number; missingQty: number } | null {
+  if (!isReceivedPlanilhaItemStatus(statusItem)) return null;
+  const qty = Math.max(0, Number(quantity) || 0);
+  if (currentPicked >= qty && qty > 0) return null;
+  return { pickedQty: qty, missingQty: 0 };
+}
+
 export function readPedidosSheet(buffer: Uint8Array): {
   rows: PedidoPlanilhaRow[];
   ignored: number;
