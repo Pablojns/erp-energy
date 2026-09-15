@@ -122,7 +122,19 @@ export type OrderDto = {
   linkedOrderDisplayNumber?: string | null;
   /** Saídas já registradas (uma por ciclo de separação), da mais recente à mais antiga. */
   saidas?: OrderExitHistoryDto[];
+  /** Fonte única das NFs de venda (OrderInvoiceHistory). */
+  invoiceHistory?: OrderInvoiceHistoryDto[];
   items: OrderItemDto[];
+};
+
+export type OrderInvoiceHistoryDto = {
+  id: string;
+  invoiceNumber: string;
+  invoiceValue: string | null;
+  volumes?: number | null;
+  xmlStorageKey?: string | null;
+  danfeStorageKey?: string | null;
+  createdAt: string;
 };
 
 export type OrderExitHistoryDto = {

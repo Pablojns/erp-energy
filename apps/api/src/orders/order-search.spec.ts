@@ -1,6 +1,9 @@
 import {
   buildOrderSearchWhere,
   confirmedRemessaNumber,
+  displayInvoiceNumber,
+  displayPedidoNumero,
+  invoiceNumberDigitList,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
   sameInvoiceNumber,
@@ -37,6 +40,18 @@ describe('sameInvoiceNumber', () => {
     expect(sameInvoiceNumber('2156', '878')).toBe(false);
     expect(sameInvoiceNumber('878', '878')).toBe(true);
     expect(invoiceNumberDigits('2156')).toBe('2156');
+    expect(invoiceNumberDigits('1 - 1881')).toBe('1881');
+    expect(displayInvoiceNumber('1 - 1881')).toBe('1881');
+    expect(displayInvoiceNumber('1 - 1016 | 1 - 832')).toBe('1016 | 832');
+    expect(invoiceNumberDigitList('1 - 1211 | 1 - 912 | 1 - 865')).toEqual([
+      '1211',
+      '912',
+      '865',
+    ]);
+    expect(displayPedidoNumero({ code: 'PED-000036', externalOrderNumber: '4518727765' })).toBe(
+      '4518727765',
+    );
+    expect(displayPedidoNumero({ code: 'PED-000036', externalOrderNumber: null })).toBe('');
   });
 });
 

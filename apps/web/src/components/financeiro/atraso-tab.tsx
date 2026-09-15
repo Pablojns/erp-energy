@@ -9,6 +9,7 @@ import type {
   ReconciliacaoEstoqueResponse,
 } from '@/src/components/financeiro/types';
 import { formatCurrency, formatDateBr } from '@/src/components/financeiro/utils';
+import { displayInvoiceNumber } from '@/src/services/api/pedidos-normalize';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
 function toneClass(tone: ContaAtrasoTone): string {
@@ -163,7 +164,7 @@ export function FinanceiroAtrasoTab(props: { refreshToken: number }) {
             {gaps?.gaps.map((g) => (
               <li key={g.orderId} className="text-[var(--fin-danger)]">
                 Pedido {g.pedido}
-                {g.invoiceNumber ? ` · NF ${g.invoiceNumber}` : ''} — {g.message}
+                {g.invoiceNumber ? ` · NF ${displayInvoiceNumber(g.invoiceNumber) || g.invoiceNumber}` : ''} — {g.message}
               </li>
             ))}
           </ul>
@@ -210,7 +211,7 @@ function GrupoRows(props: {
               style={{ borderColor: 'var(--fin-border)' }}
             >
               <td className="px-4 py-2 pl-8 text-[var(--fin-text-secondary)]">
-                Nota {it.invoiceNumber} · pedido #{it.pedido} · emissão{' '}
+                Nota {displayInvoiceNumber(it.invoiceNumber) || it.invoiceNumber} · pedido #{it.pedido} · emissão{' '}
                 {formatDateBr(it.dataEmissao)}
               </td>
               <td className="px-4 py-2 text-center text-[var(--fin-text-muted)]">

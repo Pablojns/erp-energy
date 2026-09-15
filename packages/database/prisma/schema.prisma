@@ -302,12 +302,13 @@ model Customer {
 }
 
 model Supplier {
-  id         String           @id @default(uuid()) @db.Uuid
-  name       String
-  email      String?
-  phone      String?
-  document   String?
-  isActive   Boolean          @default(true)
+  id              String           @id @default(uuid()) @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  document        String?
+  deliveryAddress String?
+  isActive        Boolean          @default(true)
   products   Product[]
   payables   AccountPayable[]
   createdAt  DateTime         @default(now())

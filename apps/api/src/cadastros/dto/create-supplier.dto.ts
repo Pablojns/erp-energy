@@ -10,4 +10,9 @@ export class CreateSupplierDto {
   @IsString()
   @MaxLength(18)
   cnpj?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  deliveryAddress?: string;
 }

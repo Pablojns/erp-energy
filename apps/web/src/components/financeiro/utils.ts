@@ -10,6 +10,7 @@ import type {
   ChartGranularity,
 } from '@/src/components/financeiro/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { displayInvoiceNumber } from '@/src/services/api/pedidos-normalize';
 import { normalizeDateRange } from '@/src/lib/period-range';
 
 export function formatCurrency(value: number): string {
@@ -73,7 +74,8 @@ export function defaultMonthRange(): { dataInicio: string; dataFim: string } {
 
 export function ultimaNF(invoiceNumber: string): string {
   const partes = invoiceNumber.split('|');
-  return partes[partes.length - 1].trim();
+  const last = partes[partes.length - 1]?.trim() ?? '';
+  return displayInvoiceNumber(last) || last;
 }
 
 export function formatDateBr(iso: string): string {

@@ -28,6 +28,7 @@ import {
   buildOrderFieldFilterWhere,
   buildOrderSearchWhere,
   confirmedRemessaNumber,
+  displayInvoiceNumber,
   invoiceNumberDigits,
   isCorreiosTrackingCode,
   normalizeOrderSearchTerm,
@@ -2593,7 +2594,8 @@ export class PedidosService {
       historico: rows.map((row) => ({
         id: row.id,
         orderId: row.orderId,
-        invoiceNumber: row.invoiceNumber,
+        invoiceNumber:
+          displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber,
         invoiceValue:
           row.invoiceValue?.toString() ??
           row.order.totalValue?.toString() ??
@@ -4337,7 +4339,8 @@ export class PedidosService {
         const exitAt = exit?.exitDate ?? row.createdAt;
         return {
           id: row.id,
-          invoiceNumber: row.invoiceNumber,
+          invoiceNumber:
+            displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber,
           invoiceValue:
             row.invoiceValue?.toString() ??
             exit?.invoiceValue?.toString() ??
@@ -4679,7 +4682,8 @@ export class PedidosService {
     return {
       id: row.id,
       orderId: row.orderId,
-      invoiceNumber: row.invoiceNumber,
+      invoiceNumber:
+        displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber,
       invoiceValue: row.invoiceValue.toString(),
       exitDate: row.exitDate.toISOString(),
       romaneioAt: rowWithRomaneio.romaneioAt?.toISOString() ?? null,

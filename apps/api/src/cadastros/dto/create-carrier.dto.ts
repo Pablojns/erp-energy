@@ -1,6 +1,6 @@
 import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
-export class CreateCustomerDto {
+export class CreateCarrierDto {
   @IsString()
   @IsNotEmpty({ message: 'Nome é obrigatório.' })
   @MaxLength(200)
@@ -13,21 +13,6 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(2000)
   deliveryAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  inscricaoEstadual?: string;
 }

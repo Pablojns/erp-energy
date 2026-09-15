@@ -133,6 +133,36 @@ export class ContaAzulController {
   }
 
   /**
+   * Dry-run: varre vendas da Conta Azul × pedidos do ERP com a lógica WEG
+   * de parcelas (prefixo 10 dígitos). Nunca aplica correção.
+   */
+  @Post('auditar-vinculos-nf')
+  @RequirePermission('financeiro', 'editar')
+  auditarVinculosNf() {
+    return this.contaAzul.startNfVinculoAuditJob();
+  }
+
+  @Get('auditar-vinculos-nf-status/:jobId')
+  @RequirePermission('financeiro', 'editar')
+  auditarVinculosNfStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.contaAzul.getNfVinculoAuditJob(jobId);
+  }
+
+  /**
+   * Probe live GET /v1/venda/busca + /v1/venda/{id} + /v1/notas-fiscais
+   * para números WEG (ex.: 4517818598,4519085342). Não grava.
+   */
+  @Get('probe-pedidos-weg')
+  @RequirePermission('financeiro', 'editar')
+  probePedidosWeg(@Query('numeros') numeros?: string) {
+    const list = String(numeros ?? '4517818598,4519085342')
+      .split(/[,\s]+/)
+      .map((n) => n.trim())
+      .filter(Boolean);
+    return this.contaAzul.probeWegPedidos(list);
+  }
+
+  /**
    * Processa XML da NF-e de todas as vendas (Caso 1 completa, Caso 2 cria VENDA_EXTERNA).
    * Dry-run por padrão; apply=true só após confirmação.
    */
@@ -179,6 +209,28 @@ export class ContaAzulController {
   @RequirePermission('financeiro', 'editar')
   corrigirItensExternosXmlStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
     return this.contaAzul.getItensExternosXmlJob(jobId);
+  }
+
+  /**
+   * Sincronização Completa: cadastros → itens XML → Venda Externa → notas antigas.
+   * Dry-run por padrão; apply=true só após confirmação.
+   */
+  @Post('sincronizacao-completa')
+  @RequirePermission('financeiro', 'editar')
+  sincronizacaoCompleta(
+    @Query('dry-run') dryRun?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const wantsDryRun = queryFlagTrue(dryRun);
+    const wantsApply = queryFlagTrue(apply);
+    const applyNow = wantsApply && !wantsDryRun;
+    return this.contaAzul.startSincronizacaoCompletaJob({ apply: applyNow });
+  }
+
+  @Get('sincronizacao-completa-status/:jobId')
+  @RequirePermission('financeiro', 'editar')
+  sincronizacaoCompletaStatus(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    return this.contaAzul.getSincronizacaoCompletaJob(jobId);
   }
 
   /** Dry-run por padrão; apply=true grava Order.customerName/deliveryAddress. */

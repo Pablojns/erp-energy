@@ -1,5 +1,6 @@
 import {
   findSimilarExternalItem,
+  namesAreEquivalentProduct,
   namesLookSimilar,
   normalizeItemName,
   planWrongWegItemReplaces,
@@ -84,6 +85,85 @@ describe('planWrongWegItemReplaces', () => {
     expect(plan).toHaveLength(0);
   });
 
+  it('pareia COPO VIAGEM com a linha 30 via nItemPed, não com Caneta Plástica', () => {
+    const plan = planWrongWegItemReplaces({
+      orderItems: [
+        {
+          id: 'item-caneta',
+          lineNumber: 10,
+          sku: '50019097',
+          description: 'CANETA PLASTICA',
+          quantity: 300,
+          productId: 'prod-caneta',
+          productName: 'Caneta Plástica',
+          unitPrice: 1,
+        },
+        {
+          id: 'item-copo',
+          lineNumber: 30,
+          sku: '50000001',
+          description: 'Copo Térmico Aluminio - De Inox (Cuia)',
+          quantity: 50,
+          productId: 'prod-cuia',
+          productName: 'Copo Térmico Aluminio - De Inox (Cuia)',
+          unitPrice: 22,
+        },
+      ],
+      xmlItems: [
+        {
+          nItem: 1,
+          sku: 'VIAGEM-01',
+          description: 'COPO VIAGEM',
+          ncm: null,
+          unit: 'UN',
+          quantity: 50,
+          unitPrice: 18.9,
+          totalPrice: 945,
+          xPed: '4518727765',
+          nItemPed: 30,
+        },
+      ],
+    });
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toMatchObject({
+      itemId: 'item-copo',
+      lineNumber: 30,
+      fromDescription: 'Copo Térmico Aluminio - De Inox (Cuia)',
+      toDescription: 'COPO VIAGEM',
+    });
+  });
+
+  it('não sinaliza Caneta Plástica vs Caneta Plástico como divergência', () => {
+    const plan = planWrongWegItemReplaces({
+      orderItems: [
+        {
+          id: 'item-caneta',
+          lineNumber: 10,
+          sku: '50019097',
+          description: 'CANETA PLASTICA',
+          quantity: 300,
+          productId: 'prod-caneta',
+          productName: 'Caneta Plástica',
+          unitPrice: 1,
+        },
+      ],
+      xmlItems: [
+        {
+          nItem: 1,
+          sku: '50019097',
+          description: 'CANETA PLASTICO',
+          ncm: null,
+          unit: 'UN',
+          quantity: 300,
+          unitPrice: 1,
+          totalPrice: 300,
+          nItemPed: 10,
+        },
+      ],
+    });
+    expect(plan).toHaveLength(0);
+  });
+
   it('não altera linha sem productId (já é item livre)', () => {
     const plan = planWrongWegItemReplaces({
       orderItems: [
@@ -101,6 +181,32 @@ describe('planWrongWegItemReplaces', () => {
       xmlItems: [copoXml],
     });
     expect(plan).toHaveLength(0);
+  });
+});
+
+describe('namesAreEquivalentProduct', () => {
+  it('trata variação de gênero/plural', () => {
+    expect(namesAreEquivalentProduct('CANETA PLASTICA', 'CANETA PLASTICO')).toBe(
+      true,
+    );
+  });
+
+  it('ignora sufixo curto PT', () => {
+    expect(
+      namesAreEquivalentProduct(
+        'CANETA ESFERO PONTA TOUCH METAL PT',
+        'CANETA ESFERO PONTA TOUCH METAL',
+      ),
+    ).toBe(true);
+  });
+
+  it('não mistura Copo Cuia com Copo Viagem', () => {
+    expect(
+      namesAreEquivalentProduct(
+        'Copo Térmico Aluminio - De Inox (Cuia)',
+        'COPO VIAGEM',
+      ),
+    ).toBe(false);
   });
 });
 

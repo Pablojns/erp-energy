@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, Download, FileCode, Link2, MapPin, Package, RefreshCw } from 'lucide-react';
+import { Calendar, Download, FileCode, Layers, Link2, MapPin, Package, RefreshCw } from 'lucide-react';
 import type {
   FinanceiroPeriod,
   FinanceiroPeriodPreset,
@@ -43,6 +43,7 @@ export function FinanceiroHeader(props: {
   onSyncVendas?: () => void;
   onSyncXmlVendas?: () => void;
   onSyncItensExternosXml?: () => void;
+  onSyncCompleta?: () => void;
   onSyncPedidosCadastro?: () => void;
   canEditCa?: boolean;
 }) {
@@ -68,6 +69,7 @@ export function FinanceiroHeader(props: {
     onSyncVendas,
     onSyncXmlVendas,
     onSyncItensExternosXml,
+    onSyncCompleta,
     onSyncPedidosCadastro,
     canEditCa,
   } = props;
@@ -241,6 +243,21 @@ export function FinanceiroHeader(props: {
               >
                 <FileCode className="h-3.5 w-3.5" />
                 Processar XML das NFs
+              </button>
+              <button
+                type="button"
+                onClick={onSyncCompleta}
+                disabled={caBusy || !caConnected || !canEditCa}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold text-[var(--fin-text)] transition hover:bg-[var(--fin-card-muted)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                style={{ borderColor: 'var(--fin-border)' }}
+                title={
+                  caConnected
+                    ? 'Dry-run de cadastros, itens XML, Venda Externa e notas antigas numa única sequência. Só grava ao confirmar Aplicar.'
+                    : 'Conecte a Conta Azul antes de sincronizar'
+                }
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Sincronização Completa
               </button>
               <button
                 type="button"

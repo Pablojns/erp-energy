@@ -8,6 +8,8 @@ import { documentDigits } from './conta-azul.pessoas';
 export type CaVenda = {
   contaAzulId: string;
   numero: string | null;
+  /** Número do pedido cliente na venda CA, quando a API envia campo separado. */
+  numeroPedido: string | null;
   data: string | null;
   total: number;
   situacao: string | null;
@@ -61,6 +63,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asText(value: unknown): string | null {
   if (value == null) return null;
+  if (typeof value === 'object') return null;
   const s = String(value).trim();
   return s.length ? s : null;
 }
@@ -86,6 +89,73 @@ export function orderNumberVariants(raw: string | number | null | undefined): st
   return [...set];
 }
 
+/** Pedido WEG ME: 10 dígitos; parcelas acrescentam 1–4 dígitos no sufixo. */
+export const WEG_ORDER_BASE_LENGTH = 10;
+
+export function wegOrderDigits(
+  raw: string | number | null | undefined,
+): string {
+  const digits = documentDigits(raw);
+  return digits.replace(/^0+/, '') || digits;
+}
+
+/**
+ * Prefixo de 10 dígitos que identifica o pedido WEG e todas as parcelas.
+ * Números curtos (venda avulsa 7, 10, etc.) não são família WEG.
+ */
+export function wegOrderBase(
+  raw: string | number | null | undefined,
+): string | null {
+  const digits = wegOrderDigits(raw);
+  if (digits.length < WEG_ORDER_BASE_LENGTH) return null;
+  if (digits.length > 14) return null;
+  return digits.slice(0, WEG_ORDER_BASE_LENGTH);
+}
+
+export function sameWegOrderFamily(
+  a: string | number | null | undefined,
+  b: string | number | null | undefined,
+): boolean {
+  const baseA = wegOrderBase(a);
+  const baseB = wegOrderBase(b);
+  return Boolean(baseA && baseB && baseA === baseB);
+}
+
+export function pickWegFamilyOrder<T extends { externalOrderNumber: string | null }>(
+  pedido: string | number | null | undefined,
+  orders: T[],
+): T | undefined {
+  const wanted = wegOrderDigits(pedido);
+  if (!wanted) return undefined;
+  const exact = orders.filter(
+    (o) => wegOrderDigits(o.externalOrderNumber) === wanted,
+  );
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return undefined;
+
+  const base = wegOrderBase(wanted);
+  if (!base) return undefined;
+  const family = orders.filter(
+    (o) => wegOrderBase(o.externalOrderNumber) === base,
+  );
+  if (family.length === 0) return undefined;
+  if (family.length === 1) return family[0];
+  const baseOrder = family.filter(
+    (o) => wegOrderDigits(o.externalOrderNumber) === base,
+  );
+  if (baseOrder.length === 1) return baseOrder[0];
+  return undefined;
+}
+
+/** Prefere o campo que parece pedido WEG (10+ dígitos); senão qualquer número. */
+export function vendaWegHint(
+  venda: Pick<CaVenda, 'numero' | 'numeroPedido'>,
+): string | null {
+  if (wegOrderBase(venda.numeroPedido)) return venda.numeroPedido;
+  if (wegOrderBase(venda.numero)) return venda.numero;
+  return venda.numeroPedido || venda.numero;
+}
+
 export function valuesClose(a: number, b: number): boolean {
   const diff = Math.abs(a - b);
   if (diff <= 0.05) return true;
@@ -96,19 +166,33 @@ export function valuesClose(a: number, b: number): boolean {
 export function mapContaAzulVenda(
   item: Record<string, unknown>,
 ): CaVenda | null {
-  const id = asText(item.id) ?? asText(item.uuid);
+  const src = asRecord(item.venda) ?? item;
+  const id = asText(src.id) ?? asText(src.uuid) ?? asText(item.id) ?? asText(item.uuid);
   if (!id) return null;
-  const cliente = asRecord(item.cliente);
-  const situacaoRec = asRecord(item.situacao);
-  const numeroRaw = item.numero ?? item.numero_venda;
+  const cliente = asRecord(src.cliente) ?? asRecord(item.cliente);
+  const situacaoRec = asRecord(src.situacao) ?? asRecord(item.situacao);
+  const numeroRaw = src.numero ?? src.numero_venda ?? item.numero;
+  const pedidoRec = asRecord(src.pedido) ?? asRecord(item.pedido);
+  const numeroPedido =
+    asText(src.numero_pedido) ??
+    asText(src.codigo_pedido) ??
+    asText(src.numero_pedido_cliente) ??
+    asText(item.numero_pedido) ??
+    asText(item.codigo_pedido) ??
+    asText(item.numero_pedido_cliente) ??
+    asText(pedidoRec?.numero) ??
+    asText(pedidoRec?.codigo) ??
+    asText(pedidoRec?.numero_pedido);
   return {
     contaAzulId: id,
     numero: numeroRaw == null ? null : String(numeroRaw).trim() || null,
-    data: asText(item.data) ?? asText(item.data_venda),
-    total: asNumber(item.total ?? item.valor ?? item.valor_total),
+    numeroPedido,
+    data: asText(src.data) ?? asText(src.data_venda) ?? asText(item.data),
+    total: asNumber(src.total ?? src.valor ?? src.valor_total ?? item.total),
     situacao:
       asText(situacaoRec?.nome) ??
       asText(situacaoRec?.descricao) ??
+      asText(src.situacao) ??
       asText(item.situacao),
     clienteId: asText(cliente?.id),
     clienteNome: asText(cliente?.nome),
@@ -171,11 +255,29 @@ export function planVendaVinculos(input: {
     order: ErpOrderForVendaMatch,
     reason: VendaMatchReason,
   ) => {
-    if (takenOrders.has(order.id) || takenVendas.has(venda.contaAzulId)) return;
+    if (takenVendas.has(venda.contaAzulId)) return;
     if (order.contaAzulVendaId && order.contaAzulVendaId !== venda.contaAzulId) {
-      return;
+      if (
+        !sameWegOrderFamily(
+          vendaWegHint(venda),
+          order.externalOrderNumber,
+        )
+      ) {
+        return;
+      }
     }
-    takenOrders.add(order.id);
+    if (takenOrders.has(order.id)) {
+      if (
+        !sameWegOrderFamily(
+          vendaWegHint(venda),
+          order.externalOrderNumber,
+        )
+      ) {
+        return;
+      }
+    } else {
+      takenOrders.add(order.id);
+    }
     takenVendas.add(venda.contaAzulId);
     claros.push({
       vendaId: venda.contaAzulId,
@@ -195,7 +297,10 @@ export function planVendaVinculos(input: {
       takenVendas.add(venda.contaAzulId);
       continue;
     }
-    const variants = orderNumberVariants(venda.numero);
+    const variants = [
+      ...orderNumberVariants(venda.numero),
+      ...orderNumberVariants(venda.numeroPedido),
+    ];
     const byNum: ErpOrderForVendaMatch[] = [];
     const seen = new Set<string>();
     for (const v of variants) {
@@ -207,6 +312,8 @@ export function planVendaVinculos(input: {
     }
     const uniqueNum = preferActive(byNum);
     const cnpj = documentDigits(venda.clienteDocumento);
+    const familyHint = vendaWegHint(venda);
+    const looksWeg = Boolean(wegOrderBase(familyHint));
 
     if (uniqueNum.length === 1) {
       const order = uniqueNum[0];
@@ -241,6 +348,25 @@ export function planVendaVinculos(input: {
         clienteNome: venda.clienteNome,
         cnpj: cnpj || null,
         motivo: `Número bateu com ${uniqueNum.length} pedidos; CNPJ/valor não desambiguaram`,
+      });
+      continue;
+    }
+
+    const familyOrder = pickWegFamilyOrder(familyHint, preferActive(input.orders));
+    if (familyOrder) {
+      pushClear(venda, familyOrder, 'numero');
+      continue;
+    }
+
+    if (looksWeg) {
+      semCorrespondencia.push({
+        vendaId: venda.contaAzulId,
+        vendaNumero: venda.numero,
+        vendaTotal: venda.total,
+        clienteNome: venda.clienteNome,
+        cnpj: cnpj || null,
+        motivo:
+          'Número WEG (10+ dígitos) sem pedido da mesma família no ERP — não vincula por CNPJ+valor',
       });
       continue;
     }

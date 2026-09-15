@@ -53,6 +53,51 @@ export function invoiceNumberDigits(raw: string): string {
   return part.replace(/\D/g, '');
 }
 
+/** Todos os números de NF de um campo (`1 - 1211 | 1 - 912` → `['1211','912']`). */
+export function invoiceNumberDigitList(
+  raw: string | null | undefined,
+): string[] {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return [];
+  const parts = trimmed.includes('|') ? trimmed.split('|') : [trimmed];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    const d = invoiceNumberDigits(part.trim());
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    out.push(d);
+  }
+  return out;
+}
+
+/** Exibição da NF: só o número (`1 - 1881` → `1881`). Várias notas: `1 - 1016 | 1 - 832` → `1016 | 832`. */
+export function displayInvoiceNumber(raw: string | null | undefined): string {
+  if (isCorreiosTrackingCode(raw)) return '';
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('|')) {
+    return trimmed
+      .split('|')
+      .map((part) => invoiceNumberDigits(part.trim()))
+      .filter(Boolean)
+      .join(' | ');
+  }
+  return invoiceNumberDigits(trimmed);
+}
+
+/** Número do pedido visível ao usuário — nunca o código interno PED-XXX. */
+export function displayPedidoNumero(order: {
+  externalOrderNumber?: string | null;
+  code?: string | null;
+}): string {
+  const ext = String(order.externalOrderNumber ?? '').trim();
+  if (ext) return ext;
+  const code = String(order.code ?? '').trim();
+  if (!code || /^PED-\d+/i.test(code)) return '';
+  return code;
+}
+
 export function sameInvoiceNumber(
   a: string | null | undefined,
   b: string | null | undefined,

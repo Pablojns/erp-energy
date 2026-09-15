@@ -5,9 +5,11 @@ import {
 } from '@nestjs/common';
 import { Prisma, OrderSource } from '@erp/database';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CreateCarrierDto } from './dto/create-carrier.dto';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
 import type { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
 import type { CreateSupplierDto } from './dto/create-supplier.dto';
+import type { UpdateCarrierDto } from './dto/update-carrier.dto';
 import type { UpdateCustomerDto } from './dto/update-customer.dto';
 import type { UpdateNameCadastroDto } from './dto/update-name-cadastro.dto';
 import type { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -20,7 +22,15 @@ type NameRecord = {
   updatedAt: Date;
 };
 
-type SupplierRecord = NameRecord & { document: string | null };
+type SupplierRecord = NameRecord & {
+  document: string | null;
+  deliveryAddress: string | null;
+};
+
+type CarrierRecord = NameRecord & {
+  document: string | null;
+  deliveryAddress: string | null;
+};
 
 type CustomerRecord = NameRecord & {
   document: string | null;
@@ -45,6 +55,15 @@ export class CadastrosService {
     return {
       ...this.serializeName(row),
       cnpj: row.document,
+      deliveryAddress: row.deliveryAddress,
+    };
+  }
+
+  private serializeCarrier(row: CarrierRecord) {
+    return {
+      ...this.serializeName(row),
+      cnpj: row.document,
+      deliveryAddress: row.deliveryAddress,
     };
   }
 
@@ -185,24 +204,40 @@ export class CadastrosService {
   listCarriers() {
     return this.prisma.client.carrier
       .findMany({ orderBy: [{ name: 'asc' }] })
-      .then((rows) => rows.map((row) => this.serializeName(row)));
+      .then((rows) => rows.map((row) => this.serializeCarrier(row)));
   }
 
-  createCarrier(dto: CreateNameCadastroDto) {
+  createCarrier(dto: CreateCarrierDto) {
     return this.prisma.client.carrier
-      .create({ data: { name: dto.name.trim() } })
-      .then((row) => this.serializeName(row));
+      .create({
+        data: {
+          name: dto.name.trim(),
+          document: this.trimOptional(dto.cnpj) ?? null,
+          deliveryAddress: this.trimOptional(dto.deliveryAddress) ?? null,
+        },
+      })
+      .then((row) => this.serializeCarrier(row));
   }
 
-  async updateCarrier(id: string, dto: UpdateNameCadastroDto) {
+  async updateCarrier(id: string, dto: UpdateCarrierDto) {
     await this.assertCarrierExists(id);
-    const data: { name?: string } = {};
+    const data: {
+      name?: string;
+      document?: string | null;
+      deliveryAddress?: string | null;
+    } = {};
     if (dto.name?.trim()) data.name = dto.name.trim();
+    if (dto.cnpj !== undefined) {
+      data.document = this.trimOptional(dto.cnpj) ?? null;
+    }
+    if (dto.deliveryAddress !== undefined) {
+      data.deliveryAddress = this.trimOptional(dto.deliveryAddress) ?? null;
+    }
     const updated = await this.prisma.client.carrier.update({
       where: { id },
       data,
     });
-    return this.serializeName(updated);
+    return this.serializeCarrier(updated);
   }
 
   async toggleCarrier(id: string) {
@@ -211,7 +246,7 @@ export class CadastrosService {
       where: { id },
       data: { isActive: !row.isActive },
     });
-    return this.serializeName(updated);
+    return this.serializeCarrier(updated);
   }
 
   async deleteCarrier(id: string) {
@@ -243,6 +278,7 @@ export class CadastrosService {
         data: {
           name: dto.name.trim(),
           document: this.trimOptional(dto.cnpj) ?? null,
+          deliveryAddress: this.trimOptional(dto.deliveryAddress) ?? null,
         },
       })
       .then((row) => this.serializeSupplier(row));
@@ -250,10 +286,17 @@ export class CadastrosService {
 
   async updateSupplier(id: string, dto: UpdateSupplierDto) {
     await this.assertSupplierExists(id);
-    const data: { name?: string; document?: string | null } = {};
+    const data: {
+      name?: string;
+      document?: string | null;
+      deliveryAddress?: string | null;
+    } = {};
     if (dto.name?.trim()) data.name = dto.name.trim();
     if (dto.cnpj !== undefined) {
       data.document = this.trimOptional(dto.cnpj) ?? null;
+    }
+    if (dto.deliveryAddress !== undefined) {
+      data.deliveryAddress = this.trimOptional(dto.deliveryAddress) ?? null;
     }
     const updated = await this.prisma.client.supplier.update({
       where: { id },

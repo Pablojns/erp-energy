@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -19,9 +20,12 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface';
 import { AuditService } from '../common/audit.service';
 import { RequirePermission } from '../common/permissions/require-permission.decorator';
 import { CadastrosService } from './cadastros.service';
+import { CnpjLookupService } from './cnpj-lookup.service';
+import { CreateCarrierDto } from './dto/create-carrier.dto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { CreateNameCadastroDto } from './dto/create-name-cadastro.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { UpdateCarrierDto } from './dto/update-carrier.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { UpdateNameCadastroDto } from './dto/update-name-cadastro.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -35,8 +39,19 @@ import {
 export class CadastrosController {
   constructor(
     private readonly cadastros: CadastrosService,
+    private readonly cnpjLookup: CnpjLookupService,
     private readonly audit: AuditService,
   ) {}
+
+  @Get('cnpj/:cnpj')
+  @RequirePermission('cadastros', 'ver_modulo')
+  lookupCnpj(@Param('cnpj') cnpj: string) {
+    const digits = cnpj.replace(/\D/g, '');
+    if (digits.length !== 14) {
+      throw new BadRequestException('Informe um CNPJ com 14 dígitos.');
+    }
+    return this.cnpjLookup.lookup(digits);
+  }
 
   @Get('receivers')
   @RequirePermission('cadastros', 'ver_modulo')
@@ -139,7 +154,7 @@ export class CadastrosController {
   @RequirePermission('cadastros', 'criar')
   createCarrier(
     @CurrentUser() user: AuthUser,
-    @Body() dto: CreateNameCadastroDto,
+    @Body() dto: CreateCarrierDto,
   ) {
     return this.cadastros.createCarrier(dto);
   }
@@ -149,7 +164,7 @@ export class CadastrosController {
   updateCarrier(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateNameCadastroDto,
+    @Body() dto: UpdateCarrierDto,
   ) {
     return this.cadastros.updateCarrier(id, dto);
   }

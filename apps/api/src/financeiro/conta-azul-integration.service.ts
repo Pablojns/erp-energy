@@ -52,7 +52,6 @@ import {
   type CaTitulo,
 } from './conta-azul.titulos';
 import {
-  CA_NF_NOT_SYNCED_MESSAGE,
   danfeDownloadFilename,
   detectCaNfFile,
   extractNfeXml,
@@ -64,6 +63,8 @@ import {
   xmlToDanfePdf,
 } from './conta-azul.nfe-download';
 import {
+  displayInvoiceNumber,
+  displayPedidoNumero,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
 } from '../orders/order-search';
@@ -91,12 +92,18 @@ import {
   mapContaAzulVenda,
   planInvoiceFromLinkedVendas,
   planVendaVinculos,
+  vendaWegHint,
   type CaVenda,
   type InvoiceFillDivergencia,
   type InvoiceFillPreview,
   type VendaSemMatch,
   type VendaVinculoPreview,
 } from './conta-azul.vendas';
+import {
+  planNfVinculoAudit,
+  planOldCompletedCleanup,
+  type AuditOrderInput,
+} from './conta-azul.nf-vinculo-audit';
 import { mapLimit } from './conta-azul.pool';
 import { nfeEmitidaEmDate, parseNfeXml, type NfeXmlDados } from './conta-azul.nfe-xml';
 import {
@@ -200,6 +207,38 @@ export type CaVendasJobState = {
 
 type CaVendasJobInternal = CaVendasJobState & { createdAt: Date };
 
+export type CaNfVinculoAuditReport = {
+  ok: true;
+  apply: false;
+  vendas: number;
+  pedidos: number;
+  ordersAffected: number;
+  mismatchCount: number;
+  byKind: Record<string, number>;
+  mismatches: ReturnType<
+    typeof import('./conta-azul.nf-vinculo-audit').planNfVinculoAudit
+  >['mismatches'];
+  oldCompletedCleanup: ReturnType<
+    typeof import('./conta-azul.nf-vinculo-audit').planOldCompletedCleanup
+  >;
+  spotlight: unknown;
+  message: string;
+};
+
+export type CaNfVinculoAuditJobState = {
+  jobId: string;
+  status: CaSyncJobStatus;
+  processed: number;
+  total: number;
+  message: string;
+  result?: CaNfVinculoAuditReport;
+  error?: string;
+};
+
+type CaNfVinculoAuditJobInternal = CaNfVinculoAuditJobState & {
+  createdAt: Date;
+};
+
 export type CaXmlVendasReport = {
   ok: true;
   apply: boolean;
@@ -289,6 +328,62 @@ export type CaItensExternosXmlJobState = {
 type CaItensExternosXmlJobInternal = CaItensExternosXmlJobState & {
   createdAt: Date;
   pedido?: string;
+};
+
+export type CaSincronizacaoCompletaReport = {
+  ok: true;
+  apply: boolean;
+  applied: boolean;
+  cadastros: {
+    criar: { customers: number; suppliers: number; carriers: number };
+    atualizar: { customers: number; suppliers: number; carriers: number };
+    message: string;
+  };
+  itensExternos: {
+    corrections: number;
+    xmlsParsed: number;
+    xmlsMissing: number;
+    preview: CaItensExternosXmlCorrection[];
+    message: string;
+  };
+  xmlVendas: {
+    caso1: number;
+    caso1Completar: number;
+    caso2: number;
+    caso1ItensCorrigidos: number;
+    message: string;
+  };
+  notasAntigas: {
+    pending: number;
+    saved: number;
+    skipped: number;
+    preview: Array<{
+      orderId: string;
+      invoiceNumber: string;
+    }>;
+    message: string;
+  };
+  formatoNf: {
+    comPrefixoSerie: number;
+    preview: Array<{ from: string; to: string }>;
+    message: string;
+  };
+  message: string;
+};
+
+export type CaSincronizacaoCompletaJobState = {
+  jobId: string;
+  status: CaSyncJobStatus;
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: CaSincronizacaoCompletaReport;
+  error?: string;
+};
+
+type CaSincronizacaoCompletaJobInternal = CaSincronizacaoCompletaJobState & {
+  createdAt: Date;
 };
 
 const NF_LOOKUP_CONCURRENCY = 8;
@@ -481,10 +576,18 @@ export class ContaAzulIntegrationService {
   >();
   private readonly syncJobs = new Map<string, CaSyncJobInternal>();
   private readonly vendasJobs = new Map<string, CaVendasJobInternal>();
+  private readonly nfVinculoAuditJobs = new Map<
+    string,
+    CaNfVinculoAuditJobInternal
+  >();
   private readonly xmlVendasJobs = new Map<string, CaXmlVendasJobInternal>();
   private readonly itensExternosXmlJobs = new Map<
     string,
     CaItensExternosXmlJobInternal
+  >();
+  private readonly sincronizacaoCompletaJobs = new Map<
+    string,
+    CaSincronizacaoCompletaJobInternal
   >();
   private refreshInFlight: Promise<StoredSession> | null = null;
   private refreshLockColumnAvailable = true;
@@ -662,6 +765,225 @@ export class ContaAzulIntegrationService {
     return this.toVendasJobPublic(job);
   }
 
+  startNfVinculoAuditJob(): CaNfVinculoAuditJobState {
+    this.ensureConfigured();
+    this.pruneNfVinculoAuditJobs();
+    const running = [...this.nfVinculoAuditJobs.values()].find(
+      (job) => job.status === 'processando',
+    );
+    if (running) return this.toNfVinculoAuditJobPublic(running);
+    const job: CaNfVinculoAuditJobInternal = {
+      jobId: randomUUID(),
+      status: 'processando',
+      processed: 0,
+      total: 0,
+      message: 'Iniciando auditoria de vínculos NF (dry-run)...',
+      createdAt: new Date(),
+    };
+    this.nfVinculoAuditJobs.set(job.jobId, job);
+    void this.processNfVinculoAuditJob(job.jobId);
+    return this.toNfVinculoAuditJobPublic(job);
+  }
+
+  getNfVinculoAuditJob(jobId: string): CaNfVinculoAuditJobState {
+    const job = this.nfVinculoAuditJobs.get(jobId);
+    if (!job) {
+      throw new NotFoundException('Auditoria de vínculos NF não encontrada.');
+    }
+    return this.toNfVinculoAuditJobPublic(job);
+  }
+
+  /**
+   * Consulta live na Conta Azul + pedidos do ERP para números WEG específicos.
+   * Não grava nada.
+   */
+  async probeWegPedidos(numeros: string[]): Promise<Record<string, unknown>> {
+    this.ensureConfigured();
+    const wanted = [
+      ...new Set(numeros.map((n) => String(n).trim()).filter(Boolean)),
+    ];
+    if (wanted.length === 0) {
+      throw new BadRequestException('Informe ao menos um número de pedido.');
+    }
+    const erpAll = await this.loadAuditOrders();
+    const erpExact = erpAll.filter((o) => {
+      const ext = String(o.externalOrderNumber ?? '');
+      return wanted.some((n) => ext === n || ext.startsWith(n));
+    });
+    const buscaAttempts: unknown[] = [];
+    const vendasFound: CaVenda[] = [];
+    const rawSamples: unknown[] = [];
+    const tryBusca = async (
+      variant: string,
+      params: Record<string, string | number | boolean>,
+    ) => {
+      try {
+        const payload = await this.apiGet('/v1/venda/busca', params);
+        const itens = this.payloadItems(payload);
+        buscaAttempts.push({
+          variant,
+          params,
+          itemCount: itens.length,
+          keys: objectKeys(payload),
+        });
+        for (const item of itens) {
+          rawSamples.push({
+            via: 'busca',
+            variant,
+            keys: objectKeys(item),
+            numero: item.numero ?? null,
+            numero_pedido: item.numero_pedido ?? null,
+            codigo_pedido: item.codigo_pedido ?? null,
+            pedido: item.pedido ?? null,
+          });
+          const mapped = mapContaAzulVenda(item);
+          if (
+            mapped &&
+            !vendasFound.some((v) => v.contaAzulId === mapped.contaAzulId)
+          ) {
+            vendasFound.push(mapped);
+          }
+        }
+      } catch (err) {
+        buscaAttempts.push({
+          variant,
+          params,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+    for (const numero of wanted) {
+      const variants = [...new Set([numero, `${numero}1`, `${numero}11`])];
+      for (const variant of variants) {
+        const numeroParam = Number(variant);
+        await tryBusca(variant, {
+          pagina: 1,
+          tamanho_pagina: 50,
+          numero: Number.isFinite(numeroParam) ? numeroParam : variant,
+        });
+        await tryBusca(variant, {
+          pagina: 1,
+          tamanho_pagina: 50,
+          numero_pedido: variant,
+        });
+        await tryBusca(variant, {
+          pagina: 1,
+          tamanho_pagina: 50,
+          pesquisa: variant,
+        });
+      }
+    }
+
+    const vendaIds = [
+      ...new Set(
+        [
+          ...erpExact.map((o) => o.contaAzulVendaId),
+          ...vendasFound.map((v) => v.contaAzulId),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const vendaDetalhes: unknown[] = [];
+    for (const id of vendaIds.slice(0, 12)) {
+      try {
+        const payload = (await this.apiGet(`/v1/venda/${id}`)) as Record<
+          string,
+          unknown
+        >;
+        const inner =
+          payload.venda && typeof payload.venda === 'object'
+            ? (payload.venda as Record<string, unknown>)
+            : payload;
+        const mapped = mapContaAzulVenda(inner);
+        vendaDetalhes.push({
+          id,
+          keys: objectKeys(payload),
+          innerKeys: objectKeys(inner),
+          numero: inner.numero ?? payload.numero ?? null,
+          numero_pedido: inner.numero_pedido ?? null,
+          codigo_pedido: inner.codigo_pedido ?? null,
+          pedido: inner.pedido ?? payload.pedido ?? null,
+          mapped,
+        });
+        if (
+          mapped &&
+          !vendasFound.some((v) => v.contaAzulId === mapped.contaAzulId)
+        ) {
+          vendasFound.push(mapped);
+        }
+      } catch (err) {
+        vendaDetalhes.push({
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const notas: unknown[] = [];
+    const today = new Date();
+    for (const venda of vendasFound.slice(0, 12)) {
+      const around = venda.data ? new Date(venda.data) : today;
+      const rows = await this.listNotasByVendaId(venda.contaAzulId, around);
+      notas.push({
+        vendaId: venda.contaAzulId,
+        vendaNumero: venda.numero,
+        vendaNumeroPedido: venda.numeroPedido,
+        wegHint: vendaWegHint(venda),
+        nfs: rows,
+      });
+    }
+    for (const order of erpExact) {
+      const seenNf = new Set<string>();
+      for (const raw of [
+        order.invoiceNumber,
+        ...order.history.map((h) => h.invoiceNumber),
+      ]) {
+        const digits = invoiceNumberDigits(String(raw ?? ''));
+        if (!digits || seenNf.has(digits)) continue;
+        seenNf.add(digits);
+        try {
+          const payload = (await this.apiGet('/v1/notas-fiscais', {
+            pagina: 1,
+            tamanho_pagina: 50,
+            numero_nota: Number(digits) || digits,
+            data_inicial: this.ymd(new Date(today.getTime() - 14 * 86400000)),
+            data_final: this.ymd(today),
+          })) as Record<string, unknown>;
+          notas.push({
+            via: 'numero_nota',
+            pedido: order.externalOrderNumber,
+            nf: digits,
+            keys: objectKeys(payload),
+            itens: this.payloadItems(payload).slice(0, 5),
+          });
+        } catch (err) {
+          notas.push({
+            via: 'numero_nota',
+            nf: digits,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
+    const audit = planNfVinculoAudit({
+      orders: erpExact,
+      vendas: vendasFound,
+    });
+    return {
+      ok: true,
+      numeros: wanted,
+      erp: erpExact,
+      buscaAttempts,
+      rawSamples,
+      vendaDetalhes,
+      vendasFound,
+      notas,
+      matching: audit,
+      message:
+        'Probe live da Conta Azul + pedidos do banco conectado. Não aplica correção.',
+    };
+  }
+
   /**
    * Processa XML da NF-e de TODAS as vendas (Caso 1 completa pedido existente;
    * Caso 2 cria VENDA_EXTERNA). Dry-run por padrão; apply só grava após confirmação.
@@ -740,6 +1062,44 @@ export class ContaAzulIntegrationService {
       );
     }
     return this.toItensExternosXmlJobPublic(job);
+  }
+
+  /**
+   * Orquestra cadastros → correção de itens → XML vendas (Caso 2) →
+   * notas antigas → formato de NF. Dry-run por padrão.
+   */
+  startSincronizacaoCompletaJob(options: {
+    apply: boolean;
+  }): CaSincronizacaoCompletaJobState {
+    this.ensureConfigured();
+    this.pruneSincronizacaoCompletaJobs();
+    const running = [...this.sincronizacaoCompletaJobs.values()].find(
+      (job) => job.status === 'processando' && job.apply === options.apply,
+    );
+    if (running) return this.toSincronizacaoCompletaJobPublic(running);
+
+    const job: CaSincronizacaoCompletaJobInternal = {
+      jobId: randomUUID(),
+      status: 'processando',
+      processed: 0,
+      total: 5,
+      apply: options.apply,
+      message: 'Iniciando sincronização completa...',
+      createdAt: new Date(),
+    };
+    this.sincronizacaoCompletaJobs.set(job.jobId, job);
+    void this.processSincronizacaoCompletaJob(job.jobId);
+    return this.toSincronizacaoCompletaJobPublic(job);
+  }
+
+  getSincronizacaoCompletaJob(jobId: string): CaSincronizacaoCompletaJobState {
+    const job = this.sincronizacaoCompletaJobs.get(jobId);
+    if (!job) {
+      throw new NotFoundException(
+        'Sincronização completa da Conta Azul não encontrada.',
+      );
+    }
+    return this.toSincronizacaoCompletaJobPublic(job);
   }
 
   /**
@@ -1256,6 +1616,8 @@ export class ContaAzulIntegrationService {
       orders.map((o) => [o.id, o.contaAzulVendaId] as const),
     );
     for (const row of plan.claros) {
+      const current = vendaByOrder.get(row.orderId);
+      if (current) continue;
       vendaByOrder.set(row.orderId, row.vendaId);
     }
     const invoiceOrders = orders.map((o) => ({
@@ -1653,10 +2015,14 @@ export class ContaAzulIntegrationService {
 
         let current = row;
         if (current.caso === 'caso2') {
+          const xPed =
+            loaded.dados.items.map((it) => it.xPed).find((v) => Boolean(v)) ??
+            null;
           const next = reclassifyByInvoice({
             row: current,
             invoiceNumber: loaded.dados.invoiceNumber,
             orders,
+            xPed,
           });
           if (next.caso === 'ambiguo') {
             duplicatas.push({
@@ -2280,6 +2646,135 @@ export class ContaAzulIntegrationService {
     }
   }
 
+  private toNfVinculoAuditJobPublic(
+    job: CaNfVinculoAuditJobInternal,
+  ): CaNfVinculoAuditJobState {
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      message: job.message,
+      result: job.result,
+      error: job.error,
+    };
+  }
+
+  private pruneNfVinculoAuditJobs(): void {
+    const limit = Date.now() - 6 * 60 * 60 * 1000;
+    for (const [id, job] of this.nfVinculoAuditJobs) {
+      if (job.createdAt.getTime() < limit) {
+        this.nfVinculoAuditJobs.delete(id);
+      }
+    }
+  }
+
+  private async loadAuditOrders(): Promise<AuditOrderInput[]> {
+    const [orderRows, linkedRows, historyRows] = await Promise.all([
+      this.prisma.client.order.findMany({
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          invoiceNumber: true,
+          notaRemessa: true,
+          status: true,
+          items: {
+            select: {
+              quantity: true,
+              pickedQty: true,
+              missingQty: true,
+              invoicedQty: true,
+            },
+          },
+        },
+      }),
+      this.prisma.client.$queryRaw<
+        Array<{ id: string; contaAzulVendaId: string | null }>
+      >`SELECT id::text AS id, "contaAzulVendaId" FROM "Order"`,
+      this.prisma.client.orderInvoiceHistory.findMany({
+        select: { orderId: true, invoiceNumber: true },
+      }),
+    ]);
+    const linkedById = new Map(
+      linkedRows.map((row) => [row.id, row.contaAzulVendaId]),
+    );
+    const historyByOrder = new Map<string, Array<{ invoiceNumber: string }>>();
+    for (const row of historyRows) {
+      const list = historyByOrder.get(row.orderId) ?? [];
+      list.push({ invoiceNumber: row.invoiceNumber });
+      historyByOrder.set(row.orderId, list);
+    }
+    return orderRows.map((o) => ({
+      id: o.id,
+      code: o.code,
+      externalOrderNumber: o.externalOrderNumber,
+      invoiceNumber: o.invoiceNumber,
+      notaRemessa: o.notaRemessa,
+      status: String(o.status),
+      contaAzulVendaId: linkedById.get(o.id) ?? null,
+      history: historyByOrder.get(o.id) ?? [],
+      items: o.items,
+    }));
+  }
+
+  private async processNfVinculoAuditJob(jobId: string): Promise<void> {
+    const job = this.nfVinculoAuditJobs.get(jobId);
+    if (!job) return;
+    try {
+      job.message = 'Carregando pedidos do ERP...';
+      const orders = await this.loadAuditOrders();
+      job.processed = 1;
+      job.total = 4;
+      const today = new Date();
+      job.message = 'Buscando vendas na Conta Azul...';
+      const dataInicial = await this.findHistoryStart(today);
+      const vendas = await this.listAllVendas(dataInicial, this.ymd(today));
+      job.processed = 3;
+      job.message = 'Revalidando vínculos com a lógica WEG corrigida...';
+      const audit = planNfVinculoAudit({ orders, vendas });
+      const cleanup = planOldCompletedCleanup(orders);
+      const spotlightNums = ['4517818598', '4519085342'];
+      const spotlight = {
+        erp: orders.filter((o) => {
+          const ext = String(o.externalOrderNumber ?? '');
+          return spotlightNums.some((n) => ext === n || ext.startsWith(n));
+        }),
+        mismatches: audit.mismatches.filter((row) => {
+          const ext = String(row.externalOrderNumber ?? '');
+          const exp = String(row.expectedExternal ?? '');
+          return spotlightNums.some(
+            (n) => ext.startsWith(n) || exp.startsWith(n),
+          );
+        }),
+      };
+      job.result = {
+        ok: true,
+        apply: false,
+        vendas: vendas.length,
+        pedidos: orders.length,
+        ordersAffected: audit.ordersAffected,
+        mismatchCount: audit.mismatches.length,
+        byKind: audit.byKind,
+        mismatches: audit.mismatches,
+        oldCompletedCleanup: cleanup,
+        spotlight,
+        message: `Dry-run: ${audit.ordersAffected} pedido(s) com vínculo de NF suspeito em ${audit.mismatches.length} ocorrência(s). Nenhuma correção aplicada.`,
+      };
+      job.status = 'concluido';
+      job.processed = 4;
+      job.message = job.result.message;
+    } catch (err) {
+      job.status = 'erro';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.message = 'Falha na auditoria de vínculos NF.';
+      this.logger.error(
+        `Auditoria vínculos NF: ${job.error}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    }
+  }
+
   private async processVendasJob(jobId: string): Promise<void> {
     const job = this.vendasJobs.get(jobId);
     if (!job) return;
@@ -2399,6 +2894,164 @@ export class ContaAzulIntegrationService {
     this.pruneItensExternosXmlJobs();
   }
 
+  private toSincronizacaoCompletaJobPublic(
+    job: CaSincronizacaoCompletaJobInternal,
+  ): CaSincronizacaoCompletaJobState {
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      apply: job.apply,
+      message: job.message,
+      result: job.result,
+      error: job.error,
+    };
+  }
+
+  private pruneSincronizacaoCompletaJobs(): void {
+    const limit = Date.now() - 6 * 60 * 60 * 1000;
+    for (const [id, job] of this.sincronizacaoCompletaJobs) {
+      if (job.createdAt.getTime() < limit) {
+        this.sincronizacaoCompletaJobs.delete(id);
+      }
+    }
+  }
+
+  private async processSincronizacaoCompletaJob(jobId: string): Promise<void> {
+    const job = this.sincronizacaoCompletaJobs.get(jobId);
+    if (!job) return;
+    try {
+      const result = await this.processarSincronizacaoCompleta({
+        apply: job.apply,
+        onProgress: (update) => {
+          if (update.processed != null) job.processed = update.processed;
+          if (update.total != null) job.total = update.total;
+          job.message = update.message;
+        },
+      });
+      job.status = 'concluido';
+      job.result = result;
+      job.message = result.message;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      job.status = 'erro';
+      job.error = message;
+      job.message = message;
+    }
+    this.pruneSincronizacaoCompletaJobs();
+  }
+
+  private async processarSincronizacaoCompleta(options: {
+    apply: boolean;
+    onProgress?: (update: {
+      processed?: number;
+      total?: number;
+      message: string;
+    }) => void;
+  }): Promise<CaSincronizacaoCompletaReport> {
+    const apply = options.apply;
+    const reportProgress = (processed: number, message: string) =>
+      options.onProgress?.({ processed, total: 5, message });
+
+    reportProgress(1, 'Etapa 1/5: cadastros reais (Customer/Supplier/Carrier)...');
+    const cadastros = await this.sincronizarCadastros({ apply });
+
+    reportProgress(2, 'Etapa 2/5: correção de itens WEG via XML (nItemPed)...');
+    const itensExternos = await this.processarItensExternosXml({ apply });
+
+    reportProgress(3, 'Etapa 3/5: XML das NFs (Caso 1 completar / Caso 2 criar)...');
+    const xmlVendas = await this.processarVendasXml({ apply });
+
+    reportProgress(4, 'Etapa 4/5: XML/DANFE de notas antigas (pré-ERP)...');
+    const pending = await this.listPendingNotaArquivos(80);
+    let saved = 0;
+    let skipped = 0;
+    if (apply) {
+      const sync = await this.syncPendingNotaArquivos(200);
+      saved = sync.saved;
+      skipped = sync.skipped;
+    }
+    const notasAntigas = {
+      pending: pending.length,
+      saved,
+      skipped,
+      preview: pending.slice(0, 20),
+      message: apply
+        ? `Aplicado: ${saved} XML/DANFE gravado(s), ${skipped} pendente(s)/falha(s).`
+        : `Dry-run: ${pending.length} NF(s) sem XML/DANFE persistido. Nada baixado.`,
+    };
+
+    reportProgress(5, 'Etapa 5/5: formato do número da NF (sem série)...');
+    const formatoNf = await this.previewFormatoNfSemSerie();
+
+    const report: CaSincronizacaoCompletaReport = {
+      ok: true,
+      apply,
+      applied: apply,
+      cadastros: {
+        criar: cadastros.erpApply.criar,
+        atualizar: cadastros.erpApply.atualizar,
+        message: cadastros.message,
+      },
+      itensExternos: {
+        corrections: itensExternos.corrections,
+        xmlsParsed: itensExternos.xmlsParsed,
+        xmlsMissing: itensExternos.xmlsMissing,
+        preview: itensExternos.preview,
+        message: itensExternos.message,
+      },
+      xmlVendas: {
+        caso1: xmlVendas.caso1,
+        caso1Completar: xmlVendas.caso1Completar,
+        caso2: xmlVendas.caso2,
+        caso1ItensCorrigidos: xmlVendas.caso1ItensCorrigidos,
+        message: xmlVendas.message,
+      },
+      notasAntigas,
+      formatoNf,
+      message: '',
+    };
+    report.message = apply
+      ? [
+          cadastros.message,
+          itensExternos.message,
+          xmlVendas.message,
+          notasAntigas.message,
+          formatoNf.message,
+        ].join(' ')
+      : `Dry-run completo: cadastros (criar ${cadastros.erpApply.criar.customers} clientes / ${cadastros.erpApply.criar.suppliers} fornecedores / ${cadastros.erpApply.criar.carriers} transportadoras); ${itensExternos.corrections} item(ns) WEG a corrigir; Caso 1 ${xmlVendas.caso1Completar} a completar / Caso 2 ${xmlVendas.caso2} Venda Externa; ${pending.length} NF(s) antigas sem XML/DANFE. Nada gravado.`;
+    return report;
+  }
+
+  private async previewFormatoNfSemSerie(): Promise<{
+    comPrefixoSerie: number;
+    preview: Array<{ from: string; to: string }>;
+    message: string;
+  }> {
+    const rows = await this.prisma.client.order.findMany({
+      where: { invoiceNumber: { contains: ' - ' } },
+      select: { invoiceNumber: true },
+      take: 200,
+    });
+    const preview: Array<{ from: string; to: string }> = [];
+    let comPrefixoSerie = 0;
+    for (const row of rows) {
+      const from = String(row.invoiceNumber ?? '').trim();
+      const to = displayInvoiceNumber(from);
+      if (from && to && from !== to) {
+        comPrefixoSerie += 1;
+        if (preview.length < 12) preview.push({ from, to });
+      }
+    }
+    return {
+      comPrefixoSerie,
+      preview,
+      message:
+        'Exibição da NF já usa só o número (sem série). O valor gravado no banco não é reescrito.',
+    };
+  }
+
   private async readXmlByStorageKey(key: string): Promise<string | null> {
     if (!this.storageConfigured() || !this.storage) return null;
     try {
@@ -2461,19 +3114,19 @@ export class ContaAzulIntegrationService {
     }) => options.onProgress?.(update);
 
     reportProgress({ message: 'Buscando XMLs já armazenados...' });
+    const pedidoWhere = pedido
+      ? {
+          OR: [
+            { externalOrderNumber: pedido },
+            { code: { equals: pedido, mode: 'insensitive' as const } },
+          ],
+        }
+      : undefined;
     const histories = await this.prisma.client.orderInvoiceHistory.findMany({
       where: {
-        xmlStorageKey: { not: null },
         ...(pedido
-          ? {
-              order: {
-                OR: [
-                  { externalOrderNumber: pedido },
-                  { code: { equals: pedido, mode: 'insensitive' } },
-                ],
-              },
-            }
-          : {}),
+          ? { order: pedidoWhere }
+          : { xmlStorageKey: { not: null } }),
       },
       select: {
         invoiceNumber: true,
@@ -2484,6 +3137,7 @@ export class ContaAzulIntegrationService {
             code: true,
             externalOrderNumber: true,
             customerName: true,
+            invoiceNumber: true,
             items: {
               select: {
                 id: true,
@@ -2503,6 +3157,52 @@ export class ContaAzulIntegrationService {
       },
     });
 
+    type ScanRow = (typeof histories)[number];
+    const scan: ScanRow[] = [...histories];
+    if (pedido) {
+      const orders = await this.prisma.client.order.findMany({
+        where: pedidoWhere,
+        select: {
+          id: true,
+          code: true,
+          externalOrderNumber: true,
+          customerName: true,
+          invoiceNumber: true,
+          items: {
+            select: {
+              id: true,
+              lineNumber: true,
+              sku: true,
+              description: true,
+              quantity: true,
+              productId: true,
+              unitPrice: true,
+              ncm: true,
+              unit: true,
+              product: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const seen = new Set(
+        histories.map(
+          (h) => `${h.order.id}:${nfNumberKey(h.invoiceNumber)}`,
+        ),
+      );
+      for (const order of orders) {
+        const inv = order.invoiceNumber?.trim();
+        if (!inv) continue;
+        const k = `${order.id}:${nfNumberKey(inv)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        scan.push({
+          invoiceNumber: inv,
+          xmlStorageKey: null,
+          order,
+        });
+      }
+    }
+
     const catalog = await this.prisma.client.externalItem.findMany({
       select: { id: true, name: true },
     });
@@ -2515,21 +3215,31 @@ export class ContaAzulIntegrationService {
     const seenItems = new Set<string>();
     let xmlsParsed = 0;
     let xmlsMissing = 0;
-    const total = histories.length;
+    const total = scan.length;
 
-    for (let i = 0; i < histories.length; i += 1) {
-      const history = histories[i];
+    for (let i = 0; i < scan.length; i += 1) {
+      const history = scan[i];
       reportProgress({
         processed: i + 1,
         total,
         message: `Lendo XML ${i + 1} de ${total}...`,
       });
+      let raw: string | null = null;
       const key = history.xmlStorageKey?.trim();
-      if (!key) {
-        xmlsMissing += 1;
-        continue;
+      if (key) {
+        raw = await this.readXmlByStorageKey(key);
       }
-      const raw = await this.readXmlByStorageKey(key);
+      if (!raw && this.isConfigured()) {
+        try {
+          const file = await this.downloadNotaFiscal(history.invoiceNumber, {
+            orderId: history.order.id,
+            persist: options.apply,
+          });
+          raw = extractNfeXml(file.buffer);
+        } catch {
+          raw = null;
+        }
+      }
       if (!raw) {
         xmlsMissing += 1;
         continue;
@@ -2556,14 +3266,19 @@ export class ContaAzulIntegrationService {
         xmlItems: dados.items,
         externalItems: catalog,
       });
+      const pedidoNumero = displayPedidoNumero(history.order);
+      const invoiceDisplay =
+        displayInvoiceNumber(history.invoiceNumber) ||
+        nfNumberKey(history.invoiceNumber) ||
+        history.invoiceNumber;
       for (const patch of patches) {
         if (seenItems.has(patch.itemId)) continue;
         seenItems.add(patch.itemId);
         const row: CaItensExternosXmlCorrection = {
           orderId: history.order.id,
-          orderCode: history.order.code,
+          orderCode: pedidoNumero || history.order.externalOrderNumber || '',
           externalOrderNumber: history.order.externalOrderNumber,
-          invoiceNumber: history.invoiceNumber,
+          invoiceNumber: invoiceDisplay,
           customerName: history.order.customerName,
           itemId: patch.itemId,
           fromDescription: patch.fromDescription,
@@ -2585,7 +3300,7 @@ export class ContaAzulIntegrationService {
       ok: true,
       apply: options.apply,
       applied: false,
-      ordersScanned: new Set(histories.map((h) => h.order.id)).size,
+      ordersScanned: new Set(scan.map((h) => h.order.id)).size,
       xmlsParsed,
       xmlsMissing,
       corrections: toApply.length,
@@ -2795,15 +3510,16 @@ export class ContaAzulIntegrationService {
       );
       if (stored) return stored;
     }
-    const titulo = await this.findSyncedTituloByInvoice(numero);
-    if (!titulo) {
-      throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
-    }
-    const around = titulo.competencia ?? titulo.vencimento;
-    const chave = await this.resolveChaveAcesso(numero, around);
+    this.ensureConfigured();
+    const lookup = await this.resolveNfLookupContext(numero, opts?.orderId);
+    const chave =
+      lookup.chave ??
+      (await this.resolveChaveAcesso(numero, lookup.around, {
+        deep: lookup.deep,
+      }));
     if (!chave) {
       throw new NotFoundException(
-        'Título financeiro encontrado, mas o XML da NF-e não foi localizado na Conta Azul. Confira o número da nota ou sincronize de novo.',
+        `O XML da NF ${numero} não foi localizado na Conta Azul. Confira o número ou reconecte a conta.`,
       );
     }
     let buffer: Buffer;
@@ -2812,7 +3528,9 @@ export class ContaAzulIntegrationService {
     } catch (err) {
       const ax = err as AxiosError;
       if (ax.response?.status === 404) {
-        throw new NotFoundException(CA_NF_NOT_SYNCED_MESSAGE);
+        throw new NotFoundException(
+          `O XML da NF ${numero} não foi localizado na Conta Azul.`,
+        );
       }
       throw err;
     }
@@ -4568,9 +5286,10 @@ export class ContaAzulIntegrationService {
   private async resolveChaveAcesso(
     numero: string,
     around: Date,
+    opts?: { deep?: boolean },
   ): Promise<string | null> {
     const nota = Number(numero);
-    for (const window of this.nfeLookupWindows(around)) {
+    for (const window of this.nfeLookupWindows(around, opts?.deep === true)) {
       const payload = (await this.apiGet('/v1/notas-fiscais', {
         pagina: 1,
         tamanho_pagina: 50,
@@ -4599,9 +5318,84 @@ export class ContaAzulIntegrationService {
     return null;
   }
 
-  /** Janela de 15 dias centrada na competência, mais vizinhas (±15d). */
+  /**
+   * Data-âncora para a listagem da CA (máx. 15 dias). Não exige título
+   * financeiro nem contaAzulVendaId — notas pré-ERP usam a data do pedido
+   * e janelas mais largas.
+   */
+  private async resolveNfLookupContext(
+    numero: string,
+    orderId?: string,
+  ): Promise<{ around: Date; deep: boolean; chave: string | null }> {
+    const titulo = await this.findSyncedTituloByInvoice(numero);
+    if (titulo) {
+      return {
+        around: titulo.competencia ?? titulo.vencimento,
+        deep: false,
+        chave: null,
+      };
+    }
+
+    let around: Date | null = null;
+    let vendaId: string | null = null;
+    if (orderId) {
+      const order = await this.prisma.client.order.findUnique({
+        where: { id: orderId },
+        select: {
+          invoicedAt: true,
+          orderDate: true,
+          createdAt: true,
+          contaAzulVendaId: true,
+        },
+      });
+      around = order?.invoicedAt ?? order?.orderDate ?? order?.createdAt ?? null;
+      vendaId = order?.contaAzulVendaId?.trim() || null;
+    } else {
+      const histories = await this.prisma.client.orderInvoiceHistory.findMany({
+        where: { invoiceNumber: { contains: numero } },
+        take: 40,
+        select: {
+          invoiceNumber: true,
+          createdAt: true,
+          order: {
+            select: {
+              invoicedAt: true,
+              orderDate: true,
+              createdAt: true,
+              contaAzulVendaId: true,
+            },
+          },
+        },
+      });
+      const match = histories.find((row) => nfNumberKey(row.invoiceNumber) === numero);
+      if (match) {
+        around =
+          match.order.invoicedAt ??
+          match.order.orderDate ??
+          match.order.createdAt ??
+          match.createdAt;
+        vendaId = match.order.contaAzulVendaId?.trim() || null;
+      }
+    }
+
+    let chave: string | null = null;
+    if (vendaId && around) {
+      const notas = await this.listNotasByVendaId(vendaId, around);
+      const hit = notas.find((nf) => nfNumberKey(nf.numero) === numero);
+      if (hit?.chaveAcesso) chave = hit.chaveAcesso.replace(/\D/g, '');
+    }
+
+    return {
+      around: around ?? new Date(),
+      deep: true,
+      chave: chave && chave.length === 44 ? chave : null,
+    };
+  }
+
+  /** Janela de 15 dias centrada na competência; `deep` cobre até ~2 anos (notas pré-ERP). */
   private nfeLookupWindows(
     around: Date,
+    deep = false,
   ): Array<{ start: string; end: string }> {
     const center = new Date(
       Date.UTC(
@@ -4614,8 +5408,11 @@ export class ContaAzulIntegrationService {
         0,
       ),
     );
+    const shifts = deep
+      ? [0, -15, 15, -45, 45, -90, 90, -180, 180, -365, 365, -540, 540, -730, 730]
+      : [0, -15, 15, -45, 45, -90, 90];
     const windows: Array<{ start: string; end: string }> = [];
-    for (const shiftDays of [0, -15, 15, -45, 45, -90, 90]) {
+    for (const shiftDays of shifts) {
       const mid = new Date(center);
       mid.setUTCDate(mid.getUTCDate() + shiftDays);
       const start = new Date(mid);

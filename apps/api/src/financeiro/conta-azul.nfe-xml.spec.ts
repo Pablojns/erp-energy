@@ -31,6 +31,8 @@ const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
           <qCom>2.0000</qCom>
           <vUnCom>100.00</vUnCom>
           <vProd>200.00</vProd>
+          <xPed>4518727765</xPed>
+          <nItemPed>10</nItemPed>
         </prod>
       </det>
       <det nItem="2">
@@ -76,6 +78,8 @@ describe('parseNfeXml', () => {
         totalPrice: 200,
         ncm: '85414000',
         unit: 'UN',
+        xPed: '4518727765',
+        nItemPed: 10,
       }),
       expect.objectContaining({
         nItem: 2,

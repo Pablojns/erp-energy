@@ -10,6 +10,10 @@ export type NfeXmlItem = {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  /** Pedido do cliente no XML (`xPed`), quando a NF-e informa. */
+  xPed?: string | null;
+  /** Linha do pedido no XML (`nItemPed`) — pareamento oficial com OrderItem.lineNumber. */
+  nItemPed?: number | null;
 };
 
 export type NfeXmlDados = {
@@ -146,6 +150,9 @@ function parseDet(block: string, fallbackNItem: number): NfeXmlItem | null {
       : qty > 0
         ? Math.round((totalPrice / qty) * 100) / 100
         : totalPrice;
+  const nItemPedRaw = Number(text(prod, 'nItemPed'));
+  const nItemPed =
+    Number.isFinite(nItemPedRaw) && nItemPedRaw > 0 ? nItemPedRaw : null;
   return {
     nItem,
     sku: text(prod, 'cProd') ?? '',
@@ -155,6 +162,8 @@ function parseDet(block: string, fallbackNItem: number): NfeXmlItem | null {
     quantity: qty > 0 ? qty : 1,
     unitPrice,
     totalPrice: totalPrice > 0 ? totalPrice : unitPrice * (qty > 0 ? qty : 1),
+    xPed: text(prod, 'xPed'),
+    nItemPed,
   };
 }
 

@@ -188,4 +188,129 @@ describe('conta-azul.vendas', () => {
       invoiceNumberCa: '1959',
     });
   });
+
+  it('parcela WEG 11/12 dígitos casa no pedido base de 10, não em outro pedido do mesmo CNPJ', () => {
+    const weg = {
+      customerDocument: '07175725001050',
+      deliveryCnpj: '07175725001050',
+      total: 5000,
+      status: 'PARCIAL',
+      contaAzulVendaId: null,
+    };
+    const plan = planVendaVinculos({
+      vendas: [
+        mapContaAzulVenda({
+          id: 'vnd-p1',
+          numero: '4517818598',
+          total: 1800,
+          cliente: { documento: '07175725001050' },
+        })!,
+        mapContaAzulVenda({
+          id: 'vnd-p2',
+          numero: '45178185981',
+          total: 1600,
+          cliente: { documento: '07175725001050' },
+        })!,
+        mapContaAzulVenda({
+          id: 'vnd-p3',
+          numero: '451781859811',
+          total: 1600,
+          cliente: { documento: '07175725001050' },
+        })!,
+      ],
+      orders: [
+        {
+          id: 'base',
+          code: 'PED-1',
+          externalOrderNumber: '4517818598',
+          ...weg,
+        },
+        {
+          id: 'outro',
+          code: 'PED-2',
+          externalOrderNumber: '4519085342',
+          ...weg,
+          total: 1600,
+        },
+      ],
+    });
+    expect(plan.claros.map((r) => r.orderId)).toEqual(['base', 'base', 'base']);
+    expect(plan.claros.every((r) => r.orderId !== 'outro')).toBe(true);
+  });
+
+  it('casa parcela pelo numero_pedido mesmo quando numero da venda é sequencial', () => {
+    const plan = planVendaVinculos({
+      vendas: [
+        mapContaAzulVenda({
+          id: 'vnd-p2',
+          numero: 88,
+          numero_pedido: '45178185981',
+          total: 1600,
+          cliente: { documento: '07175725001050' },
+        })!,
+      ],
+      orders: [
+        {
+          id: 'base',
+          code: 'PED-1',
+          externalOrderNumber: '4517818598',
+          customerDocument: '07175725001050',
+          deliveryCnpj: '07175725001050',
+          total: 5000,
+          status: 'PARCIAL',
+          contaAzulVendaId: 'vnd-p1',
+        },
+        {
+          id: 'outro',
+          code: 'PED-2',
+          externalOrderNumber: '4519085342',
+          customerDocument: '07175725001050',
+          deliveryCnpj: '07175725001050',
+          total: 1600,
+          status: 'NOVO',
+          contaAzulVendaId: null,
+        },
+      ],
+    });
+    expect(plan.claros).toHaveLength(1);
+    expect(plan.claros[0].orderId).toBe('base');
+  });
+
+  it('não usa CNPJ+valor quando o número da venda é WEG (10+ dígitos) sem família no ERP', () => {
+    const plan = planVendaVinculos({
+      vendas: [
+        mapContaAzulVenda({
+          id: 'vnd-x',
+          numero: '45178185981',
+          total: 1600,
+          cliente: { documento: '07175725001050' },
+        })!,
+      ],
+      orders: [
+        {
+          id: 'outro',
+          code: 'PED-2',
+          externalOrderNumber: '4519085342',
+          customerDocument: '07175725001050',
+          deliveryCnpj: '07175725001050',
+          total: 1600,
+          status: 'NOVO',
+          contaAzulVendaId: null,
+        },
+      ],
+    });
+    expect(plan.claros).toHaveLength(0);
+    expect(plan.semCorrespondencia[0]?.motivo).toMatch(/família/i);
+  });
+
+  it('mapeia numero_pedido aninhado sem virar [object Object]', () => {
+    const v = mapContaAzulVenda({
+      id: 'vnd-nested',
+      numero: 88,
+      total: 10,
+      pedido: { numero: '451781859811' },
+    });
+    expect(v?.numeroPedido).toBe('451781859811');
+    expect(v?.numero).toBe('88');
+  });
 });

@@ -1,12 +1,13 @@
 import { inflateRawSync } from 'node:zlib';
-import { invoiceDigits } from './conta-azul.auth';
+import { invoiceNumberDigits } from '../orders/order-search';
 import { extractDocumentoNumero } from './conta-azul.titulos';
 
 export const CA_NF_NOT_SYNCED_MESSAGE =
   'Nota ainda não sincronizada — rode a sincronização da Conta Azul';
 
+/** Número da NF sem série (`1 - 1881` → `1881`). */
 export function nfNumberKey(raw: string | number | null | undefined): string {
-  return invoiceDigits(raw).replace(/^0+/, '');
+  return invoiceNumberDigits(String(raw ?? '')).replace(/^0+/, '');
 }
 
 /** Regex POSIX do PostgreSQL (~*) para NF-e/NF na descrição, sem substring de pedido WEG. */

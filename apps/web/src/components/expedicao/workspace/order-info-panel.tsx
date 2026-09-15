@@ -58,6 +58,32 @@ type NfHistoricoItem = {
   customerName?: string | null;
 };
 
+function historyRowsFromOrder(order: {
+  invoiceHistory?: Array<{
+    id: string;
+    invoiceNumber: string;
+    invoiceValue?: string | null;
+    volumes?: number | null;
+    createdAt: string;
+  }>;
+}): NfHistoricoItem[] {
+  return (order.invoiceHistory ?? [])
+    .filter(
+      (row) =>
+        !isCorreiosTrackingCode(row.invoiceNumber) &&
+        normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
+    )
+    .map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      invoiceValue: row.invoiceValue ?? null,
+      pickedQtyAtTime: 0,
+      volumes: row.volumes ?? null,
+      createdAt: row.createdAt,
+      createdBy: null,
+    }));
+}
+
 function formatMoneyBrl(value: string | null | undefined): string {
   if (value == null || value === '') return '—';
   const n = Number(String(value).replace(',', '.'));
@@ -350,7 +376,9 @@ export const OrderInfoPanel = forwardRef<
   const [savingTrackingCode, setSavingTrackingCode] = useState(false);
   const [trackingCodeError, setTrackingCodeError] = useState<string | null>(null);
   const lastSavedTrackingCodeRef = useRef(trackingCodeFromOrder(order));
-  const [nfHistorico, setNfHistorico] = useState<NfHistoricoItem[]>([]);
+  const [nfHistorico, setNfHistorico] = useState<NfHistoricoItem[]>(() =>
+    historyRowsFromOrder(order),
+  );
   const [nfHistoricoLoading, setNfHistoricoLoading] = useState(false);
   const [nfHistoricoModalOpen, setNfHistoricoModalOpen] = useState(false);
   const [nfHistoricoSearch, setNfHistoricoSearch] = useState('');
@@ -403,10 +431,6 @@ export const OrderInfoPanel = forwardRef<
         byDigits.set(digits, { number, dateMs, dateLabel });
       }
     };
-    add(order.invoiceNumber);
-    for (const saida of order.saidas ?? []) {
-      add(saida.invoiceNumber, saida.exitDate);
-    }
     for (const row of nfHistorico) {
       add(row.invoiceNumber, row.createdAt);
     }
@@ -418,7 +442,7 @@ export const OrderInfoPanel = forwardRef<
           ? `NF ${row.number} - ${row.dateLabel}`
           : `NF ${row.number}`,
       }));
-  }, [order.invoiceNumber, order.saidas, nfHistorico]);
+  }, [nfHistorico]);
 
   useEffect(() => {
     if (!nfPickerKind) return;
@@ -489,6 +513,8 @@ export const OrderInfoPanel = forwardRef<
       setNfHistorico([]);
       return;
     }
+    const seeded = historyRowsFromOrder(order);
+    if (seeded.length > 0) setNfHistorico(seeded);
     let cancelled = false;
     setNfHistoricoLoading(true);
     void erpFetchJson<{ historico: NfHistoricoItem[] }>(
@@ -930,11 +956,9 @@ export const OrderInfoPanel = forwardRef<
     }
     const nf =
       selectedNf ||
-      availableNfs[0]?.number ||
-      displayInvoiceNumber(notaVendaInput) ||
-      notaVenda;
+      availableNfs[0]?.number;
     if (!nf) {
-      setNfDownloadError('Informe o número da Nota de Venda (NF) para baixar o arquivo.');
+      setNfDownloadError('Nenhuma NF no histórico deste pedido para baixar.');
       return;
     }
 
@@ -1704,7 +1728,7 @@ export const OrderInfoPanel = forwardRef<
                         className="flex items-center justify-between gap-2"
                       >
                         <span className="font-mono text-sm font-semibold text-[var(--text-primary)]">
-                          NF {row.invoiceNumber}
+                          NF {displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber}
                         </span>
                         {nfRowDownloadButtons(row.invoiceNumber)}
                       </li>
@@ -1930,7 +1954,7 @@ export const OrderInfoPanel = forwardRef<
                             }
                           >
                             <span className="block font-mono text-sm font-semibold">
-                              NF {row.invoiceNumber}
+                              NF {displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber}
                             </span>
                             <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">
                               {formatMoneyBrl(row.invoiceValue)} ·{' '}

@@ -385,27 +385,17 @@ export function AdminOrderEditModal(props: {
     setPriority(String(order.priority));
     setMercadoEletronicoStatus(order.mercadoEletronicoStatus ?? '');
     setContaAzulStatus(order.contaAzulStatus ?? '');
-    setInvoiceNumber(
-      order.invoiceNumber?.trim() &&
-        normalizeInvoiceNumberDigits(order.invoiceNumber)
-        ? order.invoiceNumber
-        : '',
-    );
+    setInvoiceNumber('');
     setInvoiceHistory(
-      order.invoiceNumber?.trim() &&
-        normalizeInvoiceNumberDigits(order.invoiceNumber)
-        ? [
-            {
-              key: `seed-${order.id}`,
-              invoiceNumber: order.invoiceNumber.trim(),
-              invoiceValue: order.totalValue ?? '',
-              createdAt: (order.updatedAt ?? new Date().toISOString()).slice(
-                0,
-                10,
-              ),
-            },
-          ]
-        : [],
+      (order.invoiceHistory ?? [])
+        .filter((row) => normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0)
+        .map((row) => ({
+          key: row.id,
+          id: row.id,
+          invoiceNumber: row.invoiceNumber,
+          invoiceValue: row.invoiceValue ?? '',
+          createdAt: (row.createdAt ?? '').slice(0, 10),
+        })),
     );
     setTotalValue(order.totalValue ?? '');
     setCarrierId(order.carrierId ?? '');
@@ -443,7 +433,6 @@ export function AdminOrderEditModal(props: {
           const rows = (Array.isArray(res.historico) ? res.historico : []).filter(
             (row) => normalizeInvoiceNumberDigits(row.invoiceNumber).length > 0,
           );
-          if (rows.length === 0) return;
           setInvoiceHistory(
             rows.map((row) => ({
               key: row.id,
@@ -456,10 +445,10 @@ export function AdminOrderEditModal(props: {
           const latest = [...rows].sort((a, b) =>
             b.createdAt.localeCompare(a.createdAt),
           )[0];
-          if (latest) setInvoiceNumber(latest.invoiceNumber);
+          setInvoiceNumber(latest?.invoiceNumber ?? '');
         })
         .catch(() => {
-          /* mantém seed do invoiceNumber do pedido */
+          /* Histórico já veio de OrderInvoiceHistory no pedido; não inventa NF. */
         });
 
       const addressLooksEmpty =

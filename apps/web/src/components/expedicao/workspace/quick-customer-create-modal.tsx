@@ -4,9 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import { formatCpfCnpj, digitsOnly } from '@/src/components/cadastros/document-mask';
 import {
+  cnpjLookupToAddressForm,
+  fetchCompanyByCnpj,
+} from '@/src/components/cadastros/cnpj-lookup';
+import {
   emptyDeliveryAddressForm,
   fetchAddressByCep,
   formatCep,
+  hasStructuredAddress,
   serializeDeliveryAddress,
   type DeliveryAddressForm,
 } from '@/src/components/cadastros/delivery-address';
@@ -38,21 +43,6 @@ type FormState = {
   addressLoaded: boolean;
 };
 
-type BrasilApiCnpj = {
-  razao_social?: string;
-  nome_fantasia?: string;
-  cnpj?: string;
-  cep?: string;
-  logradouro?: string;
-  numero?: string;
-  complemento?: string;
-  bairro?: string;
-  municipio?: string;
-  uf?: string;
-  ddd_telefone_1?: string;
-  email?: string;
-};
-
 function emptyForm(initialCnpj?: string): FormState {
   return {
     name: '',
@@ -69,34 +59,6 @@ function fieldClass(disabled?: boolean) {
   return `w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)] ${
     disabled ? 'cursor-not-allowed opacity-60' : ''
   }`;
-}
-
-async function lookupCnpjBrasilApi(cnpjDigits: string): Promise<Partial<FormState> | null> {
-  const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjDigits}`);
-  if (!res.ok) return null;
-  const data = (await res.json()) as BrasilApiCnpj;
-  const razao = data.razao_social?.trim() || data.nome_fantasia?.trim() || '';
-  if (!razao && !data.cnpj) return null;
-
-  const cepDigits = digitsOnly(data.cep ?? '');
-  const hasAddress = cepDigits.length === 8 || Boolean(data.logradouro?.trim());
-
-  return {
-    name: razao,
-    cnpj: formatCpfCnpj(data.cnpj ?? cnpjDigits),
-    phone: data.ddd_telefone_1?.trim() || '',
-    email: data.email?.trim() || '',
-    address: {
-      cep: cepDigits.length === 8 ? formatCep(cepDigits) : '',
-      logradouro: data.logradouro?.trim() ?? '',
-      bairro: data.bairro?.trim() ?? '',
-      cidade: data.municipio?.trim() ?? '',
-      uf: data.uf?.trim().toUpperCase() ?? '',
-      numero: data.numero?.trim() ?? '',
-      complemento: data.complemento?.trim() ?? '',
-    },
-    addressLoaded: hasAddress,
-  };
 }
 
 export function QuickCustomerCreateModal(props: {
@@ -179,26 +141,25 @@ export function QuickCustomerCreateModal(props: {
             return;
           }
 
-          const fromApi = await lookupCnpjBrasilApi(qDigits);
+          const fromApi = await fetchCompanyByCnpj(qDigits);
           if (seq !== lookupSeq.current) return;
-          if (!fromApi) {
-            setLookupHint('CNPJ não encontrado na consulta pública.');
-            setForm((prev) => ({
-              ...prev,
-              cnpj: formatCpfCnpj(qDigits),
-            }));
-            return;
-          }
           setForm((prev) => ({
             ...prev,
-            ...fromApi,
-            address: fromApi.address ?? prev.address,
-            addressLoaded: fromApi.addressLoaded ?? prev.addressLoaded,
+            name: fromApi.razaoSocial || prev.name,
+            cnpj: formatCpfCnpj(fromApi.cnpj || qDigits),
+            address: cnpjLookupToAddressForm(fromApi, prev.address),
+            addressLoaded: true,
           }));
           setLookupHint('Razão social preenchida pela consulta de CNPJ.');
         } catch {
           if (seq !== lookupSeq.current) return;
-          setLookupHint('Não foi possível consultar o CNPJ agora.');
+          setLookupHint(
+            'Não foi possível consultar o CNPJ. Preencha os dados manualmente.',
+          );
+          setForm((prev) => ({
+            ...prev,
+            cnpj: formatCpfCnpj(qDigits),
+          }));
         } finally {
           if (seq === lookupSeq.current) setLookupLoading(false);
         }
@@ -264,8 +225,8 @@ export function QuickCustomerCreateModal(props: {
       setError('Informe um CNPJ/CPF válido.');
       return;
     }
-    if (!form.addressLoaded) {
-      setError('Busque o CEP para preencher o endereço.');
+    if (!form.addressLoaded && !hasStructuredAddress(form.address)) {
+      setError('Busque o CEP ou preencha o endereço.');
       return;
     }
     if (!form.address.numero.trim()) {
@@ -303,7 +264,7 @@ export function QuickCustomerCreateModal(props: {
     }
   };
 
-  const addressDisabled = saving || !form.addressLoaded;
+  const addressDisabled = saving;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">

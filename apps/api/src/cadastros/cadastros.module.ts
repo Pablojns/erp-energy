@@ -6,6 +6,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CadastrosController } from './cadastros.controller';
 import { CadastrosService } from './cadastros.service';
 import { CarriersSeedService } from './carriers-seed.service';
+import { CnpjLookupService } from './cnpj-lookup.service';
 import { CompanyEntitiesSeedService } from './company-entities-seed.service';
 
 @Module({
@@ -13,6 +14,7 @@ import { CompanyEntitiesSeedService } from './company-entities-seed.service';
   controllers: [CadastrosController],
   providers: [
     CadastrosService,
+    CnpjLookupService,
     CarriersSeedService,
     CompanyEntitiesSeedService,
     AuditService,

@@ -49,6 +49,7 @@ import {
   buildOrderSearchWhere,
   confirmedRemessaNumber,
   invoiceNumberDigits,
+  displayInvoiceNumber,
   isCorreiosTrackingCode,
   sameInvoiceNumber,
 } from './order-search';
@@ -205,6 +206,15 @@ type OrderSerializeSource = {
     invoiceValue?: Prisma.Decimal | string | number;
     exitDate?: Date;
     carrierName?: string | null;
+  }>;
+  invoiceHistory?: Array<{
+    id: string;
+    invoiceNumber: string;
+    invoiceValue?: Prisma.Decimal | string | number | null;
+    volumes?: number | null;
+    xmlStorageKey?: string | null;
+    danfeStorageKey?: string | null;
+    createdAt: Date;
   }>;
   createdAt: Date;
   updatedAt: Date;
@@ -3834,6 +3844,18 @@ export class OrderService {
         },
         orderBy: { exitDate: 'desc' },
       },
+      invoiceHistory: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceValue: true,
+          volumes: true,
+          xmlStorageKey: true,
+          danfeStorageKey: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      },
       stockReservations: {
         where: { releasedAt: null },
         select: { id: true },
@@ -4990,7 +5012,7 @@ export class OrderService {
       contaAzulStatus: row.contaAzulStatus,
       invoiceNumber: isCorreiosTrackingCode(row.invoiceNumber)
         ? null
-        : row.invoiceNumber,
+        : displayInvoiceNumber(row.invoiceNumber) || row.invoiceNumber,
       invoiceStatus: row.invoiceStatus,
       orderDate: row.orderDate?.toISOString() ?? null,
       requestedDeliveryDate: row.requestedDeliveryDate?.toISOString() ?? null,
@@ -5016,13 +5038,30 @@ export class OrderService {
           id: e.id as string,
           invoiceNumber: isCorreiosTrackingCode(e.invoiceNumber)
             ? null
-            : e.invoiceNumber ?? null,
+            : displayInvoiceNumber(e.invoiceNumber) || e.invoiceNumber || null,
           invoiceValue: e.invoiceValue != null ? e.invoiceValue.toString() : null,
           exitDate: e.exitDate ? e.exitDate.toISOString() : null,
           carrierName: e.carrierName ?? null,
           trackingCode:
             e.trackingCode ??
             (isCorreiosTrackingCode(e.invoiceNumber) ? e.invoiceNumber : null),
+        })),
+      invoiceHistory: (row.invoiceHistory ?? [])
+        .filter(
+          (h) =>
+            !isCorreiosTrackingCode(h.invoiceNumber) &&
+            invoiceNumberDigits(h.invoiceNumber).length > 0,
+        )
+        .map((h) => ({
+          id: h.id,
+          invoiceNumber:
+            displayInvoiceNumber(h.invoiceNumber) || h.invoiceNumber,
+          invoiceValue:
+            h.invoiceValue != null ? String(h.invoiceValue) : null,
+          volumes: h.volumes ?? null,
+          xmlStorageKey: h.xmlStorageKey ?? null,
+          danfeStorageKey: h.danfeStorageKey ?? null,
+          createdAt: h.createdAt.toISOString(),
         })),
       unidadesFaltantes,
       itemCount: row.items.length,

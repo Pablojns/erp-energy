@@ -1,6 +1,6 @@
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
-export class UpdateCustomerDto {
+export class UpdateCarrierDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)

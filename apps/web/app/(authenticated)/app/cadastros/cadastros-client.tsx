@@ -44,14 +44,12 @@ type NameCadastro = {
   updatedAt: string;
 };
 
-type SupplierCadastro = NameCadastro;
-
-type CustomerCadastro = NameCadastro & {
+type CompanyCadastro = NameCadastro & {
   cnpj: string | null;
   deliveryAddress: string | null;
 };
 
-type CadastroRow = NameCadastro | SupplierCadastro | CustomerCadastro;
+type CadastroRow = NameCadastro | CompanyCadastro;
 
 type TabConfig = {
   id: CadastroTab;
@@ -93,6 +91,8 @@ const TABS: TabConfig[] = [
     entityLabel: 'Transportadora',
     columns: [
       { key: 'name', header: 'Nome' },
+      { key: 'cnpj', header: 'CNPJ' },
+      { key: 'deliveryAddress', header: 'Endereço' },
       { key: 'status', header: 'Status' },
     ],
   },
@@ -104,6 +104,8 @@ const TABS: TabConfig[] = [
     entityLabel: 'Fornecedor',
     columns: [
       { key: 'name', header: 'Nome' },
+      { key: 'cnpj', header: 'CNPJ' },
+      { key: 'deliveryAddress', header: 'Endereço' },
       { key: 'status', header: 'Status' },
     ],
   },
@@ -261,7 +263,7 @@ type CadastroFormState = {
   name: string;
 };
 
-function buildCustomerFormValues(row: CustomerCadastro | null): CustomerFormValues {
+function buildCompanyFormValues(row: CompanyCadastro | null): CustomerFormValues {
   const parsed = parseDeliveryAddress(row?.deliveryAddress);
   return {
     name: row?.name ?? '',
@@ -271,7 +273,30 @@ function buildCustomerFormValues(row: CustomerCadastro | null): CustomerFormValu
   };
 }
 
-function CustomerCadastroModal({
+function companyFormMeta(tab: TabConfig) {
+  if (tab.id === 'carriers') {
+    return {
+      namePlaceholder: 'Nome da transportadora',
+      documentLabel: 'CNPJ',
+    };
+  }
+  if (tab.id === 'suppliers') {
+    return {
+      namePlaceholder: 'Nome do fornecedor',
+      documentLabel: 'CNPJ',
+    };
+  }
+  return {
+    namePlaceholder: 'Nome do cliente',
+    documentLabel: 'CNPJ/CPF',
+  };
+}
+
+function usesCompanyForm(tabId: CadastroTab) {
+  return tabId === 'customers' || tabId === 'suppliers' || tabId === 'carriers';
+}
+
+function CompanyCadastroModal({
   mode,
   tab,
   row,
@@ -280,12 +305,12 @@ function CustomerCadastroModal({
 }: {
   mode: 'create' | 'edit';
   tab: TabConfig;
-  row: CustomerCadastro | null;
+  row: CompanyCadastro | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState<CustomerFormValues>(() =>
-    buildCustomerFormValues(row),
+    buildCompanyFormValues(row),
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -349,6 +374,8 @@ function CustomerCadastroModal({
         legacyAddress={legacyAddress}
         error={error}
         onClearError={() => setError(null)}
+        namePlaceholder={companyFormMeta(tab).namePlaceholder}
+        documentLabel={companyFormMeta(tab).documentLabel}
       />
     </ModalShell>
   );
@@ -775,12 +802,12 @@ function CadastroTable({
       ) : null}
 
       {modalMode ? (
-        tab.id === 'customers' ? (
-          <CustomerCadastroModal
+        usesCompanyForm(tab.id) ? (
+          <CompanyCadastroModal
             mode={modalMode}
             tab={tab}
             row={
-              modalMode === 'edit' ? (editRow as CustomerCadastro | null) : null
+              modalMode === 'edit' ? (editRow as CompanyCadastro | null) : null
             }
             onClose={() => {
               setModalMode(null);

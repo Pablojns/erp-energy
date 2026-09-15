@@ -40,6 +40,7 @@ import {
   filterNfsByPeriod,
 } from '@/src/components/financeiro/utils';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
+import { displayInvoiceNumber } from '@/src/services/api/pedidos-normalize';
 import { useNavPermissions } from '@/src/components/layout/nav-permissions-context';
 import {
   adjustRangeOnDateChange,
@@ -267,7 +268,70 @@ type CaPreviewKind =
   | 'vendas'
   | 'pedidos-cadastro'
   | 'xml-vendas'
-  | 'itens-externos-xml';
+  | 'itens-externos-xml'
+  | 'sincronizacao-completa';
+
+type SincronizacaoCompletaPreview = {
+  applied: boolean;
+  message: string;
+  cadastros: {
+    criar: { customers: number; suppliers: number; carriers: number };
+    atualizar: { customers: number; suppliers: number; carriers: number };
+    message: string;
+  };
+  itensExternos: {
+    corrections: number;
+    xmlsParsed: number;
+    xmlsMissing: number;
+    preview: ItensExternosXmlPreview['preview'];
+    message: string;
+  };
+  xmlVendas: {
+    caso1: number;
+    caso1Completar: number;
+    caso2: number;
+    caso1ItensCorrigidos: number;
+    message: string;
+  };
+  notasAntigas: {
+    pending: number;
+    saved: number;
+    skipped: number;
+    preview: Array<{ orderId: string; invoiceNumber: string }>;
+    message: string;
+  };
+  formatoNf: {
+    comPrefixoSerie: number;
+    preview: Array<{ from: string; to: string }>;
+    message: string;
+  };
+};
+
+type CaSincronizacaoCompletaJob = {
+  jobId: string;
+  status: 'processando' | 'concluido' | 'erro';
+  processed: number;
+  total: number;
+  apply: boolean;
+  message: string;
+  result?: SincronizacaoCompletaPreview;
+  error?: string;
+};
+
+function pedidoLabel(row: {
+  orderCode?: string | null;
+  externalOrderNumber?: string | null;
+}): string {
+  const ext = (row.externalOrderNumber ?? '').trim();
+  if (ext) return ext;
+  const code = (row.orderCode ?? '').trim();
+  if (!code || /^PED-/i.test(code)) return '—';
+  return code;
+}
+
+function nfLabel(raw: string | null | undefined): string {
+  return displayInvoiceNumber(raw) || (raw ?? '').trim() || '—';
+}
 
 async function pollCaSync(onProgress: (message: string) => void): Promise<CaSyncJob> {
   const started = await erpFetchJson<CaSyncJob>('api/financeiro/conta-azul/sync', {
@@ -377,6 +441,36 @@ async function pollItensExternosXml(
   return current.result;
 }
 
+async function pollSincronizacaoCompleta(
+  apply: boolean,
+  onProgress: (message: string) => void,
+): Promise<SincronizacaoCompletaPreview> {
+  const started = await erpFetchJson<CaSincronizacaoCompletaJob>(
+    `api/financeiro/conta-azul/sincronizacao-completa?${apply ? 'apply=true' : 'dry-run=true'}`,
+    { method: 'POST' },
+  );
+  onProgress(started.message);
+  let current = started;
+  while (current.status === 'processando') {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    current = await erpFetchJson<CaSincronizacaoCompletaJob>(
+      `api/financeiro/conta-azul/sincronizacao-completa-status/${started.jobId}`,
+    );
+    onProgress(current.message);
+  }
+  if (current.status === 'erro') {
+    throw new Error(
+      current.error ||
+        current.message ||
+        'Falha na sincronização completa da Conta Azul.',
+    );
+  }
+  if (!current.result) {
+    throw new Error('A sincronização completa terminou sem resultado.');
+  }
+  return current.result;
+}
+
 export function FinanceiroWorkspace() {
   const defaultRange = useMemo(() => defaultMonthRange(), []);
   const { hasPermission } = useNavPermissions();
@@ -409,6 +503,8 @@ export function FinanceiroWorkspace() {
     useState<PedidoCadastroFillPreview | null>(null);
   const [itensExternosPreview, setItensExternosPreview] =
     useState<ItensExternosXmlPreview | null>(null);
+  const [sincronizacaoCompletaPreview, setSincronizacaoCompletaPreview] =
+    useState<SincronizacaoCompletaPreview | null>(null);
 
   const period = useMemo(
     () => normalizeDateRange({ dataInicio, dataFim }),
@@ -539,6 +635,7 @@ export function FinanceiroWorkspace() {
     setXmlVendasPreview(null);
     setPedidosCadastroPreview(null);
     setItensExternosPreview(null);
+    setSincronizacaoCompletaPreview(null);
   };
 
   const handlePreviewCadastros = async () => {
@@ -659,6 +756,39 @@ export function FinanceiroWorkspace() {
     }
   };
 
+  const handlePreviewSincronizacaoCompleta = async () => {
+    if (!caConnected) {
+      setExportError('Conecte a Conta Azul antes de sincronizar.');
+      return;
+    }
+    setExportError(null);
+    setCaPreviewKind('sincronizacao-completa');
+    setCadastrosPreview(null);
+    setVendasPreview(null);
+    setXmlVendasPreview(null);
+    setPedidosCadastroPreview(null);
+    setItensExternosPreview(null);
+    setSincronizacaoCompletaPreview(null);
+    setCaPreviewError(null);
+    setCaPreviewProgress('Iniciando...');
+    setCaPreviewLoading(true);
+    setCaBusy(true);
+    try {
+      const res = await pollSincronizacaoCompleta(false, setCaPreviewProgress);
+      setSincronizacaoCompletaPreview(res);
+    } catch (e) {
+      setCaPreviewError(
+        e instanceof Error
+          ? e.message
+          : 'Erro na sincronização completa da Conta Azul.',
+      );
+    } finally {
+      setCaPreviewLoading(false);
+      setCaPreviewProgress(null);
+      setCaBusy(false);
+    }
+  };
+
   const handlePreviewPedidosCadastro = async () => {
     if (!caConnected) {
       setExportError('Conecte a Conta Azul antes de sincronizar.');
@@ -715,6 +845,10 @@ export function FinanceiroWorkspace() {
         setCaPreviewProgress('Iniciando...');
         const res = await pollItensExternosXml(true, setCaPreviewProgress);
         setItensExternosPreview(res);
+      } else if (caPreviewKind === 'sincronizacao-completa') {
+        setCaPreviewProgress('Iniciando...');
+        const res = await pollSincronizacaoCompleta(true, setCaPreviewProgress);
+        setSincronizacaoCompletaPreview(res);
       } else {
         const res = await erpFetchJson<PedidoCadastroFillPreview>(
           'api/financeiro/conta-azul/preencher-pedidos-cadastro?apply=true',
@@ -847,6 +981,7 @@ export function FinanceiroWorkspace() {
           onSyncVendas={() => void handlePreviewVendas()}
           onSyncXmlVendas={() => void handlePreviewXmlVendas()}
           onSyncItensExternosXml={() => void handlePreviewItensExternosXml()}
+          onSyncCompleta={() => void handlePreviewSincronizacaoCompleta()}
           onSyncPedidosCadastro={() => void handlePreviewPedidosCadastro()}
         />
       </div>
@@ -894,16 +1029,19 @@ export function FinanceiroWorkspace() {
               ? 'Processar XML das NFs'
               : caPreviewKind === 'itens-externos-xml'
                 ? 'Corrigir itens externos (XML armazenado)'
-                : caPreviewKind === 'pedidos-cadastro'
-                  ? 'Preencher comprador e endereço'
-                  : 'Sincronizar cadastros'
+                : caPreviewKind === 'sincronizacao-completa'
+                  ? 'Sincronização Completa da Conta Azul'
+                  : caPreviewKind === 'pedidos-cadastro'
+                    ? 'Preencher comprador e endereço'
+                    : 'Sincronizar cadastros'
         }
         loading={caPreviewLoading}
         applying={caPreviewApplying}
         loadingMessage={
           caPreviewKind === 'vendas' ||
           caPreviewKind === 'xml-vendas' ||
-          caPreviewKind === 'itens-externos-xml'
+          caPreviewKind === 'itens-externos-xml' ||
+          caPreviewKind === 'sincronizacao-completa'
             ? caPreviewProgress
             : null
         }
@@ -915,9 +1053,11 @@ export function FinanceiroWorkspace() {
               ? Boolean(xmlVendasPreview?.applied)
               : caPreviewKind === 'itens-externos-xml'
                 ? Boolean(itensExternosPreview?.applied)
-                : caPreviewKind === 'pedidos-cadastro'
-                  ? Boolean(pedidosCadastroPreview?.applied)
-                  : Boolean(cadastrosPreview?.applied)
+                : caPreviewKind === 'sincronizacao-completa'
+                  ? Boolean(sincronizacaoCompletaPreview?.applied)
+                  : caPreviewKind === 'pedidos-cadastro'
+                    ? Boolean(pedidosCadastroPreview?.applied)
+                    : Boolean(cadastrosPreview?.applied)
         }
         appliedMessage={
           caPreviewKind === 'vendas'
@@ -932,6 +1072,10 @@ export function FinanceiroWorkspace() {
                 ? itensExternosPreview?.applied
                   ? itensExternosPreview.message
                   : null
+                : caPreviewKind === 'sincronizacao-completa'
+                  ? sincronizacaoCompletaPreview?.applied
+                    ? sincronizacaoCompletaPreview.message
+                    : null
                 : caPreviewKind === 'pedidos-cadastro'
                   ? pedidosCadastroPreview?.applied
                     ? pedidosCadastroPreview.message
@@ -976,10 +1120,7 @@ export function FinanceiroWorkspace() {
               <ul className="space-y-1.5 text-xs">
                 {cadastrosPreview.erpApply.previewPedidos.map((row) => (
                   <li key={`${row.code}-${row.cnpj}`}>
-                    Pedido {row.code}
-                    {row.externalOrderNumber
-                      ? ` (${row.externalOrderNumber})`
-                      : ''}{' '}
+                    Pedido {pedidoLabel({ orderCode: row.code, externalOrderNumber: row.externalOrderNumber })}{' '}
                     ← CNPJ {row.cnpj}
                   </li>
                 ))}
@@ -1044,10 +1185,7 @@ export function FinanceiroWorkspace() {
               <ul className="space-y-1.5 text-xs">
                 {vendasPreview.previewClaros.map((row) => (
                   <li key={`${row.orderCode}-${row.vendaNumero ?? ''}`}>
-                    Pedido {row.orderCode}
-                    {row.externalOrderNumber
-                      ? ` (${row.externalOrderNumber})`
-                      : ''}{' '}
+                    Pedido {pedidoLabel(row)}{' '}
                     ← venda {row.vendaNumero ?? '—'} ({row.reason})
                   </li>
                 ))}
@@ -1061,11 +1199,8 @@ export function FinanceiroWorkspace() {
                 <ul className="mt-1 space-y-1.5 text-xs">
                   {(vendasPreview.previewNfFill ?? []).map((row) => (
                     <li key={`${row.orderCode}-${row.invoiceNumber}`}>
-                      Pedido {row.orderCode}
-                      {row.externalOrderNumber
-                        ? ` (${row.externalOrderNumber})`
-                        : ''}{' '}
-                      → NF {row.invoiceNumber}
+                      Pedido {pedidoLabel(row)}{' '}
+                      → NF {nfLabel(row.invoiceNumber)}
                     </li>
                   ))}
                 </ul>
@@ -1079,12 +1214,9 @@ export function FinanceiroWorkspace() {
                 <ul className="mt-1 space-y-1.5 text-xs">
                   {(vendasPreview.previewNfDivergencias ?? []).map((row, idx) => (
                     <li key={`${row.orderCode}-div-${idx}`}>
-                      Pedido {row.orderCode}
-                      {row.externalOrderNumber
-                        ? ` (${row.externalOrderNumber})`
-                        : ''}{' '}
-                      — ERP {row.invoiceNumberErp || '—'} ≠ CA{' '}
-                      {row.invoiceNumberCa} ({row.motivo})
+                      Pedido {pedidoLabel(row)}{' '}
+                      — ERP {nfLabel(row.invoiceNumberErp) || '—'} ≠ CA{' '}
+                      {nfLabel(row.invoiceNumberCa)} ({row.motivo})
                     </li>
                   ))}
                 </ul>
@@ -1139,11 +1271,7 @@ export function FinanceiroWorkspace() {
                 <ul className="mt-1 space-y-1.5 text-xs">
                   {xmlVendasPreview.previewCaso1.map((row) => (
                     <li key={`${row.orderCode}-${row.invoiceNumber}`}>
-                      {row.orderCode}
-                      {row.externalOrderNumber
-                        ? ` (${row.externalOrderNumber})`
-                        : ''}{' '}
-                      · NF {row.invoiceNumber}
+                      Pedido {pedidoLabel(row)} · NF {nfLabel(row.invoiceNumber)}
                       {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
                       {row.fills.length} preenchimento(s), {row.adds.length}{' '}
                       item(ns) novo(s)
@@ -1236,11 +1364,7 @@ export function FinanceiroWorkspace() {
                     style={{ borderColor: 'var(--fin-border)' }}
                   >
                     <p className="font-semibold">
-                      {row.orderCode}
-                      {row.externalOrderNumber
-                        ? ` · ${row.externalOrderNumber}`
-                        : ''}{' '}
-                      · NF {row.invoiceNumber}
+                      Pedido {pedidoLabel(row)} · NF {nfLabel(row.invoiceNumber)}
                       {row.customerName ? ` · ${row.customerName}` : ''}
                     </p>
                     <p>
@@ -1259,6 +1383,58 @@ export function FinanceiroWorkspace() {
                 Nenhuma correção encontrada neste dry-run.
               </p>
             )}
+          </div>
+        ) : null}
+        {caPreviewKind === 'sincronizacao-completa' && sincronizacaoCompletaPreview ? (
+          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+            <p>{sincronizacaoCompletaPreview.message}</p>
+            <p>
+              Cadastros a criar: {sincronizacaoCompletaPreview.cadastros.criar.customers}{' '}
+              cliente(s), {sincronizacaoCompletaPreview.cadastros.criar.suppliers}{' '}
+              fornecedor(es), {sincronizacaoCompletaPreview.cadastros.criar.carriers}{' '}
+              transportadora(s).
+            </p>
+            <p>
+              Itens WEG divergentes do XML:{' '}
+              <strong>{sincronizacaoCompletaPreview.itensExternos.corrections}</strong>
+              {' '}({sincronizacaoCompletaPreview.itensExternos.xmlsParsed} XML lido(s)).
+            </p>
+            <p>
+              XML vendas: Caso 1 completar{' '}
+              {sincronizacaoCompletaPreview.xmlVendas.caso1Completar} · Caso 2 criar{' '}
+              {sincronizacaoCompletaPreview.xmlVendas.caso2} Venda Externa ·{' '}
+              {sincronizacaoCompletaPreview.xmlVendas.caso1ItensCorrigidos} item(ns)
+              WEG a corrigir.
+            </p>
+            <p>
+              Notas sem XML/DANFE persistido:{' '}
+              <strong>{sincronizacaoCompletaPreview.notasAntigas.pending}</strong>
+            </p>
+            <p>
+              NFs com prefixo de série na exibição:{' '}
+              {sincronizacaoCompletaPreview.formatoNf.comPrefixoSerie} (a tela já
+              mostra só o número).
+            </p>
+            {sincronizacaoCompletaPreview.itensExternos.preview.length > 0 ? (
+              <ul className="space-y-1.5 text-xs">
+                {sincronizacaoCompletaPreview.itensExternos.preview
+                  .slice(0, 12)
+                  .map((row) => (
+                    <li key={`${row.orderCode}-${row.itemId ?? row.fromDescription}`}>
+                      Pedido {pedidoLabel(row)} · NF {nfLabel(row.invoiceNumber)}:{' '}
+                      {row.fromDescription} → {row.toDescription}
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
+            {sincronizacaoCompletaPreview.notasAntigas.preview.length > 0 ? (
+              <p className="text-xs text-[var(--fin-text-secondary)]">
+                Amostra de NFs antigas:{' '}
+                {sincronizacaoCompletaPreview.notasAntigas.preview
+                  .map((row) => nfLabel(row.invoiceNumber))
+                  .join(', ')}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {caPreviewKind === 'pedidos-cadastro' && pedidosCadastroPreview ? (
@@ -1280,8 +1456,7 @@ export function FinanceiroWorkspace() {
                 {pedidosCadastroPreview.preview.map((row) => (
                   <li key={row.code} className="rounded-md border p-2" style={{ borderColor: 'var(--fin-border)' }}>
                     <p className="font-semibold">
-                      {row.code}
-                      {row.externalOrderNumber ? ` · ${row.externalOrderNumber}` : ''}{' '}
+                      Pedido {pedidoLabel({ orderCode: row.code, externalOrderNumber: row.externalOrderNumber })}{' '}
                       · {row.cnpj}
                     </p>
                     {row.name ? (

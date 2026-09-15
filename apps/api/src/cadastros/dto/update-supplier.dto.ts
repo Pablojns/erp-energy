@@ -10,4 +10,9 @@ export class UpdateSupplierDto {
   @IsString()
   @MaxLength(18)
   cnpj?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  deliveryAddress?: string | null;
 }

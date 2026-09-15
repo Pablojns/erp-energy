@@ -54,6 +54,8 @@ describe('conta-azul.nfe-download', () => {
   it('normaliza o número da NF ignorando zeros à esquerda', () => {
     expect(nfNumberKey('2070')).toBe('2070');
     expect(nfNumberKey('00002070')).toBe('2070');
+    expect(nfNumberKey('1 - 1881')).toBe('1881');
+    expect(nfNumberKey('1 - 2072')).toBe('2072');
   });
 
   it('relaciona título sincronizado pelo NF-e da descrição', () => {

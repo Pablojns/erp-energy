@@ -8,6 +8,7 @@ import {
   ErpFilterBar,
   type FilterBadgeItem,
 } from '@/src/components/shared/erp-filter-bar';
+import { displayInvoiceNumber } from '@/src/services/api/pedidos-normalize';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { ListSkeleton } from '@/src/components/ui/skeleton';
 
@@ -171,7 +172,7 @@ export function OutputsList(props: {
                       {formatOrderNumber(x)}
                     </p>
                     <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
-                      NF {x.invoiceNumber}
+                      NF {displayInvoiceNumber(x.invoiceNumber) || x.invoiceNumber}
                       <ArrowUpRight className="h-3.5 w-3.5" />
                     </span>
                   </div>

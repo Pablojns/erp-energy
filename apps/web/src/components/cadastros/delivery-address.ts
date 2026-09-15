@@ -12,6 +12,13 @@ export type DeliveryAddressForm = {
 
 export type StoredDeliveryAddress = DeliveryAddressForm & { v: 1 };
 
+export function hasStructuredAddress(form: DeliveryAddressForm): boolean {
+  return (
+    digitsOnly(form.cep).length === 8 ||
+    Boolean(form.logradouro.trim() && form.cidade.trim())
+  );
+}
+
 export function emptyDeliveryAddressForm(): DeliveryAddressForm {
   return {
     cep: '',

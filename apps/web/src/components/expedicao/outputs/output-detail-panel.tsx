@@ -9,7 +9,7 @@ import type {
   OrderExitParcelaDto,
 } from '@/src/components/expedicao/shared/types';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
-import { pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
+import { displayInvoiceNumber, pedidoApiUrl } from '@/src/services/api/pedidos-normalize';
 
 function formatOrderNumber(exitItem: OrderExitDto): string {
   return exitItem.order.externalOrderNumber?.trim()
@@ -235,7 +235,10 @@ export function OutputDetailPanel(props: {
               : exit.order.customerName
           }
         />
-        <DetailRow label="Nota de Venda" value={exit.invoiceNumber} />
+        <DetailRow
+          label="Nota de Venda"
+          value={displayInvoiceNumber(exit.invoiceNumber) || exit.invoiceNumber}
+        />
         <DetailRow label="Nota de Remessa" value={exit.order.notaRemessa} />
         <DetailRow
           label="Transportadora"

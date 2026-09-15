@@ -86,6 +86,7 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
       ? String(raw.linkedOrderDisplayNumber)
       : null,
     saidas: normalizeSaidasFromApi(raw.saidas),
+    invoiceHistory: normalizeInvoiceHistoryFromApi(raw.invoiceHistory),
     items,
   };
 }
@@ -107,6 +108,33 @@ function normalizeSaidasFromApi(raw: unknown): OrderDto['saidas'] {
       trackingCode: row.trackingCode ? String(row.trackingCode) : null,
     }))
     .filter((row) => row.id);
+}
+
+function normalizeInvoiceHistoryFromApi(
+  raw: unknown,
+): OrderDto['invoiceHistory'] {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter(
+      (row): row is Record<string, unknown> =>
+        Boolean(row) && typeof row === 'object',
+    )
+    .map((row) => ({
+      id: String(row.id ?? ''),
+      invoiceNumber: String(row.invoiceNumber ?? ''),
+      invoiceValue:
+        row.invoiceValue !== null && row.invoiceValue !== undefined
+          ? decimalToString(row.invoiceValue)
+          : null,
+      volumes:
+        row.volumes !== null && row.volumes !== undefined
+          ? Number(row.volumes)
+          : null,
+      xmlStorageKey: row.xmlStorageKey ? String(row.xmlStorageKey) : null,
+      danfeStorageKey: row.danfeStorageKey ? String(row.danfeStorageKey) : null,
+      createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
+    }))
+    .filter((row) => row.id && row.invoiceNumber.trim());
 }
 
 /** Item serializado (GET /api/pedidos/:id/itens ou em `items` do pedido). */
@@ -251,7 +279,14 @@ export function hasValidInvoiceNumber(raw: string | null | undefined): boolean {
 export function displayInvoiceNumber(raw: string | null | undefined): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed || isCorreiosTrackingCode(trimmed)) return '';
-  return trimmed;
+  if (trimmed.includes('|')) {
+    return trimmed
+      .split('|')
+      .map((part) => normalizeInvoiceNumberDigits(part.trim()))
+      .filter(Boolean)
+      .join(' | ');
+  }
+  return normalizeInvoiceNumberDigits(trimmed);
 }
 
 export function trackingCodeFromOrder(order: {

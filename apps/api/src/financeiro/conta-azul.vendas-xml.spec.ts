@@ -112,6 +112,75 @@ describe('classifyXmlVendas', () => {
     expect(rows[0].via).toBe('p1_claro');
   });
 
+  it('parcela 45178185981 não vira Caso 2 nem casa no pedido 4519085342', () => {
+    const rows = classifyXmlVendas({
+      vendas: [
+        venda({
+          id: 'vnd-parcela',
+          numero: '45178185981',
+          total: 1600,
+          cliente: { nome: 'WEG', documento: '07175725001050' },
+        }),
+      ],
+      orders: [
+        order({
+          id: 'base',
+          externalOrderNumber: '4517818598',
+          contaAzulVendaId: 'vnd-base',
+          total: 5000,
+        }),
+        order({
+          id: 'errado',
+          externalOrderNumber: '4519085342',
+          contaAzulVendaId: null,
+          invoiceNumber: '9999',
+          total: 1600,
+        }),
+      ],
+    });
+    expect(rows[0].caso).toBe('caso1');
+    expect(rows[0].order?.id).toBe('base');
+  });
+
+  it('xPed de parcela reclassifica Caso 2 para o pedido base', () => {
+    const row = classifyXmlVendas({
+      vendas: [
+        venda({
+          id: 'vnd-parcela',
+          numero: '88',
+          total: 1600,
+        }),
+      ],
+      orders: [
+        order({
+          id: 'base',
+          externalOrderNumber: '4517818598',
+          contaAzulVendaId: null,
+        }),
+      ],
+    })[0];
+    const next = reclassifyByInvoice({
+      row,
+      invoiceNumber: '2072',
+      orders: [
+        order({
+          id: 'base',
+          externalOrderNumber: '4517818598',
+          contaAzulVendaId: null,
+        }),
+        order({
+          id: 'errado',
+          externalOrderNumber: '4519085342',
+          invoiceNumber: '2072',
+          contaAzulVendaId: null,
+        }),
+      ],
+      xPed: '451781859811',
+    });
+    expect(next.caso).toBe('caso1');
+    expect(next.order?.id).toBe('base');
+  });
+
   it('Caso 2 para venda avulsa sem pedido (PRATYC)', () => {
     const rows = classifyXmlVendas({
       vendas: [venda({ id: 'vnd-pratyc' })],
@@ -238,6 +307,73 @@ describe('planCaso1Completar', () => {
       }),
     ]);
     expect(plan.perfeito).toBe(false);
+  });
+
+  it('usa nItemPed 30 para Copo Viagem, não a linha da Caneta Plástica', () => {
+    const plan = planCaso1Completar({
+      venda: venda({ id: 'vnd-pratyc' }),
+      order: order({
+        code: 'PED-000036',
+        externalOrderNumber: '4518727765',
+        items: [
+          {
+            id: 'i-caneta',
+            lineNumber: 10,
+            sku: '50019097',
+            supplierMaterialCode: null,
+            description: 'CANETA PLASTICA',
+            quantity: 300,
+            unit: 'UN',
+            ncm: null,
+            unitPrice: 1,
+            totalPrice: 300,
+            productId: 'prod-caneta',
+            productName: 'Caneta Plástica',
+          },
+          {
+            id: 'i-copo',
+            lineNumber: 30,
+            sku: '50000001',
+            supplierMaterialCode: null,
+            description: 'Copo Térmico Aluminio - De Inox (Cuia)',
+            quantity: 50,
+            unit: 'UN',
+            ncm: null,
+            unitPrice: 22,
+            totalPrice: 1100,
+            productId: 'prod-cuia',
+            productName: 'Copo Térmico Aluminio - De Inox (Cuia)',
+          },
+        ],
+      }),
+      xml: {
+        ...xml,
+        invoiceNumber: '2072',
+        items: [
+          {
+            nItem: 1,
+            sku: 'VIAGEM-01',
+            description: 'COPO VIAGEM',
+            ncm: null,
+            unit: 'UN',
+            quantity: 50,
+            unitPrice: 18.9,
+            totalPrice: 945,
+            xPed: '4518727765',
+            nItemPed: 30,
+          },
+        ],
+      },
+      via: 'invoiceNumber',
+    });
+    expect(plan.replaces).toEqual([
+      expect.objectContaining({
+        itemId: 'i-copo',
+        lineNumber: 30,
+        fromDescription: 'Copo Térmico Aluminio - De Inox (Cuia)',
+        toDescription: 'COPO VIAGEM',
+      }),
+    ]);
   });
 
   it('não faz nada quando os itens já batem', () => {
