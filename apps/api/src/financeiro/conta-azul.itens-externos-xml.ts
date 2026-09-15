@@ -166,6 +166,23 @@ export function findSimilarExternalItem(
   return catalog.find((row) => namesLookSimilar(row.name, name)) ?? null;
 }
 
+function skuKey(raw: string | null | undefined): string {
+  return String(raw ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .replace(/^0+/, '');
+}
+
+function skusMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const ka = skuKey(a);
+  const kb = skuKey(b);
+  return Boolean(ka) && ka === kb;
+}
+
 function pickUnused(
   items: XmlCorrectionOrderItem[],
   used: Set<string>,
@@ -192,26 +209,16 @@ function matchXmlToOrderItem(
   orderItems: XmlCorrectionOrderItem[],
   used: Set<string>,
 ): XmlCorrectionOrderItem | undefined {
+  const xmlSku = skuKey(xmlItem.sku);
+  if (xmlSku) {
+    const bySku = pickUnused(orderItems, used, (it) => skuKey(it.sku) === xmlSku);
+    if (bySku) return bySku;
+  }
   if (xmlItem.nItemPed != null && xmlItem.nItemPed > 0) {
     return matchByNItemPed(xmlItem, orderItems, used);
   }
-  const skuKey = String(xmlItem.sku ?? '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .replace(/^0+/, '');
   const descKey = normalizeItemName(xmlItem.description);
   return (
-    (skuKey
-      ? pickUnused(orderItems, used, (it) => {
-          const sku = String(it.sku ?? '')
-            .trim()
-            .toUpperCase()
-            .replace(/[^A-Z0-9]/g, '')
-            .replace(/^0+/, '');
-          return Boolean(sku) && sku === skuKey;
-        })
-      : undefined) ??
     pickUnused(
       orderItems,
       used,
@@ -261,6 +268,7 @@ export function planWrongWegItemReplaces(input: {
     if (!matched) continue;
     used.add(matched.id);
 
+    if (skusMatch(xmlItem.sku, matched.sku)) continue;
     if (namesAreEquivalentProduct(xmlName, matched.description)) continue;
     if (namesAreEquivalentProduct(xmlName, matched.productName)) continue;
     if (!matched.productId) continue;

@@ -256,37 +256,65 @@ export function isCorreiosTrackingCode(
   return /^[A-Z]{2}\d{8,11}BR$/.test(code);
 }
 
-/** Extrai só os dígitos da NF (ex.: "1 - 1897" → "1897", "12345/1" → "12345"). */
-export function normalizeInvoiceNumberDigits(raw: string | null | undefined): string {
-  const trimmed = (raw ?? '').trim();
+function invoiceNumberDigitsOnePart(raw: string): string {
+  const trimmed = raw.trim();
   if (!trimmed) return '';
   if (isCorreiosTrackingCode(trimmed)) return '';
-
   let part = trimmed.split('/')[0]?.trim() ?? trimmed;
-  const dashMatch = part.match(/[-–—]\s*(.+)$/);
-  if (dashMatch?.[1]) {
-    part = dashMatch[1].trim();
+  const dashMatch = part.match(/^(\d+)\s*[-–—]\s*(\d+)$/);
+  if (dashMatch?.[2]) {
+    part = dashMatch[2];
+  } else {
+    const trailing = part.match(/[-–—]\s*(\d+)\s*$/);
+    if (trailing?.[1]) part = trailing[1];
   }
   return part.replace(/\D/g, '');
+}
+
+function splitInvoiceNumberParts(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (/[|,;]/.test(trimmed)) {
+    return trimmed
+      .split(/[|,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  const repeated = trimmed.match(/\d+\s*[-–—]\s*\d+/g);
+  if (repeated && repeated.length > 1) return repeated;
+  return [trimmed];
+}
+
+/** Todos os números de NF de um campo. Nunca concatena. */
+export function invoiceNumberDigitList(
+  raw: string | null | undefined,
+): string[] {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed || isCorreiosTrackingCode(trimmed)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of splitInvoiceNumberParts(trimmed)) {
+    const d = invoiceNumberDigitsOnePart(part);
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    out.push(d);
+  }
+  return out;
+}
+
+/** Extrai só os dígitos da NF (ex.: "1 - 1897" → "1897"). Se houver várias, a primeira. */
+export function normalizeInvoiceNumberDigits(raw: string | null | undefined): string {
+  return invoiceNumberDigitList(raw)[0] ?? '';
 }
 
 /** NF válida (ignora placeholders como "-" da planilha WEG e códigos Correios). */
 export function hasValidInvoiceNumber(raw: string | null | undefined): boolean {
   if (isCorreiosTrackingCode(raw)) return false;
-  return normalizeInvoiceNumberDigits(raw).length > 0;
+  return invoiceNumberDigitList(raw).length > 0;
 }
 
 export function displayInvoiceNumber(raw: string | null | undefined): string {
-  const trimmed = (raw ?? '').trim();
-  if (!trimmed || isCorreiosTrackingCode(trimmed)) return '';
-  if (trimmed.includes('|')) {
-    return trimmed
-      .split('|')
-      .map((part) => normalizeInvoiceNumberDigits(part.trim()))
-      .filter(Boolean)
-      .join(' | ');
-  }
-  return normalizeInvoiceNumberDigits(trimmed);
+  return invoiceNumberDigitList(raw).join(' | ');
 }
 
 export function trackingCodeFromOrder(order: {

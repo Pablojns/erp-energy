@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { invoiceNumberDigits } from '../orders/order-search';
 
 /** Hosted UI Cognito (passo 1 da doc). */
 export const CONTA_AZUL_AUTH_LOGIN =
@@ -86,7 +87,7 @@ export function fromDbSessionTimestamp(value: Date): Date {
 }
 
 export function invoiceDigits(raw: string | number | null | undefined): string {
-  return String(raw ?? '').replace(/\D/g, '');
+  return invoiceNumberDigits(String(raw ?? ''));
 }
 
 export function objectKeys(value: unknown): string[] {

@@ -66,6 +66,36 @@ describe('planWrongWegItemReplaces', () => {
     expect(plan[0]?.reuseExternalItemId).toBe('ext-1');
   });
 
+  it('não sinaliza divergência quando o SKU do XML é o mesmo do pedido', () => {
+    const plan = planWrongWegItemReplaces({
+      orderItems: [
+        {
+          id: 'item-1',
+          lineNumber: 10,
+          sku: '50019097',
+          description: 'Caneta Crown Metal PT',
+          quantity: 100,
+          productId: 'prod-weg',
+          productName: 'Caneta Crown Metal PT',
+          unitPrice: 2,
+        },
+      ],
+      xmlItems: [
+        {
+          nItem: 1,
+          sku: '50019097',
+          description: 'Caneta Crown Metal',
+          ncm: null,
+          unit: 'UN',
+          quantity: 100,
+          unitPrice: 2,
+          totalPrice: 200,
+        },
+      ],
+    });
+    expect(plan).toHaveLength(0);
+  });
+
   it('não altera quando o nome do pedido já bate com o XML', () => {
     const plan = planWrongWegItemReplaces({
       orderItems: [

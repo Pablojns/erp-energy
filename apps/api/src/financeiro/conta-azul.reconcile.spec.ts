@@ -10,6 +10,7 @@ describe('conta-azul.reconcile', () => {
       chave_acesso: '4225...',
     });
     expect(mapped.numeroDigits).toBe('2040');
+    expect(mapContaAzulNf({ numero_nota: '1 - 1987' }).numeroDigits).toBe('1987');
     expect(mapped.valor).toBeNull();
     expect(mapped.status).toBe('EMITIDA');
   });

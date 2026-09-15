@@ -65,6 +65,7 @@ import {
 import {
   displayInvoiceNumber,
   displayPedidoNumero,
+  invoiceNumberDigitList,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
 } from '../orders/order-search';
@@ -1021,9 +1022,9 @@ export class ContaAzulIntegrationService {
   }
 
   /**
-   * Corrige itens preenchidos com produto WEG errado a partir do XML já
-   * armazenado. Dry-run por padrão; apply só grava após confirmação.
-   * Não depende da Conta Azul.
+   * Corrige itens WEG divergentes do XML da NF revalidada via id_venda.
+   * Dry-run por padrão; apply só grava após confirmação.
+   * Pedido sem contaAzulVendaId é ignorado.
    */
   startItensExternosXmlJob(options: {
     apply: boolean;
@@ -3097,6 +3098,39 @@ export class ContaAzulIntegrationService {
     return { created };
   }
 
+  private async readXmlForVendaNf(opts: {
+    orderId: string;
+    numero: string;
+    chaveAcesso: string | null;
+    storedKey: string | null;
+    persist: boolean;
+  }): Promise<string | null> {
+    const key = opts.storedKey?.trim();
+    if (key) {
+      const stored = await this.readXmlByStorageKey(key);
+      if (stored) return stored;
+    }
+    const chave = String(opts.chaveAcesso ?? '').replace(/\D/g, '');
+    if (chave.length !== 44) return null;
+    try {
+      const buffer = await this.apiGetBuffer(`/v1/notas-fiscais/${chave}`);
+      if (!buffer.length) return null;
+      if (opts.persist) {
+        const kind = detectCaNfFile(buffer);
+        await this.persistNotaArquivo(
+          opts.orderId,
+          opts.numero,
+          'xml',
+          buffer,
+          kind.mime,
+        );
+      }
+      return extractNfeXml(buffer);
+    } catch {
+      return null;
+    }
+  }
+
   private async processarItensExternosXml(options: {
     apply: boolean;
     pedido?: string;
@@ -3113,7 +3147,7 @@ export class ContaAzulIntegrationService {
       message: string;
     }) => options.onProgress?.(update);
 
-    reportProgress({ message: 'Buscando XMLs já armazenados...' });
+    reportProgress({ message: 'Buscando pedidos com XML armazenado...' });
     const pedidoWhere = pedido
       ? {
           OR: [
@@ -3122,6 +3156,18 @@ export class ContaAzulIntegrationService {
           ],
         }
       : undefined;
+    const itemSelect = {
+      id: true,
+      lineNumber: true,
+      sku: true,
+      description: true,
+      quantity: true,
+      productId: true,
+      unitPrice: true,
+      ncm: true,
+      unit: true,
+      product: { select: { name: true } },
+    } as const;
     const histories = await this.prisma.client.orderInvoiceHistory.findMany({
       where: {
         ...(pedido
@@ -3138,27 +3184,36 @@ export class ContaAzulIntegrationService {
             externalOrderNumber: true,
             customerName: true,
             invoiceNumber: true,
-            items: {
-              select: {
-                id: true,
-                lineNumber: true,
-                sku: true,
-                description: true,
-                quantity: true,
-                productId: true,
-                unitPrice: true,
-                ncm: true,
-                unit: true,
-                product: { select: { name: true } },
-              },
-            },
+            contaAzulVendaId: true,
+            orderDate: true,
+            createdAt: true,
+            invoicedAt: true,
+            items: { select: itemSelect },
           },
         },
       },
     });
 
-    type ScanRow = (typeof histories)[number];
-    const scan: ScanRow[] = [...histories];
+    type HistoryRow = (typeof histories)[number];
+    type OrderBundle = {
+      order: HistoryRow['order'];
+      storedByNf: Map<string, string | null>;
+    };
+    const byOrder = new Map<string, OrderBundle>();
+    const addHistory = (row: HistoryRow) => {
+      let bundle = byOrder.get(row.order.id);
+      if (!bundle) {
+        bundle = { order: row.order, storedByNf: new Map() };
+        byOrder.set(row.order.id, bundle);
+      }
+      for (const n of invoiceNumberDigitList(row.invoiceNumber)) {
+        if (!bundle.storedByNf.has(n)) {
+          bundle.storedByNf.set(n, row.xmlStorageKey);
+        }
+      }
+    };
+    for (const history of histories) addHistory(history);
+
     if (pedido) {
       const orders = await this.prisma.client.order.findMany({
         where: pedidoWhere,
@@ -3168,38 +3223,16 @@ export class ContaAzulIntegrationService {
           externalOrderNumber: true,
           customerName: true,
           invoiceNumber: true,
-          items: {
-            select: {
-              id: true,
-              lineNumber: true,
-              sku: true,
-              description: true,
-              quantity: true,
-              productId: true,
-              unitPrice: true,
-              ncm: true,
-              unit: true,
-              product: { select: { name: true } },
-            },
-          },
+          contaAzulVendaId: true,
+          orderDate: true,
+          createdAt: true,
+          invoicedAt: true,
+          items: { select: itemSelect },
         },
       });
-      const seen = new Set(
-        histories.map(
-          (h) => `${h.order.id}:${nfNumberKey(h.invoiceNumber)}`,
-        ),
-      );
       for (const order of orders) {
-        const inv = order.invoiceNumber?.trim();
-        if (!inv) continue;
-        const k = `${order.id}:${nfNumberKey(inv)}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        scan.push({
-          invoiceNumber: inv,
-          xmlStorageKey: null,
-          order,
-        });
+        if (byOrder.has(order.id)) continue;
+        byOrder.set(order.id, { order, storedByNf: new Map() });
       }
     }
 
@@ -3213,86 +3246,107 @@ export class ContaAzulIntegrationService {
       row: CaItensExternosXmlCorrection;
     }> = [];
     const seenItems = new Set<string>();
+    const vendaNotasCache = new Map<string, CaNfResumo[]>();
     let xmlsParsed = 0;
     let xmlsMissing = 0;
-    const total = scan.length;
+    const bundles = [...byOrder.values()];
+    const scannedIds = new Set<string>();
+    const total = bundles.length;
 
-    for (let i = 0; i < scan.length; i += 1) {
-      const history = scan[i];
+    for (let i = 0; i < bundles.length; i += 1) {
+      const { order, storedByNf } = bundles[i];
       reportProgress({
         processed: i + 1,
         total,
-        message: `Lendo XML ${i + 1} de ${total}...`,
+        message: `Revalidando venda ${i + 1} de ${total}...`,
       });
-      let raw: string | null = null;
-      const key = history.xmlStorageKey?.trim();
-      if (key) {
-        raw = await this.readXmlByStorageKey(key);
-      }
-      if (!raw && this.isConfigured()) {
-        try {
-          const file = await this.downloadNotaFiscal(history.invoiceNumber, {
-            orderId: history.order.id,
-            persist: options.apply,
-          });
-          raw = extractNfeXml(file.buffer);
-        } catch {
-          raw = null;
+      const vendaId = String(order.contaAzulVendaId ?? '').trim();
+      if (!vendaId) continue;
+      scannedIds.add(order.id);
+      const around =
+        order.invoicedAt ?? order.orderDate ?? order.createdAt ?? new Date();
+      let notas: CaNfResumo[] = [];
+      try {
+        const cached = vendaNotasCache.get(vendaId);
+        if (cached) {
+          notas = cached;
+        } else {
+          notas = await this.listNotasByVendaId(vendaId, around);
+          vendaNotasCache.set(vendaId, notas);
         }
-      }
-      if (!raw) {
+      } catch {
         xmlsMissing += 1;
         continue;
       }
-      const dados = parseNfeXml(raw);
-      if (!dados?.items.length) {
+      if (notas.length === 0) {
         xmlsMissing += 1;
         continue;
       }
-      xmlsParsed += 1;
-      const patches = planWrongWegItemReplaces({
-        orderItems: history.order.items.map((it) => ({
-          id: it.id,
-          lineNumber: it.lineNumber,
-          sku: it.sku,
-          description: it.description,
-          quantity: it.quantity,
-          productId: it.productId,
-          productName: it.product?.name ?? null,
-          unitPrice: Number(it.unitPrice) || 0,
-          ncm: it.ncm,
-          unit: it.unit,
-        })),
-        xmlItems: dados.items,
-        externalItems: catalog,
-      });
-      const pedidoNumero = displayPedidoNumero(history.order);
-      const invoiceDisplay =
-        displayInvoiceNumber(history.invoiceNumber) ||
-        nfNumberKey(history.invoiceNumber) ||
-        history.invoiceNumber;
-      for (const patch of patches) {
-        if (seenItems.has(patch.itemId)) continue;
-        seenItems.add(patch.itemId);
-        const row: CaItensExternosXmlCorrection = {
-          orderId: history.order.id,
-          orderCode: pedidoNumero || history.order.externalOrderNumber || '',
-          externalOrderNumber: history.order.externalOrderNumber,
-          invoiceNumber: invoiceDisplay,
-          customerName: history.order.customerName,
-          itemId: patch.itemId,
-          fromDescription: patch.fromDescription,
-          toDescription: patch.toDescription,
-          fromSku: patch.fromSku,
-          toSku: patch.toSku,
-          productName: patch.productName,
-          unitPrice: patch.unitPrice,
-          createExternalItem: !patch.reuseExternalItemId,
-          reuseExternalItemId: patch.reuseExternalItemId,
-          externalItemName: patch.externalItemName,
-        };
-        if (preview.length < previewLimit) preview.push(row);
-        toApply.push({ patch, row });
+
+      for (const nf of notas) {
+        const numero =
+          nf.numeroDigits ||
+          nfNumberKey(nf.numero) ||
+          invoiceNumberDigits(nf.numero);
+        if (!numero) continue;
+        const raw = await this.readXmlForVendaNf({
+          orderId: order.id,
+          numero,
+          chaveAcesso: nf.chaveAcesso,
+          storedKey: storedByNf.get(numero) ?? null,
+          persist: options.apply,
+        });
+        if (!raw) {
+          xmlsMissing += 1;
+          continue;
+        }
+        const dados = parseNfeXml(raw);
+        if (!dados?.items.length) {
+          xmlsMissing += 1;
+          continue;
+        }
+        xmlsParsed += 1;
+        const patches = planWrongWegItemReplaces({
+          orderItems: order.items.map((it) => ({
+            id: it.id,
+            lineNumber: it.lineNumber,
+            sku: it.sku,
+            description: it.description,
+            quantity: it.quantity,
+            productId: it.productId,
+            productName: it.product?.name ?? null,
+            unitPrice: Number(it.unitPrice) || 0,
+            ncm: it.ncm,
+            unit: it.unit,
+          })),
+          xmlItems: dados.items,
+          externalItems: catalog,
+        });
+        const pedidoNumero = displayPedidoNumero(order);
+        const invoiceDisplay = displayInvoiceNumber(numero) || numero;
+        for (const patch of patches) {
+          if (seenItems.has(patch.itemId)) continue;
+          seenItems.add(patch.itemId);
+          const row: CaItensExternosXmlCorrection = {
+            orderId: order.id,
+            orderCode: pedidoNumero || order.externalOrderNumber || '',
+            externalOrderNumber: order.externalOrderNumber,
+            invoiceNumber: invoiceDisplay,
+            customerName: order.customerName,
+            itemId: patch.itemId,
+            fromDescription: patch.fromDescription,
+            toDescription: patch.toDescription,
+            fromSku: patch.fromSku,
+            toSku: patch.toSku,
+            productName: patch.productName,
+            unitPrice: patch.unitPrice,
+            createExternalItem: !patch.reuseExternalItemId,
+            reuseExternalItemId: patch.reuseExternalItemId,
+            externalItemName: patch.externalItemName,
+          };
+          if (preview.length < previewLimit) preview.push(row);
+          toApply.push({ patch, row });
+        }
       }
     }
 
@@ -3300,7 +3354,7 @@ export class ContaAzulIntegrationService {
       ok: true,
       apply: options.apply,
       applied: false,
-      ordersScanned: new Set(scan.map((h) => h.order.id)).size,
+      ordersScanned: scannedIds.size,
       xmlsParsed,
       xmlsMissing,
       corrections: toApply.length,
@@ -4658,62 +4712,57 @@ export class ContaAzulIntegrationService {
     limit: number,
   ): Promise<Array<{ orderId: string; invoiceNumber: string }>> {
     try {
-      const rows = await this.prisma.client.$queryRaw<
+      const candidates = await this.prisma.client.$queryRaw<
         Array<{
           orderId: string;
           invoiceNumber: string;
           notaRemessa: string | null;
         }>
       >`
-        SELECT q."orderId", q."invoiceNumber", q."notaRemessa"
-        FROM (
-          SELECT o.id::text AS "orderId",
-                 o."invoiceNumber" AS "invoiceNumber",
-                 o."notaRemessa" AS "notaRemessa"
-          FROM "Order" o
-          WHERE o."invoiceNumber" IS NOT NULL AND btrim(o."invoiceNumber") <> ''
-            AND (
-              o."notaRemessa" IS NULL
-              OR btrim(o."notaRemessa") = ''
-              OR regexp_replace(o."invoiceNumber", '[^0-9]', '', 'g')
-                 <> regexp_replace(o."notaRemessa", '[^0-9]', '', 'g')
-            )
-          UNION
-          SELECT h."orderId"::text, h."invoiceNumber", o."notaRemessa"
-          FROM "OrderInvoiceHistory" h
-          JOIN "Order" o ON o.id = h."orderId"
-          WHERE h."invoiceNumber" IS NOT NULL AND btrim(h."invoiceNumber") <> ''
-            AND (
-              o."notaRemessa" IS NULL
-              OR btrim(o."notaRemessa") = ''
-              OR regexp_replace(h."invoiceNumber", '[^0-9]', '', 'g')
-                 <> regexp_replace(o."notaRemessa", '[^0-9]', '', 'g')
-            )
-        ) q
-        LEFT JOIN "OrderInvoiceHistory" stored
-          ON stored."orderId" = CAST(q."orderId" AS UUID)
-         AND regexp_replace(stored."invoiceNumber", '[^0-9]', '', 'g')
-           = regexp_replace(q."invoiceNumber", '[^0-9]', '', 'g')
-        WHERE regexp_replace(q."invoiceNumber", '[^0-9]', '', 'g') <> ''
-          AND (
-            stored.id IS NULL
-            OR stored."xmlStorageKey" IS NULL
-            OR stored."danfeStorageKey" IS NULL
-          )
-        LIMIT ${limit}
+        SELECT o.id::text AS "orderId",
+               o."invoiceNumber" AS "invoiceNumber",
+               o."notaRemessa" AS "notaRemessa"
+        FROM "Order" o
+        WHERE o."invoiceNumber" IS NOT NULL AND btrim(o."invoiceNumber") <> ''
+        UNION
+        SELECT h."orderId"::text, h."invoiceNumber", o."notaRemessa"
+        FROM "OrderInvoiceHistory" h
+        JOIN "Order" o ON o.id = h."orderId"
+        WHERE h."invoiceNumber" IS NOT NULL AND btrim(h."invoiceNumber") <> ''
       `;
+      const stored = await this.prisma.client.$queryRaw<
+        Array<{
+          orderId: string;
+          invoiceNumber: string;
+          xmlStorageKey: string | null;
+          danfeStorageKey: string | null;
+        }>
+      >`
+        SELECT "orderId"::text AS "orderId",
+               "invoiceNumber",
+               "xmlStorageKey",
+               "danfeStorageKey"
+        FROM "OrderInvoiceHistory"
+      `;
+      const complete = new Set<string>();
+      for (const row of stored) {
+        if (!row.xmlStorageKey?.trim() || !row.danfeStorageKey?.trim()) continue;
+        for (const n of invoiceNumberDigitList(row.invoiceNumber)) {
+          complete.add(`${row.orderId}:${n}`);
+        }
+      }
       const seen = new Set<string>();
       const out: Array<{ orderId: string; invoiceNumber: string }> = [];
-      for (const row of rows) {
-        if (invoiceNumberMatchesRemessa(row.invoiceNumber, row.notaRemessa)) {
-          continue;
+      for (const row of candidates) {
+        if (out.length >= limit) break;
+        for (const numero of invoiceNumberDigitList(row.invoiceNumber)) {
+          if (invoiceNumberMatchesRemessa(numero, row.notaRemessa)) continue;
+          const k = `${row.orderId}:${numero}`;
+          if (seen.has(k) || complete.has(k)) continue;
+          seen.add(k);
+          out.push({ orderId: row.orderId, invoiceNumber: numero });
+          if (out.length >= limit) break;
         }
-        const numero = nfNumberKey(row.invoiceNumber);
-        if (!numero) continue;
-        const k = `${row.orderId}:${numero}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push({ orderId: row.orderId, invoiceNumber: numero });
       }
       return out;
     } catch (err) {

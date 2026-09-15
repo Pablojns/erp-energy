@@ -185,8 +185,9 @@ export class ContaAzulController {
   }
 
   /**
-   * Corrige itens WEG divergentes do XML já armazenado (Item Externo).
-   * Dry-run por padrão; apply=true só após confirmação. Não exige Conta Azul.
+   * Corrige itens WEG divergentes do XML da NF da venda (id_venda).
+   * Dry-run por padrão; apply=true só após confirmação.
+   * Pedido sem contaAzulVendaId é ignorado — não busca NF só por número.
    * ?pedido= filtra um número de pedido (ex.: 4518727765).
    */
   @Post('corrigir-itens-externos-xml')

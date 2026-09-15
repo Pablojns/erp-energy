@@ -48,6 +48,17 @@ describe('sameInvoiceNumber', () => {
       '912',
       '865',
     ]);
+    expect(invoiceNumberDigits('1 - 1764 | 1 - 1762 | 1 - 11760')).toBe('1764');
+    expect(invoiceNumberDigitList('1 - 1764 | 1 - 1762 | 1 - 11760')).toEqual([
+      '1764',
+      '1762',
+      '11760',
+    ]);
+    expect(displayInvoiceNumber('1 - 1764 | 1 - 1762 | 1 - 11760')).toBe(
+      '1764 | 1762 | 11760',
+    );
+    expect(invoiceNumberDigits('1 - 1881')).toBe('1881');
+    expect(displayInvoiceNumber('1 - 1016 | 1 - 832')).toBe('1016 | 832');
     expect(displayPedidoNumero({ code: 'PED-000036', externalOrderNumber: '4518727765' })).toBe(
       '4518727765',
     );

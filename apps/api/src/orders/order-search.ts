@@ -35,22 +35,42 @@ export function isCorreiosTrackingCode(
   return /^[A-Z]{2}\d{8,11}BR$/.test(code);
 }
 
-/**
- * Dígitos de um número de NF: descarta série (`1 - 1897`), sufixo (`1897/2`) e
- * qualquer pontuação. Fonte única — o espelho no front está em
- * `apps/web/src/services/api/pedidos-normalize.ts`.
- */
-export function invoiceNumberDigits(raw: string): string {
+/** Parte isolada de um campo de NF (`1 - 1897` → `1897`, `12345/1` → `12345`). */
+function invoiceNumberDigitsOnePart(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
   if (isCorreiosTrackingCode(trimmed)) return '';
-
   let part = trimmed.split('/')[0]?.trim() ?? trimmed;
-  const dashMatch = part.match(/[-–—]\s*(.+)$/);
-  if (dashMatch?.[1]) {
-    part = dashMatch[1].trim();
+  const dashMatch = part.match(/^(\d+)\s*[-–—]\s*(\d+)$/);
+  if (dashMatch?.[2]) {
+    part = dashMatch[2];
+  } else {
+    const trailing = part.match(/[-–—]\s*(\d+)\s*$/);
+    if (trailing?.[1]) part = trailing[1];
   }
   return part.replace(/\D/g, '');
+}
+
+function splitInvoiceNumberParts(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (/[|,;]/.test(trimmed)) {
+    return trimmed
+      .split(/[|,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  const repeated = trimmed.match(/\d+\s*[-–—]\s*\d+/g);
+  if (repeated && repeated.length > 1) return repeated;
+  return [trimmed];
+}
+
+/**
+ * Dígitos de UM número de NF. Nunca concatena várias notas: se o campo
+ * tiver mais de uma (`1 - 1764 | 1 - 1762`), devolve só a primeira.
+ */
+export function invoiceNumberDigits(raw: string): string {
+  return invoiceNumberDigitList(raw)[0] ?? '';
 }
 
 /** Todos os números de NF de um campo (`1 - 1211 | 1 - 912` → `['1211','912']`). */
@@ -58,12 +78,11 @@ export function invoiceNumberDigitList(
   raw: string | null | undefined,
 ): string[] {
   const trimmed = String(raw ?? '').trim();
-  if (!trimmed) return [];
-  const parts = trimmed.includes('|') ? trimmed.split('|') : [trimmed];
+  if (!trimmed || isCorreiosTrackingCode(trimmed)) return [];
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const part of parts) {
-    const d = invoiceNumberDigits(part.trim());
+  for (const part of splitInvoiceNumberParts(trimmed)) {
+    const d = invoiceNumberDigitsOnePart(part);
     if (!d || seen.has(d)) continue;
     seen.add(d);
     out.push(d);
@@ -73,17 +92,7 @@ export function invoiceNumberDigitList(
 
 /** Exibição da NF: só o número (`1 - 1881` → `1881`). Várias notas: `1 - 1016 | 1 - 832` → `1016 | 832`. */
 export function displayInvoiceNumber(raw: string | null | undefined): string {
-  if (isCorreiosTrackingCode(raw)) return '';
-  const trimmed = String(raw ?? '').trim();
-  if (!trimmed) return '';
-  if (trimmed.includes('|')) {
-    return trimmed
-      .split('|')
-      .map((part) => invoiceNumberDigits(part.trim()))
-      .filter(Boolean)
-      .join(' | ');
-  }
-  return invoiceNumberDigits(trimmed);
+  return invoiceNumberDigitList(raw).join(' | ');
 }
 
 /** Número do pedido visível ao usuário — nunca o código interno PED-XXX. */

@@ -59,6 +59,8 @@ describe('conta-azul.auth', () => {
   it('normaliza número da NF só com dígitos', () => {
     expect(invoiceDigits('NF-2.040')).toBe('2040');
     expect(invoiceDigits(1936)).toBe('1936');
+    expect(invoiceDigits('1 - 1987')).toBe('1987');
+    expect(invoiceDigits('1 - 1764 | 1 - 1762 | 1 - 11760')).toBe('1764');
   });
 
   it('lista chaves de um objeto de resposta', () => {
