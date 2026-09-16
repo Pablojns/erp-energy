@@ -71,7 +71,9 @@ export const EXPEDITION_SUB_NAV_ITEMS: ExpeditionSubNavPermission[] = [
 ];
 
 export function isAdminUser(user: AuthUser): boolean {
-  return user.roles.includes('ADMIN');
+  return (user.roles ?? []).some(
+    (role) => String(role).trim().toUpperCase() === 'ADMIN',
+  );
 }
 
 export function hasGrantedPermission(

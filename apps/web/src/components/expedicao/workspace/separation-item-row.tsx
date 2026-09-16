@@ -10,6 +10,10 @@ import type { OrderDto, OrderItemDto } from '@/src/components/expedicao/shared/t
 import type { OrderItemStockState } from '@/src/components/expedicao/shared/use-order-items-stock';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
 import {
+  OrderItemOriginBadge,
+  orderItemOrigin,
+} from '@/src/components/expedicao/workspace/order-item-origin-badge';
+import {
   OrderItemOrderedQtyCell,
   OrderItemStockAvailableCell,
   OrderItemStockFiguresInline,
@@ -131,6 +135,7 @@ export function SeparationItemRow(props: {
             <div className="item-row">
               <span className="item-sku">{item.sku}</span>
               <span className="item-nome">{item.description}</span>
+              <OrderItemOriginBadge origin={orderItemOrigin(item)} />
             </div>
             <div className="item-row">
               {!hideStockColumn ? (
@@ -178,7 +183,10 @@ export function SeparationItemRow(props: {
         <td className="exp-wb-cell-linha text-xs">{item.lineNumber}</td>
         <td className="exp-wb-cell-sku text-xs">{item.sku}</td>
         <td className="exp-wb-cell-item text-xs">
-          {item.description}
+          <span className="inline-flex items-center gap-1.5">
+            {item.description}
+            <OrderItemOriginBadge origin={orderItemOrigin(item)} />
+          </span>
         </td>
         <td className="exp-wb-td-num exp-wb-num-qtd">
           <OrderItemOrderedQtyCell qty={item.quantity} />

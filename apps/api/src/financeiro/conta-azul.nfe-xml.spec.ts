@@ -1,4 +1,4 @@
-import { parseNfeXml, xmlMatchesAnyContaAzulNota } from './conta-azul.nfe-xml';
+import { parseNfeXml, xmlMatchesAnyContaAzulNota, extractXmlPedidoNumber } from './conta-azul.nfe-xml';
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
@@ -46,6 +46,12 @@ const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
         </prod>
       </det>
       <total><ICMSTot><vNF>1700.50</vNF></ICMSTot></total>
+      <compra>
+        <xPed>4518757385</xPed>
+      </compra>
+      <infAdic>
+        <infCpl>REQUISICAO DE COMPRA PEDIDO:4518757385#PONTO DE DESCARGA:PORTARIA#RECEBEDOR:FULANO</infCpl>
+      </infAdic>
       <transp>
         <vol>
           <qVol>3</qVol>
@@ -89,6 +95,12 @@ describe('parseNfeXml', () => {
       }),
     ]);
     expect(parsed?.destEnderecoJson).toContain('Rua das Flores');
+    expect(parsed?.compraXPed).toBe('4518757385');
+    expect(parsed?.infCpl).toContain('PEDIDO:4518757385');
+    expect(extractXmlPedidoNumber(parsed)).toEqual({
+      pedido: '4518757385',
+      via: 'compra_xPed',
+    });
   });
 
   it('aceita prefixo de namespace nos tags', () => {
@@ -125,5 +137,54 @@ describe('parseNfeXml', () => {
         },
       ]),
     ).toBe(false);
+  });
+});
+
+describe('extractXmlPedidoNumber', () => {
+  it('prioriza <compra><xPed> sobre item e infCpl', () => {
+    expect(
+      extractXmlPedidoNumber({
+        compraXPed: '4518757385',
+        infCpl: 'PEDIDO:9999999999#',
+        items: [{ nItem: 1, sku: '', description: 'x', ncm: null, unit: null, quantity: 1, unitPrice: 1, totalPrice: 1, xPed: '111' }],
+      }),
+    ).toEqual({ pedido: '4518757385', via: 'compra_xPed' });
+  });
+
+  it('não usa xPed de item — só <compra><xPed> ou PEDIDO: na observação', () => {
+    expect(
+      extractXmlPedidoNumber({
+        compraXPed: null,
+        infCpl: null,
+        items: [{ nItem: 1, sku: '', description: 'x', ncm: null, unit: null, quantity: 1, unitPrice: 1, totalPrice: 1, xPed: '4518727765' }],
+      }),
+    ).toBeNull();
+    expect(
+      extractXmlPedidoNumber({
+        compraXPed: '',
+        infCpl: 'REQUISICAO DE COMPRA PEDIDO:4518757385#PONTO DE DESCARGA:PORTARIA',
+        items: [{ nItem: 1, sku: '', description: 'x', ncm: null, unit: null, quantity: 1, unitPrice: 1, totalPrice: 1, xPed: '111' }],
+      }),
+    ).toEqual({ pedido: '4518757385', via: 'infCpl' });
+  });
+
+  it('cai no padrão PEDIDO:(\\d{10}) de infCpl', () => {
+    expect(
+      extractXmlPedidoNumber({
+        compraXPed: '',
+        infCpl: 'REQUISICAO DE COMPRA PEDIDO:4518757385#PONTO DE DESCARGA:PORTARIA',
+        items: [],
+      }),
+    ).toEqual({ pedido: '4518757385', via: 'infCpl' });
+  });
+
+  it('não adivinha quando não há xPed nem PEDIDO: na observação', () => {
+    expect(
+      extractXmlPedidoNumber({
+        compraXPed: null,
+        infCpl: 'Sem número de pedido aqui',
+        items: [],
+      }),
+    ).toBeNull();
   });
 });

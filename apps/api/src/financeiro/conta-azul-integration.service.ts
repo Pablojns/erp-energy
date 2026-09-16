@@ -68,6 +68,7 @@ import {
   invoiceNumberDigitList,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
+  removeInvoiceNumberFromField,
 } from '../orders/order-search';
 import {
   documentDigits,
@@ -92,7 +93,6 @@ import {
 import {
   mapContaAzulVenda,
   planInvoiceFromLinkedVendas,
-  planVendaVinculos,
   vendaWegHint,
   wegOrderBase,
   type CaVenda,
@@ -108,6 +108,7 @@ import {
 } from './conta-azul.nf-vinculo-audit';
 import { mapLimit } from './conta-azul.pool';
 import {
+  extractXmlPedidoNumber,
   nfeEmitidaEmDate,
   parseNfeXml,
   xmlMatchesContaAzulNota,
@@ -117,6 +118,8 @@ import {
 import {
   buildProductSkuMap,
   classifyXmlVendas,
+  isInternalEnergyBrandsSale,
+  isWegDestinatario,
   planCaso1Completar,
   planCaso2Criar,
   reclassifyByInvoice,
@@ -127,6 +130,12 @@ import {
 } from './conta-azul.vendas-xml';
 import { ExternalItemsService } from '../external-items/external-items.service';
 import { applyExternalItemOutbound } from '../external-items/external-item-stock';
+import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
+import {
+  planXmlPedidoVinculos,
+  type WegParcelaPreview,
+  type XmlPedidoOrder,
+} from './conta-azul.xml-pedido-vinculo';
 import {
   planWrongWegItemReplaces,
   type ItemReplacePatch,
@@ -190,16 +199,42 @@ export type CaVendasReport = {
   vendas: number;
   pedidos: number;
   vinculados: number;
+  parcelasFaltantes: number;
+  semPedidoXml: number;
+  semXml: number;
+  ambiguos: number;
+  pedidoXmlSemErp: number;
   semCorrespondencia: number;
   jaVinculados: number;
   nfsAPreencher: number;
   nfsDivergentes: number;
   porRazao: Record<string, number>;
   previewClaros: VendaVinculoPreview[];
+  previewParcelas: Array<{
+    vendaNumero: string | null;
+    xmlPedido: string;
+    invoiceNumber: string;
+    destNome: string | null;
+    clienteNome: string | null;
+    itens: number;
+    via: string;
+  }>;
+  previewSemPedidoXml: VendaSemMatch[];
   previewSemMatch: VendaSemMatch[];
   previewNfFill: InvoiceFillPreview[];
   previewNfDivergencias: InvoiceFillDivergencia[];
-  appliedCounts?: { pedidosVinculados: number; invoicesPreenchidas: number };
+  spotlight?: {
+    xmlPedido: string;
+    vendaNumero: string | null;
+    invoiceNumber: string | null;
+    orderCode: string | null;
+    matched: boolean;
+  };
+  appliedCounts?: {
+    pedidosVinculados: number;
+    invoicesPreenchidas: number;
+    parcelasCriadas: number;
+  };
   message: string;
 };
 
@@ -357,10 +392,14 @@ export type CaSincronizacaoCompletaReport = {
   };
   vendas: {
     vinculados: number;
+    parcelasFaltantes: number;
+    semPedidoXml: number;
     nfsAPreencher: number;
     nfsDivergentes: number;
     semCorrespondencia: number;
     previewClaros: VendaVinculoPreview[];
+    previewParcelas: CaVendasReport['previewParcelas'];
+    previewSemPedidoXml: VendaSemMatch[];
     message: string;
   };
   itensExternos: {
@@ -1095,8 +1134,9 @@ export class ContaAzulIntegrationService {
   }
 
   /**
-   * Orquestra cadastros → correção de itens → XML vendas (Caso 2) →
-   * notas antigas → formato de NF. Dry-run por padrão.
+   * Orquestra dados brutos → cadastros → vincular vendas (xPed) →
+   * correção de itens WEG → XML vendas (Caso 1/2) → notas antigas.
+   * Dry-run por padrão.
    */
   startSincronizacaoCompletaJob(options: {
     apply: boolean;
@@ -1565,8 +1605,9 @@ export class ContaAzulIntegrationService {
   }
 
   /**
-   * P1: GET /v1/venda/busca cruzado com pedidos do ERP.
-   * Apply preenche Order.contaAzulVendaId e, se a venda já tiver NF-e, invoiceNumber.
+   * Vincula vendas da Conta Azul ao pedido real extraído do XML da NF-e
+   * (`<compra><xPed>` ou `PEDIDO:` em infCpl). Match exato em
+   * Order.externalOrderNumber — sem família de 10 dígitos.
    */
   async sincronizarVendas(options: {
     apply: boolean;
@@ -1584,15 +1625,21 @@ export class ContaAzulIntegrationService {
       total?: number;
       message: string;
     }) => options.onProgress?.(update);
-    reportProgress({ message: 'Buscando pedidos e pessoas...' });
-    const [orderRows, pessoas] = await Promise.all([
+    reportProgress({ message: 'Buscando pedidos, produtos e pessoas...' });
+    const [orderRows, pessoas, products, customers] = await Promise.all([
       this.prisma.client.order.findMany({
         select: {
           id: true,
           code: true,
           externalOrderNumber: true,
+          customerName: true,
           customerDocument: true,
           deliveryCnpj: true,
+          deliveryAddress: true,
+          deliveryCity: true,
+          deliveryState: true,
+          receiverName: true,
+          unloadingPoint: true,
           total: true,
           totalValue: true,
           status: true,
@@ -1603,6 +1650,17 @@ export class ContaAzulIntegrationService {
         },
       }),
       this.listAllPessoas(),
+      this.prisma.client.product.findMany({
+        select: {
+          id: true,
+          sku: true,
+          internalCode: true,
+          supplierSku: true,
+        },
+      }),
+      this.prisma.client.customer.findMany({
+        select: { id: true, document: true },
+      }),
     ]);
     const linkedRows = await this.prisma.client.$queryRaw<
       Array<{ id: string; contaAzulVendaId: string | null }>
@@ -1610,108 +1668,248 @@ export class ContaAzulIntegrationService {
     const linkedById = new Map(
       linkedRows.map((row) => [row.id, row.contaAzulVendaId]),
     );
-    const orders = orderRows.map((o) => ({
-      ...o,
-      contaAzulVendaId: linkedById.get(o.id) ?? null,
-    }));
-    const pessoaById = new Map(pessoas.map((p) => [p.contaAzulId, p]));
-    const today = new Date();
-    const dataFinal = this.ymd(today);
-    reportProgress({ message: 'Buscando vendas na Conta Azul...' });
-    const dataInicial = await this.findHistoryStart(today);
-    const vendasRaw = await this.listAllVendas(dataInicial, dataFinal);
-    const vendas: CaVenda[] = vendasRaw.map((v) => {
-      if (v.clienteDocumento || !v.clienteId) return v;
-      const pessoa = pessoaById.get(v.clienteId);
-      return pessoa
-        ? { ...v, clienteDocumento: pessoa.documento }
-        : v;
-    });
-
-    const plan = planVendaVinculos({
-      vendas,
-      orders: orders.map((o) => ({
-        id: o.id,
-        code: o.code,
-        externalOrderNumber: o.externalOrderNumber,
-        customerDocument: o.customerDocument,
-        deliveryCnpj: o.deliveryCnpj,
-        total: Number(o.totalValue ?? o.total) || 0,
-        status: String(o.status),
-        contaAzulVendaId: o.contaAzulVendaId,
-      })),
-    });
-
-    const vendaByOrder = new Map(
-      orders.map((o) => [o.id, o.contaAzulVendaId] as const),
-    );
-    for (const row of plan.claros) {
-      const current = vendaByOrder.get(row.orderId);
-      if (current) continue;
-      vendaByOrder.set(row.orderId, row.vendaId);
-    }
-    const invoiceOrders = orders.map((o) => ({
+    const xmlOrders: XmlPedidoOrder[] = orderRows.map((o) => ({
       id: o.id,
       code: o.code,
       externalOrderNumber: o.externalOrderNumber,
       invoiceNumber: o.invoiceNumber,
       notaRemessa: o.notaRemessa,
-      contaAzulVendaId: vendaByOrder.get(o.id) ?? null,
-      around: o.orderDate ?? o.createdAt,
+      customerName: o.customerName,
+      customerDocument: o.customerDocument,
+      deliveryCnpj: o.deliveryCnpj,
+      deliveryAddress: o.deliveryAddress,
+      deliveryCity: o.deliveryCity,
+      deliveryState: o.deliveryState,
+      receiverName: o.receiverName,
+      unloadingPoint: o.unloadingPoint,
+      status: String(o.status),
+      contaAzulVendaId: linkedById.get(o.id) ?? null,
     }));
-    const recemVinculados = new Set(plan.claros.map((row) => row.orderId));
-    const invoiceFillOrders = invoiceOrders.filter((o) => {
-      if (!o.contaAzulVendaId) return false;
-      if (recemVinculados.has(o.id)) return true;
-      const current = String(o.invoiceNumber ?? '').trim();
-      return !current || invoiceNumberMatchesRemessa(current, o.notaRemessa);
+    const pessoaById = new Map(pessoas.map((p) => [p.contaAzulId, p]));
+    const today = new Date();
+    reportProgress({ message: 'Buscando vendas na Conta Azul...' });
+    const dataInicial = await this.findHistoryStart(today);
+    const vendasRaw = await this.listAllVendas(dataInicial, this.ymd(today));
+    const vendas: CaVenda[] = vendasRaw.map((v) => {
+      if (v.clienteDocumento || !v.clienteId) return v;
+      const pessoa = pessoaById.get(v.clienteId);
+      return pessoa ? { ...v, clienteDocumento: pessoa.documento } : v;
     });
-    const vendasAVerificar = this.countUniqueVendaIds(invoiceFillOrders);
+
+    const alreadyLinkedVendaIds = new Set(
+      xmlOrders
+        .map((o) => o.contaAzulVendaId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const storedXmlRows = await this.prisma.client.$queryRaw<
+      Array<{
+        orderId: string;
+        contaAzulVendaId: string | null;
+        invoiceNumber: string;
+      }>
+    >`
+      SELECT
+        o.id::text AS "orderId",
+        o."contaAzulVendaId" AS "contaAzulVendaId",
+        h."invoiceNumber"
+      FROM "Order" o
+      JOIN "OrderInvoiceHistory" h ON h."orderId" = o.id
+      WHERE h."xmlStorageKey" IS NOT NULL
+        AND btrim(h."xmlStorageKey") <> ''
+    `;
+    const vendaIdsWithStoredXml = new Set(
+      storedXmlRows
+        .map((row) => row.contaAzulVendaId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const storedInvoiceByOrderId = new Map<string, string>();
+    for (const row of storedXmlRows) {
+      if (!storedInvoiceByOrderId.has(row.orderId)) {
+        storedInvoiceByOrderId.set(row.orderId, row.invoiceNumber);
+      }
+    }
+    const orderByVendaId = new Map<string, XmlPedidoOrder>();
+    for (const order of xmlOrders) {
+      if (order.contaAzulVendaId && !orderByVendaId.has(order.contaAzulVendaId)) {
+        orderByVendaId.set(order.contaAzulVendaId, order);
+      }
+    }
+    const pending = vendas.filter(
+      (v) =>
+        !alreadyLinkedVendaIds.has(v.contaAzulId) ||
+        vendaIdsWithStoredXml.has(v.contaAzulId),
+    );
     reportProgress({
       processed: 0,
-      total: vendasAVerificar,
-      message: this.vendasProgressMessage(0, vendasAVerificar),
+      total: pending.length,
+      message: `Lendo XML de ${pending.length} venda(s) (sem vínculo ou com XML armazenado)...`,
     });
-    const notas = await this.collectNotasForInvoiceFill(
-      invoiceFillOrders,
-      (processed, total) => {
+
+    const xmlCache = new Map<string, { dados: NfeXmlDados; raw: string }>();
+    const chaveByNumero = await this.indexNfeChaves(
+      dataInicial,
+      this.ymd(today),
+      (msg) => reportProgress({ message: msg }),
+    );
+    const aroundByVenda = new Map<string, Date>();
+    for (const v of pending) {
+      aroundByVenda.set(
+        v.contaAzulId,
+        v.data && Number.isFinite(new Date(v.data).getTime())
+          ? new Date(v.data)
+          : today,
+      );
+    }
+
+    const xmlRows = await mapLimit(
+      pending,
+      XML_DOWNLOAD_CONCURRENCY,
+      async (venda) => {
+        const linked = orderByVendaId.get(venda.contaAzulId);
+        const loaded = await this.loadNfeXmlDados({
+          vendaId: venda.contaAzulId,
+          orderId: linked?.id ?? null,
+          invoiceNumber: linked
+            ? storedInvoiceByOrderId.get(linked.id) ?? linked.invoiceNumber
+            : null,
+          around: aroundByVenda.get(venda.contaAzulId) ?? today,
+          cache: xmlCache,
+          chaveByNumero,
+        });
+        if ('error' in loaded) {
+          return { venda, xml: null, xmlError: loaded.error };
+        }
+        return { venda, xml: loaded.dados, xmlError: null };
+      },
+      (done, total) => {
         reportProgress({
-          processed,
+          processed: done,
           total,
-          message: this.vendasProgressMessage(processed, total),
+          message: `XML ${done} de ${total} vendas (xPed/observação)`,
         });
       },
     );
-    const vendasForFill = await this.loadVendasByIds(
-      this.vendaIdsNeedingFamilyCheck(invoiceFillOrders),
-      vendas,
-    );
-    const invoicePlan = planInvoiceFromLinkedVendas({
-      orders: invoiceOrders,
-      notas,
-      vendas: vendasForFill,
-    });
 
-    const porRazao: Record<string, number> = {};
-    for (const row of plan.claros) {
-      porRazao[row.reason] = (porRazao[row.reason] ?? 0) + 1;
+    const productsBySku = buildProductSkuMap(products);
+    const customerByDoc = new Map<string, string>();
+    for (const c of customers) {
+      const digits = documentDigits(c.document);
+      if (digits.length >= 11 && !customerByDoc.has(digits)) {
+        customerByDoc.set(digits, c.id);
+      }
     }
 
-    const jaVinculados = orders.filter((o) => Boolean(o.contaAzulVendaId)).length;
-    const report = {
-      ok: true as const,
+    const plan = planXmlPedidoVinculos({
+      rows: xmlRows,
+      orders: xmlOrders,
+      productsBySku,
+      customerByDoc,
+    });
+
+    const nfFills: InvoiceFillPreview[] = plan.vinculados
+      .filter((row) => row.preencherInvoice && row.invoiceNumber)
+      .map((row) => ({
+        orderId: row.orderId,
+        orderCode: row.orderCode,
+        externalOrderNumber: row.externalOrderNumber,
+        vendaId: row.vendaId,
+        invoiceNumber: row.invoiceNumber as string,
+      }));
+
+    const porRazao: Record<string, number> = {};
+    for (const row of plan.vinculados) {
+      porRazao[row.via] = (porRazao[row.via] ?? 0) + 1;
+    }
+    const semCorrespondencia =
+      plan.semPedidoXml.length +
+      plan.semXml.length +
+      plan.ambiguos.length +
+      plan.pedidoXmlSemErp.length;
+
+    const spotlightRow =
+      plan.vinculados.find((row) => row.xmlPedido === '4518757385') ??
+      plan.parcelasFaltantes.find((row) => row.xmlPedido === '4518757385');
+    const spotlight = spotlightRow
+      ? {
+          xmlPedido: '4518757385',
+          vendaNumero: spotlightRow.vendaNumero,
+          invoiceNumber: spotlightRow.invoiceNumber,
+          orderCode:
+            'orderCode' in spotlightRow
+              ? spotlightRow.orderCode
+              : null,
+          matched: 'orderId' in spotlightRow,
+        }
+      : undefined;
+
+    const previewClaros: VendaVinculoPreview[] = plan.vinculados
+      .slice(0, previewLimit)
+      .map((row) => ({
+        vendaId: row.vendaId,
+        vendaNumero: row.vendaNumero,
+        vendaTotal: row.vendaTotal,
+        clienteNome: row.clienteNome,
+        cnpj: row.cnpj,
+        orderId: row.orderId,
+        orderCode: row.orderCode,
+        externalOrderNumber: row.externalOrderNumber,
+        reason: row.via,
+        xmlPedido: row.xmlPedido,
+        invoiceNumber: row.invoiceNumber,
+        fromOrderCode: row.fromOrderCode,
+        reatribuir: row.reatribuir,
+      }));
+
+    const report: Omit<CaVendasReport, 'apply' | 'applied' | 'message'> = {
+      ok: true,
       vendas: vendas.length,
-      pedidos: orders.length,
-      vinculados: plan.claros.length,
-      semCorrespondencia: plan.semCorrespondencia.length,
-      jaVinculados,
-      nfsAPreencher: invoicePlan.preencher.length,
-      nfsDivergentes: invoicePlan.divergencias.length,
+      pedidos: xmlOrders.length,
+      vinculados: plan.vinculados.length,
+      parcelasFaltantes: plan.parcelasFaltantes.length,
+      semPedidoXml: plan.semPedidoXml.length,
+      semXml: plan.semXml.length,
+      ambiguos: plan.ambiguos.length,
+      pedidoXmlSemErp: plan.pedidoXmlSemErp.length,
+      semCorrespondencia,
+      jaVinculados: plan.jaVinculados,
+      nfsAPreencher: nfFills.length,
+      nfsDivergentes: 0,
       porRazao,
-      previewClaros: plan.claros.slice(0, previewLimit),
-      previewSemMatch: plan.semCorrespondencia.slice(0, previewLimit),
-      previewNfFill: invoicePlan.preencher.slice(0, previewLimit),
-      previewNfDivergencias: invoicePlan.divergencias.slice(0, previewLimit),
+      previewClaros,
+      previewParcelas: plan.parcelasFaltantes.slice(0, previewLimit).map((row) => ({
+        vendaNumero: row.vendaNumero,
+        xmlPedido: row.xmlPedido,
+        invoiceNumber: row.invoiceNumber,
+        destNome: row.destNome,
+        clienteNome: row.clienteNome,
+        itens: row.itens,
+        via: row.via,
+      })),
+      previewSemPedidoXml: plan.semPedidoXml.slice(0, previewLimit).map((row) => ({
+        vendaId: row.vendaId,
+        vendaNumero: row.vendaNumero,
+        vendaTotal: row.vendaTotal,
+        clienteNome: row.clienteNome,
+        cnpj: row.cnpj,
+        motivo: row.motivo,
+      })),
+      previewSemMatch: [
+        ...plan.ambiguos,
+        ...plan.pedidoXmlSemErp,
+        ...plan.semXml,
+      ]
+        .slice(0, previewLimit)
+        .map((row) => ({
+          vendaId: row.vendaId,
+          vendaNumero: row.vendaNumero,
+          vendaTotal: row.vendaTotal,
+          clienteNome: row.clienteNome,
+          cnpj: row.cnpj,
+          motivo: row.motivo,
+        })),
+      previewNfFill: nfFills.slice(0, previewLimit),
+      previewNfDivergencias: [],
+      spotlight,
     };
 
     if (!options.apply) {
@@ -1720,13 +1918,23 @@ export class ContaAzulIntegrationService {
         apply: false,
         applied: false,
         message:
-          'Dry-run P1: nenhum pedido foi alterado. apply=true grava contaAzulVendaId nos matches claros e invoiceNumber quando a venda já tem NF-e.',
+          `Dry-run XML: ${plan.vinculados.length} vínculo(s) exatos via xPed/observação; ` +
+          `${plan.parcelasFaltantes.length} parcela(s) WEG faltante(s); ` +
+          `${plan.semPedidoXml.length} XML sem xPed/PEDIDO:; ` +
+          `${plan.semXml.length} sem XML; ${plan.ambiguos.length} ambíguo(s). Nada gravado.`,
       };
     }
 
-    reportProgress({ message: 'Gravando vínculos...' });
+    reportProgress({ message: 'Gravando vínculos e parcelas WEG...' });
     let pedidosVinculados = 0;
-    for (const row of plan.claros) {
+    for (const row of plan.vinculados) {
+      if (row.fromOrderId && row.fromOrderId !== row.orderId) {
+        await this.unlinkVendaFromOrder(
+          row.fromOrderId,
+          row.vendaId,
+          row.invoiceNumber,
+        );
+      }
       await this.prisma.client.$executeRaw`
         UPDATE "Order"
         SET "contaAzulVendaId" = ${row.vendaId}, "updatedAt" = NOW()
@@ -1735,13 +1943,28 @@ export class ContaAzulIntegrationService {
       `;
       pedidosVinculados += 1;
     }
-    const invoicesPreenchidas = await this.applyInvoiceFills(invoicePlan.preencher);
+    const invoicesPreenchidas = await this.applyInvoiceFills(nfFills);
+    let parcelasCriadas = 0;
+    const companyEntityId = await findSaoPauloCompanyEntityId(this.prisma.client);
+    for (const parcela of plan.parcelasFaltantes) {
+      const created = await this.applyWegParcelaPlan(parcela, {
+        companyEntityId,
+        xmlOrders,
+      });
+      if (created) parcelasCriadas += 1;
+    }
     return {
       ...report,
       apply: true,
       applied: true,
-      appliedCounts: { pedidosVinculados, invoicesPreenchidas },
-      message: `Aplicado P1: ${pedidosVinculados} pedido(s) vinculados; ${invoicesPreenchidas} Nota(s) de Venda preenchida(s).`,
+      appliedCounts: {
+        pedidosVinculados,
+        invoicesPreenchidas,
+        parcelasCriadas,
+      },
+      message:
+        `Aplicado: ${pedidosVinculados} vínculo(s); ${invoicesPreenchidas} NF(s); ` +
+        `${parcelasCriadas} parcela(s) WEG criada(s).`,
     };
   }
 
@@ -2023,6 +2246,17 @@ export class ContaAzulIntegrationService {
           });
           return;
         }
+        if (row.caso === 'ignorado') {
+          semXml.push({
+            vendaId: row.venda.contaAzulId,
+            vendaNumero: row.venda.numero,
+            clienteNome: row.venda.clienteNome,
+            motivo:
+              row.motivo ??
+              'Venda interna Energy Brands — não cria pedido VENDA_EXTERNA',
+          });
+          return;
+        }
         if (
           row.caso === 'caso2' &&
           /cancel/i.test(String(row.venda.situacao ?? ''))
@@ -2060,14 +2294,12 @@ export class ContaAzulIntegrationService {
 
         let current = row;
         if (current.caso === 'caso2') {
-          const xPed =
-            loaded.dados.items.map((it) => it.xPed).find((v) => Boolean(v)) ??
-            null;
+          const pedidoRef = extractXmlPedidoNumber(loaded.dados);
           const next = reclassifyByInvoice({
             row: current,
             invoiceNumber: loaded.dados.invoiceNumber,
             orders,
-            xPed,
+            xPed: pedidoRef?.pedido ?? null,
           });
           if (next.caso === 'ambiguo') {
             duplicatas.push({
@@ -2088,6 +2320,38 @@ export class ContaAzulIntegrationService {
                 `NF ${loaded.dados.invoiceNumber} já no ERP — completa o pedido existente`,
             });
             current = next;
+          }
+        }
+
+        if (
+          current.caso === 'caso2' &&
+          isInternalEnergyBrandsSale(
+            current.venda.clienteNome,
+            loaded.dados.destNome,
+          )
+        ) {
+          semXml.push({
+            vendaId: current.venda.contaAzulId,
+            vendaNumero: current.venda.numero,
+            clienteNome: current.venda.clienteNome,
+            motivo: 'Venda interna Energy Brands — não cria pedido VENDA_EXTERNA',
+          });
+          return;
+        }
+
+        if (current.caso === 'caso2') {
+          const pedidoRef = extractXmlPedidoNumber(loaded.dados);
+          if (
+            pedidoRef &&
+            isWegDestinatario(loaded.dados.destNome, current.venda.clienteNome)
+          ) {
+            semXml.push({
+              vendaId: current.venda.contaAzulId,
+              vendaNumero: current.venda.numero,
+              clienteNome: current.venda.clienteNome,
+              motivo: `Parcela WEG ${pedidoRef.pedido} sem pedido no ERP — crie em Vincular Vendas`,
+            });
+            return;
           }
         }
 
@@ -2234,9 +2498,6 @@ export class ContaAzulIntegrationService {
   }): Promise<{ dados: NfeXmlDados; raw: string } | { error: string }> {
     const invoiceHint = nfNumberKey(opts.invoiceNumber);
     const notas = await this.listNotasByVendaId(opts.vendaId, opts.around);
-    if (notas.length === 0) {
-      return { error: 'Venda sem NF-e de produto na Conta Azul' };
-    }
     const notaForHint = invoiceHint
       ? notas.find(
           (n) =>
@@ -2244,24 +2505,23 @@ export class ContaAzulIntegrationService {
         )
       : undefined;
 
-    if (opts.orderId && invoiceHint) {
-      const cacheKey = `${opts.orderId}:${invoiceHint}`;
-      const cached = opts.cache.get(cacheKey);
-      if (cached) return cached;
-      if (notaForHint) {
-        const stored = await this.readStoredXmlString(opts.orderId, invoiceHint);
-        if (stored) {
-          const dados = parseNfeXml(stored);
-          if (dados && xmlMatchesContaAzulNota(dados, notaForHint)) {
-            const packed = { dados, raw: stored };
-            opts.cache.set(cacheKey, packed);
-            return packed;
-          }
-          this.logger.warn(
-            `XML órfão descartado: order=${opts.orderId} nf=${invoiceHint} venda=${opts.vendaId}`,
-          );
-        }
+    if (opts.orderId) {
+      const storedPacked = await this.readStoredXmlMatchingNotas({
+        orderId: opts.orderId,
+        invoiceHint,
+        notas,
+        cache: opts.cache,
+      });
+      if (storedPacked) return storedPacked;
+      if (invoiceHint && notaForHint) {
+        this.logger.warn(
+          `XML órfão descartado: order=${opts.orderId} nf=${invoiceHint} venda=${opts.vendaId}`,
+        );
       }
+    }
+
+    if (notas.length === 0) {
+      return { error: 'Venda sem NF-e de produto na Conta Azul' };
     }
 
     const nfe =
@@ -2329,6 +2589,90 @@ export class ContaAzulIntegrationService {
         error: err instanceof Error ? err.message : 'Falha ao extrair XML da NF-e',
       };
     }
+  }
+
+  private async readStoredXmlMatchingNotas(opts: {
+    orderId: string;
+    invoiceHint: string;
+    notas: Array<{
+      numero?: string | null;
+      numeroDigits?: string | null;
+      chaveAcesso?: string | null;
+    }>;
+    cache: Map<string, { dados: NfeXmlDados; raw: string }>;
+  }): Promise<{ dados: NfeXmlDados; raw: string } | null> {
+    const hints = [
+      opts.invoiceHint,
+      ...opts.notas.map((n) => n.numeroDigits || nfNumberKey(n.numero)),
+    ].filter((n): n is string => Boolean(n));
+    const seen = new Set<string>();
+    for (const numero of hints) {
+      if (seen.has(numero)) continue;
+      seen.add(numero);
+      const cacheKey = `${opts.orderId}:${numero}`;
+      const cached = opts.cache.get(cacheKey);
+      if (cached) {
+        if (
+          opts.notas.length === 0 ||
+          xmlMatchesAnyContaAzulNota(cached.dados, opts.notas)
+        ) {
+          return cached;
+        }
+        continue;
+      }
+      const stored = await this.readStoredXmlString(opts.orderId, numero);
+      if (!stored) continue;
+      const dados = parseNfeXml(stored);
+      if (!dados) continue;
+      if (
+        opts.notas.length > 0 &&
+        !xmlMatchesAnyContaAzulNota(dados, opts.notas)
+      ) {
+        continue;
+      }
+      const packed = { dados, raw: stored };
+      opts.cache.set(cacheKey, packed);
+      return packed;
+    }
+    const extras = await this.listStoredXmlKeysForOrder(opts.orderId);
+    for (const { invoiceNumber, xmlStorageKey } of extras) {
+      const numero = nfNumberKey(invoiceNumber);
+      if (!numero || seen.has(numero)) continue;
+      seen.add(numero);
+      try {
+        const file = await this.storage?.getObjectBuffer(xmlStorageKey);
+        if (!file?.buffer) continue;
+        const raw = extractNfeXml(file.buffer);
+        const dados = parseNfeXml(raw);
+        if (!dados) continue;
+        if (
+          opts.notas.length > 0 &&
+          !xmlMatchesAnyContaAzulNota(dados, opts.notas)
+        ) {
+          continue;
+        }
+        const packed = { dados, raw };
+        opts.cache.set(`${opts.orderId}:${numero}`, packed);
+        return packed;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  private async listStoredXmlKeysForOrder(
+    orderId: string,
+  ): Promise<Array<{ invoiceNumber: string; xmlStorageKey: string }>> {
+    return this.prisma.client.$queryRaw<
+      Array<{ invoiceNumber: string; xmlStorageKey: string }>
+    >`
+      SELECT "invoiceNumber", "xmlStorageKey"
+      FROM "OrderInvoiceHistory"
+      WHERE "orderId" = CAST(${orderId} AS UUID)
+        AND "xmlStorageKey" IS NOT NULL
+        AND btrim("xmlStorageKey") <> ''
+    `;
   }
 
   private async readStoredXmlString(
@@ -2551,6 +2895,138 @@ export class ContaAzulIntegrationService {
       }
     });
     return true;
+  }
+
+  private async applyWegParcelaPlan(
+    plan: WegParcelaPreview,
+    opts: {
+      companyEntityId: string | null;
+      xmlOrders: XmlPedidoOrder[];
+    },
+  ): Promise<boolean> {
+    if (plan.unlinkFromOrderId) {
+      await this.unlinkVendaFromOrder(
+        plan.unlinkFromOrderId,
+        plan.vendaId,
+        plan.invoiceNumber,
+      );
+    }
+    const alreadyVenda = await this.prisma.client.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM "Order"
+      WHERE "contaAzulVendaId" = ${plan.vendaId}
+      LIMIT 1
+    `;
+    if (alreadyVenda.length > 0) return false;
+    const alreadyPedido = await this.prisma.client.order.findFirst({
+      where: { externalOrderNumber: plan.xmlPedido },
+      select: { id: true },
+    });
+    if (alreadyPedido) return false;
+
+    const family = plan.familyBaseOrderId
+      ? opts.xmlOrders.find((o) => o.id === plan.familyBaseOrderId)
+      : undefined;
+    const emitida = nfeEmitidaEmDate(plan.emitidaEm) ?? new Date();
+    const total = new Prisma.Decimal(Number(plan.total || 0).toFixed(2));
+    const customerName =
+      plan.destNome?.trim() ||
+      family?.customerName?.trim() ||
+      plan.clienteNome?.trim() ||
+      'WEG';
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(${XML_VENDAS_NEXT_CODE_LOCK})`,
+      );
+      const rows = await tx.$queryRaw<Array<{ next: bigint }>>`
+        SELECT (COALESCE(MAX(CAST(SPLIT_PART("code", '-', 2) AS INTEGER)), 0) + 1)::bigint AS next
+        FROM "Order"
+        WHERE "code" ~ '^PED-[0-9]+$'
+      `;
+      const code = `PED-${String(Number(rows[0]?.next ?? 1)).padStart(6, '0')}`;
+      const created = await tx.order.create({
+        data: {
+          source: OrderSource.WEG_MERCADO_ELETRONICO,
+          code,
+          externalOrderNumber: plan.xmlPedido,
+          customerId: plan.customerId,
+          customerName,
+          customerDocument: plan.cnpj || family?.customerDocument,
+          deliveryCnpj: plan.cnpj || family?.deliveryCnpj,
+          deliveryAddress: plan.destEnderecoJson || family?.deliveryAddress,
+          deliveryCity: plan.destCidade || family?.deliveryCity,
+          deliveryState: plan.destUf || family?.deliveryState,
+          receiverName: family?.receiverName || customerName,
+          unloadingPoint: family?.unloadingPoint,
+          invoiceNumber: plan.invoiceNumber,
+          invoiceStatus: InvoiceStatus.INVOICED,
+          invoicedAt: emitida,
+          orderDate: emitida,
+          status: OrderStatus.NOVO,
+          priority: 3,
+          subtotal: total,
+          discount: new Prisma.Decimal(0),
+          total,
+          totalValue: total,
+          companyEntityId: opts.companyEntityId,
+          notes: `Parcela WEG criada via XML (xPed ${plan.xmlPedido}, venda CA ${plan.vendaNumero ?? plan.vendaId}).`,
+          items: {
+            create: plan.items.map((item) => ({
+              lineNumber: item.lineNumber,
+              sku: item.sku,
+              description: item.description,
+              quantity: item.quantity,
+              reservedQuantity: 0,
+              missingQty: 0,
+              pickedQty: 0,
+              invoicedQty: 0,
+              unit: item.unit,
+              ncm: item.ncm,
+              unitPrice: new Prisma.Decimal(item.unitPrice.toFixed(2)),
+              totalPrice: new Prisma.Decimal(item.totalPrice.toFixed(2)),
+              discount: new Prisma.Decimal(0),
+              productId: item.productId,
+              stockStatus: OrderItemStockStatus.NAO_ANALISADO,
+            })),
+          },
+        },
+        select: { id: true },
+      });
+      await tx.$executeRaw`
+        UPDATE "Order"
+        SET "contaAzulVendaId" = ${plan.vendaId}, "updatedAt" = NOW()
+        WHERE id = CAST(${created.id} AS UUID)
+          AND "contaAzulVendaId" IS NULL
+      `;
+    });
+    return true;
+  }
+
+  private async unlinkVendaFromOrder(
+    orderId: string,
+    vendaId: string,
+    invoiceNumber: string | null,
+  ): Promise<void> {
+    await this.prisma.client.$executeRaw`
+      UPDATE "Order"
+      SET "contaAzulVendaId" = NULL, "updatedAt" = NOW()
+      WHERE id = CAST(${orderId} AS UUID)
+        AND "contaAzulVendaId" = ${vendaId}
+    `;
+    if (!invoiceNumber) return;
+    const current = await this.prisma.client.order.findUnique({
+      where: { id: orderId },
+      select: { invoiceNumber: true },
+    });
+    const next = removeInvoiceNumberFromField(
+      current?.invoiceNumber,
+      invoiceNumber,
+    );
+    if ((current?.invoiceNumber ?? null) === next) return;
+    await this.prisma.client.order.update({
+      where: { id: orderId },
+      data: { invoiceNumber: next },
+    });
   }
 
   private async applyInvoiceFills(
@@ -3117,8 +3593,8 @@ export class ContaAzulIntegrationService {
     reportProgress(2, 'Etapa 2/6: cadastros reais (Customer/Supplier/Carrier)...');
     const cadastros = await this.sincronizarCadastros({ apply });
 
-    reportProgress(3, 'Etapa 3/6: vincular vendas a pedidos...');
-    const vendas = await this.sincronizarVendas({
+    reportProgress(3, 'Etapa 3/6: vincular vendas via xPed/observação do XML...');
+    const vendasJob = await this.sincronizarVendas({
       apply,
       onProgress: (update) =>
         options.onProgress?.({
@@ -3127,6 +3603,18 @@ export class ContaAzulIntegrationService {
           message: `Etapa 3/6: ${update.message}`,
         }),
     });
+    const vendas: CaSincronizacaoCompletaReport['vendas'] = {
+      vinculados: vendasJob.vinculados,
+      parcelasFaltantes: vendasJob.parcelasFaltantes,
+      semPedidoXml: vendasJob.semPedidoXml,
+      nfsAPreencher: vendasJob.nfsAPreencher,
+      nfsDivergentes: vendasJob.nfsDivergentes,
+      semCorrespondencia: vendasJob.semCorrespondencia,
+      previewClaros: vendasJob.previewClaros.slice(0, 12),
+      previewParcelas: vendasJob.previewParcelas.slice(0, 12),
+      previewSemPedidoXml: vendasJob.previewSemPedidoXml.slice(0, 12),
+      message: vendasJob.message,
+    };
 
     reportProgress(4, 'Etapa 4/6: correção de itens WEG via XML (SKU)...');
     const itensExternos = await this.processarItensExternosXml({ apply });
@@ -3165,14 +3653,7 @@ export class ContaAzulIntegrationService {
         atualizar: cadastros.erpApply.atualizar,
         message: cadastros.message,
       },
-      vendas: {
-        vinculados: vendas.vinculados,
-        nfsAPreencher: vendas.nfsAPreencher,
-        nfsDivergentes: vendas.nfsDivergentes,
-        semCorrespondencia: vendas.semCorrespondencia,
-        previewClaros: vendas.previewClaros.slice(0, 12),
-        message: vendas.message,
-      },
+      vendas,
       itensExternos: {
         corrections: itensExternos.corrections,
         xmlsParsed: itensExternos.xmlsParsed,
@@ -3206,7 +3687,7 @@ export class ContaAzulIntegrationService {
           xmlVendas.message,
           notasAntigas.message,
         ].join(' ')
-      : `Dry-run Sincronizar Tudo: cadastros (criar ${cadastros.erpApply.criar.customers} clientes / ${cadastros.erpApply.criar.suppliers} fornecedores / ${cadastros.erpApply.criar.carriers} transportadoras); ${vendas.vinculados} venda(s) a vincular; ${itensExternos.corrections} item(ns) WEG a corrigir; Caso 1 ${xmlVendas.caso1Completar} a completar / Caso 2 ${xmlVendas.caso2} Venda Externa; ${pending.length} NF(s) antigas sem XML/DANFE. Nada gravado.`;
+      : `Dry-run Sincronizar Tudo: cadastros (criar ${cadastros.erpApply.criar.customers} clientes / ${cadastros.erpApply.criar.suppliers} fornecedores / ${cadastros.erpApply.criar.carriers} transportadoras); ${vendasJob.vinculados} vínculo(s) via xPed; ${vendasJob.parcelasFaltantes} parcela(s) WEG; ${vendasJob.semPedidoXml} XML sem pedido; ${itensExternos.corrections} item(ns) WEG a corrigir; Caso 1 ${xmlVendas.caso1Completar} a completar / Caso 2 ${xmlVendas.caso2} Venda Externa; ${pending.length} NF(s) antigas sem XML/DANFE. Nada gravado.`;
     return report;
   }
 

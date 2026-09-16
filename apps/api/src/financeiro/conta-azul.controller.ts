@@ -213,7 +213,8 @@ export class ContaAzulController {
   }
 
   /**
-   * Sincronizar Tudo: dados brutos → cadastros → vincular vendas → itens WEG → XML Caso 1/2 → notas antigas.
+   * Sincronizar Tudo: dados brutos → cadastros → vincular vendas (xPed) → itens WEG → XML Caso 1/2 → notas antigas.
+   * Vincular vendas a pedidos está pausado neste fluxo.
    * Dry-run por padrão; apply=true só após confirmação em "Aplicar Tudo".
    */
   @Post('sincronizacao-completa')

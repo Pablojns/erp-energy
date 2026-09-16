@@ -37,7 +37,19 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('Usuário não autenticado.');
     }
 
-    if (user.roles.includes('ADMIN')) {
+    const roleNames = Array.isArray(user.roles) ? user.roles : [];
+    if (roleNames.some((role) => String(role).trim().toUpperCase() === 'ADMIN')) {
+      return true;
+    }
+
+    const adminRole = await this.prisma.client.userRole.findFirst({
+      where: {
+        userId: user.id,
+        role: { name: { equals: 'ADMIN', mode: 'insensitive' } },
+      },
+      select: { id: true },
+    });
+    if (adminRole) {
       return true;
     }
 

@@ -1243,11 +1243,23 @@ export class OrderService {
     }
 
     const duplicate = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber },
-      select: { id: true },
+      where: {
+        externalOrderNumber,
+        status: { notIn: [OrderStatus.CANCELADO, OS_ARQUIVADO] },
+      },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        source: true,
+        invoiceNumber: true,
+      },
     });
     if (duplicate) {
-      throw new ConflictException('Já existe pedido com este número.');
+      const nf = duplicate.invoiceNumber?.trim();
+      throw new ConflictException(
+        `Já existe o pedido ${duplicate.code} com este número (${duplicate.source}, ${duplicate.status}${nf ? `, NF ${nf}` : ''}). Abra ${duplicate.code} para emitir a etiqueta — não crie outro.`,
+      );
     }
 
     const customer = await this.prisma.client.customer.findUnique({

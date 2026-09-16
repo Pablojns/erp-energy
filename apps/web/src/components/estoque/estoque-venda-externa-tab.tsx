@@ -207,7 +207,7 @@ export function EstoqueVendaExternaTab() {
         <div className="mb-3 shrink-0 space-y-3">
           <div>
             <h3 className="text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
-              Estoque Venda Externa
+              Estoque Externo
             </h3>
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
               Itens externos com saldo próprio — nunca mistura com o estoque WEG.

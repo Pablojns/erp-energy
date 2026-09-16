@@ -315,22 +315,31 @@ export function NewVendaExternaModal(props: {
       let productId: string | null = hit.kind === 'weg' ? hit.id ?? null : null;
       if (hit.kind === 'create' || hit.kind === 'quote') {
         const price = Number(String(hit.price ?? '0').replace(',', '.')) || 0;
-        const created = await erpFetchJson<{ id: string }>(
-          'api/external-items',
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              name: hit.name,
-              lastKnownPrice: price,
-              source:
-                hit.kind === 'quote'
-                  ? hit.supplier?.trim() || 'XBZ/SPOT'
-                  : 'Manual',
-            }),
-          },
-        );
-        externalItemId = created.id;
-        productId = null;
+        try {
+          const created = await erpFetchJson<{ id: string }>(
+            'api/external-items',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name: hit.name,
+                lastKnownPrice: price,
+                source:
+                  hit.kind === 'quote'
+                    ? hit.supplier?.trim() || 'XBZ/SPOT'
+                    : 'Manual',
+              }),
+            },
+          );
+          externalItemId = created.id;
+          productId = null;
+        } catch (err) {
+          setSubmitError(
+            err instanceof Error
+              ? err.message
+              : 'Sem permissão para criar item externo.',
+          );
+          return;
+        }
       }
       setItems((prev) =>
         prev.map((r) =>

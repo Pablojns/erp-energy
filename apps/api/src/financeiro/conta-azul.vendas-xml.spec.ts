@@ -2,6 +2,8 @@ import { mapContaAzulVenda } from './conta-azul.vendas';
 import type { NfeXmlDados } from './conta-azul.nfe-xml';
 import {
   classifyXmlVendas,
+  isInternalEnergyBrandsSale,
+  isWegDestinatario,
   isMissingMoney,
   planCaso1Completar,
   planCaso2Criar,
@@ -112,7 +114,7 @@ describe('classifyXmlVendas', () => {
     expect(rows[0].via).toBe('p1_claro');
   });
 
-  it('parcela 45178185981 não vira Caso 2 nem casa no pedido 4519085342', () => {
+  it('parcela com sufixo não casa no pedido base nem em outro pedido por família', () => {
     const rows = classifyXmlVendas({
       vendas: [
         venda({
@@ -138,47 +140,53 @@ describe('classifyXmlVendas', () => {
         }),
       ],
     });
-    expect(rows[0].caso).toBe('caso1');
-    expect(rows[0].order?.id).toBe('base');
+    expect(rows[0].caso).toBe('caso2');
+    expect(rows[0].order).toBeUndefined();
   });
 
-  it('xPed de parcela reclassifica Caso 2 para o pedido base', () => {
+  it('xPed exato reclassifica Caso 2 para o pedido real, não para a família', () => {
     const row = classifyXmlVendas({
       vendas: [
         venda({
-          id: 'vnd-parcela',
-          numero: '88',
+          id: 'vnd-ca',
+          numero: '451846455715',
           total: 1600,
         }),
       ],
       orders: [
         order({
-          id: 'base',
-          externalOrderNumber: '4517818598',
+          id: 'real',
+          externalOrderNumber: '4518757385',
+          contaAzulVendaId: null,
+        }),
+        order({
+          id: 'base-familia',
+          externalOrderNumber: '4518757380',
           contaAzulVendaId: null,
         }),
       ],
     })[0];
+    expect(row.caso).toBe('caso2');
     const next = reclassifyByInvoice({
       row,
-      invoiceNumber: '2072',
+      invoiceNumber: '1889',
       orders: [
         order({
-          id: 'base',
-          externalOrderNumber: '4517818598',
+          id: 'real',
+          externalOrderNumber: '4518757385',
           contaAzulVendaId: null,
         }),
         order({
-          id: 'errado',
+          id: 'outro-nf',
           externalOrderNumber: '4519085342',
-          invoiceNumber: '2072',
+          invoiceNumber: '1889',
           contaAzulVendaId: null,
         }),
       ],
-      xPed: '451781859811',
+      xPed: '4518757385',
     });
     expect(next.caso).toBe('caso1');
-    expect(next.order?.id).toBe('base');
+    expect(next.order?.id).toBe('real');
   });
 
   it('Caso 2 para venda avulsa sem pedido (PRATYC)', () => {
@@ -189,7 +197,25 @@ describe('classifyXmlVendas', () => {
     expect(rows[0]).toMatchObject({ caso: 'caso2', via: 'sem_pedido' });
   });
 
-  it('marca ambíguo quando CNPJ+valor bate em vários pedidos', () => {
+  it('ignora venda interna Energy Brands no Caso 2 (não cria VENDA_EXTERNA)', () => {
+    const rows = classifyXmlVendas({
+      vendas: [
+        venda({
+          id: 'vnd-energy',
+          numero: '888',
+          cliente: { nome: 'Energy Brands', documento: '00000000000191' },
+        }),
+      ],
+      orders: [order({ contaAzulVendaId: 'other' })],
+    });
+    expect(rows[0]).toMatchObject({
+      caso: 'ignorado',
+      via: 'sem_pedido',
+    });
+    expect(rows[0].motivo).toMatch(/Energy Brands/i);
+  });
+
+  it('não adivinha por CNPJ+valor quando o número da venda não existe no ERP', () => {
     const rows = classifyXmlVendas({
       vendas: [
         venda({
@@ -209,7 +235,7 @@ describe('classifyXmlVendas', () => {
         }),
       ],
     });
-    expect(rows[0].caso).toBe('ambiguo');
+    expect(rows[0].caso).toBe('caso2');
   });
 });
 
@@ -477,5 +503,25 @@ describe('isMissingMoney', () => {
   it('trata zero como dado faltante', () => {
     expect(isMissingMoney(0)).toBe(true);
     expect(isMissingMoney(10)).toBe(false);
+  });
+});
+
+describe('isInternalEnergyBrandsSale', () => {
+  it('reconhece o nome da própria empresa e variações óbvias', () => {
+    expect(isInternalEnergyBrandsSale('Energy Brands')).toBe(true);
+    expect(isInternalEnergyBrandsSale('ENERGY BRANDS')).toBe(true);
+    expect(isInternalEnergyBrandsSale('Energy Brands Ltda')).toBe(true);
+    expect(isInternalEnergyBrandsSale('EnergyBrands')).toBe(true);
+    expect(isInternalEnergyBrandsSale('PRATYC')).toBe(false);
+    expect(isInternalEnergyBrandsSale('Energy Solar')).toBe(false);
+  });
+});
+
+describe('isWegDestinatario', () => {
+  it('reconhece WEG e recusa Energy Brands', () => {
+    expect(isWegDestinatario('WEG EQUIPAMENTOS ELETRICOS S.A.')).toBe(true);
+    expect(isWegDestinatario('WEG')).toBe(true);
+    expect(isWegDestinatario('Energy Brands')).toBe(false);
+    expect(isWegDestinatario('PRATYC COMERCIO')).toBe(false);
   });
 });

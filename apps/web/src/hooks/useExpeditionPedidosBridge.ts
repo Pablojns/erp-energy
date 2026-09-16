@@ -58,16 +58,19 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
   // atrás de SEPARADO/AGUARDANDO_NF quando ordenados por orderDate desc.
   const infiniteScroll = true;
 
-  // Sincroniza source com o contexto: WEG/SITE forçam; Todos libera (source=all).
+  // Sincroniza source com o contexto: WEG/SITE forçam a aba inicial;
+  // o chip Venda Externa precisa vencer o contexto, senão a lista continua WEG.
   useEffect(() => {
     if (businessContext === 'ALL') {
-      setAppliedFilters((prev) =>
-        prev.source === 'all' ? prev : { ...prev, source: 'all' },
-      );
+      setAppliedFilters((prev) => {
+        if (prev.source === 'VENDA_EXTERNA') return prev;
+        return prev.source === 'all' ? prev : { ...prev, source: 'all' };
+      });
       setPage(1);
       return;
     }
     setAppliedFilters((prev) => {
+      if (prev.source === 'VENDA_EXTERNA') return prev;
       const nextSource = orderSource as FilterFormState['source'];
       if (prev.source === nextSource) return prev;
       return { ...prev, source: nextSource };
@@ -79,14 +82,9 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     () => ({
       ...appliedFilters,
       filterValue: filterValueDebounced,
-      // Em Todos, respeita source local (all no início; chips depois).
-      // Em WEG/SITE, força o source do contexto.
-      source:
-        businessContext === 'ALL'
-          ? appliedFilters.source
-          : (orderSource as FilterFormState['source']),
+      source: appliedFilters.source,
     }),
-    [appliedFilters, filterValueDebounced, orderSource, businessContext],
+    [appliedFilters, filterValueDebounced],
   );
 
   const resetPageToFirst = useCallback(() => {
@@ -111,7 +109,10 @@ export function useExpeditionPedidosBridge(opts: UseExpeditionOrdersOptions = {}
     infinite: infiniteScroll,
     sortBy,
     sortOrder,
-    businessContext: businessContext === 'ALL' ? undefined : businessContext,
+    businessContext:
+      appliedFilters.source === 'VENDA_EXTERNA' || businessContext === 'ALL'
+        ? undefined
+        : businessContext,
     onPageReset: resetPageToFirst,
   });
 

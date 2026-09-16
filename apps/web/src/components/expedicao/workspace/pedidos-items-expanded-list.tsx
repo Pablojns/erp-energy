@@ -19,6 +19,10 @@ import {
   useOrderItemsStock,
 } from '@/src/components/expedicao/shared/use-order-items-stock';
 import type { OrderDto, OrderSource } from '@/src/components/expedicao/shared/types';
+import {
+  OrderItemOriginBadge,
+  orderItemOrigin,
+} from '@/src/components/expedicao/workspace/order-item-origin-badge';
 import type { useExpeditionPedidosBridge } from '@/src/hooks/useExpeditionPedidosBridge';
 
 const brl = new Intl.NumberFormat('pt-BR', {
@@ -276,6 +280,7 @@ export function PedidosItemsExpandedList(props: {
                           >
                             {item.description || '—'}
                           </span>
+                          <OrderItemOriginBadge origin={orderItemOrigin(item)} />
                           <span className="exp-pedidos-expanded-fig">
                             <span className="exp-pedidos-expanded-fig-label">Qtd</span>
                             <OrderItemOrderedQtyCell qty={item.quantity} />

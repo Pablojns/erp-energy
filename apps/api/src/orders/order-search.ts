@@ -117,6 +117,23 @@ export function sameInvoiceNumber(
   return String(a ?? '').trim() === String(b ?? '').trim();
 }
 
+/** Tira uma NF de um campo que pode ter várias (`1889 | 1890`). */
+export function removeInvoiceNumberFromField(
+  current: string | null | undefined,
+  toRemove: string | null | undefined,
+): string | null {
+  const raw = String(current ?? '').trim();
+  if (!raw) return null;
+  const wanted = invoiceNumberDigits(String(toRemove ?? ''));
+  if (!wanted) return raw;
+  const parts = splitInvoiceNumberParts(raw);
+  const kept = parts.filter((part) => invoiceNumberDigitsOnePart(part) !== wanted);
+  if (kept.length === parts.length) {
+    return invoiceNumberDigitList(raw).includes(wanted) ? null : raw;
+  }
+  return kept.length ? kept.join(' | ') : null;
+}
+
 /**
  * True quando o número informado é a Nota de Remessa do pedido.
  * Remessa sai de outra conta Conta Azul — nunca deve ser usada como Nota de Venda

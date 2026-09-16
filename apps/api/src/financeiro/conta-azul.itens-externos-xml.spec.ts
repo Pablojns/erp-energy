@@ -43,7 +43,29 @@ describe('planWrongWegItemReplaces', () => {
       productId: 'prod-weg-cuia',
       reuseExternalItemId: null,
       externalItemName: 'Copo de Viagem',
+      unitPrice: 18.9,
     });
+  });
+
+  it('usa o preço do XML, nunca o preço WEG anterior (Copo Viagem 8,87 vs Cuia 87,46)', () => {
+    const plan = planWrongWegItemReplaces({
+      orderItems: [
+        {
+          id: 'item-30',
+          lineNumber: 30,
+          sku: '50000001',
+          description: 'Copo Térmico Cuia',
+          quantity: 1,
+          productId: 'prod-weg-cuia',
+          productName: 'Copo Térmico Cuia',
+          unitPrice: 87.46,
+        },
+      ],
+      xmlItems: [{ ...copoXml, unitPrice: 8.87, totalPrice: 8.87, quantity: 1 }],
+    });
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.unitPrice).toBe(8.87);
+    expect(plan[0]?.toDescription).toBe('Copo de Viagem');
   });
 
   it('reusa ExternalItem com o mesmo nome normalizado', () => {

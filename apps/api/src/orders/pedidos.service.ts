@@ -23,7 +23,7 @@ import { CorreiosService } from '../correios/correios.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
-import { applyExternalItemOutbound } from '../external-items/external-item-stock';
+import { applyExternalItemInbound, applyExternalItemOutbound } from '../external-items/external-item-stock';
 import { CarrierResolverService } from './carrier-resolver.service';
 import {
   buildOrderFieldFilterWhere,
@@ -850,7 +850,7 @@ export class PedidosService {
         });
       }
 
-      if (dto.items?.length) {
+      if (dto.items !== undefined) {
         const existingById = new Map(before.items.map((it) => [it.id, it]));
         let nextLine =
           before.items.reduce((max, it) => Math.max(max, it.lineNumber), 0) + 10;
@@ -1012,6 +1012,33 @@ export class PedidosService {
           await tx.orderItem.update({ where: { id: item.id! }, data: itemData });
         }
 
+        const incomingIds = new Set(
+          dto.items
+            .map((it) => it.id?.trim())
+            .filter((id): id is string => Boolean(id)),
+        );
+        const toDelete = before.items.filter((it) => !incomingIds.has(it.id));
+        if (toDelete.length > 0) {
+          for (const doomed of toDelete) {
+            if (
+              before.source === OrderSource.VENDA_EXTERNA &&
+              doomed.externalItemId &&
+              doomed.quantity > 0
+            ) {
+              await applyExternalItemInbound(tx, {
+                externalItemId: doomed.externalItemId,
+                quantity: doomed.quantity,
+                reference: before.code,
+                notes: `Remoção de item ${before.code}`,
+                userId,
+              });
+            }
+          }
+          await tx.orderItem.deleteMany({
+            where: { id: { in: toDelete.map((it) => it.id) } },
+          });
+        }
+
         // Recalcula totais do pedido a partir dos itens quando houver mudança de linhas
         // e o cliente não enviou totalValue explícito.
         if (dto.totalValue === undefined) {
@@ -1120,7 +1147,13 @@ export class PedidosService {
       await this.recalculateInvoicedQtyFromHistory(before.id);
     }
 
+    const omittedItems =
+      dto.items !== undefined &&
+      before.items.some(
+        (it) => !dto.items!.some((row) => row.id && row.id === it.id),
+      );
     const qtyOrSkuChanged = Boolean(
+      omittedItems ||
       dto.items?.some((item) => {
         if (!item.id) return true;
         const prev = before.items.find((it) => it.id === item.id);

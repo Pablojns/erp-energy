@@ -11,6 +11,10 @@ import {
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { SeparationItemRow } from '@/src/components/expedicao/workspace/separation-item-row';
 import {
+  OrderItemOriginBadge,
+  orderItemOrigin,
+} from '@/src/components/expedicao/workspace/order-item-origin-badge';
+import {
   formatOrderItemSaleValue,
   summarizeItemReceiptStatus,
   resolveLineSeparationStatus,
@@ -186,7 +190,10 @@ export function SeparationItemsTable(props: {
                   <td className="exp-wb-cell-linha text-xs" data-label="Linha">{it.lineNumber}</td>
                   <td className="exp-wb-cell-sku text-xs" data-label="SKU">{it.sku || '—'}</td>
                   <td className="exp-wb-cell-item text-xs" data-label="Item">
-                    {it.description}
+                    <span className="inline-flex items-center gap-1.5">
+                      {it.description}
+                      <OrderItemOriginBadge origin={orderItemOrigin(it)} />
+                    </span>
                   </td>
                   <td className="exp-wb-td-num exp-wb-num-qtd" data-label="Qtd Pedido">
                     <OrderItemOrderedQtyCell qty={it.quantity} />

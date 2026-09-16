@@ -283,7 +283,7 @@ export function planWrongWegItemReplaces(input: {
       toSku: xmlItem.sku.trim() || matched.sku,
       productId: matched.productId,
       productName: matched.productName,
-      unitPrice: xmlItem.unitPrice > 0 ? xmlItem.unitPrice : matched.unitPrice,
+      unitPrice: xmlItem.unitPrice,
       ncm: xmlItem.ncm,
       unit: xmlItem.unit,
       externalItemName: xmlName,

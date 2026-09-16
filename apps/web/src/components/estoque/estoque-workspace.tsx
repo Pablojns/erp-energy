@@ -2837,7 +2837,7 @@ export function EstoqueWorkspace() {
         )}
         {tabButton(
           'venda-externa',
-          'Estoque Venda Externa',
+          'Estoque Externo',
           <PackagePlus className="h-4 w-4 text-amber-600" />,
         )}
         {tabButton(

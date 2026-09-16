@@ -25,7 +25,7 @@ import { ExternalItemsService } from './external-items.service';
 
 @Controller('api/external-items')
 @UseGuards(JwtGuard)
-@RequirePermission('expedicao', 'ver_pedidos')
+@RequirePermission('expedicao', 'ver_modulo')
 export class ExternalItemsController {
   constructor(private readonly items: ExternalItemsService) {}
 

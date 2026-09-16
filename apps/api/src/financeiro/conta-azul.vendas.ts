@@ -33,7 +33,9 @@ export type VendaMatchReason =
   | 'numero'
   | 'numero_cnpj'
   | 'numero_valor'
-  | 'cnpj_valor';
+  | 'cnpj_valor'
+  | 'compra_xPed'
+  | 'infCpl';
 
 export type VendaVinculoPreview = {
   vendaId: string;
@@ -45,6 +47,10 @@ export type VendaVinculoPreview = {
   orderCode: string;
   externalOrderNumber: string | null;
   reason: VendaMatchReason;
+  xmlPedido?: string;
+  invoiceNumber?: string | null;
+  fromOrderCode?: string | null;
+  reatribuir?: boolean;
 };
 
 export type VendaSemMatch = {

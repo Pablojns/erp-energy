@@ -1,14 +1,11 @@
 import { displayPedidoNumero, stripAccents } from '../orders/order-search';
 import { documentDigits } from './conta-azul.pessoas';
+import { type CaVenda } from './conta-azul.vendas';
 import {
-  pickWegFamilyOrder,
-  planVendaVinculos,
-  sameWegOrderFamily,
-  vendaWegHint,
-  wegOrderBase,
-  type CaVenda,
-} from './conta-azul.vendas';
-import type { NfeXmlDados, NfeXmlItem } from './conta-azul.nfe-xml';
+  findExactOrdersByPedido,
+  type NfeXmlDados,
+  type NfeXmlItem,
+} from './conta-azul.nfe-xml';
 import {
   planWrongWegItemReplaces,
   type ItemReplacePatch,
@@ -45,7 +42,7 @@ export type ErpOrderItemForXml = {
   productName?: string | null;
 };
 
-export type XmlVendaCaso = 'caso1' | 'caso2' | 'ambiguo';
+export type XmlVendaCaso = 'caso1' | 'caso2' | 'ambiguo' | 'ignorado';
 
 export type XmlVendaClassificacao = {
   caso: XmlVendaCaso;
@@ -138,6 +135,41 @@ export function isMissingMoney(value: number | null | undefined): boolean {
   return !Number.isFinite(n) || n === 0;
 }
 
+/** Venda interna da própria empresa — não vira pedido VENDA_EXTERNA. */
+export function isInternalEnergyBrandsSale(
+  ...names: Array<string | null | undefined>
+): boolean {
+  for (const raw of names) {
+    const n = stripAccents(String(raw ?? ''))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    if (!n) continue;
+    const compact = n.replace(/\s+/g, '');
+    if (compact === 'energybrands' || compact.startsWith('energybrands')) {
+      return true;
+    }
+    if (/(^|\s)energy brands(\s|$)/.test(n)) return true;
+  }
+  return false;
+}
+
+/** Destinatário/cliente WEG (parcela real), excluindo venda interna Energy Brands. */
+export function isWegDestinatario(
+  ...names: Array<string | null | undefined>
+): boolean {
+  if (isInternalEnergyBrandsSale(...names)) return false;
+  for (const raw of names) {
+    const n = stripAccents(String(raw ?? ''))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    if (!n) continue;
+    if (/(^|\s)weg(\s|$)/.test(n)) return true;
+  }
+  return false;
+}
+
 export function classifyXmlVendas(input: {
   vendas: CaVenda[];
   orders: ErpOrderForXml[];
@@ -147,22 +179,6 @@ export function classifyXmlVendas(input: {
     const id = String(order.contaAzulVendaId ?? '').trim();
     if (id && !byVendaId.has(id)) byVendaId.set(id, order);
   }
-  const p1 = planVendaVinculos({
-    vendas: input.vendas,
-    orders: input.orders.map((o) => ({
-      id: o.id,
-      code: o.code,
-      externalOrderNumber: o.externalOrderNumber,
-      customerDocument: o.customerDocument,
-      deliveryCnpj: o.deliveryCnpj,
-      total: o.total,
-      status: o.status,
-      contaAzulVendaId: o.contaAzulVendaId,
-    })),
-  });
-  const claroByVenda = new Map(p1.claros.map((row) => [row.vendaId, row]));
-  const orderById = new Map(input.orders.map((o) => [o.id, o]));
-  const semByVenda = new Map(p1.semCorrespondencia.map((row) => [row.vendaId, row]));
 
   return input.vendas.map((venda) => {
     const linked = byVendaId.get(venda.contaAzulId);
@@ -174,37 +190,46 @@ export function classifyXmlVendas(input: {
         order: linked,
       };
     }
-    const claro = claroByVenda.get(venda.contaAzulId);
-    if (claro) {
-      const order = orderById.get(claro.orderId);
+    const seen = new Set<string>();
+    const exact: ErpOrderForXml[] = [];
+    for (const hint of [venda.numeroPedido, venda.numero]) {
+      for (const order of findExactOrdersByPedido(hint, input.orders)) {
+        if (seen.has(order.id)) continue;
+        seen.add(order.id);
+        exact.push(order);
+      }
+    }
+    if (exact.length === 1) {
       return {
         caso: 'caso1',
         via: 'p1_claro',
         venda,
-        order,
-        motivo: `Match P1 claro (${claro.reason}) — completa o pedido existente, não cria outro`,
+        order: exact[0],
+        motivo: `Match exato do número ${exact[0].externalOrderNumber} — completa o pedido existente, não cria outro`,
       };
     }
-    const familyOrder = pickWegFamilyOrder(
-      vendaWegHint(venda),
-      input.orders,
-    );
-    if (familyOrder) {
+    if (exact.length > 1) {
       return {
-        caso: 'caso1',
-        via: 'p1_claro',
+        caso: 'ambiguo',
+        via: 'ambiguo',
         venda,
-        order: familyOrder,
-        motivo:
-          'Parcela WEG da mesma família (prefixo de 10 dígitos) — completa o pedido existente, não cria outro',
+        motivo: `Número bateu com ${exact.length} pedidos — não cria pedido`,
       };
     }
-    const sem = semByVenda.get(venda.contaAzulId);
-    const motivo = sem?.motivo ?? 'Sem pedido correspondente no ERP';
-    if (/bateu com \d+/i.test(motivo)) {
-      return { caso: 'ambiguo', via: 'ambiguo', venda, motivo };
+    if (isInternalEnergyBrandsSale(venda.clienteNome)) {
+      return {
+        caso: 'ignorado',
+        via: 'sem_pedido',
+        venda,
+        motivo: 'Venda interna Energy Brands — não cria pedido VENDA_EXTERNA',
+      };
     }
-    return { caso: 'caso2', via: 'sem_pedido', venda, motivo };
+    return {
+      caso: 'caso2',
+      via: 'sem_pedido',
+      venda,
+      motivo: 'Sem pedido correspondente no ERP',
+    };
   });
 }
 
@@ -215,21 +240,26 @@ export function reclassifyByInvoice(input: {
   xPed?: string | null;
 }): XmlVendaClassificacao {
   if (input.row.caso !== 'caso2') return input.row;
-  const pedidoHint =
-    (input.xPed && wegOrderBase(input.xPed) ? input.xPed : null) ||
-    vendaWegHint(input.row.venda) ||
-    input.xPed;
-  const family = pickWegFamilyOrder(pedidoHint, input.orders);
-  if (family) {
-    return {
-      caso: 'caso1',
-      via: 'p1_claro',
-      venda: input.row.venda,
-      order: family,
-      motivo: `Pedido/xPed ${String(pedidoHint)} é parcela da família WEG do pedido ${family.externalOrderNumber}`,
-    };
-  }
-  if (wegOrderBase(pedidoHint)) {
+  const pedido = String(input.xPed ?? '').trim();
+  if (pedido) {
+    const matches = findExactOrdersByPedido(pedido, input.orders);
+    if (matches.length === 1) {
+      return {
+        caso: 'caso1',
+        via: 'p1_claro',
+        venda: input.row.venda,
+        order: matches[0],
+        motivo: `xPed/observação ${pedido} = pedido ${matches[0].externalOrderNumber}`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        caso: 'ambiguo',
+        via: 'ambiguo',
+        venda: input.row.venda,
+        motivo: `xPed ${pedido} existe em ${matches.length} pedidos do ERP`,
+      };
+    }
     return input.row;
   }
   const wanted = String(input.invoiceNumber ?? '').replace(/\D/g, '').replace(/^0+/, '');
@@ -239,12 +269,6 @@ export function reclassifyByInvoice(input: {
     return inv === wanted;
   });
   if (matches.length === 1) {
-    if (
-      wegOrderBase(pedidoHint) &&
-      !sameWegOrderFamily(pedidoHint, matches[0].externalOrderNumber)
-    ) {
-      return input.row;
-    }
     return {
       caso: 'caso1',
       via: 'invoiceNumber',
@@ -428,7 +452,7 @@ function diffFill(item: ErpOrderItemForXml, xml: NfeXmlItem): ItemFillPatch | nu
   return changed ? patch : null;
 }
 
-function toAddPatch(
+export function toAddPatch(
   xml: NfeXmlItem,
   lineNumber: number,
   productsBySku?: Map<string, ProductRef>,

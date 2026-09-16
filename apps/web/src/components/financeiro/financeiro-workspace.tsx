@@ -98,6 +98,10 @@ type VendaVinculoPreview = {
   orderCode: string;
   externalOrderNumber: string | null;
   reason: string;
+  xmlPedido?: string;
+  invoiceNumber?: string | null;
+  fromOrderCode?: string | null;
+  reatribuir?: boolean;
 };
 
 type VendaSemMatch = {
@@ -126,13 +130,34 @@ type VendasPreview = {
   vendas: number;
   pedidos: number;
   vinculados: number;
+  parcelasFaltantes?: number;
+  semPedidoXml?: number;
+  semXml?: number;
+  ambiguos?: number;
   semCorrespondencia: number;
   nfsAPreencher?: number;
   nfsDivergentes?: number;
   previewClaros: VendaVinculoPreview[];
+  previewParcelas?: Array<{
+    vendaNumero: string | null;
+    xmlPedido: string;
+    invoiceNumber: string;
+    destNome: string | null;
+    clienteNome: string | null;
+    itens: number;
+    via: string;
+  }>;
+  previewSemPedidoXml?: VendaSemMatch[];
   previewSemMatch: VendaSemMatch[];
   previewNfFill?: InvoiceFillPreview[];
   previewNfDivergencias?: InvoiceFillDivergencia[];
+  spotlight?: {
+    xmlPedido: string;
+    vendaNumero: string | null;
+    invoiceNumber: string | null;
+    orderCode: string | null;
+    matched: boolean;
+  };
 };
 
 type PedidoCadastroFillPreview = {
@@ -255,6 +280,8 @@ type SincronizacaoCompletaPreview = {
   };
   vendas: {
     vinculados: number;
+    parcelasFaltantes?: number;
+    semPedidoXml?: number;
     nfsAPreencher: number;
     nfsDivergentes: number;
     semCorrespondencia: number;
@@ -263,6 +290,24 @@ type SincronizacaoCompletaPreview = {
       orderCode: string;
       externalOrderNumber: string | null;
       reason: string;
+      xmlPedido?: string;
+      invoiceNumber?: string | null;
+      fromOrderCode?: string | null;
+      reatribuir?: boolean;
+    }>;
+    previewParcelas?: Array<{
+      vendaNumero: string | null;
+      xmlPedido: string;
+      invoiceNumber: string;
+      destNome: string | null;
+      clienteNome: string | null;
+      itens: number;
+      via: string;
+    }>;
+    previewSemPedidoXml?: Array<{
+      vendaNumero: string | null;
+      clienteNome: string | null;
+      motivo: string;
     }>;
     message: string;
   };
@@ -862,26 +907,74 @@ export function FinanceiroWorkspace() {
         {caPreviewKind === 'vendas' && vendasPreview ? (
           <div className="space-y-3 text-sm text-[var(--fin-text)]">
             <p>
-              <strong>{vendasPreview.vinculados}</strong> vínculos claros em{' '}
-              {vendasPreview.vendas} vendas × {vendasPreview.pedidos} pedidos.{' '}
+              <strong>{vendasPreview.vinculados}</strong> vínculos exatos via
+              xPed/observação em {vendasPreview.vendas} vendas ×{' '}
+              {vendasPreview.pedidos} pedidos.{' '}
+              <strong>{vendasPreview.parcelasFaltantes ?? 0}</strong> parcela(s)
+              WEG faltante(s).{' '}
+              <strong>{vendasPreview.semPedidoXml ?? 0}</strong> XML sem xPed
+              nem PEDIDO:. <strong>{vendasPreview.semXml ?? 0}</strong> sem XML.{' '}
               <strong>{vendasPreview.semCorrespondencia}</strong> sem
-              correspondência.{' '}
+              correspondência (não adivinha).{' '}
               <strong>{vendasPreview.nfsAPreencher ?? 0}</strong> nota(s) a
-              preencher
-              {(vendasPreview.nfsDivergentes ?? 0) > 0
-                ? ` · ${vendasPreview.nfsDivergentes} divergência(s) (não sobrescreve)`
-                : ''}
-              .
+              preencher.
             </p>
+            {vendasPreview.spotlight ? (
+              <p className="text-xs">
+                Pedido 4518757385:{' '}
+                {vendasPreview.spotlight.matched
+                  ? `vinculado (venda ${vendasPreview.spotlight.vendaNumero ?? '—'} → ${vendasPreview.spotlight.orderCode ?? 'ERP'}, NF ${vendasPreview.spotlight.invoiceNumber ?? '—'})`
+                  : 'ainda sem match neste dry-run'}
+                .
+              </p>
+            ) : null}
             {vendasPreview.previewClaros.length > 0 ? (
               <ul className="space-y-1.5 text-xs">
                 {vendasPreview.previewClaros.map((row) => (
                   <li key={`${row.orderCode}-${row.vendaNumero ?? ''}`}>
                     Pedido {pedidoLabel(row)}{' '}
-                    ← venda {row.vendaNumero ?? '—'} ({row.reason})
+                    ← venda {row.vendaNumero ?? '—'}
+                    {row.xmlPedido ? ` · xPed ${row.xmlPedido}` : ''} (
+                    {row.reason})
+                    {row.invoiceNumber ? ` · NF ${nfLabel(row.invoiceNumber)}` : ''}
+                    {row.reatribuir && row.fromOrderCode
+                      ? ` · sai de ${row.fromOrderCode}`
+                      : ''}
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {(vendasPreview.previewParcelas ?? []).length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  Parcelas WEG faltantes (criar)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {(vendasPreview.previewParcelas ?? []).map((row, idx) => (
+                    <li key={`${row.xmlPedido}-${idx}`}>
+                      Pedido {row.xmlPedido} · NF {nfLabel(row.invoiceNumber)} ·{' '}
+                      {row.destNome || row.clienteNome || 'WEG'} · {row.itens}{' '}
+                      item(ns)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {(vendasPreview.previewSemPedidoXml ?? []).length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold text-[var(--fin-text-secondary)]">
+                  XML sem xPed/PEDIDO: (não adivinha)
+                </p>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {(vendasPreview.previewSemPedidoXml ?? []).map((row, idx) => (
+                    <li key={`${row.vendaNumero ?? 'v'}-semped-${idx}`}>
+                      Venda {row.vendaNumero ?? '—'}
+                      {row.clienteNome ? ` · ${row.clienteNome}` : ''} —{' '}
+                      {row.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             {(vendasPreview.previewNfFill ?? []).length > 0 ? (
               <div>
@@ -1099,19 +1192,24 @@ export function FinanceiroWorkspace() {
             </section>
             <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
-                Vincular vendas a pedidos
+                Vincular vendas a pedidos (xPed)
               </h3>
               <p>{sincronizacaoCompletaPreview.vendas?.message ?? '—'}</p>
               <p>
-                {sincronizacaoCompletaPreview.vendas?.vinculados ?? 0} vínculo(s) ·{' '}
-                {sincronizacaoCompletaPreview.vendas?.nfsAPreencher ?? 0} NF(s) a preencher ·{' '}
-                {sincronizacaoCompletaPreview.vendas?.nfsDivergentes ?? 0} divergência(s).
+                {sincronizacaoCompletaPreview.vendas?.vinculados ?? 0} vínculo(s) exatos ·{' '}
+                {sincronizacaoCompletaPreview.vendas?.parcelasFaltantes ?? 0} parcela(s)
+                WEG · {sincronizacaoCompletaPreview.vendas?.semPedidoXml ?? 0} XML sem
+                xPed/PEDIDO:.
               </p>
               {(sincronizacaoCompletaPreview.vendas?.previewClaros.length ?? 0) > 0 ? (
                 <ul className="space-y-1 text-xs">
                   {sincronizacaoCompletaPreview.vendas.previewClaros.slice(0, 8).map((row) => (
                     <li key={`${row.orderCode}-${row.vendaNumero}`}>
-                      Pedido {pedidoLabel(row)} ← venda {row.vendaNumero || '—'} ({row.reason})
+                      Pedido {pedidoLabel(row)} ← venda {row.vendaNumero || '—'}
+                      {row.xmlPedido ? ` · xPed ${row.xmlPedido}` : ''} ({row.reason})
+                      {row.reatribuir && row.fromOrderCode
+                        ? ` · sai de ${row.fromOrderCode}`
+                        : ''}
                     </li>
                   ))}
                 </ul>

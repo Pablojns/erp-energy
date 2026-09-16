@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, Trash2, X } from 'lucide-react';
 import {
   emptyDeliveryAddressForm,
   fetchAddressByCep,
@@ -25,6 +25,10 @@ import {
   OrderItemStockOnHandCell,
 } from '@/src/components/expedicao/workspace/order-item-stock-cells';
 import { OrderItemReceiptStatusBadge } from '@/src/components/expedicao/workspace/order-item-receipt-status-badge';
+import {
+  OrderItemOriginBadge,
+  orderItemOrigin,
+} from '@/src/components/expedicao/workspace/order-item-origin-badge';
 import {
   InventoryProductPickerModal,
   type InventoryProductOption,
@@ -823,6 +827,19 @@ export function AdminOrderEditModal(props: {
     });
   };
 
+  const removeItem = (idx: number) => {
+    if (isSiteOrder) return;
+    setItems((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      if (isWegOrder || isVendaExterna) setTotalValue(calcItemsTotal(next));
+      return next;
+    });
+  };
+
+  const isExternalLine = (it: EditItemRow) => Boolean(it.externalItemId);
+  const priceEditable = (it: EditItemRow) =>
+    isVendaExterna || isExternalLine(it);
+
   /** Marcar Recebido: Qtd Separada = Qtd Pedido e Falta = 0 (saída de estoque é opcional). */
   const markItemRecebido = (idx: number, statusLabel = 'Recebido') => {
     const row = items[idx];
@@ -1405,6 +1422,7 @@ export function AdminOrderEditModal(props: {
                   <th className="px-2 py-2 text-left">Linha</th>
                   <th className="px-2 py-2 text-left">SKU</th>
                   <th className="px-2 py-2 text-left">Item</th>
+                  <th className="px-2 py-2 text-center">Origem</th>
                   <th className="px-2 py-2 text-center">Qtd Pedido</th>
                   {isWegOrder || isVendaExterna ? (
                     <th className="px-2 py-2 text-right">Preço un.</th>
@@ -1423,6 +1441,9 @@ export function AdminOrderEditModal(props: {
                       <th className="px-2 py-2 text-center">Falta</th>
                       <th className="px-2 py-2 text-left">Status item</th>
                     </>
+                  ) : null}
+                  {!isSiteOrder ? (
+                    <th className="px-2 py-2 text-right">Ações</th>
                   ) : null}
                 </tr>
               </thead>
@@ -1470,6 +1491,9 @@ export function AdminOrderEditModal(props: {
                               {it.description || '—'}
                             </span>
                           )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <OrderItemOriginBadge origin={orderItemOrigin(it)} />
                         </td>
                         <td className="px-2 py-2 text-center">
                           {siteItemsEditable ? (
@@ -1593,6 +1617,9 @@ export function AdminOrderEditModal(props: {
                           ) : null}
                         </div>
                       </td>
+                      <td className="px-2 py-2 text-center">
+                        <OrderItemOriginBadge origin={orderItemOrigin(it)} />
+                      </td>
                       <td className="px-2 py-2">
                         <input
                           type="number"
@@ -1605,27 +1632,29 @@ export function AdminOrderEditModal(props: {
                           }
                         />
                       </td>
-                      {isWegOrder ? (
-                        <td className="px-2 py-2 text-right font-mono text-xs">
-                          {Number(String(it.unitPrice).replace(',', '.')).toLocaleString(
-                            'pt-BR',
-                            { style: 'currency', currency: 'BRL' },
-                          )}
-                        </td>
-                      ) : isVendaExterna ? (
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            className={`${fieldClass()} w-28 text-right`}
-                            value={it.unitPrice}
-                            disabled={busy}
-                            onChange={(e) =>
-                              updateItemField(idx, { unitPrice: e.target.value })
-                            }
-                          />
-                        </td>
+                      {isWegOrder || isVendaExterna ? (
+                        priceEditable(it) ? (
+                          <td className="px-2 py-2">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className={`${fieldClass()} w-28 text-right`}
+                              value={it.unitPrice}
+                              disabled={busy}
+                              onChange={(e) =>
+                                updateItemField(idx, { unitPrice: e.target.value })
+                              }
+                            />
+                          </td>
+                        ) : (
+                          <td className="px-2 py-2 text-right font-mono text-xs">
+                            {Number(String(it.unitPrice).replace(',', '.')).toLocaleString(
+                              'pt-BR',
+                              { style: 'currency', currency: 'BRL' },
+                            )}
+                          </td>
+                        )
                       ) : null}
                       {!isSimpleCustomerLayout ? (
                         <>
@@ -1656,6 +1685,18 @@ export function AdminOrderEditModal(props: {
                         </td>
                         </>
                       ) : null}
+                      <td className="px-2 py-2 text-right">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => removeItem(idx)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                          title="Remover item"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                          Remover
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}

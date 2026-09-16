@@ -6,6 +6,7 @@ import {
   invoiceNumberDigitList,
   invoiceNumberDigits,
   invoiceNumberMatchesRemessa,
+  removeInvoiceNumberFromField,
   sameInvoiceNumber,
 } from './order-search';
 
@@ -63,6 +64,16 @@ describe('sameInvoiceNumber', () => {
       '4518727765',
     );
     expect(displayPedidoNumero({ code: 'PED-000036', externalOrderNumber: null })).toBe('');
+  });
+});
+
+describe('removeInvoiceNumberFromField', () => {
+  it('remove 1889 de um campo com uma ou várias NFs', () => {
+    expect(removeInvoiceNumberFromField('1889', '1889')).toBeNull();
+    expect(removeInvoiceNumberFromField('1 - 1889', '1889')).toBeNull();
+    expect(removeInvoiceNumberFromField('1 - 1889 | 1 - 1890', '1889')).toBe(
+      '1 - 1890',
+    );
   });
 });
 

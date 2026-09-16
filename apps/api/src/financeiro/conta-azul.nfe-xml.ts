@@ -30,7 +30,62 @@ export type NfeXmlDados = {
   destUf: string | null;
   total: number;
   items: NfeXmlItem[];
+  /** Pedido do cliente em `<compra><xPed>`. */
+  compraXPed?: string | null;
+  /** Observação da NF (`infAdic/infCpl`), ex. `PEDIDO:4518757385#...`. */
+  infCpl?: string | null;
 };
+
+export type XmlPedidoVia = 'compra_xPed' | 'infCpl';
+
+export type XmlPedidoRef = {
+  pedido: string;
+  via: XmlPedidoVia;
+};
+
+/** Dígitos do número do pedido, sem zeros à esquerda. Match exato — não corta família. */
+export function normalizePedidoDigits(
+  raw: string | number | null | undefined,
+): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  return digits.replace(/^0+/, '') || digits;
+}
+
+/**
+ * Número real do pedido no XML da NF-e.
+ * 1) `<compra><xPed>`
+ * 2) `PEDIDO:(\d{10})` em `<infCpl>`
+ * Não usa `<xPed>` de item (pode ser CNPJ ou concatenado).
+ */
+export function extractXmlPedidoNumber(
+  dados: Pick<NfeXmlDados, 'compraXPed' | 'infCpl' | 'items'> | null | undefined,
+): XmlPedidoRef | null {
+  const fromCompra = normalizePedidoDigits(dados?.compraXPed);
+  if (fromCompra) return { pedido: fromCompra, via: 'compra_xPed' };
+  const inf = String(dados?.infCpl ?? '');
+  const m = inf.match(/PEDIDO\s*:\s*(\d{10})/i);
+  if (m?.[1]) {
+    const pedido = normalizePedidoDigits(m[1]);
+    if (pedido) return { pedido, via: 'infCpl' };
+  }
+  return null;
+}
+
+export function findExactOrdersByPedido<
+  T extends { id: string; externalOrderNumber: string | null },
+>(pedido: string | null | undefined, orders: T[]): T[] {
+  const wanted = normalizePedidoDigits(pedido);
+  if (!wanted) return [];
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const order of orders) {
+    if (normalizePedidoDigits(order.externalOrderNumber) !== wanted) continue;
+    if (seen.has(order.id)) continue;
+    seen.add(order.id);
+    out.push(order);
+  }
+  return out;
+}
 
 function innerTag(xml: string, name: string): string | null {
   const re = new RegExp(
@@ -185,6 +240,8 @@ export function parseNfeXml(xml: string): NfeXmlDados | null {
   const emit = innerTag(inf, 'emit') ?? '';
   const total = innerTag(inf, 'total') ?? '';
   const icmsTot = innerTag(total, 'ICMSTot') ?? total;
+  const compra = innerTag(inf, 'compra') ?? '';
+  const infAdic = innerTag(inf, 'infAdic') ?? '';
   const endereco = dest ? destEndereco(dest) : { json: null, cidade: null, uf: null };
 
   return {
@@ -201,6 +258,8 @@ export function parseNfeXml(xml: string): NfeXmlDados | null {
     destUf: endereco.uf,
     total: asMoney(text(icmsTot, 'vNF') ?? text(icmsTot, 'vProd')),
     items,
+    compraXPed: text(compra, 'xPed'),
+    infCpl: text(infAdic, 'infCpl'),
   };
 }
 
