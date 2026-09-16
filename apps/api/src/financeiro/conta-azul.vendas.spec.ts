@@ -140,6 +140,9 @@ describe('conta-azul.vendas', () => {
         },
       ],
       notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+      vendas: [
+        { contaAzulId: 'vnd-1', numero: '4518614536', numeroPedido: null },
+      ],
     });
     expect(plan.preencher).toEqual([
       expect.objectContaining({
@@ -164,6 +167,9 @@ describe('conta-azul.vendas', () => {
         },
       ],
       notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+      vendas: [
+        { contaAzulId: 'vnd-1', numero: '4518614536', numeroPedido: null },
+      ],
     });
     expect(plan.preencher[0]?.invoiceNumber).toBe('1959');
   });
@@ -181,12 +187,73 @@ describe('conta-azul.vendas', () => {
         },
       ],
       notas: [{ idVenda: 'vnd-1', numero: '1959', numeroDigits: '1959' }],
+      vendas: [
+        { contaAzulId: 'vnd-1', numero: '4518614536', numeroPedido: null },
+      ],
     });
     expect(plan.preencher).toHaveLength(0);
     expect(plan.divergencias[0]).toMatchObject({
       invoiceNumberErp: '2001',
       invoiceNumberCa: '1959',
     });
+  });
+
+  it('não preenche NF quando a venda vinculada é de outra família WEG', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-001415',
+          externalOrderNumber: '4519111528',
+          invoiceNumber: null,
+          notaRemessa: null,
+          contaAzulVendaId: 'vnd-wrong',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-wrong', numero: '2065', numeroDigits: '2065' }],
+      vendas: [
+        { contaAzulId: 'vnd-wrong', numero: '4518972814', numeroPedido: null },
+      ],
+    });
+    expect(plan.preencher).toHaveLength(0);
+    expect(plan.divergencias[0]?.motivo).toMatch(/Vínculo suspeito/);
+    expect(plan.divergencias[0]?.motivo).toMatch(/4519111528/);
+  });
+
+  it('não preenche NF de pedido WEG se a venda CA não foi carregada', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'PED-001415',
+          externalOrderNumber: '4519111528',
+          invoiceNumber: null,
+          notaRemessa: null,
+          contaAzulVendaId: 'vnd-1',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-1', numero: '2065', numeroDigits: '2065' }],
+    });
+    expect(plan.preencher).toHaveLength(0);
+    expect(plan.divergencias[0]?.motivo).toMatch(/não carregada/);
+  });
+
+  it('preenche NF de pedido sem família WEG sem exigir número de 10 dígitos na venda', () => {
+    const plan = planInvoiceFromLinkedVendas({
+      orders: [
+        {
+          id: 'o1',
+          code: 'VE-1',
+          externalOrderNumber: '7',
+          invoiceNumber: null,
+          notaRemessa: null,
+          contaAzulVendaId: 'vnd-ext',
+        },
+      ],
+      notas: [{ idVenda: 'vnd-ext', numero: '9001', numeroDigits: '9001' }],
+    });
+    expect(plan.preencher[0]?.invoiceNumber).toBe('9001');
+    expect(plan.divergencias).toHaveLength(0);
   });
 
   it('parcela WEG 11/12 dígitos casa no pedido base de 10, não em outro pedido do mesmo CNPJ', () => {

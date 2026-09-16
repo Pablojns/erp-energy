@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -49,4 +51,19 @@ export class UpdateExternalItemDto {
   @IsString()
   @MaxLength(80)
   source?: string;
+}
+
+export class ExternalItemStockMoveDto {
+  @IsIn(['entrada', 'saida'])
+  kind!: 'entrada' | 'saida';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notes?: string | null;
 }

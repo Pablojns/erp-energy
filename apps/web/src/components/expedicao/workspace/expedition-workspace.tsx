@@ -483,7 +483,9 @@ export function ExpeditionWorkspace(props: {
               }
               data.setToast({
                 variant: 'ok',
-                message: 'Venda externa criada e adicionada à fila.',
+                message: created.stockWarnings?.length
+                  ? `Venda externa criada. ${created.stockWarnings.join(' ')}`
+                  : 'Venda externa criada e adicionada à fila.',
               });
             }}
           />

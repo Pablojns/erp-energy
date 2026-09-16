@@ -36,6 +36,11 @@ export class FinanceiroCron {
           `Conta Azul P1 NF: ${invoices.filled} Nota(s) de Venda preenchida(s) a partir da venda vinculada (${invoices.toFill} previstas, ${invoices.divergencias} divergência(s)).`,
         );
       }
+      if (invoices.divergencias > 0) {
+        this.logger.warn(
+          `Conta Azul P1 NF: ${invoices.divergencias} vínculo(s) suspeito(s) ou divergente(s) não preenchidos automaticamente.`,
+        );
+      }
     } catch (error) {
       this.logger.warn(
         `Conta Azul P1 NF automático ignorado: ${error instanceof Error ? error.message : String(error)}`,

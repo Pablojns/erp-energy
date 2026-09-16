@@ -87,6 +87,11 @@ export function normalizePedidoFromApi(raw: Record<string, unknown>): OrderDto {
       : null,
     saidas: normalizeSaidasFromApi(raw.saidas),
     invoiceHistory: normalizeInvoiceHistoryFromApi(raw.invoiceHistory),
+    stockWarnings: Array.isArray(raw.stockWarnings)
+      ? raw.stockWarnings
+          .filter((row): row is string => typeof row === 'string' && row.trim().length > 0)
+          .map((row) => row.trim())
+      : undefined,
     items,
   };
 }

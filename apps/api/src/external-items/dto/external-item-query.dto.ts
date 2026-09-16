@@ -25,7 +25,7 @@ export class ExternalItemQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(200)
   pageSize?: number;
 }
 

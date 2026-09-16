@@ -135,17 +135,6 @@ type VendasPreview = {
   previewNfDivergencias?: InvoiceFillDivergencia[];
 };
 
-type CaVendasJob = {
-  jobId: string;
-  status: 'processando' | 'concluido' | 'erro';
-  processed: number;
-  total: number;
-  apply: boolean;
-  message: string;
-  result?: VendasPreview;
-  error?: string;
-};
-
 type PedidoCadastroFillPreview = {
   applied: boolean;
   message: string;
@@ -221,17 +210,6 @@ type XmlVendasPreview = {
   previewDuplicatas: XmlSkipPreview[];
 };
 
-type CaXmlVendasJob = {
-  jobId: string;
-  status: 'processando' | 'concluido' | 'erro';
-  processed: number;
-  total: number;
-  apply: boolean;
-  message: string;
-  result?: XmlVendasPreview;
-  error?: string;
-};
-
 type ItensExternosXmlPreview = {
   applied: boolean;
   message: string;
@@ -252,17 +230,6 @@ type ItensExternosXmlPreview = {
   }>;
 };
 
-type CaItensExternosXmlJob = {
-  jobId: string;
-  status: 'processando' | 'concluido' | 'erro';
-  processed: number;
-  total: number;
-  apply: boolean;
-  message: string;
-  result?: ItensExternosXmlPreview;
-  error?: string;
-};
-
 type CaPreviewKind =
   | 'cadastros'
   | 'vendas'
@@ -274,9 +241,29 @@ type CaPreviewKind =
 type SincronizacaoCompletaPreview = {
   applied: boolean;
   message: string;
+  dadosBrutos: {
+    nfs: number;
+    receber: number;
+    pagar: number;
+    financeiroAtualizados: number;
+    message: string;
+  };
   cadastros: {
     criar: { customers: number; suppliers: number; carriers: number };
     atualizar: { customers: number; suppliers: number; carriers: number };
+    message: string;
+  };
+  vendas: {
+    vinculados: number;
+    nfsAPreencher: number;
+    nfsDivergentes: number;
+    semCorrespondencia: number;
+    previewClaros: Array<{
+      vendaNumero: string | null;
+      orderCode: string;
+      externalOrderNumber: string | null;
+      reason: string;
+    }>;
     message: string;
   };
   itensExternos: {
@@ -291,6 +278,12 @@ type SincronizacaoCompletaPreview = {
     caso1Completar: number;
     caso2: number;
     caso1ItensCorrigidos: number;
+    previewCaso2: Array<{
+      vendaNumero: string | null;
+      invoiceNumber: string;
+      customerName: string;
+      itens: number;
+    }>;
     message: string;
   };
   notasAntigas: {
@@ -354,93 +347,6 @@ async function pollCaSync(onProgress: (message: string) => void): Promise<CaSync
   return current;
 }
 
-async function pollCaVendas(
-  apply: boolean,
-  onProgress: (message: string) => void,
-): Promise<VendasPreview> {
-  const started = await erpFetchJson<CaVendasJob>(
-    `api/financeiro/conta-azul/sincronizar-vendas?${apply ? 'apply=true' : 'dry-run=true'}`,
-    { method: 'POST' },
-  );
-  onProgress(started.message);
-  let current = started;
-  while (current.status === 'processando') {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    current = await erpFetchJson<CaVendasJob>(
-      `api/financeiro/conta-azul/vincular-vendas-status/${started.jobId}`,
-    );
-    onProgress(current.message);
-  }
-  if (current.status === 'erro') {
-    throw new Error(
-      current.error || current.message || 'Falha ao vincular vendas da Conta Azul.',
-    );
-  }
-  if (!current.result) {
-    throw new Error('A vinculação de vendas terminou sem resultado.');
-  }
-  return current.result;
-}
-
-async function pollCaXmlVendas(
-  apply: boolean,
-  onProgress: (message: string) => void,
-): Promise<XmlVendasPreview> {
-  const started = await erpFetchJson<CaXmlVendasJob>(
-    `api/financeiro/conta-azul/processar-xml-vendas?${apply ? 'apply=true' : 'dry-run=true'}`,
-    { method: 'POST' },
-  );
-  onProgress(started.message);
-  let current = started;
-  while (current.status === 'processando') {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    current = await erpFetchJson<CaXmlVendasJob>(
-      `api/financeiro/conta-azul/processar-xml-vendas-status/${started.jobId}`,
-    );
-    onProgress(current.message);
-  }
-  if (current.status === 'erro') {
-    throw new Error(
-      current.error || current.message || 'Falha ao processar XML das vendas da Conta Azul.',
-    );
-  }
-  if (!current.result) {
-    throw new Error('O processamento XML das vendas terminou sem resultado.');
-  }
-  return current.result;
-}
-
-async function pollItensExternosXml(
-  apply: boolean,
-  onProgress: (message: string) => void,
-  pedido?: string,
-): Promise<ItensExternosXmlPreview> {
-  const params = new URLSearchParams(apply ? { apply: 'true' } : { 'dry-run': 'true' });
-  if (pedido?.trim()) params.set('pedido', pedido.trim());
-  const started = await erpFetchJson<CaItensExternosXmlJob>(
-    `api/financeiro/conta-azul/corrigir-itens-externos-xml?${params.toString()}`,
-    { method: 'POST' },
-  );
-  onProgress(started.message);
-  let current = started;
-  while (current.status === 'processando') {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    current = await erpFetchJson<CaItensExternosXmlJob>(
-      `api/financeiro/conta-azul/corrigir-itens-externos-xml-status/${started.jobId}`,
-    );
-    onProgress(current.message);
-  }
-  if (current.status === 'erro') {
-    throw new Error(
-      current.error || current.message || 'Falha ao corrigir itens externos via XML.',
-    );
-  }
-  if (!current.result) {
-    throw new Error('A correção de itens externos terminou sem resultado.');
-  }
-  return current.result;
-}
-
 async function pollSincronizacaoCompleta(
   apply: boolean,
   onProgress: (message: string) => void,
@@ -479,7 +385,6 @@ export function FinanceiroWorkspace() {
   const [periodPreset, setPeriodPreset] = useState<FinanceiroPeriodPreset>('mes');
   const [dataInicio, setDataInicio] = useState(defaultRange.dataInicio);
   const [dataFim, setDataFim] = useState(defaultRange.dataFim);
-  const [syncing, setSyncing] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [nfsCount, setNfsCount] = useState(0);
   const [atrasoCount, setAtrasoCount] = useState(0);
@@ -606,25 +511,6 @@ export function FinanceiroWorkspace() {
     }
   };
 
-  const handleSyncCa = async () => {
-    if (!caConnected) {
-      setExportError('Conecte a Conta Azul antes de sincronizar.');
-      return;
-    }
-    setCaBusy(true);
-    setExportError(null);
-    setCaSyncProgress('Sincronizando...');
-    try {
-      await pollCaSync(setCaSyncProgress);
-      setRefreshToken((t) => t + 1);
-    } catch (e) {
-      setExportError(e instanceof Error ? e.message : 'Erro ao sincronizar Conta Azul.');
-    } finally {
-      setCaBusy(false);
-      setCaSyncProgress(null);
-    }
-  };
-
   const closeCaPreview = () => {
     if (caPreviewLoading || caPreviewApplying) return;
     setCaPreviewKind(null);
@@ -636,124 +522,6 @@ export function FinanceiroWorkspace() {
     setPedidosCadastroPreview(null);
     setItensExternosPreview(null);
     setSincronizacaoCompletaPreview(null);
-  };
-
-  const handlePreviewCadastros = async () => {
-    if (!caConnected) {
-      setExportError('Conecte a Conta Azul antes de sincronizar.');
-      return;
-    }
-    setExportError(null);
-    setCaPreviewKind('cadastros');
-    setCadastrosPreview(null);
-    setVendasPreview(null);
-    setXmlVendasPreview(null);
-    setPedidosCadastroPreview(null);
-    setCaPreviewError(null);
-    setCaPreviewLoading(true);
-    setCaBusy(true);
-    try {
-      const res = await erpFetchJson<CadastrosPreview>(
-        'api/financeiro/conta-azul/sincronizar-cadastros?dry-run=true',
-        { method: 'POST' },
-      );
-      setCadastrosPreview(res);
-    } catch (e) {
-      setCaPreviewError(
-        e instanceof Error ? e.message : 'Erro ao consultar cadastros da Conta Azul.',
-      );
-    } finally {
-      setCaPreviewLoading(false);
-      setCaBusy(false);
-    }
-  };
-
-  const handlePreviewVendas = async () => {
-    if (!caConnected) {
-      setExportError('Conecte a Conta Azul antes de sincronizar.');
-      return;
-    }
-    setExportError(null);
-    setCaPreviewKind('vendas');
-    setCadastrosPreview(null);
-    setVendasPreview(null);
-    setXmlVendasPreview(null);
-    setPedidosCadastroPreview(null);
-    setCaPreviewError(null);
-    setCaPreviewProgress('Iniciando...');
-    setCaPreviewLoading(true);
-    setCaBusy(true);
-    try {
-      const res = await pollCaVendas(false, setCaPreviewProgress);
-      setVendasPreview(res);
-    } catch (e) {
-      setCaPreviewError(
-        e instanceof Error ? e.message : 'Erro ao consultar vendas da Conta Azul.',
-      );
-    } finally {
-      setCaPreviewLoading(false);
-      setCaPreviewProgress(null);
-      setCaBusy(false);
-    }
-  };
-
-  const handlePreviewXmlVendas = async () => {
-    if (!caConnected) {
-      setExportError('Conecte a Conta Azul antes de sincronizar.');
-      return;
-    }
-    setExportError(null);
-    setCaPreviewKind('xml-vendas');
-    setCadastrosPreview(null);
-    setVendasPreview(null);
-    setXmlVendasPreview(null);
-    setPedidosCadastroPreview(null);
-    setCaPreviewError(null);
-    setCaPreviewProgress('Iniciando...');
-    setCaPreviewLoading(true);
-    setCaBusy(true);
-    try {
-      const res = await pollCaXmlVendas(false, setCaPreviewProgress);
-      setXmlVendasPreview(res);
-    } catch (e) {
-      setCaPreviewError(
-        e instanceof Error
-          ? e.message
-          : 'Erro ao processar XML das vendas da Conta Azul.',
-      );
-    } finally {
-      setCaPreviewLoading(false);
-      setCaPreviewProgress(null);
-      setCaBusy(false);
-    }
-  };
-
-  const handlePreviewItensExternosXml = async () => {
-    setExportError(null);
-    setCaPreviewKind('itens-externos-xml');
-    setCadastrosPreview(null);
-    setVendasPreview(null);
-    setXmlVendasPreview(null);
-    setPedidosCadastroPreview(null);
-    setItensExternosPreview(null);
-    setCaPreviewError(null);
-    setCaPreviewProgress('Iniciando...');
-    setCaPreviewLoading(true);
-    setCaBusy(true);
-    try {
-      const res = await pollItensExternosXml(false, setCaPreviewProgress);
-      setItensExternosPreview(res);
-    } catch (e) {
-      setCaPreviewError(
-        e instanceof Error
-          ? e.message
-          : 'Erro ao analisar XML armazenado para itens externos.',
-      );
-    } finally {
-      setCaPreviewLoading(false);
-      setCaPreviewProgress(null);
-      setCaBusy(false);
-    }
   };
 
   const handlePreviewSincronizacaoCompleta = async () => {
@@ -789,73 +557,15 @@ export function FinanceiroWorkspace() {
     }
   };
 
-  const handlePreviewPedidosCadastro = async () => {
-    if (!caConnected) {
-      setExportError('Conecte a Conta Azul antes de sincronizar.');
-      return;
-    }
-    setExportError(null);
-    setCaPreviewKind('pedidos-cadastro');
-    setCadastrosPreview(null);
-    setVendasPreview(null);
-    setXmlVendasPreview(null);
-    setPedidosCadastroPreview(null);
-    setCaPreviewError(null);
-    setCaPreviewLoading(true);
-    setCaBusy(true);
-    try {
-      const res = await erpFetchJson<PedidoCadastroFillPreview>(
-        'api/financeiro/conta-azul/preencher-pedidos-cadastro?dry-run=true',
-        { method: 'POST' },
-      );
-      setPedidosCadastroPreview(res);
-    } catch (e) {
-      setCaPreviewError(
-        e instanceof Error
-          ? e.message
-          : 'Erro ao consultar pedidos e cadastros da Conta Azul.',
-      );
-    } finally {
-      setCaPreviewLoading(false);
-      setCaBusy(false);
-    }
-  };
-
   const handleApplyPreview = async () => {
-    if (!caPreviewKind) return;
+    if (caPreviewKind !== 'sincronizacao-completa') return;
     setCaPreviewApplying(true);
     setCaPreviewError(null);
     setCaBusy(true);
     try {
-      if (caPreviewKind === 'cadastros') {
-        const res = await erpFetchJson<CadastrosPreview>(
-          'api/financeiro/conta-azul/sincronizar-cadastros?apply=true',
-          { method: 'POST' },
-        );
-        setCadastrosPreview(res);
-      } else if (caPreviewKind === 'vendas') {
-        setCaPreviewProgress('Iniciando...');
-        const res = await pollCaVendas(true, setCaPreviewProgress);
-        setVendasPreview(res);
-      } else if (caPreviewKind === 'xml-vendas') {
-        setCaPreviewProgress('Iniciando...');
-        const res = await pollCaXmlVendas(true, setCaPreviewProgress);
-        setXmlVendasPreview(res);
-      } else if (caPreviewKind === 'itens-externos-xml') {
-        setCaPreviewProgress('Iniciando...');
-        const res = await pollItensExternosXml(true, setCaPreviewProgress);
-        setItensExternosPreview(res);
-      } else if (caPreviewKind === 'sincronizacao-completa') {
-        setCaPreviewProgress('Iniciando...');
-        const res = await pollSincronizacaoCompleta(true, setCaPreviewProgress);
-        setSincronizacaoCompletaPreview(res);
-      } else {
-        const res = await erpFetchJson<PedidoCadastroFillPreview>(
-          'api/financeiro/conta-azul/preencher-pedidos-cadastro?apply=true',
-          { method: 'POST' },
-        );
-        setPedidosCadastroPreview(res);
-      }
+      setCaPreviewProgress('Iniciando...');
+      const res = await pollSincronizacaoCompleta(true, setCaPreviewProgress);
+      setSincronizacaoCompletaPreview(res);
       setRefreshToken((t) => t + 1);
     } catch (e) {
       setCaPreviewError(
@@ -865,19 +575,6 @@ export function FinanceiroWorkspace() {
       setCaPreviewApplying(false);
       setCaPreviewProgress(null);
       setCaBusy(false);
-    }
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setExportError(null);
-    try {
-      await erpFetchJson('api/financeiro/sync', { method: 'POST' });
-      setRefreshToken((t) => t + 1);
-    } catch (e) {
-      setExportError(e instanceof Error ? e.message : 'Erro ao sincronizar NFs.');
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -965,24 +662,16 @@ export function FinanceiroWorkspace() {
           periodPreset={periodPreset}
           onPeriodPresetChange={handlePeriodPresetChange}
           onPeriodChange={handlePeriodChange}
-          syncing={syncing}
-          onSync={() => void handleSync()}
           onExport={() => void handleExport()}
           nfsCount={nfsCount}
           atrasoCount={atrasoCount}
           caConnected={caConnected}
           caLastSync={caLastSync}
           caBusy={caBusy}
-          caSyncProgress={caSyncProgress}
+          caSyncProgress={caSyncProgress ?? caPreviewProgress}
           canEditCa={canEditCa}
           onConnectCa={() => void handleConnectCa()}
-          onSyncCa={() => void handleSyncCa()}
-          onSyncCadastros={() => void handlePreviewCadastros()}
-          onSyncVendas={() => void handlePreviewVendas()}
-          onSyncXmlVendas={() => void handlePreviewXmlVendas()}
-          onSyncItensExternosXml={() => void handlePreviewItensExternosXml()}
-          onSyncCompleta={() => void handlePreviewSincronizacaoCompleta()}
-          onSyncPedidosCadastro={() => void handlePreviewPedidosCadastro()}
+          onSyncTudo={() => void handlePreviewSincronizacaoCompleta()}
         />
       </div>
 
@@ -1023,14 +712,14 @@ export function FinanceiroWorkspace() {
       <CaPreviewModal
         open={caPreviewKind != null}
         title={
-          caPreviewKind === 'vendas'
-            ? 'Vincular vendas a pedidos'
-            : caPreviewKind === 'xml-vendas'
-              ? 'Processar XML das NFs'
-              : caPreviewKind === 'itens-externos-xml'
-                ? 'Corrigir itens externos (XML armazenado)'
-                : caPreviewKind === 'sincronizacao-completa'
-                  ? 'Sincronização Completa da Conta Azul'
+          caPreviewKind === 'sincronizacao-completa'
+            ? 'Sincronizar Tudo'
+            : caPreviewKind === 'vendas'
+              ? 'Vincular vendas a pedidos'
+              : caPreviewKind === 'xml-vendas'
+                ? 'Processar XML das NFs'
+                : caPreviewKind === 'itens-externos-xml'
+                  ? 'Corrigir itens externos (XML armazenado)'
                   : caPreviewKind === 'pedidos-cadastro'
                     ? 'Preencher comprador e endereço'
                     : 'Sincronizar cadastros'
@@ -1086,6 +775,9 @@ export function FinanceiroWorkspace() {
         }
         onClose={closeCaPreview}
         onApply={() => void handleApplyPreview()}
+        applyLabel={
+          caPreviewKind === 'sincronizacao-completa' ? 'Aplicar Tudo' : 'Aplicar'
+        }
       >
         {caPreviewKind === 'cadastros' && cadastrosPreview ? (
           <div className="space-y-3 text-sm text-[var(--fin-text)]">
@@ -1386,55 +1078,94 @@ export function FinanceiroWorkspace() {
           </div>
         ) : null}
         {caPreviewKind === 'sincronizacao-completa' && sincronizacaoCompletaPreview ? (
-          <div className="space-y-3 text-sm text-[var(--fin-text)]">
+          <div className="space-y-4 text-sm text-[var(--fin-text)]">
             <p>{sincronizacaoCompletaPreview.message}</p>
-            <p>
-              Cadastros a criar: {sincronizacaoCompletaPreview.cadastros.criar.customers}{' '}
-              cliente(s), {sincronizacaoCompletaPreview.cadastros.criar.suppliers}{' '}
-              fornecedor(es), {sincronizacaoCompletaPreview.cadastros.criar.carriers}{' '}
-              transportadora(s).
-            </p>
-            <p>
-              Itens WEG divergentes do XML:{' '}
-              <strong>{sincronizacaoCompletaPreview.itensExternos.corrections}</strong>
-              {' '}({sincronizacaoCompletaPreview.itensExternos.xmlsParsed} XML lido(s)).
-            </p>
-            <p>
-              XML vendas: Caso 1 completar{' '}
-              {sincronizacaoCompletaPreview.xmlVendas.caso1Completar} · Caso 2 criar{' '}
-              {sincronizacaoCompletaPreview.xmlVendas.caso2} Venda Externa ·{' '}
-              {sincronizacaoCompletaPreview.xmlVendas.caso1ItensCorrigidos} item(ns)
-              WEG a corrigir.
-            </p>
-            <p>
-              Notas sem XML/DANFE persistido:{' '}
-              <strong>{sincronizacaoCompletaPreview.notasAntigas.pending}</strong>
-            </p>
-            <p>
-              NFs com prefixo de série na exibição:{' '}
-              {sincronizacaoCompletaPreview.formatoNf.comPrefixoSerie} (a tela já
-              mostra só o número).
-            </p>
-            {sincronizacaoCompletaPreview.itensExternos.preview.length > 0 ? (
-              <ul className="space-y-1.5 text-xs">
-                {sincronizacaoCompletaPreview.itensExternos.preview
-                  .slice(0, 12)
-                  .map((row) => (
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                Dados brutos (NFs e títulos)
+              </h3>
+              <p>{sincronizacaoCompletaPreview.dadosBrutos?.message ?? '—'}</p>
+            </section>
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                Cadastros
+              </h3>
+              <p>{sincronizacaoCompletaPreview.cadastros.message}</p>
+              <p>
+                Criar: {sincronizacaoCompletaPreview.cadastros.criar.customers} cliente(s),{' '}
+                {sincronizacaoCompletaPreview.cadastros.criar.suppliers} fornecedor(es),{' '}
+                {sincronizacaoCompletaPreview.cadastros.criar.carriers} transportadora(s).
+              </p>
+            </section>
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                Vincular vendas a pedidos
+              </h3>
+              <p>{sincronizacaoCompletaPreview.vendas?.message ?? '—'}</p>
+              <p>
+                {sincronizacaoCompletaPreview.vendas?.vinculados ?? 0} vínculo(s) ·{' '}
+                {sincronizacaoCompletaPreview.vendas?.nfsAPreencher ?? 0} NF(s) a preencher ·{' '}
+                {sincronizacaoCompletaPreview.vendas?.nfsDivergentes ?? 0} divergência(s).
+              </p>
+              {(sincronizacaoCompletaPreview.vendas?.previewClaros.length ?? 0) > 0 ? (
+                <ul className="space-y-1 text-xs">
+                  {sincronizacaoCompletaPreview.vendas.previewClaros.slice(0, 8).map((row) => (
+                    <li key={`${row.orderCode}-${row.vendaNumero}`}>
+                      Pedido {pedidoLabel(row)} ← venda {row.vendaNumero || '—'} ({row.reason})
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                Itens WEG divergentes do XML
+              </h3>
+              <p>{sincronizacaoCompletaPreview.itensExternos.message}</p>
+              {sincronizacaoCompletaPreview.itensExternos.preview.length > 0 ? (
+                <ul className="space-y-1 text-xs">
+                  {sincronizacaoCompletaPreview.itensExternos.preview.slice(0, 8).map((row) => (
                     <li key={`${row.orderCode}-${row.itemId ?? row.fromDescription}`}>
                       Pedido {pedidoLabel(row)} · NF {nfLabel(row.invoiceNumber)}:{' '}
                       {row.fromDescription} → {row.toDescription}
                     </li>
                   ))}
-              </ul>
-            ) : null}
-            {sincronizacaoCompletaPreview.notasAntigas.preview.length > 0 ? (
-              <p className="text-xs text-[var(--fin-text-secondary)]">
-                Amostra de NFs antigas:{' '}
-                {sincronizacaoCompletaPreview.notasAntigas.preview
-                  .map((row) => nfLabel(row.invoiceNumber))
-                  .join(', ')}
+                </ul>
+              ) : null}
+            </section>
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                XML das NFs
+              </h3>
+              <p>{sincronizacaoCompletaPreview.xmlVendas.message}</p>
+              <p>
+                Caso 1 completar {sincronizacaoCompletaPreview.xmlVendas.caso1Completar} · Caso 2
+                criar {sincronizacaoCompletaPreview.xmlVendas.caso2} Venda Externa.
               </p>
-            ) : null}
+              {sincronizacaoCompletaPreview.xmlVendas.previewCaso2?.length ? (
+                <ul className="space-y-1 text-xs">
+                  {sincronizacaoCompletaPreview.xmlVendas.previewCaso2.slice(0, 8).map((row) => (
+                    <li key={`${row.vendaNumero}-${row.invoiceNumber}`}>
+                      {row.customerName} · NF {nfLabel(row.invoiceNumber)} · {row.itens} item(ns)
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+            <section className="space-y-1 rounded-lg border p-3" style={{ borderColor: 'var(--fin-border)' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fin-text-secondary)]">
+                Notas antigas
+              </h3>
+              <p>{sincronizacaoCompletaPreview.notasAntigas.message}</p>
+              {sincronizacaoCompletaPreview.notasAntigas.preview.length > 0 ? (
+                <p className="text-xs text-[var(--fin-text-secondary)]">
+                  Amostra:{' '}
+                  {sincronizacaoCompletaPreview.notasAntigas.preview
+                    .map((row) => nfLabel(row.invoiceNumber))
+                    .join(', ')}
+                </p>
+              ) : null}
+            </section>
           </div>
         ) : null}
         {caPreviewKind === 'pedidos-cadastro' && pedidosCadastroPreview ? (

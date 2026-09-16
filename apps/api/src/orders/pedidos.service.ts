@@ -23,6 +23,7 @@ import { CorreiosService } from '../correios/correios.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
+import { applyExternalItemOutbound } from '../external-items/external-item-stock';
 import { CarrierResolverService } from './carrier-resolver.service';
 import {
   buildOrderFieldFilterWhere,
@@ -930,6 +931,18 @@ export class PedidosService {
                 stockStatus: OrderItemStockStatus.NAO_ANALISADO,
               },
             });
+            if (
+              before.source === OrderSource.VENDA_EXTERNA &&
+              externalItemId
+            ) {
+              await applyExternalItemOutbound(tx, {
+                externalItemId,
+                quantity,
+                reference: before.code,
+                notes: `Venda Externa ${before.code}`,
+                userId,
+              });
+            }
             continue;
           }
 

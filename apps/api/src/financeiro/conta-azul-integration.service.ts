@@ -94,6 +94,7 @@ import {
   planInvoiceFromLinkedVendas,
   planVendaVinculos,
   vendaWegHint,
+  wegOrderBase,
   type CaVenda,
   type InvoiceFillDivergencia,
   type InvoiceFillPreview,
@@ -106,7 +107,13 @@ import {
   type AuditOrderInput,
 } from './conta-azul.nf-vinculo-audit';
 import { mapLimit } from './conta-azul.pool';
-import { nfeEmitidaEmDate, parseNfeXml, type NfeXmlDados } from './conta-azul.nfe-xml';
+import {
+  nfeEmitidaEmDate,
+  parseNfeXml,
+  xmlMatchesContaAzulNota,
+  xmlMatchesAnyContaAzulNota,
+  type NfeXmlDados,
+} from './conta-azul.nfe-xml';
 import {
   buildProductSkuMap,
   classifyXmlVendas,
@@ -119,6 +126,7 @@ import {
   type XmlVendaSkip,
 } from './conta-azul.vendas-xml';
 import { ExternalItemsService } from '../external-items/external-items.service';
+import { applyExternalItemOutbound } from '../external-items/external-item-stock';
 import {
   planWrongWegItemReplaces,
   type ItemReplacePatch,
@@ -335,9 +343,24 @@ export type CaSincronizacaoCompletaReport = {
   ok: true;
   apply: boolean;
   applied: boolean;
+  dadosBrutos: {
+    nfs: number;
+    receber: number;
+    pagar: number;
+    financeiroAtualizados: number;
+    message: string;
+  };
   cadastros: {
     criar: { customers: number; suppliers: number; carriers: number };
     atualizar: { customers: number; suppliers: number; carriers: number };
+    message: string;
+  };
+  vendas: {
+    vinculados: number;
+    nfsAPreencher: number;
+    nfsDivergentes: number;
+    semCorrespondencia: number;
+    previewClaros: VendaVinculoPreview[];
     message: string;
   };
   itensExternos: {
@@ -352,6 +375,12 @@ export type CaSincronizacaoCompletaReport = {
     caso1Completar: number;
     caso2: number;
     caso1ItensCorrigidos: number;
+    previewCaso2: Array<{
+      vendaNumero: string | null;
+      invoiceNumber: string;
+      customerName: string;
+      itens: number;
+    }>;
     message: string;
   };
   notasAntigas: {
@@ -1083,9 +1112,9 @@ export class ContaAzulIntegrationService {
       jobId: randomUUID(),
       status: 'processando',
       processed: 0,
-      total: 5,
+      total: 6,
       apply: options.apply,
-      message: 'Iniciando sincronização completa...',
+      message: 'Iniciando Sincronizar Tudo...',
       createdAt: new Date(),
     };
     this.sincronizacaoCompletaJobs.set(job.jobId, job);
@@ -1653,9 +1682,14 @@ export class ContaAzulIntegrationService {
         });
       },
     );
+    const vendasForFill = await this.loadVendasByIds(
+      this.vendaIdsNeedingFamilyCheck(invoiceFillOrders),
+      vendas,
+    );
     const invoicePlan = planInvoiceFromLinkedVendas({
       orders: invoiceOrders,
       notas,
+      vendas: vendasForFill,
     });
 
     const porRazao: Record<string, number> = {};
@@ -1773,10 +1807,20 @@ export class ContaAzulIntegrationService {
         around: row.orderDate ?? row.createdAt,
       })),
     );
+    const vendas = await this.loadVendasByIds(
+      this.vendaIdsNeedingFamilyCheck(pending),
+    );
     const invoicePlan = planInvoiceFromLinkedVendas({
       orders: linkedRows,
       notas,
+      vendas,
     });
+    for (const row of invoicePlan.divergencias) {
+      if (!row.motivo.startsWith('Vínculo suspeito')) continue;
+      this.logger.warn(
+        `Conta Azul P1 NF: ${row.motivo} (pedido ${row.orderCode}, venda ${row.vendaId}, NF CA ${row.invoiceNumberCa})`,
+      );
+    }
     if (!options.apply) {
       return {
         scanned: linkedRows.length,
@@ -2132,7 +2176,7 @@ export class ContaAzulIntegrationService {
       ...report,
       applied: true,
       appliedCounts,
-      message: `Aplicado XML: ${appliedCounts.pedidosCompletados} pedido(s) completados (${appliedCounts.itensPreenchidos} itens preenchidos, ${appliedCounts.itensAdicionados} adicionados, ${appliedCounts.itensCorrigidos} corrigidos para Item Externo); ${appliedCounts.pedidosCriados} VENDA_EXTERNA criada(s). Estoque não alterado.`,
+      message: `Aplicado XML: ${appliedCounts.pedidosCompletados} pedido(s) completados (${appliedCounts.itensPreenchidos} itens preenchidos, ${appliedCounts.itensAdicionados} adicionados, ${appliedCounts.itensCorrigidos} corrigidos para Item Externo); ${appliedCounts.pedidosCriados} VENDA_EXTERNA criada(s). Estoque de Item Externo baixado quando havia saldo.`,
     };
   }
 
@@ -2189,36 +2233,52 @@ export class ContaAzulIntegrationService {
     chaveByNumero?: Map<string, string>;
   }): Promise<{ dados: NfeXmlDados; raw: string } | { error: string }> {
     const invoiceHint = nfNumberKey(opts.invoiceNumber);
+    const notas = await this.listNotasByVendaId(opts.vendaId, opts.around);
+    if (notas.length === 0) {
+      return { error: 'Venda sem NF-e de produto na Conta Azul' };
+    }
+    const notaForHint = invoiceHint
+      ? notas.find(
+          (n) =>
+            (n.numeroDigits || nfNumberKey(n.numero)) === invoiceHint,
+        )
+      : undefined;
+
     if (opts.orderId && invoiceHint) {
       const cacheKey = `${opts.orderId}:${invoiceHint}`;
       const cached = opts.cache.get(cacheKey);
       if (cached) return cached;
-      const stored = await this.readStoredXmlString(opts.orderId, invoiceHint);
-      if (stored) {
-        const dados = parseNfeXml(stored);
-        if (dados) {
-          const packed = { dados, raw: stored };
-          opts.cache.set(cacheKey, packed);
-          return packed;
+      if (notaForHint) {
+        const stored = await this.readStoredXmlString(opts.orderId, invoiceHint);
+        if (stored) {
+          const dados = parseNfeXml(stored);
+          if (dados && xmlMatchesContaAzulNota(dados, notaForHint)) {
+            const packed = { dados, raw: stored };
+            opts.cache.set(cacheKey, packed);
+            return packed;
+          }
+          this.logger.warn(
+            `XML órfão descartado: order=${opts.orderId} nf=${invoiceHint} venda=${opts.vendaId}`,
+          );
         }
       }
     }
 
-    let numero = invoiceHint;
+    const nfe =
+      notaForHint ??
+      notas.find((n) => n.numeroDigits || nfNumberKey(n.numero) || n.chaveAcesso) ??
+      notas[0];
+    let numero = notaForHint
+      ? invoiceHint
+      : nfe
+        ? nfe.numeroDigits || nfNumberKey(nfe.numero)
+        : invoiceHint;
     let chave =
-      (numero ? opts.chaveByNumero?.get(numero) : null) ??
-      (numero ? opts.chaveByNumero?.get(numero.replace(/^0+/, '')) : null) ??
-      null;
-    if (!numero) {
-      const notas = await this.listNotasByVendaId(opts.vendaId, opts.around);
-      const nfe = notas.find((n) => nfNumberKey(n.numero) || n.chaveAcesso) ?? notas[0];
-      if (nfe) {
-        numero = nfNumberKey(nfe.numero);
-        const ch = String(nfe.chaveAcesso ?? '').replace(/\D/g, '');
-        if (ch.length === 44) chave = ch;
-        else if (numero) chave = opts.chaveByNumero?.get(numero) ?? chave;
-      }
-    }
+      (nfe ? String(nfe.chaveAcesso ?? '').replace(/\D/g, '') : '') ||
+      (numero ? opts.chaveByNumero?.get(numero) ?? '' : '') ||
+      (numero ? opts.chaveByNumero?.get(numero.replace(/^0+/, '')) ?? '' : '') ||
+      '';
+    if (chave.length !== 44) chave = '';
 
     let buffer: Buffer | null = null;
     if (chave) {
@@ -2252,6 +2312,11 @@ export class ContaAzulIntegrationService {
       const raw = extractNfeXml(buffer);
       const dados = parseNfeXml(raw);
       if (!dados) return { error: 'XML da NF-e não pôde ser interpretado' };
+      if (!xmlMatchesAnyContaAzulNota(dados, notas)) {
+        return {
+          error: `XML da NF ${dados.invoiceNumber || numero || '—'} não pertence à venda na Conta Azul`,
+        };
+      }
       if (opts.orderId && dados.invoiceNumber) {
         opts.cache.set(`${opts.orderId}:${nfNumberKey(dados.invoiceNumber)}`, {
           dados,
@@ -2402,6 +2467,16 @@ export class ContaAzulIntegrationService {
 
     const emitida = nfeEmitidaEmDate(plan.emitidaEm) ?? new Date();
     const total = new Prisma.Decimal(Number(plan.total || 0).toFixed(2));
+    const ensuredItems = await Promise.all(
+      plan.items.map(async (item) => {
+        const ext = await this.externalItems.ensureByName({
+          name: item.description,
+          lastKnownPrice: item.unitPrice,
+          source: 'XML NFe',
+        });
+        return { item, externalItemId: ext.id };
+      }),
+    );
     await this.prisma.client.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
         `SELECT pg_advisory_xact_lock(${XML_VENDAS_NEXT_CODE_LOCK})`,
@@ -2436,9 +2511,9 @@ export class ContaAzulIntegrationService {
           total,
           totalValue: total,
           companyEntityId: plan.companyEntityId,
-          notes: `Importado da Conta Azul (venda ${plan.vendaNumero ?? plan.vendaId}) — histórico, sem reserva de estoque.`,
+          notes: `Importado da Conta Azul (venda ${plan.vendaNumero ?? plan.vendaId}).`,
           items: {
-            create: plan.items.map((item) => ({
+            create: ensuredItems.map(({ item, externalItemId }) => ({
               lineNumber: item.lineNumber,
               sku: item.sku,
               description: item.description,
@@ -2452,7 +2527,8 @@ export class ContaAzulIntegrationService {
               unitPrice: new Prisma.Decimal(item.unitPrice.toFixed(2)),
               totalPrice: new Prisma.Decimal(item.totalPrice.toFixed(2)),
               discount: new Prisma.Decimal(0),
-              productId: item.productId,
+              productId: null,
+              externalItem: { connect: { id: externalItemId } },
               stockStatus: OrderItemStockStatus.NAO_ANALISADO,
             })),
           },
@@ -2465,6 +2541,14 @@ export class ContaAzulIntegrationService {
         WHERE id = CAST(${created.id} AS UUID)
           AND "contaAzulVendaId" IS NULL
       `;
+      for (const row of ensuredItems) {
+        await applyExternalItemOutbound(tx, {
+          externalItemId: row.externalItemId,
+          quantity: row.item.quantity,
+          reference: code,
+          notes: `Venda Externa ${code}`,
+        });
+      }
     });
     return true;
   }
@@ -2606,6 +2690,53 @@ export class ContaAzulIntegrationService {
       );
       return null;
     }
+  }
+
+  private vendaIdsNeedingFamilyCheck(
+    orders: Array<{
+      externalOrderNumber: string | null;
+      contaAzulVendaId: string | null;
+    }>,
+  ): string[] {
+    const ids = new Set<string>();
+    for (const order of orders) {
+      if (!wegOrderBase(order.externalOrderNumber)) continue;
+      const vendaId = String(order.contaAzulVendaId ?? '').trim();
+      if (vendaId) ids.add(vendaId);
+    }
+    return [...ids];
+  }
+
+  private async loadVendasByIds(
+    ids: string[],
+    known: CaVenda[] = [],
+  ): Promise<CaVenda[]> {
+    const byId = new Map<string, CaVenda>();
+    for (const venda of known) {
+      if (venda.contaAzulId) byId.set(venda.contaAzulId, venda);
+    }
+    const missing = [
+      ...new Set(ids.map((id) => String(id).trim()).filter(Boolean)),
+    ].filter((id) => !byId.has(id));
+    if (missing.length === 0) return [...byId.values()];
+    const loaded = await mapLimit(missing, 3, async (id) => {
+      try {
+        const payload = (await this.apiGet(`/v1/venda/${id}`)) as Record<
+          string,
+          unknown
+        >;
+        return mapContaAzulVenda(payload);
+      } catch (err) {
+        this.logger.warn(
+          `Venda ${id} para validar família WEG: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+    });
+    for (const venda of loaded) {
+      if (venda) byId.set(venda.contaAzulId, venda);
+    }
+    return [...byId.values()];
   }
 
   private toSyncJobPublic(job: CaSyncJobInternal): CaSyncJobState {
@@ -2953,18 +3084,57 @@ export class ContaAzulIntegrationService {
   }): Promise<CaSincronizacaoCompletaReport> {
     const apply = options.apply;
     const reportProgress = (processed: number, message: string) =>
-      options.onProgress?.({ processed, total: 5, message });
+      options.onProgress?.({ processed, total: 6, message });
 
-    reportProgress(1, 'Etapa 1/5: cadastros reais (Customer/Supplier/Carrier)...');
+    reportProgress(1, 'Etapa 1/6: dados brutos da Conta Azul (NFs, títulos)...');
+    let dadosBrutos: CaSincronizacaoCompletaReport['dadosBrutos'];
+    if (apply) {
+      const sync = await this.syncAll(undefined, (processed, total) => {
+        options.onProgress?.({
+          processed,
+          total,
+          message: `Etapa 1/6: sincronizando NFs/títulos (${processed}/${total})...`,
+        });
+      });
+      dadosBrutos = {
+        nfs: sync.nfs,
+        receber: sync.receber,
+        pagar: sync.pagar,
+        financeiroAtualizados: sync.financeiroAtualizados,
+        message: `Aplicado: ${sync.nfs} NF(s), ${sync.receber} a receber, ${sync.pagar} a pagar.`,
+      };
+    } else {
+      dadosBrutos = {
+        nfs: 0,
+        receber: 0,
+        pagar: 0,
+        financeiroAtualizados: 0,
+        message:
+          'Dry-run: NFs e contas a pagar/receber serão baixados ao aplicar. Nada gravado nesta etapa.',
+      };
+    }
+
+    reportProgress(2, 'Etapa 2/6: cadastros reais (Customer/Supplier/Carrier)...');
     const cadastros = await this.sincronizarCadastros({ apply });
 
-    reportProgress(2, 'Etapa 2/5: correção de itens WEG via XML (nItemPed)...');
+    reportProgress(3, 'Etapa 3/6: vincular vendas a pedidos...');
+    const vendas = await this.sincronizarVendas({
+      apply,
+      onProgress: (update) =>
+        options.onProgress?.({
+          processed: update.processed,
+          total: update.total,
+          message: `Etapa 3/6: ${update.message}`,
+        }),
+    });
+
+    reportProgress(4, 'Etapa 4/6: correção de itens WEG via XML (SKU)...');
     const itensExternos = await this.processarItensExternosXml({ apply });
 
-    reportProgress(3, 'Etapa 3/5: XML das NFs (Caso 1 completar / Caso 2 criar)...');
+    reportProgress(5, 'Etapa 5/6: XML das NFs (Caso 1 completar / Caso 2 criar)...');
     const xmlVendas = await this.processarVendasXml({ apply });
 
-    reportProgress(4, 'Etapa 4/5: XML/DANFE de notas antigas (pré-ERP)...');
+    reportProgress(6, 'Etapa 6/6: XML/DANFE de notas antigas (pré-ERP)...');
     const pending = await this.listPendingNotaArquivos(80);
     let saved = 0;
     let skipped = 0;
@@ -2983,17 +3153,25 @@ export class ContaAzulIntegrationService {
         : `Dry-run: ${pending.length} NF(s) sem XML/DANFE persistido. Nada baixado.`,
     };
 
-    reportProgress(5, 'Etapa 5/5: formato do número da NF (sem série)...');
     const formatoNf = await this.previewFormatoNfSemSerie();
 
     const report: CaSincronizacaoCompletaReport = {
       ok: true,
       apply,
       applied: apply,
+      dadosBrutos,
       cadastros: {
         criar: cadastros.erpApply.criar,
         atualizar: cadastros.erpApply.atualizar,
         message: cadastros.message,
+      },
+      vendas: {
+        vinculados: vendas.vinculados,
+        nfsAPreencher: vendas.nfsAPreencher,
+        nfsDivergentes: vendas.nfsDivergentes,
+        semCorrespondencia: vendas.semCorrespondencia,
+        previewClaros: vendas.previewClaros.slice(0, 12),
+        message: vendas.message,
       },
       itensExternos: {
         corrections: itensExternos.corrections,
@@ -3007,6 +3185,12 @@ export class ContaAzulIntegrationService {
         caso1Completar: xmlVendas.caso1Completar,
         caso2: xmlVendas.caso2,
         caso1ItensCorrigidos: xmlVendas.caso1ItensCorrigidos,
+        previewCaso2: xmlVendas.previewCaso2.slice(0, 12).map((row) => ({
+          vendaNumero: row.vendaNumero,
+          invoiceNumber: row.invoiceNumber,
+          customerName: row.customerName,
+          itens: row.items.length,
+        })),
         message: xmlVendas.message,
       },
       notasAntigas,
@@ -3015,13 +3199,14 @@ export class ContaAzulIntegrationService {
     };
     report.message = apply
       ? [
+          dadosBrutos.message,
           cadastros.message,
+          vendas.message,
           itensExternos.message,
           xmlVendas.message,
           notasAntigas.message,
-          formatoNf.message,
         ].join(' ')
-      : `Dry-run completo: cadastros (criar ${cadastros.erpApply.criar.customers} clientes / ${cadastros.erpApply.criar.suppliers} fornecedores / ${cadastros.erpApply.criar.carriers} transportadoras); ${itensExternos.corrections} item(ns) WEG a corrigir; Caso 1 ${xmlVendas.caso1Completar} a completar / Caso 2 ${xmlVendas.caso2} Venda Externa; ${pending.length} NF(s) antigas sem XML/DANFE. Nada gravado.`;
+      : `Dry-run Sincronizar Tudo: cadastros (criar ${cadastros.erpApply.criar.customers} clientes / ${cadastros.erpApply.criar.suppliers} fornecedores / ${cadastros.erpApply.criar.carriers} transportadoras); ${vendas.vinculados} venda(s) a vincular; ${itensExternos.corrections} item(ns) WEG a corrigir; Caso 1 ${xmlVendas.caso1Completar} a completar / Caso 2 ${xmlVendas.caso2} Venda Externa; ${pending.length} NF(s) antigas sem XML/DANFE. Nada gravado.`;
     return report;
   }
 
@@ -3108,7 +3293,20 @@ export class ContaAzulIntegrationService {
     const key = opts.storedKey?.trim();
     if (key) {
       const stored = await this.readXmlByStorageKey(key);
-      if (stored) return stored;
+      if (stored) {
+        const dados = parseNfeXml(stored);
+        const matches =
+          dados &&
+          xmlMatchesContaAzulNota(dados, {
+            numero: opts.numero,
+            numeroDigits: nfNumberKey(opts.numero),
+            chaveAcesso: opts.chaveAcesso,
+          });
+        if (matches) return stored;
+        this.logger.warn(
+          `XML órfão descartado: order=${opts.orderId} nf=${opts.numero} key=${key}`,
+        );
+      }
     }
     const chave = String(opts.chaveAcesso ?? '').replace(/\D/g, '');
     if (chave.length !== 44) return null;

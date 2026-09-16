@@ -204,6 +204,47 @@ export function parseNfeXml(xml: string): NfeXmlDados | null {
   };
 }
 
+function nfeDigits(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/\D/g, '').replace(/^0+/, '');
+}
+
+function nfeChave(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/\D/g, '');
+}
+
+/**
+ * XML persistido só vale se for a NF da venda na Conta Azul
+ * (chave 44 dígitos, ou nNF quando a chave não veio).
+ */
+export function xmlMatchesContaAzulNota(
+  xml: NfeXmlDados,
+  nota: {
+    numero?: string | null;
+    numeroDigits?: string | null;
+    chaveAcesso?: string | null;
+  },
+): boolean {
+  const xmlChave = nfeChave(xml.chave);
+  const notaChave = nfeChave(nota.chaveAcesso);
+  if (xmlChave.length === 44 && notaChave.length === 44) {
+    return xmlChave === notaChave;
+  }
+  const xmlNf = nfeDigits(xml.invoiceNumber);
+  const notaNf = nfeDigits(nota.numeroDigits || nota.numero);
+  return Boolean(xmlNf && notaNf && xmlNf === notaNf);
+}
+
+export function xmlMatchesAnyContaAzulNota(
+  xml: NfeXmlDados,
+  notas: Array<{
+    numero?: string | null;
+    numeroDigits?: string | null;
+    chaveAcesso?: string | null;
+  }>,
+): boolean {
+  return notas.some((nota) => xmlMatchesContaAzulNota(xml, nota));
+}
+
 export function nfeEmitidaEmDate(raw: string | null | undefined): Date | null {
   const s = String(raw ?? '').trim();
   if (!s) return null;

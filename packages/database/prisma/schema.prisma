@@ -108,6 +108,7 @@ model User {
   chatMessages         ChatMessage[]
   chatRooms            ChatMember[]
   stockMovements       StockMovement[]
+  externalItemStockMovements ExternalItemStockMovement[]
   stockReservationsCreated StockReservation[] @relation("StockReservationCreatedBy")
   crmInteractions      CrmInteraction[]
   auditLogs            AuditLog[]
@@ -270,12 +271,41 @@ model ExternalItem {
   lastKnownPrice Decimal     @db.Decimal(12, 2)
   /// Origem: "XML NFe", "Manual", etc.
   source         String      @default("Manual")
+  /// Saldo físico próprio — nunca mistura com Product.stockQty (WEG).
+  stockQty       Int         @default(0)
   orderItems     OrderItem[]
+  stockMovements ExternalItemStockMovement[]
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
   @@index([name])
   @@index([createdAt])
+}
+
+enum ExternalItemStockMovementType {
+  INBOUND
+  OUTBOUND
+}
+
+/// Movimentação de estoque de Item Externo — tabela separada de StockMovement (WEG).
+model ExternalItemStockMovement {
+  id             String                          @id @default(uuid()) @db.Uuid
+  externalItemId String                          @db.Uuid
+  movementType   ExternalItemStockMovementType
+  quantity       Int
+  reference      String?
+  notes          String?
+  movedById      String?                         @db.Uuid
+  movementDate   DateTime                        @default(now())
+  externalItem   ExternalItem                    @relation(fields: [externalItemId], references: [id], onDelete: Restrict)
+  movedBy        User?                           @relation(fields: [movedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime                        @default(now())
+  updatedAt      DateTime                        @updatedAt
+
+  @@index([externalItemId])
+  @@index([movementType])
+  @@index([movementDate])
+  @@index([externalItemId, movementDate])
 }
 
 model Customer {

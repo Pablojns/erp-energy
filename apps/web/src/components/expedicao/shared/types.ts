@@ -124,6 +124,8 @@ export type OrderDto = {
   saidas?: OrderExitHistoryDto[];
   /** Fonte única das NFs de venda (OrderInvoiceHistory). */
   invoiceHistory?: OrderInvoiceHistoryDto[];
+  /** Avisos de saldo de Item Externo (não bloqueiam a Venda Externa). */
+  stockWarnings?: string[];
   items: OrderItemDto[];
 };
 

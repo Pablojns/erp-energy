@@ -27,6 +27,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { EstoqueBulkEditModal } from '@/src/components/estoque/estoque-bulk-edit-modal';
 import { EstoqueBulkEntradaModal } from '@/src/components/estoque/estoque-bulk-entrada-modal';
 import { EstoqueInventoryFilterModals } from '@/src/components/estoque/estoque-inventory-filter-modals';
+import { EstoqueVendaExternaTab } from '@/src/components/estoque/estoque-venda-externa-tab';
 import {
   emptyProductForm,
   EstoqueProductFormModal,
@@ -69,7 +70,7 @@ import { PremiumSelect } from '@/src/components/ui/premium-select';
 import { useCloseOverlaysOnRouteChange } from '@/src/hooks/use-close-overlays-on-route';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
-type TabId = 'dashboard' | 'inventory' | 'movements';
+type TabId = 'dashboard' | 'inventory' | 'venda-externa' | 'movements';
 
 type InventoryFilter = 'all' | 'out' | 'low' | 'reserva';
 
@@ -1024,8 +1025,8 @@ export function EstoqueWorkspace() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     const skuParam = searchParams.get('sku');
-    if (tabParam === 'inventory') {
-      setTab('inventory');
+    if (tabParam === 'inventory' || tabParam === 'venda-externa' || tabParam === 'movements') {
+      setTab(tabParam);
     }
     if (skuParam) {
       setProductSearch(skuParam);
@@ -2805,7 +2806,7 @@ export function EstoqueWorkspace() {
   return (
     <div
       className={`scroll-mt-8 pt-2 sm:pt-6 ${
-        tab === 'inventory' || tab === 'movements'
+        tab === 'inventory' || tab === 'movements' || tab === 'venda-externa'
           ? 'flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col gap-3 overflow-hidden'
           : 'space-y-9 sm:space-y-10'
       }`}
@@ -2831,8 +2832,13 @@ export function EstoqueWorkspace() {
         )}
         {tabButton(
           'inventory',
-          'Inventário',
+          'Estoque WEG',
           <ClipboardList className="h-4 w-4 text-emerald-700" />,
+        )}
+        {tabButton(
+          'venda-externa',
+          'Estoque Venda Externa',
+          <PackagePlus className="h-4 w-4 text-amber-600" />,
         )}
         {tabButton(
           'movements',
@@ -3417,6 +3423,8 @@ export function EstoqueWorkspace() {
           )}
         </div>
       ) : null}
+
+      {tab === 'venda-externa' ? <EstoqueVendaExternaTab /> : null}
 
       {tab === 'inventory' ? (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[38fr_62fr]">

@@ -451,9 +451,22 @@ function hasRealVendaInvoice(order: ErpOrderForInvoiceFill): boolean {
   return !invoiceNumberMatchesRemessa(current, order.notaRemessa);
 }
 
+/** Vínculo CA × pedido WEG: só preenche NF se a venda for da mesma família de 10 dígitos. */
+export function linkedVendaFamilyStatus(
+  orderExternal: string | null | undefined,
+  venda: Pick<CaVenda, 'numero' | 'numeroPedido'> | null | undefined,
+): 'ok' | 'mismatch' | 'unknown' {
+  if (!wegOrderBase(orderExternal)) return 'ok';
+  if (!venda) return 'unknown';
+  const hint = vendaWegHint(venda);
+  if (!wegOrderBase(hint)) return 'mismatch';
+  return sameWegOrderFamily(hint, orderExternal) ? 'ok' : 'mismatch';
+}
+
 export function planInvoiceFromLinkedVendas(input: {
   orders: ErpOrderForInvoiceFill[];
   notas: NotaForInvoiceFill[];
+  vendas?: Array<Pick<CaVenda, 'contaAzulId' | 'numero' | 'numeroPedido'>>;
 }): {
   preencher: InvoiceFillPreview[];
   divergencias: InvoiceFillDivergencia[];
@@ -468,6 +481,9 @@ export function planInvoiceFromLinkedVendas(input: {
     if (!byDigits.has(digits)) byDigits.set(digits, display);
     notasByVenda.set(vendaId, byDigits);
   }
+  const vendaById = new Map(
+    (input.vendas ?? []).map((venda) => [venda.contaAzulId, venda] as const),
+  );
 
   const preencher: InvoiceFillPreview[] = [];
   const divergencias: InvoiceFillDivergencia[] = [];
@@ -497,6 +513,29 @@ export function planInvoiceFromLinkedVendas(input: {
     if (invoiceNumberMatchesRemessa(caNumber, order.notaRemessa)) {
       continue;
     }
+
+    const familyStatus = linkedVendaFamilyStatus(
+      order.externalOrderNumber,
+      vendaById.get(vendaId),
+    );
+    if (familyStatus !== 'ok') {
+      const venda = vendaById.get(vendaId);
+      const hint = venda ? vendaWegHint(venda) : null;
+      divergencias.push({
+        orderId: order.id,
+        orderCode: order.code,
+        externalOrderNumber: order.externalOrderNumber,
+        vendaId,
+        invoiceNumberErp: String(order.invoiceNumber ?? '').trim(),
+        invoiceNumberCa: caNumber,
+        motivo:
+          familyStatus === 'unknown'
+            ? `Vínculo suspeito: venda CA ${vendaId} não carregada para validar família WEG do pedido ${order.externalOrderNumber}`
+            : `Vínculo suspeito: venda CA ${hint ?? vendaId} não pertence à família WEG do pedido ${order.externalOrderNumber}`,
+      });
+      continue;
+    }
+
     if (!hasRealVendaInvoice(order)) {
       preencher.push({
         orderId: order.id,

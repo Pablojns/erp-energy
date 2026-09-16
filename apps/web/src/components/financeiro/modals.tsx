@@ -294,6 +294,7 @@ export function CaPreviewModal(props: {
   applied: boolean;
   appliedMessage: string | null;
   loadingMessage?: string | null;
+  applyLabel?: string;
   onClose: () => void;
   onApply: () => void;
   children: ReactNode;
@@ -307,6 +308,7 @@ export function CaPreviewModal(props: {
     applied,
     appliedMessage,
     loadingMessage,
+    applyLabel,
     onClose,
     onApply,
     children,
@@ -358,7 +360,7 @@ export function CaPreviewModal(props: {
               style={{ background: 'var(--fin-accent)' }}
             >
               {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Aplicar
+              {applyLabel ?? 'Aplicar'}
             </button>
           ) : null}
         </div>

@@ -28,6 +28,7 @@ import type { OrderQueryDto } from './dto/order-query.dto';
 import type { AttachInvoiceDto } from './dto/attach-invoice.dto';
 import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
+import { applyExternalItemOutbound } from '../external-items/external-item-stock';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import {
   ORDER_STATUS,
@@ -1272,6 +1273,8 @@ export class OrderService {
       let subtotalDec = new Prisma.Decimal(0);
       let lineNumber = 10;
       const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
+      const pendingOutbound: Array<{ externalItemId: string; quantity: number }> =
+        [];
 
       for (const li of dto.items) {
         const description = li.description.trim();
@@ -1299,6 +1302,10 @@ export class OrderService {
               data: { lastKnownPrice: unitPrice },
             });
           }
+          pendingOutbound.push({
+            externalItemId,
+            quantity: li.quantity,
+          });
         } else if (li.productId?.trim()) {
           const product = await tx.product.findUnique({
             where: { id: li.productId.trim() },
@@ -1362,6 +1369,18 @@ export class OrderService {
         include: OrderService.orderInclude(),
       });
 
+      const stockWarnings: string[] = [];
+      for (const row of pendingOutbound) {
+        const moved = await applyExternalItemOutbound(tx, {
+          externalItemId: row.externalItemId,
+          quantity: row.quantity,
+          reference: code,
+          notes: `Venda Externa ${code}`,
+          userId,
+        });
+        if (moved.warning) stockWarnings.push(moved.warning);
+      }
+
       await this.audit.log({
         userId,
         action: 'ORDER_CREATED',
@@ -1378,7 +1397,10 @@ export class OrderService {
         },
       });
 
-      return this.serializeOrder(order);
+      return {
+        ...this.serializeOrder(order),
+        stockWarnings,
+      };
     });
   }
 

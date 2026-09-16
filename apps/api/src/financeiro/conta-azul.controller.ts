@@ -213,8 +213,8 @@ export class ContaAzulController {
   }
 
   /**
-   * Sincronização Completa: cadastros → itens XML → Venda Externa → notas antigas.
-   * Dry-run por padrão; apply=true só após confirmação.
+   * Sincronizar Tudo: dados brutos → cadastros → vincular vendas → itens WEG → XML Caso 1/2 → notas antigas.
+   * Dry-run por padrão; apply=true só após confirmação em "Aplicar Tudo".
    */
   @Post('sincronizacao-completa')
   @RequirePermission('financeiro', 'editar')

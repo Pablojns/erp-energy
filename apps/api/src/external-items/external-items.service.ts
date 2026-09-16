@@ -8,6 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { normalizeItemName } from '../financeiro/conta-azul.itens-externos-xml';
 import type { CreateExternalItemDto, UpdateExternalItemDto } from './dto/external-item.dto';
+import {
+  applyExternalItemInbound,
+  applyExternalItemOutbound,
+} from './external-item-stock';
 
 @Injectable()
 export class ExternalItemsService {
@@ -22,6 +26,7 @@ export class ExternalItemsService {
     description: string | null;
     lastKnownPrice: Prisma.Decimal;
     source: string;
+    stockQty: number;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -31,6 +36,7 @@ export class ExternalItemsService {
       description: row.description,
       lastKnownPrice: row.lastKnownPrice.toString(),
       source: row.source,
+      stockQty: row.stockQty,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -211,5 +217,79 @@ export class ExternalItemsService {
       changes: { before: before.name, after: updated.name },
     });
     return this.serialize(updated);
+  }
+
+  async moveStock(
+    userId: string,
+    id: string,
+    dto: { kind: 'entrada' | 'saida'; quantity: number; notes?: string | null },
+  ) {
+    const exists = await this.prisma.client.externalItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Item externo não encontrado.');
+    const result = await this.prisma.client.$transaction(async (tx) => {
+      if (dto.kind === 'entrada') {
+        return applyExternalItemInbound(tx, {
+          externalItemId: id,
+          quantity: dto.quantity,
+          notes: dto.notes,
+          userId,
+          reference: 'entrada-manual',
+        });
+      }
+      return applyExternalItemOutbound(tx, {
+        externalItemId: id,
+        quantity: dto.quantity,
+        notes: dto.notes,
+        userId,
+        reference: 'saida-manual',
+      });
+    });
+    await this.audit.log({
+      userId,
+      action:
+        dto.kind === 'entrada'
+          ? 'EXTERNAL_ITEM_STOCK_IN'
+          : 'EXTERNAL_ITEM_STOCK_OUT',
+      entity: 'ExternalItem',
+      entityId: id,
+      changes: {
+        quantity: dto.quantity,
+        stockQty: result.stockQty,
+        warning: result.warning,
+      },
+    });
+    const item = await this.prisma.client.externalItem.findUniqueOrThrow({
+      where: { id },
+    });
+    return {
+      ...this.serialize(item),
+      movement: result,
+    };
+  }
+
+  async listMovements(id: string, limit = 40) {
+    const exists = await this.prisma.client.externalItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Item externo não encontrado.');
+    const rows = await this.prisma.client.externalItemStockMovement.findMany({
+      where: { externalItemId: id },
+      orderBy: { movementDate: 'desc' },
+      take: Math.min(100, Math.max(1, limit)),
+      include: { movedBy: { select: { id: true, name: true } } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      movementType: row.movementType,
+      quantity: row.quantity,
+      reference: row.reference,
+      notes: row.notes,
+      movementDate: row.movementDate.toISOString(),
+      movedBy: row.movedBy,
+    }));
   }
 }

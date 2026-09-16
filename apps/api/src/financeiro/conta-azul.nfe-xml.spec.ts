@@ -1,4 +1,4 @@
-import { parseNfeXml } from './conta-azul.nfe-xml';
+import { parseNfeXml, xmlMatchesAnyContaAzulNota } from './conta-azul.nfe-xml';
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
@@ -102,5 +102,28 @@ describe('parseNfeXml', () => {
   it('devolve null para XML vazio ou sem NF-e', () => {
     expect(parseNfeXml('')).toBeNull();
     expect(parseNfeXml('<xml>nao e nfe</xml>')).toBeNull();
+  });
+
+  it('revalida XML salvo contra listNotasByVendaId e descarta órfão', () => {
+    const parsed = parseNfeXml(SAMPLE);
+    expect(parsed).toBeTruthy();
+    expect(
+      xmlMatchesAnyContaAzulNota(parsed!, [
+        {
+          numero: '1959',
+          numeroDigits: '1959',
+          chaveAcesso: '35240112345678000199550010000019591234567890',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      xmlMatchesAnyContaAzulNota(parsed!, [
+        {
+          numero: '2072',
+          numeroDigits: '2072',
+          chaveAcesso: '35240112345678000199550010000020721234567890',
+        },
+      ]),
+    ).toBe(false);
   });
 });

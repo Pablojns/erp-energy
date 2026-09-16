@@ -12,6 +12,7 @@ export type CatalogSearchHit = {
   price?: string;
   supplier?: string;
   source?: string;
+  stockQty?: number;
 };
 
 type CatalogSearchResponse = {
@@ -28,6 +29,7 @@ type CatalogSearchResponse = {
     name: string;
     lastKnownPrice: string;
     source: string;
+    stockQty?: number;
   }>;
 };
 
@@ -87,6 +89,7 @@ export function ExternalItemSearchField(props: {
               name: row.name,
               price: row.lastKnownPrice,
               source: row.source,
+              stockQty: row.stockQty,
             })),
           ];
           const hasExactExternal = next.some(
@@ -178,6 +181,9 @@ export function ExternalItemSearchField(props: {
                 {hit.kind !== 'create' && hit.price ? (
                   <span className="text-xs text-[var(--text-secondary)]">
                     Sugestão: {money(hit.price)} — preço do pedido continua editável
+                    {hit.kind === 'external' && hit.stockQty != null
+                      ? ` · estoque ${hit.stockQty}`
+                      : ''}
                   </span>
                 ) : null}
               </button>
