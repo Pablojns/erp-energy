@@ -32,7 +32,8 @@ import { AllExceptionsFilter } from './common/logger/all-exceptions.filter';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../../.env'],
+      // PM2 em prod usa cwd na raiz do monorepo; local costuma ser apps/api.
+      envFilePath: ['.env', 'apps/api/.env', '../../.env'],
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
