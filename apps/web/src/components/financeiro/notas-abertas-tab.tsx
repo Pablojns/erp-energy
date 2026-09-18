@@ -26,6 +26,34 @@ import {
 import { erpFetchFormData } from '@/src/components/compras/compras-api';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 
+export const NOTAS_ABERTAS_CSV_HEADERS = [
+  'Pedido',
+  'NF',
+  'Valor',
+  'Emissão',
+  'Vencimento',
+  'Dias em Aberto',
+  'Status',
+  'Declarado Pago Em',
+  'Confirmado Recebido Em',
+  'Origem Confirmação',
+];
+
+export function notasAbertasToCsvRows(rows: NotaAberta[]): string[][] {
+  return rows.map((r) => [
+    r.pedido,
+    r.invoiceNumber,
+    String(r.valor ?? ''),
+    formatDateBr(r.dataEmissao),
+    formatDateBr(r.vencimento),
+    String(r.diasEmAberto),
+    r.status,
+    r.declaradoPagoEm ? formatDateBr(r.declaradoPagoEm) : '',
+    r.confirmadoRecebidoEm ? formatDateBr(r.confirmadoRecebidoEm) : '',
+    r.confirmadoRecebidoOrigem ?? '',
+  ]);
+}
+
 type StatusFilter = 'ALL' | 'VAZIO' | 'DECLARADO' | 'CONFIRMADO';
 
 type CobrancaPreview = {
