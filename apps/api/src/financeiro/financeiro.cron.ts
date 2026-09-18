@@ -31,6 +31,7 @@ export class FinanceiroCron {
   /** A cada 10 min: NF da venda vinculada + XML/DANFE quando a SEFAZ já processou. */
   @Cron('*/10 * * * *')
   async pullNotaArquivos(): Promise<void> {
+    this.logger.log('Cron Conta Azul (*/10): início');
     try {
       const invoices = await this.contaAzul.syncLinkedVendaInvoices({
         apply: true,
@@ -71,8 +72,10 @@ export class FinanceiroCron {
   @Cron('*/10 * * * *')
   async syncExtratoInter(): Promise<void> {
     if (!this.inter.isConfigured()) {
+      this.logger.warn('Cron Inter (*/10): INTER_* não configurado — pulando.');
       return;
     }
+    this.logger.log('Cron Inter extrato (*/10): início');
     try {
       const fim = new Date();
       const inicio = new Date(
@@ -87,15 +90,9 @@ export class FinanceiroCron {
         ),
       );
       const result = await this.notasAbertas.applyExtratoApi(inicio, fim, null);
-      if (result.confirmed > 0 || result.alerts > 0) {
-        this.logger.log(
-          `Inter extrato: ${result.meta.credits} crédito(s) via ${result.meta.path}; confirmados=${result.confirmed}, alertas=${result.alerts}, wegSemNota=${result.wegSemNota}.`,
-        );
-      } else {
-        this.logger.debug(
-          `Inter extrato: ${result.meta.credits} crédito(s), sem novas conciliações.`,
-        );
-      }
+      this.logger.log(
+        `Cron Inter extrato: ${result.meta.credits} crédito(s) via ${result.meta.path}; confirmados=${result.confirmed}, alertas=${result.alerts}, wegSemNota=${result.wegSemNota}.`,
+      );
     } catch (error) {
       this.logger.warn(
         `Inter extrato automático ignorado: ${error instanceof Error ? error.message : String(error)}`,
