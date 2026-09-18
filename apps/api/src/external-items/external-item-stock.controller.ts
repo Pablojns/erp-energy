@@ -44,6 +44,11 @@ export class ExternalItemStockController {
     return this.items.listMovements(id);
   }
 
+  @Get(':id/orders')
+  orders(@Param('id', ParseUUIDPipe) id: string) {
+    return this.items.listOrders(id);
+  }
+
   @Post(':id/stock')
   @RequirePermission('estoque', 'criar')
   move(

@@ -29,6 +29,7 @@ import { EngravingService } from './engraving/engraving.service';
     XbzIntegrationService,
     SpotIntegrationService,
     QuoteProposalService,
+    MailService,
   ],
 })
 export class QuotesModule {}

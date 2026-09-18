@@ -201,6 +201,48 @@ export function pickedQtyWhenReceived(
   return { pickedQty: qty, missingQty: 0 };
 }
 
+export type OrderLineCompletion = {
+  mercadoEletronicoItemStatus?: string | null;
+  sku?: string;
+  quantity?: number;
+  pickedQty?: number | null;
+  missingQty?: number | null;
+};
+
+/** Linha concluída: só o status Recebido/OK conta — fonte de verdade da finalização. */
+export function isOrderLineReceived(item: OrderLineCompletion): boolean {
+  return isReceivedPlanilhaItemStatus(item.mercadoEletronicoItemStatus);
+}
+
+/** Todas as linhas Recebido/OK — mesma regra do botão Finalizar e do fechamento automático. */
+export function allLinesReceivedForFinalize(
+  items: Array<{ mercadoEletronicoItemStatus?: string | null }>,
+): boolean {
+  if (!items.length) return false;
+  return items.every((item) => isReceivedPlanilhaItemStatus(item.mercadoEletronicoItemStatus));
+}
+
+export function finalizeNotAllReceivedMessage(
+  items: Array<{ sku?: string; mercadoEletronicoItemStatus?: string | null }>,
+): string {
+  const pending = items.find(
+    (item) => !isReceivedPlanilhaItemStatus(item.mercadoEletronicoItemStatus),
+  );
+  const sku = pending?.sku?.trim() || 'item';
+  return `Não é possível finalizar: item SKU ${sku} não está Recebido/OK`;
+}
+
+const TERMINAL_ORDER_STATUS = new Set(['FINALIZADO', 'CANCELADO', 'ARQUIVADO']);
+
+/** Fecha o pedido quando todas as linhas estão Recebido. */
+export function shouldAutoFinalizeOrder(
+  status: string | null | undefined,
+  items: OrderLineCompletion[],
+): boolean {
+  if (!status || TERMINAL_ORDER_STATUS.has(status)) return false;
+  return allLinesReceivedForFinalize(items);
+}
+
 export function readPedidosSheet(buffer: Uint8Array): {
   rows: PedidoPlanilhaRow[];
   ignored: number;

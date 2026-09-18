@@ -11,3 +11,7 @@ apps/*/.next
 apps/*/dist
 packages/*/dist
 .vercel
+
+# Certificados Inter / secrets locais
+certs/
+

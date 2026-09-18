@@ -9,7 +9,7 @@ import type {
 
 const TABS: { id: FinanceiroTab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'nfs', label: 'NFs em Aberto' },
+  { id: 'nfs', label: 'Notas em Aberto' },
   { id: 'atraso', label: 'Em Atraso' },
   { id: 'despesas', label: 'Despesas' },
   { id: 'extrato', label: 'Extrato' },

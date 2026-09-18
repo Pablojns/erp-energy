@@ -20,10 +20,10 @@ import {
 import { FinanceiroHeader } from '@/src/components/financeiro/financeiro-header';
 import { CaPreviewModal } from '@/src/components/financeiro/modals';
 import {
-  NFS_CSV_HEADERS,
-  FinanceiroNfsTab,
-  nfsToCsvRows,
-} from '@/src/components/financeiro/nfs-tab';
+  NOTAS_ABERTAS_CSV_HEADERS,
+  FinanceiroNotasAbertasTab,
+  notasAbertasToCsvRows,
+} from '@/src/components/financeiro/notas-abertas-tab';
 import type {
   Despesa,
   ExtratoResponse,
@@ -31,13 +31,12 @@ import type {
   FinanceiroPeriodPreset,
   FinanceiroTab,
   ContasAtrasoResponse,
+  NotasAbertasResponse,
 } from '@/src/components/financeiro/types';
 import {
   buildFinanceiroPeriodQuery,
   defaultMonthRange,
   downloadCsv,
-  fetchAllNfsEmAberto,
-  filterNfsByPeriod,
 } from '@/src/components/financeiro/utils';
 import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { displayInvoiceNumber } from '@/src/services/api/pedidos-normalize';
@@ -462,8 +461,8 @@ export function FinanceiroWorkspace() {
   );
 
   useEffect(() => {
-    void fetchAllNfsEmAberto()
-      .then((nfs) => setNfsCount(nfs.length))
+    void erpFetchJson<NotasAbertasResponse>('api/financeiro/notas-abertas')
+      .then((res) => setNfsCount(res.meta.total))
       .catch(() => setNfsCount(0));
     void erpFetchJson<ContasAtrasoResponse>('api/financeiro/contas-atraso')
       .then((res) => setAtrasoCount(res.totalTitulos))
@@ -648,12 +647,23 @@ export function FinanceiroWorkspace() {
       }
 
       if (tab === 'nfs') {
-        const nfs = filterNfsByPeriod(
-          await fetchAllNfsEmAberto(),
-          period.dataInicio,
-          period.dataFim,
+        const res = await erpFetchJson<NotasAbertasResponse>(
+          'api/financeiro/notas-abertas',
         );
-        downloadCsv('financeiro-nfs-em-aberto.csv', NFS_CSV_HEADERS, nfsToCsvRows(nfs));
+        const start = period.dataInicio.trim();
+        const end = period.dataFim.trim();
+        const nfs =
+          !start || !end
+            ? res.data
+            : res.data.filter((nf) => {
+                const d = nf.dataEmissao.slice(0, 10);
+                return d >= start && d <= end;
+              });
+        downloadCsv(
+          'financeiro-notas-em-aberto.csv',
+          NOTAS_ABERTAS_CSV_HEADERS,
+          notasAbertasToCsvRows(nfs),
+        );
         return;
       }
 
@@ -1326,7 +1336,7 @@ export function FinanceiroWorkspace() {
           </div>
         ) : null}
         {tab === 'nfs' ? (
-          <FinanceiroNfsTab
+          <FinanceiroNotasAbertasTab
             period={period}
             refreshToken={refreshToken}
             onCountChange={setNfsCount}

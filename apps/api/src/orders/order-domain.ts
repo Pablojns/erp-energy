@@ -61,11 +61,17 @@ export type InvoiceStatus = (typeof INVOICE_STATUS)[keyof typeof INVOICE_STATUS]
 
 export const INVOICE_STATUS_VALUES = Object.values(INVOICE_STATUS);
 
-/** Referência de estoque: número WEG/cliente quando existir; senão código interno. */
+/** Referência de estoque: número WEG quando existir; VE avulsa usa o cliente; senão código interno. */
 export function orderStockReference(order: {
   code: string;
   externalOrderNumber?: string | null;
+  customerName?: string | null;
+  source?: string | null;
 }): string {
-  const external = order.externalOrderNumber?.trim();
-  return external || order.code;
+  const external = order.externalOrderNumber?.trim() || '';
+  const name = order.customerName?.trim() || '';
+  if (order.source === ORDER_SOURCE.VENDA_EXTERNA) {
+    return name || external || order.code;
+  }
+  return external || name || order.code;
 }

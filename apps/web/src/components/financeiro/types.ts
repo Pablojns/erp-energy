@@ -1,5 +1,121 @@
 export type FinanceiroTab = 'dashboard' | 'nfs' | 'atraso' | 'despesas' | 'extrato';
 
+export type NotaAbertaStatus =
+  | 'VAZIO'
+  | 'DECLARADO'
+  | 'CONFIRMADO'
+  | 'LEGADO';
+
+export type NotaAbertaFonte = 'CONTA_AZUL' | 'PEDIDO' | 'AMBOS';
+
+export type NotaAberta = {
+  id: string;
+  invoiceDigits: string;
+  invoiceNumber: string;
+  pedido: string;
+  orderId: string | null;
+  contaAzulTituloId: string | null;
+  dataEmissao: string;
+  vencimento: string;
+  diasEmAberto: number;
+  valor: number;
+  fonte: NotaAbertaFonte;
+  status: NotaAbertaStatus;
+  legado: boolean;
+  declaradoPagoEm: string | null;
+  declaradoPagoValor: number | null;
+  declaradoPagoDoc: string | null;
+  confirmadoRecebidoEm: string | null;
+  confirmadoRecebidoPor: string | null;
+  confirmadoRecebidoOrigem: string | null;
+  alertaVerificar: {
+    data: string;
+    valor: number;
+    nome: string;
+    historico: string;
+  } | null;
+  cobrancas?: Array<{
+    id: string;
+    enviadoEm: string;
+    enviadoPara: string;
+    enviadoPor: string | null;
+  }>;
+};
+
+export type NotasAbertasResponse = {
+  data: NotaAberta[];
+  meta: { total: number; legadoOcultos: number };
+};
+
+export type WegImportPreviewMatch = {
+  invoiceDigits: string;
+  pedido: string;
+  valor: number;
+  pagoEm: string | null;
+  docCompensacao: string | null;
+  jaDeclarado: boolean;
+  legado: boolean;
+};
+
+export type WegImportPreviewNotFound = {
+  referencia: string;
+  invoiceDigits: string;
+  valor: number;
+  pagoEm: string | null;
+};
+
+export type WegImportPreview = {
+  totalLinhasComReferencia: number;
+  matched: WegImportPreviewMatch[];
+  notFound: WegImportPreviewNotFound[];
+  skippedSemReferencia: number;
+};
+
+export type WegImportApplyResult = {
+  applied: number;
+  notFound: number;
+  preview: WegImportPreview;
+};
+
+export type BankReconcileCreditHit = {
+  date: string;
+  amount: number;
+  counterparty: string;
+  historico: string;
+  source: string;
+  externalId: string;
+};
+
+export type BankReconcileNoteHit = {
+  invoiceDigits: string;
+  pedido: string;
+  valor: number;
+};
+
+export type BankReconcilePreview = {
+  wegIdentificados: number;
+  autoMatches: Array<{
+    credit: BankReconcileCreditHit;
+    notes: BankReconcileNoteHit[];
+    docCompensacao: string | null;
+    groupAmount: number;
+  }>;
+  alerts: Array<{
+    credit: BankReconcileCreditHit;
+    notes: BankReconcileNoteHit[];
+    reason: string;
+  }>;
+  wegSemNota: Array<{ credit: BankReconcileCreditHit }>;
+  otherCredits: number;
+};
+
+export type BankReconcileApplyResult = {
+  confirmed: number;
+  alerts: number;
+  wegSemNota: number;
+  preview: BankReconcilePreview;
+};
+
 export type FinanceiroPeriod = {
   dataInicio: string;
   dataFim: string;

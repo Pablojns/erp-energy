@@ -29,7 +29,9 @@ export class MailService {
     const host = this.config.get<string>('SMTP_HOST')?.trim();
     const port = Number(this.config.get<string>('SMTP_PORT') ?? 587);
     const user = this.config.get<string>('SMTP_USER')?.trim();
-    const pass = this.config.get<string>('SMTP_PASS')?.trim();
+    const pass =
+      this.config.get<string>('SMTP_PASS')?.trim() ||
+      this.config.get<string>('SMTP_PASSWORD')?.trim();
 
     if (!host) {
       // Transporte de desenvolvimento: entrega em Ethereal ou log local via JSON.

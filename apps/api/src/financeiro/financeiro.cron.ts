@@ -13,6 +13,8 @@ import {
 } from './contas-atraso';
 import { ContaAzulIntegrationService } from './conta-azul-integration.service';
 import { FinanceiroService } from './financeiro.service';
+import { InterIntegrationService } from './inter-integration.service';
+import { NotasAbertasService } from './notas-abertas.service';
 
 @Injectable()
 export class FinanceiroCron {
@@ -22,10 +24,12 @@ export class FinanceiroCron {
     private readonly financeiro: FinanceiroService,
     private readonly notifications: NotificationsService,
     private readonly contaAzul: ContaAzulIntegrationService,
+    private readonly inter: InterIntegrationService,
+    private readonly notasAbertas: NotasAbertasService,
   ) {}
 
-  /** A cada 20 min: NF da venda vinculada + XML/DANFE quando a SEFAZ já processou. */
-  @Cron('*/20 * * * *')
+  /** A cada 10 min: NF da venda vinculada + XML/DANFE quando a SEFAZ já processou. */
+  @Cron('*/10 * * * *')
   async pullNotaArquivos(): Promise<void> {
     try {
       const invoices = await this.contaAzul.syncLinkedVendaInvoices({
@@ -56,6 +60,45 @@ export class FinanceiroCron {
     } catch (error) {
       this.logger.warn(
         `Conta Azul XML/Nota automático ignorado: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * A cada 10 min: extrato Inter (API) → conciliação automática das notas Declarado Pago.
+   * Janela: últimos 14 dias (cabe em 1 chamada; margem para atraso de PIX).
+   */
+  @Cron('*/10 * * * *')
+  async syncExtratoInter(): Promise<void> {
+    if (!this.inter.isConfigured()) {
+      return;
+    }
+    try {
+      const fim = new Date();
+      const inicio = new Date(
+        Date.UTC(
+          fim.getUTCFullYear(),
+          fim.getUTCMonth(),
+          fim.getUTCDate() - 13,
+          12,
+          0,
+          0,
+          0,
+        ),
+      );
+      const result = await this.notasAbertas.applyExtratoApi(inicio, fim, null);
+      if (result.confirmed > 0 || result.alerts > 0) {
+        this.logger.log(
+          `Inter extrato: ${result.meta.credits} crédito(s) via ${result.meta.path}; confirmados=${result.confirmed}, alertas=${result.alerts}, wegSemNota=${result.wegSemNota}.`,
+        );
+      } else {
+        this.logger.debug(
+          `Inter extrato: ${result.meta.credits} crédito(s), sem novas conciliações.`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Inter extrato automático ignorado: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

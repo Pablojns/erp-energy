@@ -84,6 +84,15 @@ export function formatDateBr(iso: string): string {
   return d.toLocaleDateString('pt-BR');
 }
 
+/** Emissão/vencimento da tabela: 02/09 */
+export function formatDayMonth(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}/${month}`;
+}
+
 export function categoriaLabel(categoria: string): string {
   const map: Record<string, string> = {
     FRETE: 'Frete',

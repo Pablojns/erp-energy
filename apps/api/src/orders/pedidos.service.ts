@@ -41,7 +41,7 @@ import {
   resolveOrderBuyerFields,
 } from './order-buyer';
 import { shippedQtyFromInvoiceHistory, cycleQtysFromInvoiceHistory } from './exit-quantity';
-import { WEG_TAB_ORDER_SOURCES, ORDER_STATUS } from './order-domain';
+import { WEG_TAB_ORDER_SOURCES, ORDER_STATUS, orderStockReference } from './order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import type { PedidosUpdateItemDto, StatusItemValue } from './dto/pedidos-update-item.dto';
 import type { PedidosUpdateStatusDto } from './dto/pedidos-update-status.dto';
@@ -62,11 +62,11 @@ import {
   parseBrlMoneyToDecimalString,
   pickedQtyWhenReceived,
   pickFirstLineOfOrderGroup,
+  shouldAutoFinalizeOrder,
   readPedidosSheet,
   resolveOrderStatusFromPlanilha,
   type PedidosImportSummary,
 } from './pedidos-import';
-import { orderStockReference } from './order-domain';
 import { parseNfFlaskResult } from './nf-flask-payload';
 import {
   orderNumberFromOrder,
@@ -793,30 +793,15 @@ export class PedidosService {
           data.trackingCode = null;
         }
       } else if (
-        dto.status === OrderStatus.CANCELADO &&
-        before.status !== OrderStatus.CANCELADO
+        dto.status !== undefined &&
+        dto.status !== before.status
       ) {
-        await this.orders.releaseActiveReservations(
+        await this.orders.releaseReservationsWhenLeavingHold(
           tx,
           userId,
           before,
+          dto.status as OrderStatus,
         );
-      } else if (
-        dto.status === OrderStatus.FINALIZADO &&
-        before.status !== OrderStatus.FINALIZADO
-      ) {
-        const invoiceNumber =
-          data.invoiceNumber !== undefined
-            ? typeof data.invoiceNumber === 'string'
-              ? data.invoiceNumber
-              : null
-            : before.invoiceNumber;
-        await this.orders.assertCanFinalizeOrder(tx, {
-          id: before.id,
-          code: before.code,
-          externalOrderNumber: before.externalOrderNumber,
-          invoiceNumber,
-        });
       }
 
       await tx.order.update({ where: { id: before.id }, data });
@@ -910,6 +895,13 @@ export class PedidosService {
               quantity,
               0,
             );
+            const createdComplete = createdPicked
+              ? {
+                  pickedQty: createdPicked.pickedQty,
+                  missingQty: createdPicked.missingQty,
+                  invoicedQty: createdPicked.pickedQty,
+                }
+              : { pickedQty: 0, missingQty: 0, invoicedQty: 0 };
 
             await tx.orderItem.create({
               data: {
@@ -922,9 +914,9 @@ export class PedidosService {
                 totalPrice,
                 discount: new Prisma.Decimal('0.00'),
                 reservedQuantity: 0,
-                missingQty: createdPicked?.missingQty ?? 0,
-                pickedQty: createdPicked?.pickedQty ?? 0,
-                invoicedQty: 0,
+                missingQty: createdComplete.missingQty,
+                pickedQty: createdComplete.pickedQty,
+                invoicedQty: createdComplete.invoicedQty,
                 productId,
                 externalItemId,
                 mercadoEletronicoItemStatus: createdStatus,
@@ -938,8 +930,8 @@ export class PedidosService {
               await applyExternalItemOutbound(tx, {
                 externalItemId,
                 quantity,
-                reference: before.code,
-                notes: `Venda Externa ${before.code}`,
+                reference: orderStockReference(before),
+                notes: `Venda Externa ${orderStockReference(before)}`,
                 userId,
               });
             }
@@ -999,14 +991,30 @@ export class PedidosService {
               ? normalizePlanilhaItemStatus(item.mercadoEletronicoItemStatus)
               : (existing?.mercadoEletronicoItemStatus ?? null);
           const nextQty = item.quantity ?? existing?.quantity ?? 0;
-          const receivedQty = pickedQtyWhenReceived(
-            nextStatus,
-            nextQty,
-            existing?.pickedQty ?? 0,
-          );
-          if (receivedQty) {
-            itemData.pickedQty = receivedQty.pickedQty;
-            itemData.missingQty = receivedQty.missingQty;
+          if (nextStatus && nextStatus !== existing?.mercadoEletronicoItemStatus) {
+            const receivedNow = pickedQtyWhenReceived(
+              nextStatus,
+              nextQty,
+              existing?.pickedQty ?? 0,
+            );
+            if (receivedNow) {
+              itemData.pickedQty = receivedNow.pickedQty;
+              itemData.missingQty = receivedNow.missingQty;
+              itemData.invoicedQty = receivedNow.pickedQty;
+              itemData.stockStatus = OrderItemStockStatus.COMPLETO;
+            } else if (
+              nextStatus &&
+              existing &&
+              nextQty > 0 &&
+              (existing.pickedQty ?? 0) >= nextQty
+            ) {
+              itemData.missingQty = 0;
+              itemData.invoicedQty = Math.max(
+                existing.invoicedQty ?? 0,
+                existing.pickedQty ?? nextQty,
+              );
+              itemData.stockStatus = OrderItemStockStatus.COMPLETO;
+            }
           }
           if (Object.keys(itemData).length === 0) continue;
           await tx.orderItem.update({ where: { id: item.id! }, data: itemData });
@@ -1028,8 +1036,8 @@ export class PedidosService {
               await applyExternalItemInbound(tx, {
                 externalItemId: doomed.externalItemId,
                 quantity: doomed.quantity,
-                reference: before.code,
-                notes: `Remoção de item ${before.code}`,
+                reference: orderStockReference(before),
+                notes: `Remoção de item ${orderStockReference(before)}`,
                 userId,
               });
             }
@@ -1037,6 +1045,42 @@ export class PedidosService {
           await tx.orderItem.deleteMany({
             where: { id: { in: toDelete.map((it) => it.id) } },
           });
+        }
+
+        if (
+          dto.status !== OrderStatus.CANCELADO &&
+          dto.status !== OrderStatus.ARQUIVADO
+        ) {
+          const linesNow = await tx.orderItem.findMany({
+            where: { orderId: before.id },
+            select: {
+              sku: true,
+              mercadoEletronicoItemStatus: true,
+              quantity: true,
+              pickedQty: true,
+              missingQty: true,
+            },
+          });
+          const currentStatus = String(dto.status ?? before.status);
+          if (dto.status === OrderStatus.FINALIZADO) {
+            await this.orders.assertCanFinalizeOrder(tx, {
+              id: before.id,
+              code: before.code,
+              externalOrderNumber: before.externalOrderNumber,
+              invoiceNumber: before.invoiceNumber,
+            });
+          } else if (shouldAutoFinalizeOrder(currentStatus, linesNow)) {
+            await tx.order.update({
+              where: { id: before.id },
+              data: { status: OrderStatus.FINALIZADO },
+            });
+            await this.orders.releaseReservationsWhenLeavingHold(
+              tx,
+              userId,
+              before,
+              OrderStatus.FINALIZADO,
+            );
+          }
         }
 
         // Recalcula totais do pedido a partir dos itens quando houver mudança de linhas
@@ -1060,6 +1104,19 @@ export class PedidosService {
             },
           });
         }
+      }
+
+      if (
+        dto.items === undefined &&
+        dto.status === OrderStatus.FINALIZADO &&
+        before.status !== OrderStatus.FINALIZADO
+      ) {
+        await this.orders.assertCanFinalizeOrder(tx, {
+          id: before.id,
+          code: before.code,
+          externalOrderNumber: before.externalOrderNumber,
+          invoiceNumber: before.invoiceNumber,
+        });
       }
 
       if (dto.invoiceHistory !== undefined) {

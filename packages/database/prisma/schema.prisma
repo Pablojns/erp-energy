@@ -119,6 +119,8 @@ model User {
   purchaseRequestsResolved PurchaseRequest[] @relation("PurchaseResolvedBy")
   crmCardsAssigned         CrmCard[]         @relation("CrmCardResponsavel")
   notificationPreferences  UserNotificationPreferences?
+  wegNfConfirmacoes        WegNfConciliacao[] @relation("WegNfConfirmadoPor")
+  wegNfCobrancasEnviadas   WegNfCobrancaEnvio[] @relation("WegNfCobrancaEnviadoPor")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -416,6 +418,7 @@ model Order {
   stockReservations       StockReservation[]
   exits                   OrderExit[]
   invoiceHistory          OrderInvoiceHistory[]
+  wegNfConciliacoes       WegNfConciliacao[]
   reverseLogistics        ReverseLogistics[]
   shipments               Shipment[]
   receivables             AccountReceivable[]
@@ -1439,6 +1442,20 @@ model ContaAzulSession {
   updatedAt     DateTime  @updatedAt
 }
 
+/// OAuth2 client_credentials do Banco Inter (mTLS). Uma sessão por instalação.
+model InterSession {
+  id               String    @id @default("default")
+  accessToken      String
+  tokenType        String    @default("Bearer")
+  scope            String?
+  expiresAt        DateTime
+  /// Lease para serializar renovação entre processos.
+  refreshLockUntil DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
 /// Títulos sincronizados da Conta Azul (contas a pagar/receber).
 model ContaAzulTitulo {
   id           String   @id @default(uuid()) @db.Uuid
@@ -1462,9 +1479,60 @@ model ContaAzulTitulo {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  wegNfConciliacoes WegNfConciliacao[]
+
   @@index([tipo, vencimento])
   @@index([pago, vencimento])
   @@index([tipo, pago])
+}
+
+/// Conciliação em 2 estágios das NFs de venda WEG (planilha → confirmação bancária).
+/// Tabela de apoio: o sync da Conta Azul apaga e regrava ContaAzulTitulo.
+model WegNfConciliacao {
+  id                      String   @id @default(uuid()) @db.Uuid
+  invoiceDigits           String   @unique
+  orderId                 String?  @db.Uuid
+  order                   Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  contaAzulTituloId       String?  @db.Uuid
+  contaAzulTitulo         ContaAzulTitulo? @relation(fields: [contaAzulTituloId], references: [id], onDelete: SetNull)
+  declaradoPagoEm         DateTime?
+  declaradoPagoValor      Decimal? @db.Decimal(12, 2)
+  declaradoPagoDoc        String?
+  confirmadoRecebidoEm    DateTime?
+  confirmadoRecebidoPorId String?  @db.Uuid
+  confirmadoRecebidoPor   User?    @relation("WegNfConfirmadoPor", fields: [confirmadoRecebidoPorId], references: [id], onDelete: SetNull)
+  /// Manual | Conciliação automática — Extrato Inter
+  confirmadoRecebidoOrigem String?
+  alertaBancoData         DateTime?
+  alertaBancoValor        Decimal? @db.Decimal(12, 2)
+  alertaBancoNome         String?
+  alertaBancoHistorico    String?
+  cobrancas               WegNfCobrancaEnvio[]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([contaAzulTituloId])
+  @@index([confirmadoRecebidoPorId])
+}
+
+/// Histórico de e-mails de cobrança enviados para uma NF WEG.
+model WegNfCobrancaEnvio {
+  id              String   @id @default(uuid()) @db.Uuid
+  conciliacaoId   String   @db.Uuid
+  conciliacao     WegNfConciliacao @relation(fields: [conciliacaoId], references: [id], onDelete: Cascade)
+  invoiceDigits   String
+  enviadoPara     String
+  assunto         String
+  enviadoEm       DateTime @default(now())
+  enviadoPorId    String?  @db.Uuid
+  enviadoPor      User?    @relation("WegNfCobrancaEnviadoPor", fields: [enviadoPorId], references: [id], onDelete: SetNull)
+  anexos          String?
+  messageId       String?
+
+  @@index([conciliacaoId])
+  @@index([invoiceDigits])
+  @@index([enviadoEm])
 }
 
 /// Pessoas (clientes/fornecedores) sincronizadas da Conta Azul.

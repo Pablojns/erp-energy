@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@erp/database';
+import {
+  allLinesReceivedForFinalize,
+  finalizeNotAllReceivedMessage,
+} from './pedidos-import';
 
 export type FinalizeGuardItem = {
   sku: string;
@@ -128,20 +132,18 @@ type FinalizeGuardTx = {
       where: { orderId: string };
       select: {
         sku: true;
-        quantity: true;
-        invoicedQty: true;
-        productId: true;
+        mercadoEletronicoItemStatus: true;
       };
-    }) => Promise<FinalizeGuardItem[]>;
-  };
-  stockMovement: {
-    findMany: (args: {
-      where: Prisma.StockMovementWhereInput;
-      select: { productId: true; quantity: true };
-    }) => Promise<FinalizeGuardMovement[]>;
+    }) => Promise<
+      Array<{ sku: string; mercadoEletronicoItemStatus: string | null }>
+    >;
   };
 };
 
+/**
+ * Trava de FINALIZADO: todas as linhas Recebido/OK.
+ * invoicedQty e SAIDA_EXPEDICAO não bloqueiam — o status da linha é a fonte de verdade.
+ */
 export async function assertCanFinalizeOrder(
   tx: FinalizeGuardTx,
   order: {
@@ -150,27 +152,15 @@ export async function assertCanFinalizeOrder(
     externalOrderNumber: string | null;
     invoiceNumber: string | null;
   },
-  onCritical?: (message: string) => void,
+  _onCritical?: (message: string) => void,
 ): Promise<void> {
   const items = await tx.orderItem.findMany({
     where: { orderId: order.id },
     select: {
       sku: true,
-      quantity: true,
-      invoicedQty: true,
-      productId: true,
+      mercadoEletronicoItemStatus: true,
     },
   });
-  const movements = await tx.stockMovement.findMany({
-    where: orderSaidaExpedicaoWhere(order),
-    select: { productId: true, quantity: true },
-  });
-  const result = validateFinalizeOrder({
-    invoiceNumber: order.invoiceNumber,
-    items,
-    movements,
-  });
-  if (result.ok) return;
-  if (result.critical) onCritical?.(result.message);
-  throw new BadRequestException(result.message);
+  if (allLinesReceivedForFinalize(items)) return;
+  throw new BadRequestException(finalizeNotAllReceivedMessage(items));
 }

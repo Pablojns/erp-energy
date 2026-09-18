@@ -104,18 +104,12 @@ describe('assertCanFinalizeOrder', () => {
   function mockTx(opts: {
     items: Array<{
       sku: string;
-      quantity: number;
-      invoicedQty: number;
-      productId: string | null;
+      mercadoEletronicoItemStatus: string | null;
     }>;
-    movements: Array<{ productId: string; quantity: number }>;
   }) {
     return {
       orderItem: {
         findMany: jest.fn().mockResolvedValue(opts.items),
-      },
-      stockMovement: {
-        findMany: jest.fn().mockResolvedValue(opts.movements),
       },
     };
   }
@@ -127,56 +121,38 @@ describe('assertCanFinalizeOrder', () => {
     invoiceNumber: 'NF-1',
   };
 
-  it('lança BadRequestException sem NF', async () => {
+  it('bloqueia quando alguma linha não está Recebido/OK', async () => {
     const tx = mockTx({
       items: [
-        { sku: 'A', quantity: 1, invoicedQty: 1, productId: 'p1' },
+        { sku: 'SKU-A', mercadoEletronicoItemStatus: 'Recebido' },
+        { sku: 'SKU-X', mercadoEletronicoItemStatus: 'Em falta' },
       ],
-      movements: [{ productId: 'p1', quantity: 1 }],
     });
-    await expect(
-      assertCanFinalizeOrder(tx, { ...order, invoiceNumber: '' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    await expect(
-      assertCanFinalizeOrder(tx, { ...order, invoiceNumber: '' }),
-    ).rejects.toThrow(FINALIZE_NF_MISSING);
-  });
-
-  it('lança quando a quantidade faturada diverge', async () => {
-    const tx = mockTx({
-      items: [
-        { sku: 'SKU-X', quantity: 50, invoicedQty: 30, productId: 'p1' },
-      ],
-      movements: [{ productId: 'p1', quantity: 30 }],
-    });
+    await expect(assertCanFinalizeOrder(tx, order)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
     await expect(assertCanFinalizeOrder(tx, order)).rejects.toThrow(
-      invoicedQtyMismatchMessage('SKU-X', 50, 30),
+      'item SKU SKU-X não está Recebido/OK',
     );
   });
 
-  it('loga crítico e bloqueia OrderExit sem SAIDA_EXPEDICAO', async () => {
+  it('não exige NF, invoicedQty nem SAIDA_EXPEDICAO', async () => {
     const tx = mockTx({
       items: [
-        { sku: 'SKU-X', quantity: 50, invoicedQty: 50, productId: 'p1' },
+        { sku: 'MOD-10', mercadoEletronicoItemStatus: 'Recebido' },
+        { sku: 'MOD-20', mercadoEletronicoItemStatus: 'OK' },
       ],
-      movements: [],
     });
-    const onCritical = jest.fn();
-    await expect(assertCanFinalizeOrder(tx, order, onCritical)).rejects.toThrow(
-      stockQtyMismatchMessage('SKU-X', 50, 0),
-    );
-    expect(onCritical).toHaveBeenCalledTimes(1);
+    await expect(
+      assertCanFinalizeOrder(tx, { ...order, invoiceNumber: '' }),
+    ).resolves.toBeUndefined();
   });
 
-  it('passa no pedido completo e correto', async () => {
+  it('passa quando todas as linhas estão Recebido/OK', async () => {
     const tx = mockTx({
       items: [
-        { sku: 'MOD-10', quantity: 1, invoicedQty: 1, productId: 'p1' },
-        { sku: 'MOD-20', quantity: 1, invoicedQty: 1, productId: 'p2' },
-      ],
-      movements: [
-        { productId: 'p1', quantity: 1 },
-        { productId: 'p2', quantity: 1 },
+        { sku: 'MOD-10', mercadoEletronicoItemStatus: 'Recebido' },
+        { sku: 'MOD-20', mercadoEletronicoItemStatus: 'OK' },
       ],
     });
     await expect(assertCanFinalizeOrder(tx, order)).resolves.toBeUndefined();

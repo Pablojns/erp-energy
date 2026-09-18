@@ -1386,8 +1386,18 @@ export class OrderService {
         const moved = await applyExternalItemOutbound(tx, {
           externalItemId: row.externalItemId,
           quantity: row.quantity,
-          reference: code,
-          notes: `Venda Externa ${code}`,
+          reference: orderStockReference({
+            code,
+            externalOrderNumber,
+            customerName: customer.name.trim(),
+            source: 'VENDA_EXTERNA',
+          }),
+          notes: `Venda Externa ${orderStockReference({
+            code,
+            externalOrderNumber,
+            customerName: customer.name.trim(),
+            source: 'VENDA_EXTERNA',
+          })}`,
           userId,
         });
         if (moved.warning) stockWarnings.push(moved.warning);
@@ -3274,15 +3284,12 @@ export class OrderService {
         });
       }
 
-      if (to === OrderStatus.CANCELADO) {
-        await this.releaseReservations(
-          tx,
-          userId,
-          before.code,
-          before.id,
-          before.items,
-        );
-      }
+      await this.releaseReservationsWhenLeavingHold(
+        tx,
+        userId,
+        before,
+        to,
+      );
 
       if (to === OrderStatus.NOVO) {
         await this.hardResetOrderOnReturnToNovo(tx, id, userId);
@@ -3360,15 +3367,12 @@ export class OrderService {
         });
       }
 
-      if (to === OrderStatus.CANCELADO) {
-        await this.releaseReservations(
-          tx,
-          userId,
-          before.code,
-          before.id,
-          before.items,
-        );
-      }
+      await this.releaseReservationsWhenLeavingHold(
+        tx,
+        userId,
+        before,
+        to,
+      );
 
       if (to === OrderStatus.EM_SEPARACAO) {
         await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
@@ -4167,6 +4171,43 @@ export class OrderService {
     );
   }
 
+  /** Reserva física só permanece enquanto o pedido está na fila/cadeia de expedição. */
+  static holdsPhysicalReservation(status: OrderStatus): boolean {
+    return (
+      status === OrderStatus.RESERVADO ||
+      status === OrderStatus.EM_SEPARACAO ||
+      status === OrderStatus.SEPARADO ||
+      status === OrderStatus.AGUARDANDO_NF ||
+      status === OrderStatus.NF_ATRELADA
+    );
+  }
+
+  /**
+   * Libera reservas ao sair da fila (PARCIAL, FINALIZADO, CANCELADO, etc.).
+   * NOVO usa hardReset — não chamar os dois no mesmo fluxo.
+   */
+  async releaseReservationsWhenLeavingHold(
+    tx: Tx,
+    userId: string,
+    order: {
+      id: string;
+      code: string;
+      status: OrderStatus;
+      externalOrderNumber?: string | null;
+      items: Array<{
+        id: string;
+        productId: string | null;
+        reservedQuantity: number;
+      }>;
+    },
+    to: OrderStatus,
+  ) {
+    if (order.status === to) return;
+    if (to === OrderStatus.NOVO) return;
+    if (OrderService.holdsPhysicalReservation(to)) return;
+    await this.releaseActiveReservations(tx, userId, order);
+  }
+
   /**
    * Reset total e incondicional ao voltar o pedido para NOVO.
    * Reverte saídas de todos os ciclos, libera reserva física (sem alterar stockQty
@@ -4356,8 +4397,8 @@ export class OrderService {
   }
 
   /**
-   * Guard rígido: nenhum caminho de API pode marcar FINALIZADO sem NF,
-   * invoicedQty fechado e SAIDA_EXPEDICAO real. Furo de estoque loga crítico.
+   * Guard: FINALIZADO só com todas as linhas Recebido/OK.
+   * Mesma regra do fechamento automático.
    */
   async assertCanFinalizeOrder(
     tx: Tx,
@@ -4741,21 +4782,16 @@ export class OrderService {
         a.productId.localeCompare(b.productId),
       );
       for (const r of sorted) {
-        const upd = await tx.product.updateMany({
-          where: {
-            id: r.productId,
-            reservedQty: { gte: r.quantity },
-          },
-          data: {
-            reservedQty: {
-              decrement: r.quantity,
-            },
-          },
+        const product = await tx.product.findUnique({
+          where: { id: r.productId },
+          select: { reservedQty: true },
         });
-        if (upd.count !== 1) {
-          throw new ConflictException(
-            `Inconsistência ao liberar reserva física (${r.sku}).`,
-          );
+        const dec = Math.min(r.quantity, Math.max(0, product?.reservedQty ?? 0));
+        if (dec > 0) {
+          await tx.product.update({
+            where: { id: r.productId },
+            data: { reservedQty: { decrement: dec } },
+          });
         }
         await tx.stockMovement.create({
           data: {

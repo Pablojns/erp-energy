@@ -130,6 +130,7 @@ import {
 } from './conta-azul.vendas-xml';
 import { ExternalItemsService } from '../external-items/external-items.service';
 import { applyExternalItemOutbound } from '../external-items/external-item-stock';
+import { orderStockReference } from '../orders/order-domain';
 import { findSaoPauloCompanyEntityId } from '../cadastros/company-entities.seed';
 import {
   planXmlPedidoVinculos,
@@ -2712,8 +2713,16 @@ export class ContaAzulIntegrationService {
       itensCorrigidos += plan.replaces.length;
     }
     for (const plan of input.caso2) {
-      const created = await this.applyCaso2Plan(plan);
-      if (created) pedidosCriados += 1;
+      try {
+        const created = await this.applyCaso2Plan(plan);
+        if (created) pedidosCriados += 1;
+      } catch (err) {
+        this.logger.error(
+          `Caso 2 apply falhou venda=${plan.vendaNumero ?? plan.vendaId} nf=${plan.invoiceNumber}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
     return {
       pedidosCompletados,
@@ -2871,7 +2880,6 @@ export class ContaAzulIntegrationService {
               unitPrice: new Prisma.Decimal(item.unitPrice.toFixed(2)),
               totalPrice: new Prisma.Decimal(item.totalPrice.toFixed(2)),
               discount: new Prisma.Decimal(0),
-              productId: null,
               externalItem: { connect: { id: externalItemId } },
               stockStatus: OrderItemStockStatus.NAO_ANALISADO,
             })),
@@ -2889,8 +2897,18 @@ export class ContaAzulIntegrationService {
         await applyExternalItemOutbound(tx, {
           externalItemId: row.externalItemId,
           quantity: row.item.quantity,
-          reference: code,
-          notes: `Venda Externa ${code}`,
+          reference: orderStockReference({
+            code,
+            externalOrderNumber: plan.externalOrderNumber,
+            customerName: plan.customerName,
+            source: OrderSource.VENDA_EXTERNA,
+          }),
+          notes: `Venda Externa ${orderStockReference({
+            code,
+            externalOrderNumber: plan.externalOrderNumber,
+            customerName: plan.customerName,
+            source: OrderSource.VENDA_EXTERNA,
+          })}`,
         });
       }
     });
@@ -2918,7 +2936,17 @@ export class ContaAzulIntegrationService {
     `;
     if (alreadyVenda.length > 0) return false;
     const alreadyPedido = await this.prisma.client.order.findFirst({
-      where: { externalOrderNumber: plan.xmlPedido },
+      where: {
+        externalOrderNumber: plan.xmlPedido,
+        OR: [
+          { invoiceNumber: plan.invoiceNumber },
+          {
+            invoiceHistory: {
+              some: { invoiceNumber: plan.invoiceNumber },
+            },
+          },
+        ],
+      },
       select: { id: true },
     });
     if (alreadyPedido) return false;

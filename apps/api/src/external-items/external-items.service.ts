@@ -12,6 +12,7 @@ import {
   applyExternalItemInbound,
   applyExternalItemOutbound,
 } from './external-item-stock';
+import { orderStockReference } from '../orders/order-domain';
 
 @Injectable()
 export class ExternalItemsService {
@@ -282,14 +283,81 @@ export class ExternalItemsService {
       take: Math.min(100, Math.max(1, limit)),
       include: { movedBy: { select: { id: true, name: true } } },
     });
+    const pedCodes = [
+      ...new Set(
+        rows
+          .map((row) => row.reference?.trim() || '')
+          .filter((ref) => /^PED-\d+$/i.test(ref)),
+      ),
+    ];
+    const friendlyByCode = new Map<string, string>();
+    if (pedCodes.length > 0) {
+      const orders = await this.prisma.client.order.findMany({
+        where: { code: { in: pedCodes } },
+        select: {
+          code: true,
+          source: true,
+          externalOrderNumber: true,
+          customerName: true,
+        },
+      });
+      for (const order of orders) {
+        friendlyByCode.set(order.code, orderStockReference(order));
+      }
+    }
+    return rows.map((row) => {
+      const raw = row.reference?.trim() || null;
+      const friendly = raw ? friendlyByCode.get(raw) : null;
+      return {
+        id: row.id,
+        movementType: row.movementType,
+        quantity: row.quantity,
+        reference: friendly || raw,
+        notes: row.notes,
+        movementDate: row.movementDate.toISOString(),
+        movedBy: row.movedBy,
+      };
+    });
+  }
+
+  async listOrders(id: string) {
+    const exists = await this.prisma.client.externalItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Item externo não encontrado.');
+    const rows = await this.prisma.client.orderItem.findMany({
+      where: { externalItemId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        sku: true,
+        quantity: true,
+        order: {
+          select: {
+            id: true,
+            code: true,
+            source: true,
+            status: true,
+            externalOrderNumber: true,
+            customerName: true,
+            orderDate: true,
+          },
+        },
+      },
+    });
     return rows.map((row) => ({
-      id: row.id,
-      movementType: row.movementType,
+      itemId: row.id,
+      sku: row.sku,
       quantity: row.quantity,
-      reference: row.reference,
-      notes: row.notes,
-      movementDate: row.movementDate.toISOString(),
-      movedBy: row.movedBy,
+      orderId: row.order.id,
+      code: row.order.code,
+      status: row.order.status,
+      source: row.order.source,
+      customerName: row.order.customerName,
+      orderDate: row.order.orderDate?.toISOString() ?? null,
+      orderNumber: orderStockReference(row.order),
     }));
   }
 }

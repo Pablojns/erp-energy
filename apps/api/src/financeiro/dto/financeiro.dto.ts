@@ -1,4 +1,6 @@
 import {
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsNumberString,
   IsOptional,
@@ -67,4 +69,48 @@ export class NfsEmAbertoQueryDto {
   @IsOptional()
   @IsNumberString()
   pageSize?: string;
+}
+
+export class NotasAbertasQueryDto {
+  @IsOptional()
+  @IsString()
+  historico?: string;
+}
+
+export class InterExtratoQueryDto {
+  @IsOptional()
+  @IsString()
+  dataInicio?: string;
+
+  @IsOptional()
+  @IsString()
+  dataFim?: string;
+}
+
+export class CobrancaPreviewDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  invoiceDigits!: string[];
+}
+
+export class EnviarCobrancaDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  invoiceDigits!: string[];
+
+  @IsString()
+  @MaxLength(320)
+  to!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  assunto?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  corpo?: string;
 }
