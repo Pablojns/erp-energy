@@ -134,7 +134,10 @@ export function OutputDetailPanel(props: {
 
   const exitContext = useMemo(() => {
     const items = exit.order.items ?? [];
-    const orderedTotal = sum(items.map((it) => it.quantity ?? 0));
+    const orderedTotal =
+      exit.orderedTotal != null && exit.orderedTotal > 0
+        ? exit.orderedTotal
+        : sum(items.map((it) => it.quantity ?? 0));
     const thisCycleQty = sum(items.map((it) => it.pickedQty ?? 0));
     const parcelas = sortedParcelas(exit, thisCycleQty);
     const thisIndex = Math.max(
@@ -335,7 +338,9 @@ export function OutputDetailPanel(props: {
             </tr>
           </thead>
           <tbody>
-            {exit.order.items.map((it) => {
+            {exit.order.items
+              .filter((it) => (it.pickedQty ?? 0) > 0)
+              .map((it) => {
               const sentThis = it.pickedQty ?? 0;
               const ordered = it.quantity ?? 0;
               const lineComplete =

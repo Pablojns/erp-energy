@@ -234,7 +234,11 @@ export function SeparationItemsTable(props: {
                     <td className="text-center" data-label="Status item">
                       <span
                         className={`exp-wb-line-status exp-wb-line-status--${
-                          lineStatus.label === 'PARCIAL' ? 'parcial' : 'completo'
+                          lineStatus.label === 'PARCIAL'
+                            ? 'parcial'
+                            : lineStatus.label === '—'
+                              ? 'pendente'
+                              : 'completo'
                         } text-xs`}
                       >
                         {lineStatus.label}

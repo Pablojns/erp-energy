@@ -126,13 +126,17 @@ export function resolveLineSeparationStatus(item: {
   quantity: number;
   pickedQty?: number | null;
   mercadoEletronicoItemStatus?: string | null;
-}): { picked: number; missing: number; label: 'OK' | 'PARCIAL' } {
+}): { picked: number; missing: number; label: 'OK' | 'PARCIAL' | '—' } {
   const qty = item.quantity ?? 0;
   if (isWegItemAlreadyReceived(item)) {
     return { picked: qty, missing: 0, label: 'OK' };
   }
   const picked = Math.max(0, item.pickedQty ?? 0);
   const missing = Math.max(0, qty - picked);
+  // Sem progresso real: não rotular como PARCIAL (parece tentativa incompleta).
+  if (picked <= 0) {
+    return { picked: 0, missing: qty, label: '—' };
+  }
   return {
     picked,
     missing,

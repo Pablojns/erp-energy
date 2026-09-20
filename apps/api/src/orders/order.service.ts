@@ -28,7 +28,7 @@ import type { OrderQueryDto } from './dto/order-query.dto';
 import type { AttachInvoiceDto } from './dto/attach-invoice.dto';
 import type { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dto';
 import type { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
-import { applyExternalItemOutbound } from '../external-items/external-item-stock';
+import { applyExternalItemInbound, applyExternalItemOutbound } from '../external-items/external-item-stock';
 import type { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import {
   ORDER_STATUS,
@@ -1285,7 +1285,7 @@ export class OrderService {
       let subtotalDec = new Prisma.Decimal(0);
       let lineNumber = 10;
       const creates: Prisma.OrderItemCreateWithoutOrderInput[] = [];
-      const pendingOutbound: Array<{ externalItemId: string; quantity: number }> =
+      const pendingInbound: Array<{ externalItemId: string; quantity: number }> =
         [];
 
       for (const li of dto.items) {
@@ -1314,7 +1314,7 @@ export class OrderService {
               data: { lastKnownPrice: unitPrice },
             });
           }
-          pendingOutbound.push({
+          pendingInbound.push({
             externalItemId,
             quantity: li.quantity,
           });
@@ -1328,6 +1328,38 @@ export class OrderService {
           }
           productId = product.id;
           sku = product.sku;
+        } else {
+          // Item fora do catálogo WEG: auto-vincula ao Estoque Externo e
+          // registra a entrada necessária para a futura "Dar Saída".
+          const existingExt = await tx.externalItem.findFirst({
+            where: { name: { equals: description, mode: 'insensitive' } },
+            select: { id: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (existingExt) {
+            externalItemId = existingExt.id;
+            if (unitPrice.greaterThan(0)) {
+              await tx.externalItem.update({
+                where: { id: externalItemId },
+                data: { lastKnownPrice: unitPrice },
+              });
+            }
+          } else {
+            const created = await tx.externalItem.create({
+              data: {
+                name: description,
+                lastKnownPrice: unitPrice,
+                source: 'Venda Externa',
+                stockQty: 0,
+              },
+              select: { id: true },
+            });
+            externalItemId = created.id;
+          }
+          pendingInbound.push({
+            externalItemId,
+            quantity: li.quantity,
+          });
         }
 
         creates.push({
@@ -1382,8 +1414,8 @@ export class OrderService {
       });
 
       const stockWarnings: string[] = [];
-      for (const row of pendingOutbound) {
-        const moved = await applyExternalItemOutbound(tx, {
+      for (const row of pendingInbound) {
+        await applyExternalItemInbound(tx, {
           externalItemId: row.externalItemId,
           quantity: row.quantity,
           reference: orderStockReference({
@@ -1392,7 +1424,7 @@ export class OrderService {
             customerName: customer.name.trim(),
             source: 'VENDA_EXTERNA',
           }),
-          notes: `Venda Externa ${orderStockReference({
+          notes: `Entrada p/ Venda Externa ${orderStockReference({
             code,
             externalOrderNumber,
             customerName: customer.name.trim(),
@@ -1400,7 +1432,6 @@ export class OrderService {
           })}`,
           userId,
         });
-        if (moved.warning) stockWarnings.push(moved.warning);
       }
 
       await this.audit.log({
@@ -1416,6 +1447,7 @@ export class OrderService {
           status: order.status,
           source: 'venda_externa',
           reservedAutomatically: false,
+          externalInboundLines: pendingInbound.length,
         },
       });
 
@@ -2696,11 +2728,48 @@ export class OrderService {
       const releaseReservationIds: string[] = [];
 
       for (const it of before.items) {
-        const productId = productIdByItem.get(it.id);
-        if (!productId) continue;
-
         const qtyOut = resolveExitPendingQuantity(it);
         if (qtyOut <= 0) continue;
+
+        const productId = productIdByItem.get(it.id);
+        const externalItemId = (it as { externalItemId?: string | null })
+          .externalItemId?.trim();
+
+        if (externalItemId && !productId) {
+          const moved = await applyExternalItemOutbound(tx, {
+            externalItemId,
+            quantity: qtyOut,
+            reference: before.code,
+            notes: `Saída pedido ${before.code} · NF ${inv}`,
+            userId,
+          });
+          if (moved.warning) {
+            this.logger.warn(moved.warning);
+          }
+          if (moved.deducted <= 0 && qtyOut > 0) {
+            // Sem saldo externo: ainda registra a saída do pedido (estoque
+            // pode ter ficado zerado em pedidos antigos sem entrada).
+          }
+          movedUnits += qtyOut;
+          cycleValue = cycleValue.add(new Prisma.Decimal(it.unitPrice).mul(qtyOut));
+          const shippedTotal = Math.max(0, it.invoicedQty) + qtyOut;
+          const pickedFinal = it.pickedQty > 0 ? it.pickedQty : shippedTotal;
+          await tx.orderItem.update({
+            where: { id: it.id },
+            data: {
+              pickedQty: pickedFinal,
+              missingQty: Math.max(0, it.quantity - pickedFinal),
+              invoicedQty: shippedTotal,
+              mercadoEletronicoItemStatus:
+                it.mercadoEletronicoItemStatus?.trim() || 'OK',
+            },
+          });
+          it.invoicedQty = shippedTotal;
+          it.pickedQty = pickedFinal;
+          continue;
+        }
+
+        if (!productId) continue;
 
         const reservation = reservationByItem.get(it.id);
         const reservationQty = reservation?.quantity ?? 0;
@@ -2763,6 +2832,8 @@ export class OrderService {
               it.mercadoEletronicoItemStatus?.trim() || 'OK',
           },
         });
+        it.invoicedQty = shippedTotal;
+        it.pickedQty = pickedFinal;
       }
 
       if (movements.length > 0) {
@@ -2794,7 +2865,7 @@ export class OrderService {
         throw new BadRequestException(
           nothingNewPicked
             ? 'Nenhuma quantidade nova separada: confirme as quantidades deste ciclo antes de registrar a saída.'
-            : 'Não foi possível baixar estoque: vincule os SKUs ao cadastro de produtos ou confirme as quantidades do pedido.',
+            : 'Não foi possível baixar estoque: vincule os SKUs ao catálogo WEG ou ao Estoque Externo, ou confirme as quantidades do pedido.',
         );
       }
 

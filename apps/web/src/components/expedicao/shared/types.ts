@@ -283,6 +283,8 @@ export type OrderExitDto = {
   createdAt: string;
   updatedAt: string;
   parcelas?: OrderExitParcelaDto[];
+  /** Soma das quantidades pedidas (todas as linhas), para o resumo de parcelas. */
+  orderedTotal?: number;
   order: {
     id: string;
     code: string;

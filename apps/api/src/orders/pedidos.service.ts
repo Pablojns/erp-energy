@@ -3319,7 +3319,14 @@ export class PedidosService {
       },
     });
 
-    const cycleQtyByExit = await this.loadExitCycleQtyByItemId(rows);
+    const cycleQtyByExit = await this.loadExitCycleQtyByItemId(
+      rows.map((r) => ({
+        id: r.id,
+        invoiceNumber: r.invoiceNumber,
+        orderId: r.orderId,
+        order: r.order,
+      })),
+    );
     const parcelasByOrderId = await this.loadParcelasByOrderId(
       rows,
       cycleQtyByExit,
@@ -3356,7 +3363,14 @@ export class PedidosService {
       },
     });
     if (!row) throw new NotFoundException('Saída não encontrada.');
-    const cycleQtyByExit = await this.loadExitCycleQtyByItemId([row]);
+    const cycleQtyByExit = await this.loadExitCycleQtyByItemId([
+      {
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        orderId: row.orderId,
+        order: row.order,
+      },
+    ]);
     const parcelasByOrderId = await this.loadParcelasByOrderId(
       [row],
       cycleQtyByExit,
@@ -4538,17 +4552,24 @@ export class PedidosService {
   }
 
   /**
-   * Quantidade efetivamente baixada em cada OrderExit (delta do ciclo), via
-   * StockMovement SAIDA_EXPEDICAO — não o pickedQty acumulado do pedido.
+   * Quantidade efetivamente baixada em cada OrderExit (delta do ciclo):
+   * 1) StockMovement SAIDA_EXPEDICAO (fluxo normal ERP)
+   * 2) fallback XML histórico via nItemPed → OrderItem.lineNumber
    */
   private async loadExitCycleQtyByItemId(
     rows: Array<{
       id: string;
       invoiceNumber: string;
+      orderId?: string;
       order: {
+        id?: string;
         code: string;
         externalOrderNumber: string | null;
-        items: Array<{ id: string; productId: string | null }>;
+        items: Array<{
+          id: string;
+          productId: string | null;
+          lineNumber?: number;
+        }>;
       };
     }>,
   ): Promise<Map<string, Map<string, number>>> {
@@ -4611,6 +4632,69 @@ export class PedidosService {
       }
       result.set(row.id, qtyByItem);
     }
+
+    // Fallback XML (pedidos reconciliados retroativamente sem delta de ciclo).
+    const needsXml = rows.filter((r) => (result.get(r.id)?.size ?? 0) === 0);
+    if (needsXml.length > 0 && this.storage) {
+      const orderIds = [
+        ...new Set(
+          needsXml
+            .map((r) => r.orderId ?? r.order.id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      if (orderIds.length > 0) {
+        const histories = await this.prisma.client.orderInvoiceHistory.findMany({
+          where: {
+            orderId: { in: orderIds },
+            xmlStorageKey: { not: null },
+          },
+          select: {
+            orderId: true,
+            invoiceNumber: true,
+            xmlStorageKey: true,
+          },
+        });
+        for (const row of needsXml) {
+          const orderId = row.orderId ?? row.order.id;
+          if (!orderId) continue;
+          const hist = histories.find(
+            (h) =>
+              h.orderId === orderId &&
+              sameInvoiceNumber(h.invoiceNumber, row.invoiceNumber),
+          );
+          if (!hist?.xmlStorageKey) continue;
+          try {
+            const stored = await this.storage.getObjectBuffer(hist.xmlStorageKey);
+            const parsed = parseNfeXml(stored.buffer.toString('utf8'));
+            if (!parsed?.items?.length) continue;
+            const itemByLine = new Map<number, string>();
+            for (const it of row.order.items) {
+              const ln = Number(it.lineNumber ?? 0);
+              if (ln > 0) itemByLine.set(ln, it.id);
+            }
+            const qtyByItem = new Map<string, number>();
+            for (const xmlItem of parsed.items) {
+              const line =
+                xmlItem.nItemPed && xmlItem.nItemPed > 0
+                  ? xmlItem.nItemPed
+                  : xmlItem.nItem;
+              const itemId = itemByLine.get(line);
+              if (!itemId) continue;
+              const qty = Math.max(0, Math.round(Number(xmlItem.quantity) || 0));
+              if (qty <= 0) continue;
+              qtyByItem.set(itemId, (qtyByItem.get(itemId) ?? 0) + qty);
+            }
+            if (qtyByItem.size > 0) {
+              result.set(row.id, qtyByItem);
+            }
+          } catch {
+            /* XML ausente — segue sem ciclo por item. */
+          }
+        }
+      }
+    }
+
     return result;
   }
 
@@ -4677,7 +4761,9 @@ export class PedidosService {
           {
             id: s.id,
             invoiceNumber: s.invoiceNumber,
+            orderId: s.orderId,
             order: {
+              id: order.id,
               code: order.code,
               externalOrderNumber: order.externalOrderNumber,
               items: order.items,
@@ -4718,6 +4804,17 @@ export class PedidosService {
       });
     }
 
+    // Cap por pedido: soma das parcelas nunca ultrapassa o total pedido
+    // (sinal de contagem duplicada no histórico/movimento).
+    const remainingByOrder = new Map<string, number>();
+    for (const [orderId, order] of orderById) {
+      const orderedTotal = (order.items ?? []).reduce(
+        (sum, it) => sum + Math.max(0, it.quantity ?? 0),
+        0,
+      );
+      remainingByOrder.set(orderId, orderedTotal);
+    }
+
     for (const sibling of siblings) {
       const qtyMap = cycleQtyByExit.get(sibling.id);
       let quantity = qtyMap
@@ -4739,6 +4836,13 @@ export class PedidosService {
             return sum + (ordered > 0 ? Math.min(ordered, shipped) : shipped);
           }, 0);
         }
+      }
+      const remaining = remainingByOrder.get(sibling.orderId);
+      if (remaining != null) {
+        if (quantity > remaining) {
+          quantity = remaining;
+        }
+        remainingByOrder.set(sibling.orderId, Math.max(0, remaining - quantity));
       }
       const list = result.get(sibling.orderId) ?? [];
       list.push({
@@ -4782,6 +4886,13 @@ export class PedidosService {
     const buyer = resolveOrderBuyerFields(row.order);
     const rowWithRomaneio = row as typeof row & { romaneioAt?: Date | null };
     const hasCycleQty = Boolean(cycleQtyByItemId && cycleQtyByItemId.size > 0);
+    const orderedTotal = row.order.items.reduce(
+      (sum, it) => sum + Math.max(0, it.quantity ?? 0),
+      0,
+    );
+    const itemsForExit = hasCycleQty
+      ? row.order.items.filter((it) => (cycleQtyByItemId?.get(it.id) ?? 0) > 0)
+      : row.order.items;
     return {
       id: row.id,
       orderId: row.orderId,
@@ -4798,6 +4909,7 @@ export class PedidosService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       parcelas: parcelas ?? [],
+      orderedTotal,
       order: {
         id: row.order.id,
         code: row.order.code,
@@ -4818,7 +4930,7 @@ export class PedidosService {
         requestedDeliveryDate: row.order.requestedDeliveryDate?.toISOString() ?? null,
         carrierId: row.order.carrierId,
         carrierName: orderCarrierName,
-        items: row.order.items.map((it) => ({
+        items: itemsForExit.map((it) => ({
           id: it.id,
           lineNumber: it.lineNumber,
           sku: it.sku,

@@ -51,7 +51,7 @@ export function LoginForm() {
           required
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          placeholder="admin@erp.local"
+          placeholder="seu@email.com"
           className="erp-input w-full rounded-lg px-3 py-2 text-sm"
         />
       </div>

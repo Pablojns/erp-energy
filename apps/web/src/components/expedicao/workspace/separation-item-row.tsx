@@ -27,7 +27,7 @@ function defaultSeparationQty(item: OrderItemDto): number {
 }
 
 function lineStatusLabel(qty: number, ordered: number): string {
-  if (qty <= 0) return 'PENDENTE';
+  if (qty <= 0) return '—';
   if (qty >= ordered) return 'COMPLETO';
   return 'PARCIAL';
 }
@@ -103,7 +103,9 @@ export function SeparationItemRow(props: {
     />
   ) : (
     <span
-      className={`exp-wb-line-status exp-wb-line-status--${statusLabel.toLowerCase()} text-xs`}
+      className={`exp-wb-line-status exp-wb-line-status--${
+        statusLabel === '—' ? 'pendente' : statusLabel.toLowerCase()
+      } text-xs`}
     >
       {statusLabel}
     </span>
