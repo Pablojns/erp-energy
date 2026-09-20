@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import nodemailer, { type Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 
 export type SendMailAttachment = {
   filename: string;
@@ -19,61 +19,62 @@ export type SendMailInput = {
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private transporter: Transporter | null = null;
+  private client: Resend | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
-  private getTransporter(): Transporter {
-    if (this.transporter) return this.transporter;
+  private getClient(): Resend {
+    if (this.client) return this.client;
 
-    const host = this.config.get<string>('SMTP_HOST')?.trim();
-    const port = Number(this.config.get<string>('SMTP_PORT') ?? 587);
-    const user = this.config.get<string>('SMTP_USER')?.trim();
-    const pass =
-      this.config.get<string>('SMTP_PASS')?.trim() ||
-      this.config.get<string>('SMTP_PASSWORD')?.trim();
-
-    if (!host) {
-      // Transporte de desenvolvimento: entrega em Ethereal ou log local via JSON.
-      this.transporter = nodemailer.createTransport({
-        jsonTransport: true,
-      });
-      this.logger.warn(
-        'SMTP_HOST não configurado — e-mails serão serializados em JSON (dev).',
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        'RESEND_API_KEY não configurada — envio de e-mail indisponível.',
       );
-      return this.transporter;
     }
 
-    this.transporter = nodemailer.createTransport({
-      host,
-      port: Number.isFinite(port) ? port : 587,
-      secure: port === 465,
-      auth: user && pass ? { user, pass } : undefined,
-    });
-    return this.transporter;
+    this.client = new Resend(apiKey);
+    return this.client;
+  }
+
+  private resolveFrom(): string {
+    const from = this.config.get<string>('EMAIL_FROM')?.trim();
+    if (!from) {
+      throw new ServiceUnavailableException(
+        'EMAIL_FROM não configurada — envio de e-mail indisponível.',
+      );
+    }
+    return from;
   }
 
   async sendMail(input: SendMailInput): Promise<{ messageId: string }> {
-    const from =
-      this.config.get<string>('SMTP_FROM')?.trim() ||
-      this.config.get<string>('SMTP_USER')?.trim() ||
-      'noreply@energybrands.com.br';
+    const from = this.resolveFrom();
+    const client = this.getClient();
 
-    const transporter = this.getTransporter();
-    const info = await transporter.sendMail({
-      from: `"Energy Brands" <${from}>`,
-      to: input.to,
+    const { data, error } = await client.emails.send({
+      from: `Energy Brands <${from}>`,
+      to: [input.to],
       subject: input.subject,
       html: input.html,
       text: input.text,
       attachments: input.attachments?.map((att) => ({
         filename: att.filename,
-        content: att.content,
+        content: att.content.toString('base64'),
         contentType: att.contentType,
       })),
     });
 
-    this.logger.log(`E-mail enviado para ${input.to} (id=${info.messageId})`);
-    return { messageId: String(info.messageId ?? '') };
+    if (error) {
+      this.logger.error(
+        `Falha ao enviar e-mail para ${input.to}: ${error.message}`,
+      );
+      throw new ServiceUnavailableException(
+        `Falha no envio de e-mail via Resend: ${error.message}`,
+      );
+    }
+
+    const messageId = String(data?.id ?? '');
+    this.logger.log(`E-mail enviado para ${input.to} (id=${messageId})`);
+    return { messageId };
   }
 }

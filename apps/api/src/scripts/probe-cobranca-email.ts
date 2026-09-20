@@ -1,5 +1,5 @@
 /**
- * Probe cobrança: preview + envio de teste (requer SMTP_*).
+ * Probe cobrança: preview + envio de teste (requer RESEND_API_KEY + EMAIL_FROM).
  *   cd apps/api
  *   npx ts-node -r tsconfig-paths/register src/scripts/probe-cobranca-email.ts
  *
@@ -42,15 +42,11 @@ function loadEnvFile(): void {
 async function main() {
   loadEnvFile();
   const config = new ConfigService();
-  const smtpHost = config.get<string>('SMTP_HOST')?.trim();
-  const smtpPass =
-    config.get<string>('SMTP_PASS')?.trim() ||
-    config.get<string>('SMTP_PASSWORD')?.trim();
-  console.log('SMTP configured:', Boolean(smtpHost && smtpPass), {
-    host: smtpHost || null,
-    user: config.get<string>('SMTP_USER') || null,
-    from: config.get<string>('SMTP_FROM') || null,
-    hasPass: Boolean(smtpPass),
+  const resendKey = config.get<string>('RESEND_API_KEY')?.trim();
+  const emailFrom = config.get<string>('EMAIL_FROM')?.trim();
+  console.log('Resend configured:', Boolean(resendKey && emailFrom), {
+    from: emailFrom || null,
+    hasApiKey: Boolean(resendKey),
   });
 
   const prismaSvc = new PrismaService();
@@ -75,12 +71,10 @@ async function main() {
     anexos: preview.anexosDisponiveis,
   });
 
-  const to =
-    process.env.COBRANCA_TEST_TO?.trim() ||
-    config.get<string>('SMTP_USER')?.trim();
-  if (!smtpHost || !smtpPass) {
+  const to = process.env.COBRANCA_TEST_TO?.trim();
+  if (!resendKey || !emailFrom) {
     console.log(
-      'SKIP envio real: preencha SMTP_PASS ou SMTP_PASSWORD no apps/api/.env e rode de novo com COBRANCA_TEST_TO.',
+      'SKIP envio real: preencha RESEND_API_KEY e EMAIL_FROM no .env e rode de novo com COBRANCA_TEST_TO.',
     );
     await prisma.$disconnect();
     return;
@@ -98,7 +92,7 @@ async function main() {
     invoiceDigits: [withXml.invoiceDigits],
     to,
     assunto: `[TESTE ERP] ${preview.assunto}`,
-    corpo: preview.corpo + '\n\n(Este é um e-mail de teste do ERP local.)',
+    corpo: preview.corpo + '\n\n(Este é um e-mail de teste do ERP via Resend.)',
     userId: user.id,
   });
   console.log('Enviado:', result);
