@@ -61,6 +61,7 @@ async function bootstrap() {
       'http://192.168.0.11:3000',
       'https://erp-energy-web.vercel.app',
       'http://174.138.41.33:3000',
+      'https://erp.energybrands.com.br',
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
