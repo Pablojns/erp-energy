@@ -41,6 +41,7 @@
     "bullmq": "^5.56.11",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "googleapis": "^181.0.0",
     "helmet": "^8.2.0",
     "ioredis": "^5.8.2",
     "ms": "^2.1.3",

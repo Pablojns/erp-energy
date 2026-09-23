@@ -26,7 +26,11 @@ import { erpFetchJson } from '@/src/services/api/erp-fetch';
 import { downloadColetaListaPdf } from '@/src/utils/download-coleta-lista-pdf';
 
 export type SeparacaoLoteOrderRow = {
+  /** orderId */
   id: string;
+  /** orderItemId — chave da seleção granular */
+  itemId: string;
+  lineNumber: number;
   displayNumber: string;
   qty: number;
   orderDate: string | null;
@@ -50,6 +54,7 @@ type SeparacaoLoteResumoResponse = {
 };
 
 type SentBatchSnapshot = {
+  itemIds: string[];
   orderIds: string[];
   items: Array<{ productName: string; totalQty: number }>;
 };
@@ -167,13 +172,13 @@ function filterControlClass() {
   return 'h-9 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)]';
 }
 
-function selectedQtyForOrders(
+function selectedQtyForItems(
   orders: SeparacaoLoteOrderRow[],
-  selectedIds: Set<string>,
+  selectedItemIds: Set<string>,
 ): number {
   let qty = 0;
-  for (const order of orders) {
-    if (selectedIds.has(order.id)) qty += order.qty;
+  for (const row of orders) {
+    if (selectedItemIds.has(row.itemId)) qty += row.qty;
   }
   return qty;
 }
@@ -199,7 +204,7 @@ export function BatchSeparationModal(props: {
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<SeparacaoLoteProductRow[]>([]);
   const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set());
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [sentBatch, setSentBatch] = useState<SentBatchSnapshot | null>(null);
   const [search, setSearch] = useState('');
   const [carrierFilter, setCarrierFilter] = useState('');
@@ -392,16 +397,25 @@ export function BatchSeparationModal(props: {
   const reservationSummary = useMemo(() => {
     let units = 0;
     let productCount = 0;
+    const orderIds = new Set<string>();
     for (const product of productsWithSortedOrders) {
-      const qty = selectedQtyForOrders(product.orders, selectedIds);
+      const qty = selectedQtyForItems(product.orders, selectedItemIds);
       if (qty <= 0) continue;
       units += qty;
       productCount += 1;
+      for (const row of product.orders) {
+        if (selectedItemIds.has(row.itemId)) orderIds.add(row.id);
+      }
     }
-    return { units, productCount, orderCount: selectedIds.size };
-  }, [productsWithSortedOrders, selectedIds]);
+    return {
+      units,
+      productCount,
+      itemCount: selectedItemIds.size,
+      orderCount: orderIds.size,
+    };
+  }, [productsWithSortedOrders, selectedItemIds]);
 
-  const selectedCount = selectedIds.size;
+  const selectedCount = selectedItemIds.size;
 
   const autoSelectWhatFits = () => {
     const next = new Set<string>();
@@ -409,15 +423,15 @@ export function BatchSeparationModal(props: {
       const stock = product.stockAvailable;
       if (stock === null || stock <= 0) continue;
       let remaining = stock;
-      for (const order of sortOrdersUrgentThenOldest(product.orders)) {
-        if (order.qty <= 0) continue;
-        if (order.qty > remaining) continue;
-        next.add(order.id);
-        remaining -= order.qty;
+      for (const row of sortOrdersUrgentThenOldest(product.orders)) {
+        if (row.qty <= 0) continue;
+        if (row.qty > remaining) continue;
+        next.add(row.itemId);
+        remaining -= row.qty;
         if (remaining <= 0) break;
       }
     }
-    setSelectedIds(next);
+    setSelectedItemIds(next);
   };
 
   const toggleExpand = (key: string) => {
@@ -438,19 +452,19 @@ export function BatchSeparationModal(props: {
     });
   };
 
-  const toggleOrder = (orderId: string) => {
-    setSelectedIds((prev) => {
+  const toggleItem = (itemId: string) => {
+    setSelectedItemIds((prev) => {
       const next = new Set(prev);
-      if (next.has(orderId)) next.delete(orderId);
-      else next.add(orderId);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
       return next;
     });
   };
 
   const toggleAllInProduct = (orders: SeparacaoLoteOrderRow[]) => {
-    const ids = orders.map((o) => o.id);
-    const allSelected = ids.every((id) => selectedIds.has(id));
-    setSelectedIds((prev) => {
+    const ids = orders.map((o) => o.itemId);
+    const allSelected = ids.every((id) => selectedItemIds.has(id));
+    setSelectedItemIds((prev) => {
       const next = new Set(prev);
       if (allSelected) {
         for (const id of ids) next.delete(id);
@@ -462,12 +476,12 @@ export function BatchSeparationModal(props: {
   };
 
   const buildColetaItems = useMemo(() => {
-    if (selectedIds.size === 0) {
+    if (selectedItemIds.size === 0) {
       return [] as Array<{ productName: string; totalQty: number }>;
     }
     const totals = new Map<string, { productName: string; totalQty: number }>();
     for (const product of productsWithSortedOrders) {
-      const qty = selectedQtyForOrders(product.orders, selectedIds);
+      const qty = selectedQtyForItems(product.orders, selectedItemIds);
       if (qty <= 0) continue;
       const existing = totals.get(productKey(product));
       if (existing) existing.totalQty += qty;
@@ -483,52 +497,62 @@ export function BatchSeparationModal(props: {
         sensitivity: 'base',
       }),
     );
-  }, [productsWithSortedOrders, selectedIds]);
+  }, [productsWithSortedOrders, selectedItemIds]);
 
   const handleSend = async () => {
-    if (selectedIds.size === 0 || sending) return;
+    if (selectedItemIds.size === 0 || sending) return;
     setSending(true);
     setError(null);
     setConfirmOpen(false);
 
-    const orderedIds: string[] = [];
-    const seen = new Set<string>();
+    const byOrder = new Map<string, string[]>();
+    const orderedItemIds: string[] = [];
     for (const product of productsWithSortedOrders) {
-      for (const order of product.orders) {
-        if (!selectedIds.has(order.id) || seen.has(order.id)) continue;
-        seen.add(order.id);
-        orderedIds.push(order.id);
+      for (const row of product.orders) {
+        if (!selectedItemIds.has(row.itemId)) continue;
+        orderedItemIds.push(row.itemId);
+        const list = byOrder.get(row.id) ?? [];
+        list.push(row.itemId);
+        byOrder.set(row.id, list);
       }
     }
 
     const coletaItems = buildColetaItems;
     const errors: string[] = [];
+    let okOrders = 0;
 
-    for (const id of orderedIds) {
+    for (const [orderId, itemIds] of byOrder) {
       try {
-        await erpFetchJson(`orders/${id}/send-to-picking`, { method: 'POST' });
+        await erpFetchJson(`orders/${orderId}/send-to-picking`, {
+          method: 'POST',
+          body: JSON.stringify({ itemIds }),
+        });
+        okOrders += 1;
       } catch (err) {
         errors.push(
-          err instanceof Error ? err.message : `Falha ao enviar pedido ${id}.`,
+          err instanceof Error
+            ? err.message
+            : `Falha ao enviar itens do pedido ${orderId}.`,
         );
       }
     }
 
     setSending(false);
 
-    if (orderedIds.length - errors.length > 0) {
+    if (okOrders > 0) {
       setSentBatch({
-        orderIds: orderedIds,
+        itemIds: orderedItemIds,
+        orderIds: [...byOrder.keys()],
         items: coletaItems,
       });
-      setSelectedIds(new Set());
+      setSelectedItemIds(new Set());
       onSent?.();
       void loadResumo();
     }
 
     if (errors.length > 0) {
       setError(
-        `${orderedIds.length - errors.length} enviado(s). Falhas: ${errors.slice(0, 3).join(' | ')}${
+        `${okOrders} pedido(s) enviado(s). Falhas: ${errors.slice(0, 3).join(' | ')}${
           errors.length > 3 ? '…' : ''
         }`,
       );
@@ -553,7 +577,7 @@ export function BatchSeparationModal(props: {
               Separação em Lote por Item
             </h3>
             <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
-              Demanda agregada dos pedidos NOVO ainda não enviados à separação
+              Seleção por item — reserva só o que for marcado (FIFO por urgência)
             </p>
           </div>
           <button
@@ -690,16 +714,16 @@ export function BatchSeparationModal(props: {
               {section.products.map((product) => {
                 const key = `${section.key}::${productKey(product)}`;
                 const expanded = expandedSkus.has(key);
-                const productOrderIds = product.orders.map((o) => o.id);
-                const selectedInProduct = productOrderIds.filter((id) =>
-                  selectedIds.has(id),
+                const productItemIds = product.orders.map((o) => o.itemId);
+                const selectedInProduct = productItemIds.filter((id) =>
+                  selectedItemIds.has(id),
                 ).length;
                 const allSelected =
-                  productOrderIds.length > 0 &&
-                  selectedInProduct === productOrderIds.length;
-                const markedQty = selectedQtyForOrders(
+                  productItemIds.length > 0 &&
+                  selectedInProduct === productItemIds.length;
+                const markedQty = selectedQtyForItems(
                   product.orders,
-                  selectedIds,
+                  selectedItemIds,
                 );
                 const stock = product.stockAvailable;
                 const stockAfterSelection =
@@ -768,7 +792,7 @@ export function BatchSeparationModal(props: {
                             }
                           }}
                           onChange={() => toggleAllInProduct(product.orders)}
-                          aria-label={`Selecionar todos os pedidos de ${product.productName}`}
+                          aria-label={`Selecionar todos os itens de ${product.productName}`}
                         />
                         Todos
                       </label>
@@ -777,14 +801,14 @@ export function BatchSeparationModal(props: {
                     {expanded ? (
                       <div className="border-t border-[var(--border-color)] bg-[var(--bg-muted)]/30 px-3 py-2">
                         <ul className="space-y-0.5">
-                          {product.orders.map((order) => {
-                            const overdue = isLoteOrderOverdue(order);
+                          {product.orders.map((row) => {
+                            const overdue = isLoteOrderOverdue(row);
                             const dateLabel = formatOrderQueueDate(
-                              order.orderDate,
+                              row.orderDate,
                             );
 
                             return (
-                              <li key={`${key}-${order.id}`}>
+                              <li key={`${key}-${row.itemId}`}>
                                 <label
                                   className={`flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm ${
                                     overdue
@@ -795,12 +819,12 @@ export function BatchSeparationModal(props: {
                                   <input
                                     type="checkbox"
                                     className="shrink-0"
-                                    checked={selectedIds.has(order.id)}
-                                    onChange={() => toggleOrder(order.id)}
+                                    checked={selectedItemIds.has(row.itemId)}
+                                    onChange={() => toggleItem(row.itemId)}
                                   />
                                   <span className="tabular-nums">
-                                    Pedido #{order.displayNumber} — {order.qty}{' '}
-                                    un — Estoque:{' '}
+                                    Pedido #{row.displayNumber} · linha{' '}
+                                    {row.lineNumber} — {row.qty} un — Estoque:{' '}
                                     {stock !== null ? stock : '—'} — {dateLabel}
                                     {overdue ? ' (atrasado)' : ''}
                                   </span>
@@ -874,17 +898,24 @@ export function BatchSeparationModal(props: {
 
           {sentBatch ? (
             <p className="mt-3 text-sm text-[var(--text-primary)]">
+              {sentBatch.itemIds.length} item
+              {sentBatch.itemIds.length === 1 ? '' : 's'} enviado
+              {sentBatch.itemIds.length === 1 ? '' : 's'} (
               {sentBatch.orderIds.length} pedido
-              {sentBatch.orderIds.length === 1 ? '' : 's'} enviado
-              {sentBatch.orderIds.length === 1 ? '' : 's'} para separação.
+              {sentBatch.orderIds.length === 1 ? '' : 's'}) para separação.
             </p>
           ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)] px-4 py-3">
           <span className="text-sm text-[var(--text-secondary)]">
-            {selectedCount} pedido{selectedCount === 1 ? '' : 's'} selecionado
+            {selectedCount} item{selectedCount === 1 ? '' : 's'} selecionado
             {selectedCount === 1 ? '' : 's'}
+            {reservationSummary.orderCount > 0
+              ? ` · ${reservationSummary.orderCount} pedido${
+                  reservationSummary.orderCount === 1 ? '' : 's'
+                }`
+              : ''}
           </span>
           <div className="flex flex-wrap gap-2">
             <button
@@ -919,7 +950,12 @@ export function BatchSeparationModal(props: {
               onClick={() => setConfirmOpen(true)}
               disabled={sending || selectedCount === 0}
             >
-              Enviar Selecionados para Separação
+              Enviar{' '}
+              {selectedCount > 0
+                ? `${selectedCount} item${selectedCount === 1 ? '' : 's'} selecionado${
+                    selectedCount === 1 ? '' : 's'
+                  }`
+                : 'itens selecionados'}
             </button>
           </div>
         </div>
@@ -950,8 +986,9 @@ export function BatchSeparationModal(props: {
                 {reservationSummary.productCount === 1 ? '' : 's'}
               </li>
               <li>
-                Para {reservationSummary.orderCount} pedido
-                {reservationSummary.orderCount === 1 ? '' : 's'} selecionado
+                {reservationSummary.itemCount} item
+                {reservationSummary.itemCount === 1 ? '' : 's'} em{' '}
+                {reservationSummary.orderCount} pedido
                 {reservationSummary.orderCount === 1 ? '' : 's'}
               </li>
             </ul>

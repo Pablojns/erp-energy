@@ -19,6 +19,7 @@ import { NfQueueService } from './nf-queue.service';
 import { PedidosController } from './pedidos.controller';
 import { PedidosService } from './pedidos.service';
 import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
+import { SaidaHojeSheetsService } from './saida-hoje-sheets.service';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { PedidosEtiquetaService } from './pedidos-etiqueta.service';
     NfAutomaticoService,
     NfQueueService,
     NfLoteService,
+    SaidaHojeSheetsService,
     AuditService,
   ],
   exports: [PedidosService, NfAutomaticoService, NfQueueService, NfLoteService],

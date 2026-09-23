@@ -387,7 +387,16 @@ export class PedidosService {
     const businessContext = opts?.businessContext?.trim();
 
     const andClauses: Prisma.OrderWhereInput[] = [
-      { status: OrderStatus.NOVO },
+      {
+        status: {
+          in: [
+            OrderStatus.NOVO,
+            OrderStatus.RESERVADO,
+            OrderStatus.PARCIAL,
+            OrderStatus.EM_SEPARACAO,
+          ],
+        },
+      },
     ];
 
     if (src && src !== 'all') {
@@ -427,10 +436,14 @@ export class PedidosService {
         carrier: { select: { name: true } },
         items: {
           select: {
+            id: true,
+            lineNumber: true,
             sku: true,
             description: true,
             quantity: true,
             invoicedQty: true,
+            reservedQuantity: true,
+            mercadoEletronicoItemStatus: true,
             product: {
               select: {
                 id: true,
@@ -450,6 +463,8 @@ export class PedidosService {
 
     type AggOrder = {
       id: string;
+      itemId: string;
+      lineNumber: number;
       displayNumber: string;
       qty: number;
       orderDate: string | null;
@@ -469,6 +484,15 @@ export class PedidosService {
 
     const bySku = new Map<string, AggProduct>();
 
+    const isReceivedStatus = (raw: string | null | undefined) => {
+      const n = String(raw ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '');
+      return n === 'ok' || n.includes('recebido');
+    };
+
     for (const order of rows) {
       const displayNumber = (
         order.externalOrderNumber?.trim() ||
@@ -476,25 +500,17 @@ export class PedidosService {
         order.id
       ).replace(/^#/, '');
 
-      const qtyBySku = new Map<
-        string,
-        {
-          qty: number;
-          productName: string;
-          sku: string;
-          categoryName: string | null;
-          stockAvailable: number | null;
-        }
-      >();
-
       for (const item of order.items) {
         const pending = Math.max(0, item.quantity - (item.invoicedQty ?? 0));
         if (pending <= 0) continue;
+        // Já reservado / em separação neste ciclo — não listar de novo no lote.
+        if ((item.reservedQuantity ?? 0) > 0) continue;
+        if (isReceivedStatus(item.mercadoEletronicoItemStatus)) continue;
 
         const rawSku = (item.sku || item.product?.sku || '').trim();
         const skuKey = rawSku
           ? rawSku.toUpperCase()
-          : `__NOSKU__${item.description.trim().toUpperCase() || order.id}`;
+          : `__NOSKU__${item.description.trim().toUpperCase() || item.id}`;
         const displaySku = rawSku || '(sem SKU)';
         const productName =
           item.product?.name?.trim() ||
@@ -508,52 +524,35 @@ export class PedidosService {
           item.product?.category?.trim() ||
           null;
 
-        const prev = qtyBySku.get(skuKey);
-        if (prev) {
-          prev.qty += pending;
-          if (prev.stockAvailable === null && stockAvailable !== null) {
-            prev.stockAvailable = stockAvailable;
-          }
-          if (!prev.categoryName && categoryName) prev.categoryName = categoryName;
-        } else {
-          qtyBySku.set(skuKey, {
-            qty: pending,
-            productName,
-            sku: displaySku,
-            categoryName,
-            stockAvailable,
-          });
-        }
-      }
-
-      for (const [skuKey, entry] of qtyBySku) {
         let agg = bySku.get(skuKey);
         if (!agg) {
           agg = {
-            sku: entry.sku,
-            productName: entry.productName,
-            categoryName: entry.categoryName,
+            sku: displaySku,
+            productName,
+            categoryName,
             totalQty: 0,
             orderCount: 0,
-            stockAvailable: entry.stockAvailable,
+            stockAvailable,
             orders: [],
           };
           bySku.set(skuKey, agg);
-        } else if (
-          agg.stockAvailable === null &&
-          entry.stockAvailable !== null
-        ) {
-          agg.stockAvailable = entry.stockAvailable;
+        } else {
+          if (agg.stockAvailable === null && stockAvailable !== null) {
+            agg.stockAvailable = stockAvailable;
+          }
+          if (!agg.categoryName && categoryName) {
+            agg.categoryName = categoryName;
+          }
         }
-        if (!agg.categoryName && entry.categoryName) {
-          agg.categoryName = entry.categoryName;
-        }
-        agg.totalQty += entry.qty;
+
+        agg.totalQty += pending;
         agg.orderCount += 1;
         agg.orders.push({
           id: order.id,
+          itemId: item.id,
+          lineNumber: item.lineNumber,
           displayNumber,
-          qty: entry.qty,
+          qty: pending,
           orderDate: order.orderDate?.toISOString() ?? null,
           requestedDeliveryDate:
             order.requestedDeliveryDate?.toISOString() ?? null,

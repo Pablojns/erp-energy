@@ -65,6 +65,11 @@ import {
   findLondrinaCompanyEntityId,
   findSaoPauloCompanyEntityId,
 } from '../cadastros/company-entities.seed';
+import {
+  buildSaidaHojeProduto,
+  SaidaHojeSheetsService,
+  type SaidaHojeRow,
+} from './saida-hoje-sheets.service';
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -231,6 +236,7 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly carrierResolver: CarrierResolverService,
+    private readonly saidaHojeSheets: SaidaHojeSheetsService,
   ) {}
 
   /** KPIs da expedição — respeita os mesmos filtros da listagem (exceto paginação). */
@@ -1990,8 +1996,14 @@ export class OrderService {
     });
   }
 
-  async sendToPicking(orderId: string, userId: string) {
-    return this.prisma.client.$transaction(async (tx) => {
+  async sendToPicking(
+    orderId: string,
+    userId: string,
+    opts?: { itemIds?: string[] },
+  ) {
+    let sheetRows: SaidaHojeRow[] = [];
+
+    const serialized = await this.prisma.client.$transaction(async (tx) => {
       const before = await tx.order.findUnique({
         where: { id: orderId },
         select: {
@@ -2006,17 +2018,24 @@ export class OrderService {
           invoiceStatus: true,
           invoiceNumber: true,
           linkedOrderId: true,
+          deliveryCnpj: true,
+          unloadingPoint: true,
+          receiverName: true,
           items: {
             orderBy: { lineNumber: 'asc' },
             select: {
               id: true,
               lineNumber: true,
               sku: true,
+              description: true,
               productId: true,
               quantity: true,
               pickedQty: true,
               invoicedQty: true,
               reservedQuantity: true,
+              receiverName: true,
+              unloadingPoint: true,
+              product: { select: { sku: true, name: true } },
             },
           },
         },
@@ -2025,25 +2044,51 @@ export class OrderService {
       if (
         before.status !== OrderStatus.RESERVADO &&
         before.status !== OrderStatus.PARCIAL &&
-        before.status !== OrderStatus.NOVO
+        before.status !== OrderStatus.NOVO &&
+        before.status !== OrderStatus.EM_SEPARACAO
       ) {
         throw new BadRequestException(
-          `Envie para separação apenas com status NOVO, RESERVADO ou PARCIAL. Atual: ${before.status}.`,
+          `Envie para separação apenas com status NOVO, RESERVADO, PARCIAL ou EM_SEPARACAO. Atual: ${before.status}.`,
         );
       }
 
-      await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
+      const requestedIds = opts?.itemIds?.length
+        ? [...new Set(opts.itemIds)]
+        : null;
+      if (requestedIds) {
+        const owned = new Set(before.items.map((it) => it.id));
+        const unknown = requestedIds.filter((id) => !owned.has(id));
+        if (unknown.length > 0) {
+          throw new BadRequestException(
+            'Um ou mais itens não pertencem a este pedido.',
+          );
+        }
+      }
+
+      const targetItems = requestedIds
+        ? before.items.filter((it) => requestedIds.includes(it.id))
+        : before.items;
+      if (targetItems.length === 0) {
+        throw new BadRequestException('Nenhum item selecionado para separação.');
+      }
+
+      // Só arquiva NF corrente quando o ciclo envolve o pedido inteiro
+      // (ou a primeira entrada em separação com NF ainda no cabeçalho).
+      if (!requestedIds || before.status === OrderStatus.NOVO) {
+        await OrderService.archiveCurrentInvoiceForNewSeparationCycle(tx, {
+          orderId,
+          userId,
+          invoiceNumber: before.invoiceNumber,
+          items: before.items,
+        });
+      }
+
+      await OrderService.resetItemsForNewSeparationCycle(
+        tx,
         orderId,
-        userId,
-        invoiceNumber: before.invoiceNumber,
-        items: before.items,
-      });
+        requestedIds ?? undefined,
+      );
 
-      // Novo ciclo: preserva itens já faturados por completo; libera só os pendentes.
-      await OrderService.resetItemsForNewSeparationCycle(tx, orderId);
-
-      // WEG (e demais fontes da aba WEG): reserva automática no envio à separação,
-      // igual ao fluxo do Site — sem bloquear se faltar estoque (marca missingQty).
       const isWegTab = (WEG_TAB_ORDER_SOURCES as readonly string[]).includes(
         before.source,
       );
@@ -2052,16 +2097,16 @@ export class OrderService {
           `SELECT pg_advisory_xact_lock(${RESERVE_ADVISORY_LOCK})`,
         );
         const orderRef = orderStockReference(before);
-        const resCount = await tx.stockReservation.count({
-          where: { orderId: before.id, releasedAt: null },
-        });
-        if (resCount > 0) {
+        const targetWithReserve = targetItems.filter(
+          (it) => (it.reservedQuantity ?? 0) > 0,
+        );
+        if (targetWithReserve.length > 0) {
           await this.releaseReservations(
             tx,
             userId,
             orderRef,
             before.id,
-            before.items.map((it) => ({
+            targetWithReserve.map((it) => ({
               id: it.id,
               productId: it.productId,
               reservedQuantity: it.reservedQuantity,
@@ -2073,7 +2118,7 @@ export class OrderService {
           userId,
           orderRef,
           before.id,
-          before.items,
+          targetItems,
         );
       }
 
@@ -2085,8 +2130,8 @@ export class OrderService {
             invoicedAt: before.invoicedAt,
             invoiceStatus: before.invoiceStatus,
           }),
-          // Novo ciclo: NF corrente some do campo (histórico permanece).
-          invoiceNumber: null,
+          // Novo ciclo completo: limpa NF corrente. Em envio parcial, preserva.
+          ...(requestedIds ? {} : { invoiceNumber: null }),
         },
         include: OrderService.orderInclude(),
       });
@@ -2101,11 +2146,53 @@ export class OrderService {
           to: OrderStatus.EM_SEPARACAO,
           code: before.code,
           autoReserved: isWegTab && !before.linkedOrderId,
+          itemIds: requestedIds,
+          partialItems: Boolean(requestedIds),
         },
+      });
+
+      const numeroPed =
+        before.externalOrderNumber?.trim() || before.code || before.id;
+      sheetRows = targetItems.map((it) => {
+        const pending = Math.max(0, it.quantity - (it.invoicedQty ?? 0));
+        const qty = pending > 0 ? pending : it.quantity;
+        const sku = (it.product?.sku || it.sku || '').trim();
+        const name = (it.product?.name || it.description || '').trim();
+        return {
+          numeroPed,
+          cnpjEntrega: (before.deliveryCnpj || '').trim(),
+          produto: buildSaidaHojeProduto(sku, name),
+          quantidade: qty,
+          pontoDescarga: (
+            it.unloadingPoint ||
+            before.unloadingPoint ||
+            ''
+          ).trim(),
+          recebedor: (it.receiverName || before.receiverName || '').trim(),
+          seq: it.lineNumber,
+          notaFiscal: '',
+        };
       });
 
       return this.serializeOrder(updatedOrder);
     });
+
+    // Planilha do robô NF — nunca bloqueia o envio à separação.
+    if (sheetRows.length > 0) {
+      void this.saidaHojeSheets.upsertRows(sheetRows).catch((err) => {
+        this.logger.error(
+          'Falha ao escrever itens na planilha SAIDA HOJE (envio à separação ok)',
+          err,
+          {
+            orderId,
+            itemCount: sheetRows.length,
+            numeroPed: sheetRows[0]?.numeroPed,
+          },
+        );
+      });
+    }
+
+    return serialized;
   }
 
   async updatePriority(
@@ -4162,9 +4249,13 @@ export class OrderService {
   private static async resetItemsForNewSeparationCycle(
     tx: Tx,
     orderId: string,
+    itemIds?: string[],
   ) {
     const items = await tx.orderItem.findMany({
-      where: { orderId },
+      where: {
+        orderId,
+        ...(itemIds?.length ? { id: { in: itemIds } } : {}),
+      },
       select: {
         id: true,
         quantity: true,

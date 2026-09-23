@@ -22,6 +22,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateWegOrderDto } from './dto/create-wego-order.dto';
 import { AttachInvoiceDto } from './dto/attach-invoice.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
+import { SendToPickingDto } from './dto/send-to-picking.dto';
 import { UpdateOrderItemPickedDto } from './dto/update-order-item-picked.dto';
 import { UpdateOrderPriorityDto } from './dto/update-order-priority.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -182,8 +183,11 @@ export class OrderController {
   sendToPicking(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
+    @Body() dto?: SendToPickingDto,
   ) {
-    return this.orders.sendToPicking(id, user.id);
+    return this.orders.sendToPicking(id, user.id, {
+      itemIds: dto?.itemIds,
+    });
   }
 
   @Post(':id/remove-from-separation')
