@@ -12,6 +12,10 @@ export type SaidaHojeRow = {
   pontoDescarga: string;
   recebedor: string;
   seq: number;
+  /** dd/MM/yyyy opcional — coluna "Data Pedido" */
+  dataPedido?: string;
+  /** dd/MM/yyyy opcional — coluna "DATA ENTREGA" */
+  dataEntrega?: string;
   notaFiscal?: string;
 };
 
@@ -19,14 +23,18 @@ const DEFAULT_SPREADSHEET_ID =
   '1W7n6XvkFvsVRr-E8oTTRHQ7Ca7RU3TEMFjYpC-MH0ok';
 const DEFAULT_SHEET_NAME = 'SAIDA HOJE';
 
-const HEADER_ALIASES: Record<keyof Omit<SaidaHojeRow, 'notaFiscal'> | 'notaFiscal', string[]> = {
+type FieldKey = keyof SaidaHojeRow;
+
+const HEADER_ALIASES: Record<FieldKey, string[]> = {
   numeroPed: ['numero ped', 'número ped', 'numero pedido', 'nº ped', 'num ped'],
-  cnpjEntrega: ['cnpj entrega', 'cnpj'],
+  dataPedido: ['data pedido'],
+  dataEntrega: ['data entrega', 'data de entrega'],
+  seq: ['seq', 'seq.', 'sequencia', 'sequência'],
   produto: ['produto', 'produto (sku - nome)', 'sku - nome'],
   quantidade: ['quantidade', 'qtd', 'qty'],
+  cnpjEntrega: ['cnpj entrega', 'cnpj'],
   pontoDescarga: ['ponto descarga', 'ponto de descarga'],
   recebedor: ['recebedor'],
-  seq: ['seq', 'seq.', 'sequencia', 'sequência'],
   notaFiscal: ['nota fiscal', 'nf', 'nfe'],
 };
 
@@ -37,8 +45,21 @@ export function buildSaidaHojeProduto(sku: string, name: string): string {
   return s || n || '—';
 }
 
-export function saidaHojeDedupKey(numeroPed: string, seq: number | string): string {
+export function saidaHojeDedupKey(
+  numeroPed: string,
+  seq: number | string,
+): string {
   return `${String(numeroPed).trim()}::${String(seq).trim()}`;
+}
+
+export function formatSaidaHojeDate(iso: string | Date | null | undefined): string {
+  if (!iso) return '';
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function normalizeHeader(raw: string): string {
@@ -60,7 +81,7 @@ function colLetter(index0: number): string {
   return s;
 }
 
-type ColMap = Partial<Record<keyof SaidaHojeRow | 'notaFiscal', number>>;
+type ColMap = Partial<Record<FieldKey, number>>;
 
 export function mapSaidaHojeHeaders(headerRow: string[]): ColMap {
   const map: ColMap = {};
@@ -68,7 +89,7 @@ export function mapSaidaHojeHeaders(headerRow: string[]): ColMap {
     const norm = normalizeHeader(cell);
     if (!norm) return;
     for (const [field, aliases] of Object.entries(HEADER_ALIASES) as Array<
-      [keyof typeof HEADER_ALIASES, string[]]
+      [FieldKey, string[]]
     >) {
       if (map[field] != null) continue;
       if (aliases.some((a) => norm === a || norm.includes(a))) {
@@ -79,13 +100,17 @@ export function mapSaidaHojeHeaders(headerRow: string[]): ColMap {
   return map;
 }
 
+/** Preenche só as colunas gerenciadas; demais células vêm de `base` (update) ou ''. */
 export function rowValuesForColumns(
   row: SaidaHojeRow,
   colMap: ColMap,
   width: number,
+  base?: string[],
 ): string[] {
-  const out = Array.from({ length: width }, () => '');
-  const set = (field: keyof SaidaHojeRow | 'notaFiscal', value: string) => {
+  const out = Array.from({ length: width }, (_, i) =>
+    base && base[i] != null ? String(base[i]) : '',
+  );
+  const set = (field: FieldKey, value: string) => {
     const idx = colMap[field];
     if (idx == null || idx < 0 || idx >= width) return;
     out[idx] = value;
@@ -97,7 +122,11 @@ export function rowValuesForColumns(
   set('pontoDescarga', row.pontoDescarga);
   set('recebedor', row.recebedor);
   set('seq', String(row.seq));
-  set('notaFiscal', row.notaFiscal ?? '');
+  if (row.dataPedido) set('dataPedido', row.dataPedido);
+  if (row.dataEntrega) set('dataEntrega', row.dataEntrega);
+  if (row.notaFiscal != null && String(row.notaFiscal).trim() !== '') {
+    set('notaFiscal', row.notaFiscal);
+  }
   return out;
 }
 
@@ -106,10 +135,19 @@ export class SaidaHojeSheetsService {
   private readonly logger = new AppLogger(SaidaHojeSheetsService.name);
 
   private credentialsPath(): string {
-    return (
-      process.env.GOOGLE_SHEETS_CREDENTIALS_PATH?.trim() ||
-      path.join(process.cwd(), 'credentials-sheets.json')
-    );
+    const fromEnv = process.env.GOOGLE_SHEETS_CREDENTIALS_PATH?.trim();
+    if (fromEnv) return fromEnv;
+    const candidates = [
+      path.join(process.cwd(), 'apps/api/credentials-sheets.json'),
+      path.join(process.cwd(), 'credentials-sheets.json'),
+      // dist/orders → apps/api
+      path.join(__dirname, '..', '..', 'credentials-sheets.json'),
+      '/var/www/erp-energy/apps/api/credentials-sheets.json',
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+    return candidates[0];
   }
 
   private spreadsheetId(): string {
@@ -146,7 +184,7 @@ export class SaidaHojeSheetsService {
     const sheets = await this.client();
     const spreadsheetId = this.spreadsheetId();
     const sheetName = this.sheetName();
-    const range = `'${sheetName}'!A1:H`;
+    const range = `'${sheetName}'!A1:N`;
 
     const existing = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -167,7 +205,7 @@ export class SaidaHojeSheetsService {
       );
     }
 
-    const width = Math.max(header.length, 8);
+    const width = Math.max(header.length, 14);
     const indexByKey = new Map<string, number>();
     for (let i = 1; i < values.length; i++) {
       const line = values[i] ?? [];
@@ -184,14 +222,13 @@ export class SaidaHojeSheetsService {
 
     for (const row of rows) {
       const key = saidaHojeDedupKey(row.numeroPed, row.seq);
-      const cells = rowValuesForColumns(row, colMap, width);
       const existingIdx = indexByKey.get(key);
       if (existingIdx != null) {
+        const prev = (values[existingIdx] ?? []).map((c) => String(c ?? ''));
         // Preserva Nota Fiscal já preenchida pelo robô.
+        const cells = rowValuesForColumns(row, colMap, width, prev);
         if (colMap.notaFiscal != null) {
-          const prevNf = String(
-            values[existingIdx]?.[colMap.notaFiscal] ?? '',
-          ).trim();
+          const prevNf = String(prev[colMap.notaFiscal] ?? '').trim();
           if (prevNf) cells[colMap.notaFiscal] = prevNf;
         }
         const rowNumber = existingIdx + 1;
@@ -201,7 +238,7 @@ export class SaidaHojeSheetsService {
         });
         updated += 1;
       } else {
-        toAppend.push(cells);
+        toAppend.push(rowValuesForColumns(row, colMap, width));
         written += 1;
         indexByKey.set(key, values.length + toAppend.length - 1);
       }
@@ -220,7 +257,7 @@ export class SaidaHojeSheetsService {
     if (toAppend.length > 0) {
       await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${sheetName}'!A:H`,
+        range: `'${sheetName}'!A:N`,
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: toAppend },
@@ -231,6 +268,7 @@ export class SaidaHojeSheetsService {
       written,
       updated,
       total: rows.length,
+      credentials: this.credentialsPath(),
     });
 
     return { written, updated };

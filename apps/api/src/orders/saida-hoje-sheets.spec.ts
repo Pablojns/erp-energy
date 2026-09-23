@@ -18,57 +18,75 @@ describe('SaidaHojeSheets helpers', () => {
     expect(saidaHojeDedupKey(' 4518 ', ' 20 ')).toBe('4518::20');
   });
 
-  it('mapeia cabeçalhos esperados da aba SAIDA HOJE', () => {
+  it('mapeia cabeçalho real da aba SAIDA HOJE', () => {
     const map = mapSaidaHojeHeaders([
       'Numero Ped',
-      'CNPJ Entrega',
+      'Data Pedido',
+      'DATA ENTREGA',
+      'Seq.',
       'Produto (SKU - Nome)',
       'Quantidade',
+      'CNPJ Entrega',
       'Ponto Descarga',
       'Recebedor',
-      'Seq.',
+      'Status ME',
+      'Status CA',
       'Nota Fiscal',
+      'Valor Total',
+      'OBSERVAÇÃO',
     ]);
     expect(map.numeroPed).toBe(0);
-    expect(map.cnpjEntrega).toBe(1);
-    expect(map.produto).toBe(2);
-    expect(map.quantidade).toBe(3);
-    expect(map.pontoDescarga).toBe(4);
-    expect(map.recebedor).toBe(5);
-    expect(map.seq).toBe(6);
-    expect(map.notaFiscal).toBe(7);
+    expect(map.dataPedido).toBe(1);
+    expect(map.dataEntrega).toBe(2);
+    expect(map.seq).toBe(3);
+    expect(map.produto).toBe(4);
+    expect(map.quantidade).toBe(5);
+    expect(map.cnpjEntrega).toBe(6);
+    expect(map.pontoDescarga).toBe(7);
+    expect(map.recebedor).toBe(8);
+    expect(map.notaFiscal).toBe(11);
   });
 
-  it('serializa linha nas colunas mapeadas', () => {
+  it('serializa linha e preserva colunas extras no update', () => {
     const map = mapSaidaHojeHeaders([
       'Numero Ped',
-      'CNPJ Entrega',
+      'Data Pedido',
+      'DATA ENTREGA',
+      'Seq.',
       'Produto (SKU - Nome)',
       'Quantidade',
+      'CNPJ Entrega',
       'Ponto Descarga',
       'Recebedor',
-      'Seq.',
+      'Status ME',
+      'Status CA',
       'Nota Fiscal',
+      'Valor Total',
+      'OBSERVAÇÃO',
     ]);
     const row: SaidaHojeRow = {
       numeroPed: '4518123456',
-      cnpjEntrega: '07.175.725/0010-50',
+      dataPedido: '12/08/2026',
+      dataEntrega: '10/08/2026',
+      seq: 10,
       produto: 'SKU-1 - Caneta Plástica',
       quantidade: 12,
+      cnpjEntrega: '07.175.725/0010-50',
       pontoDescarga: 'PORTARIA',
       recebedor: 'FULANO',
-      seq: 10,
       notaFiscal: '',
     };
-    expect(rowValuesForColumns(row, map, 8)).toEqual([
-      '4518123456',
-      '07.175.725/0010-50',
-      'SKU-1 - Caneta Plástica',
-      '12',
-      'PORTARIA',
-      'FULANO',
-      '10',
-      '',
-    ]);
+    const prev = Array.from({ length: 14 }, () => '');
+    prev[9] = 'Sem recebimento';
+    prev[10] = 'Não Encontrado';
+    prev[11] = '2208';
+    prev[12] = 'R$ 10,00';
+    const cells = rowValuesForColumns(row, map, 14, prev);
+    expect(cells[0]).toBe('4518123456');
+    expect(cells[3]).toBe('10');
+    expect(cells[4]).toBe('SKU-1 - Caneta Plástica');
+    expect(cells[8]).toBe('FULANO');
+    expect(cells[9]).toBe('Sem recebimento');
+    expect(cells[11]).toBe('2208');
   });
 });

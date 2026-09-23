@@ -67,6 +67,7 @@ import {
 } from '../cadastros/company-entities.seed';
 import {
   buildSaidaHojeProduto,
+  formatSaidaHojeDate,
   SaidaHojeSheetsService,
   type SaidaHojeRow,
 } from './saida-hoje-sheets.service';
@@ -2021,6 +2022,8 @@ export class OrderService {
           deliveryCnpj: true,
           unloadingPoint: true,
           receiverName: true,
+          orderDate: true,
+          requestedDeliveryDate: true,
           items: {
             orderBy: { lineNumber: 'asc' },
             select: {
@@ -2153,6 +2156,8 @@ export class OrderService {
 
       const numeroPed =
         before.externalOrderNumber?.trim() || before.code || before.id;
+      const dataPedido = formatSaidaHojeDate(before.orderDate);
+      const dataEntrega = formatSaidaHojeDate(before.requestedDeliveryDate);
       sheetRows = targetItems.map((it) => {
         const pending = Math.max(0, it.quantity - (it.invoicedQty ?? 0));
         const qty = pending > 0 ? pending : it.quantity;
@@ -2170,6 +2175,8 @@ export class OrderService {
           ).trim(),
           recebedor: (it.receiverName || before.receiverName || '').trim(),
           seq: it.lineNumber,
+          dataPedido,
+          dataEntrega,
           notaFiscal: '',
         };
       });
