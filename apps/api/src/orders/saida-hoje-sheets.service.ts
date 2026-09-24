@@ -130,9 +130,99 @@ export function rowValuesForColumns(
   return out;
 }
 
+function comparePedidoSeq(pedA: string, seqA: number, pedB: string, seqB: number): number {
+  const ped = pedA.trim().localeCompare(pedB.trim(), 'pt-BR', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (ped !== 0) return ped;
+  return seqA - seqB;
+}
+
+function compareSaidaHojeRows(a: SaidaHojeRow, b: SaidaHojeRow): number {
+  return comparePedidoSeq(a.numeroPed, a.seq, b.numeroPed, b.seq);
+}
+
+/** Agrupa por pedido e, dentro do pedido, pela sequência da linha. */
+export function sortSaidaHojeRows(rows: SaidaHojeRow[]): SaidaHojeRow[] {
+  return [...rows].sort(compareSaidaHojeRows);
+}
+
+function parseSaidaHojeSeq(raw: string | undefined): number {
+  const n = Number(String(raw ?? '').trim().replace(',', '.'));
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Reordena a grade (sem cabeçalho) por Numero Ped e Seq crescente.
+ * Linhas sem pedido ficam no fim, na ordem em que já estavam.
+ * Linhas totalmente vazias saem para não abrir buraco no meio do bloco.
+ */
+export function sortSaidaHojeSheetLines(
+  lines: string[][],
+  numeroPedCol: number,
+  seqCol: number,
+): string[][] {
+  const filled = lines.filter((line) =>
+    line.some((cell) => String(cell ?? '').trim() !== ''),
+  );
+  return [...filled].sort((a, b) => {
+    const pedA = String(a[numeroPedCol] ?? '').trim();
+    const pedB = String(b[numeroPedCol] ?? '').trim();
+    if (!pedA && pedB) return 1;
+    if (pedA && !pedB) return -1;
+    return comparePedidoSeq(
+      pedA,
+      parseSaidaHojeSeq(a[seqCol]),
+      pedB,
+      parseSaidaHojeSeq(b[seqCol]),
+    );
+  });
+}
+
+function padSheetLine(line: string[] | undefined, width: number): string[] {
+  return Array.from({ length: width }, (_, i) => String(line?.[i] ?? ''));
+}
+
+function sameSheetGrid(a: string[][], b: string[][]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i];
+    const right = b[i];
+    if (left.length !== right.length) return false;
+    for (let c = 0; c < left.length; c++) {
+      if (left[c] !== right[c]) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Mesma chave (Numero Ped + Seq) fica uma vez; a última ocorrência vence.
+ * A posição segue a ordem por pedido / seq.
+ */
+function dedupeSaidaHojeRows(rows: SaidaHojeRow[]): SaidaHojeRow[] {
+  const sorted = sortSaidaHojeRows(rows);
+  const indexByKey = new Map<string, number>();
+  const unique: SaidaHojeRow[] = [];
+  for (const row of sorted) {
+    const key = saidaHojeDedupKey(row.numeroPed, row.seq);
+    const prev = indexByKey.get(key);
+    if (prev == null) {
+      indexByKey.set(key, unique.length);
+      unique.push(row);
+    } else {
+      unique[prev] = row;
+    }
+  }
+  return unique;
+}
+
 @Injectable()
 export class SaidaHojeSheetsService {
   private readonly logger = new AppLogger(SaidaHojeSheetsService.name);
+  /** Serializa upserts: o lote dispara uma escrita por pedido sem esperar a anterior. */
+  private writeChain: Promise<void> = Promise.resolve();
 
   private credentialsPath(): string {
     const fromEnv = process.env.GOOGLE_SHEETS_CREDENTIALS_PATH?.trim();
@@ -168,12 +258,28 @@ export class SaidaHojeSheetsService {
   /**
    * Upsert por Numero Ped + Seq. Falhas devem ser tratadas pelo caller
    * (nunca bloquear send-to-picking).
+   *
+   * Depois do upsert a aba inteira é regravada ordenada por Numero Ped e Seq.
+   * O robô lê por Numero Ped (não pela posição da linha). Escritas simultâneas
+   * entram na fila para um lote não gravar um snapshot antigo por cima do outro.
    */
   async upsertRows(rows: SaidaHojeRow[]): Promise<{
     written: number;
     updated: number;
   }> {
     if (rows.length === 0) return { written: 0, updated: 0 };
+    const run = this.writeChain.then(() => this.writeRows(rows));
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async writeRows(rows: SaidaHojeRow[]): Promise<{
+    written: number;
+    updated: number;
+  }> {
     if (!this.isConfigured()) {
       this.logger.warn('SAIDA HOJE sheets skipped: credentials missing', {
         path: this.credentialsPath(),
@@ -184,7 +290,7 @@ export class SaidaHojeSheetsService {
     const sheets = await this.client();
     const spreadsheetId = this.spreadsheetId();
     const sheetName = this.sheetName();
-    const range = `'${sheetName}'!A1:N`;
+    const range = `'${sheetName}'`;
 
     const existing = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -215,54 +321,76 @@ export class SaidaHojeSheetsService {
       indexByKey.set(saidaHojeDedupKey(ped, seq), i);
     }
 
-    const dataUpdates: sheets_v4.Schema$ValueRange[] = [];
-    const toAppend: string[][] = [];
-    let updated = 0;
-    let written = 0;
+    const unique = dedupeSaidaHojeRows(rows);
+    const toUpdate: SaidaHojeRow[] = [];
+    const toInsert: SaidaHojeRow[] = [];
+    for (const row of unique) {
+      const key = saidaHojeDedupKey(row.numeroPed, row.seq);
+      if (indexByKey.has(key)) toUpdate.push(row);
+      else toInsert.push(row);
+    }
 
-    for (const row of rows) {
+    const widthFromRows = values.reduce(
+      (max, line) => Math.max(max, line?.length ?? 0),
+      width,
+    );
+    const grid = values
+      .slice(1)
+      .map((line) => padSheetLine(line, widthFromRows));
+
+    for (const row of toUpdate) {
       const key = saidaHojeDedupKey(row.numeroPed, row.seq);
       const existingIdx = indexByKey.get(key);
-      if (existingIdx != null) {
-        const prev = (values[existingIdx] ?? []).map((c) => String(c ?? ''));
-        // Preserva Nota Fiscal já preenchida pelo robô.
-        const cells = rowValuesForColumns(row, colMap, width, prev);
-        if (colMap.notaFiscal != null) {
-          const prevNf = String(prev[colMap.notaFiscal] ?? '').trim();
-          if (prevNf) cells[colMap.notaFiscal] = prevNf;
-        }
-        const rowNumber = existingIdx + 1;
-        dataUpdates.push({
-          range: `'${sheetName}'!A${rowNumber}:${colLetter(width - 1)}${rowNumber}`,
-          values: [cells],
+      if (existingIdx == null) continue;
+      const prev = grid[existingIdx - 1] ?? padSheetLine(undefined, widthFromRows);
+      // Preserva Nota Fiscal já preenchida pelo robô.
+      const cells = rowValuesForColumns(row, colMap, widthFromRows, prev);
+      if (colMap.notaFiscal != null) {
+        const prevNf = String(prev[colMap.notaFiscal] ?? '').trim();
+        if (prevNf) cells[colMap.notaFiscal] = prevNf;
+      }
+      grid[existingIdx - 1] = cells;
+    }
+
+    for (const row of toInsert) {
+      grid.push(rowValuesForColumns(row, colMap, widthFromRows));
+    }
+
+    const sorted = sortSaidaHojeSheetLines(
+      grid,
+      colMap.numeroPed,
+      colMap.seq,
+    );
+    const previousFilled = values
+      .slice(1)
+      .map((line) => padSheetLine(line, widthFromRows))
+      .filter((line) => line.some((cell) => cell.trim() !== ''));
+    const previousDataRows = Math.max(0, values.length - 1);
+
+    const needsRewrite =
+      !sameSheetGrid(sorted, previousFilled) ||
+      previousDataRows !== sorted.length;
+
+    if (needsRewrite && sorted.length > 0) {
+      const endRow = sorted.length + 1;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${sheetName}'!A2:${colLetter(widthFromRows - 1)}${endRow}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: sorted },
+      });
+      if (previousDataRows > sorted.length) {
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `'${sheetName}'!A${endRow + 1}:${colLetter(widthFromRows - 1)}${
+            previousDataRows + 1
+          }`,
         });
-        updated += 1;
-      } else {
-        toAppend.push(rowValuesForColumns(row, colMap, width));
-        written += 1;
-        indexByKey.set(key, values.length + toAppend.length - 1);
       }
     }
 
-    if (dataUpdates.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          valueInputOption: 'USER_ENTERED',
-          data: dataUpdates,
-        },
-      });
-    }
-
-    if (toAppend.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `'${sheetName}'!A:N`,
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        requestBody: { values: toAppend },
-      });
-    }
+    const updated = toUpdate.length;
+    const written = toInsert.length;
 
     this.logger.info('SAIDA HOJE sheets upsert done', {
       written,

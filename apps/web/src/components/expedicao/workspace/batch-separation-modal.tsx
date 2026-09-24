@@ -505,27 +505,39 @@ export function BatchSeparationModal(props: {
     setError(null);
     setConfirmOpen(false);
 
-    const byOrder = new Map<string, string[]>();
+    const byOrder = new Map<string, { label: string; itemIds: string[] }>();
     const orderedItemIds: string[] = [];
     for (const product of productsWithSortedOrders) {
       for (const row of product.orders) {
         if (!selectedItemIds.has(row.itemId)) continue;
         orderedItemIds.push(row.itemId);
-        const list = byOrder.get(row.id) ?? [];
-        list.push(row.itemId);
-        byOrder.set(row.id, list);
+        const current = byOrder.get(row.id) ?? {
+          label: row.displayNumber,
+          itemIds: [],
+        };
+        current.itemIds.push(row.itemId);
+        byOrder.set(row.id, current);
       }
     }
+
+    // A seleção é por produto, então pedidos vêm misturados. O envio segue o
+    // número do pedido para a planilha SAIDA HOJE receber um bloco por vez.
+    const orderedOrders = [...byOrder.entries()].sort((a, b) =>
+      a[1].label.localeCompare(b[1].label, 'pt-BR', {
+        numeric: true,
+        sensitivity: 'base',
+      }),
+    );
 
     const coletaItems = buildColetaItems;
     const errors: string[] = [];
     let okOrders = 0;
 
-    for (const [orderId, itemIds] of byOrder) {
+    for (const [orderId, group] of orderedOrders) {
       try {
         await erpFetchJson(`orders/${orderId}/send-to-picking`, {
           method: 'POST',
-          body: JSON.stringify({ itemIds }),
+          body: JSON.stringify({ itemIds: group.itemIds }),
         });
         okOrders += 1;
       } catch (err) {
@@ -542,7 +554,7 @@ export function BatchSeparationModal(props: {
     if (okOrders > 0) {
       setSentBatch({
         itemIds: orderedItemIds,
-        orderIds: [...byOrder.keys()],
+        orderIds: orderedOrders.map(([orderId]) => orderId),
         items: coletaItems,
       });
       setSelectedItemIds(new Set());

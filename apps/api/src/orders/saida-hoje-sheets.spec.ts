@@ -3,6 +3,8 @@ import {
   mapSaidaHojeHeaders,
   rowValuesForColumns,
   saidaHojeDedupKey,
+  sortSaidaHojeRows,
+  sortSaidaHojeSheetLines,
   type SaidaHojeRow,
 } from './saida-hoje-sheets.service';
 
@@ -89,4 +91,70 @@ describe('SaidaHojeSheets helpers', () => {
     expect(cells[9]).toBe('Sem recebimento');
     expect(cells[11]).toBe('2208');
   });
+
+  it('ordena linhas misturadas por pedido e, dentro do pedido, por seq', () => {
+    const rows = sortSaidaHojeRows([
+      row('200', 20),
+      row('100', 30),
+      row('200', 10),
+      row('100', 10),
+    ]);
+    expect(rows.map((r) => `${r.numeroPed}:${r.seq}`)).toEqual([
+      '100:10',
+      '100:30',
+      '200:10',
+      '200:20',
+    ]);
+  });
+
+  it('reordena a aba inteira por Numero Ped e Seq, levando a nota fiscal junto', () => {
+    const lines = sortSaidaHojeSheetLines(
+      [
+        ['200', '30', 'NF-200'],
+        ['100', '20', 'NF-100'],
+        ['', '', ''],
+        ['300', '5', ''],
+        ['100', '2', ''],
+        ['200', '10', ''],
+      ],
+      0,
+      1,
+    );
+    expect(lines.map((line) => `${line[0]}:${line[1]}:${line[2]}`)).toEqual([
+      '100:2:',
+      '100:20:NF-100',
+      '200:10:',
+      '200:30:NF-200',
+      '300:5:',
+    ]);
+  });
+
+  it('trata Seq como número (2 antes de 10) e deixa linha sem pedido no fim', () => {
+    const lines = sortSaidaHojeSheetLines(
+      [
+        ['100', '10', 'a'],
+        ['100', '2', 'b'],
+        ['', '', 'observação'],
+      ],
+      0,
+      1,
+    );
+    expect(lines.map((line) => `${line[0]}:${line[1]}:${line[2]}`)).toEqual([
+      '100:2:b',
+      '100:10:a',
+      '::observação',
+    ]);
+  });
 });
+
+function row(numeroPed: string, seq: number): SaidaHojeRow {
+  return {
+    numeroPed,
+    seq,
+    cnpjEntrega: '',
+    produto: 'SKU',
+    quantidade: 1,
+    pontoDescarga: '',
+    recebedor: '',
+  };
+}
