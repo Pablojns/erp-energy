@@ -222,6 +222,41 @@ export function allLinesReceivedForFinalize(
   return items.every((item) => isReceivedPlanilhaItemStatus(item.mercadoEletronicoItemStatus));
 }
 
+export type ManualFinalizeLine = {
+  sku?: string;
+  mercadoEletronicoItemStatus?: string | null;
+  quantity?: number | null;
+  pickedQty?: number | null;
+  invoicedQty?: number | null;
+};
+
+/**
+ * Finalização MANUAL (troca de status pelo usuário): a linha conta como
+ * concluída se está Recebido/OK na planilha OU foi separada/faturada por
+ * completo (Falta = 0) — mesma regra que a tela usa para exibir "OK".
+ * O fechamento automático continua exigindo Recebido/OK.
+ */
+export function isLineCompleteForManualFinalize(item: ManualFinalizeLine): boolean {
+  if (isReceivedPlanilhaItemStatus(item.mercadoEletronicoItemStatus)) return true;
+  if (item.quantity == null) return false;
+  const qty = Math.max(0, Number(item.quantity) || 0);
+  if (qty <= 0) return true;
+  const picked = Math.max(0, Number(item.pickedQty) || 0);
+  const invoiced = Math.max(0, Number(item.invoicedQty) || 0);
+  return Math.max(picked, invoiced) >= qty;
+}
+
+export function allLinesCompleteForManualFinalize(items: ManualFinalizeLine[]): boolean {
+  if (!items.length) return false;
+  return items.every(isLineCompleteForManualFinalize);
+}
+
+export function finalizeNotCompleteMessage(items: ManualFinalizeLine[]): string {
+  const pending = items.find((item) => !isLineCompleteForManualFinalize(item));
+  const sku = pending?.sku?.trim() || 'item';
+  return `Não é possível finalizar: item SKU ${sku} não está Recebido/OK nem separado por completo`;
+}
+
 export function finalizeNotAllReceivedMessage(
   items: Array<{ sku?: string; mercadoEletronicoItemStatus?: string | null }>,
 ): string {

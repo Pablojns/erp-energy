@@ -148,6 +148,59 @@ describe('assertCanFinalizeOrder', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('passa quando a linha sem status foi separada por completo (tela mostra OK)', async () => {
+    const tx = {
+      orderItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            sku: '50020124',
+            mercadoEletronicoItemStatus: null,
+            quantity: 50,
+            pickedQty: 50,
+            invoicedQty: 0,
+          },
+        ]),
+      },
+    };
+    await expect(assertCanFinalizeOrder(tx, order)).resolves.toBeUndefined();
+  });
+
+  it('passa quando a linha sem status foi faturada por completo', async () => {
+    const tx = {
+      orderItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            sku: 'SKU-F',
+            mercadoEletronicoItemStatus: '',
+            quantity: 10,
+            pickedQty: 0,
+            invoicedQty: 10,
+          },
+        ]),
+      },
+    };
+    await expect(assertCanFinalizeOrder(tx, order)).resolves.toBeUndefined();
+  });
+
+  it('bloqueia linha sem status com separação parcial', async () => {
+    const tx = {
+      orderItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            sku: 'SKU-P',
+            mercadoEletronicoItemStatus: null,
+            quantity: 50,
+            pickedQty: 30,
+            invoicedQty: 0,
+          },
+        ]),
+      },
+    };
+    await expect(assertCanFinalizeOrder(tx, order)).rejects.toThrow(
+      'item SKU SKU-P não está Recebido/OK',
+    );
+  });
+
   it('passa quando todas as linhas estão Recebido/OK', async () => {
     const tx = mockTx({
       items: [

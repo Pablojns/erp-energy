@@ -2495,11 +2495,6 @@ export class PedidosService {
     });
     if (!order) throw new NotFoundException('Pedido não encontrado.');
 
-    const rows = await this.prisma.client.orderInvoiceHistory.findMany({
-      where: { orderId: order.id },
-      orderBy: { createdAt: 'asc' },
-    });
-    const cycleQtys = cycleQtysFromInvoiceHistory(rows);
     const exits = await this.prisma.client.orderExit.findMany({
       where: { orderId: order.id },
       select: {
@@ -2510,6 +2505,12 @@ export class PedidosService {
       },
       orderBy: { exitDate: 'asc' },
     });
+    await this.backfillInvoiceHistoryFromExits(order.id, exits);
+    const rows = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    const cycleQtys = cycleQtysFromInvoiceHistory(rows);
     await this.fillHistoryGapsFromXmlAndExits(
       rows,
       exits,
@@ -4469,6 +4470,45 @@ export class PedidosService {
         };
       })
       .reverse();
+  }
+
+  /**
+   * Toda NF com saída registrada (OrderExit) precisa aparecer no Histórico.
+   * Saídas lançadas sem passar pelo registro de histórico (ex.: conciliação,
+   * saída com qtd de ciclo 0) ficavam de fora — cria a linha que falta.
+   */
+  private async backfillInvoiceHistoryFromExits(
+    orderId: string,
+    exits: Array<{
+      invoiceNumber: string;
+      invoiceValue: Prisma.Decimal;
+      volumes: number | null;
+      exitDate: Date;
+    }>,
+  ): Promise<void> {
+    if (exits.length === 0) return;
+    const existing = await this.prisma.client.orderInvoiceHistory.findMany({
+      where: { orderId },
+      select: { invoiceNumber: true },
+    });
+    const known = existing.map((row) => row.invoiceNumber);
+    for (const exit of exits) {
+      const inv = exit.invoiceNumber?.trim();
+      if (!inv || !invoiceNumberDigits(inv)) continue;
+      if (known.some((k) => sameInvoiceNumber(k, inv))) continue;
+      await this.prisma.client.orderInvoiceHistory.create({
+        data: {
+          orderId,
+          invoiceNumber: inv,
+          invoiceValue: exit.invoiceValue,
+          pickedQtyAtTime: 0,
+          volumes: exit.volumes != null && exit.volumes >= 1 ? exit.volumes : null,
+          createdAt: exit.exitDate,
+          createdBy: null,
+        },
+      });
+      known.push(inv);
+    }
   }
 
   /**

@@ -1,8 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@erp/database';
 import {
-  allLinesReceivedForFinalize,
-  finalizeNotAllReceivedMessage,
+  allLinesCompleteForManualFinalize,
+  finalizeNotCompleteMessage,
 } from './pedidos-import';
 
 export type FinalizeGuardItem = {
@@ -133,16 +133,25 @@ type FinalizeGuardTx = {
       select: {
         sku: true;
         mercadoEletronicoItemStatus: true;
+        quantity: true;
+        pickedQty: true;
+        invoicedQty: true;
       };
     }) => Promise<
-      Array<{ sku: string; mercadoEletronicoItemStatus: string | null }>
+      Array<{
+        sku: string;
+        mercadoEletronicoItemStatus: string | null;
+        quantity?: number | null;
+        pickedQty?: number | null;
+        invoicedQty?: number | null;
+      }>
     >;
   };
 };
 
 /**
- * Trava de FINALIZADO: todas as linhas Recebido/OK.
- * invoicedQty e SAIDA_EXPEDICAO não bloqueiam — o status da linha é a fonte de verdade.
+ * Trava de FINALIZADO: toda linha Recebido/OK ou separada/faturada por completo
+ * (Falta = 0) — igual ao "OK" exibido na tela. SAIDA_EXPEDICAO não bloqueia.
  */
 export async function assertCanFinalizeOrder(
   tx: FinalizeGuardTx,
@@ -159,8 +168,11 @@ export async function assertCanFinalizeOrder(
     select: {
       sku: true,
       mercadoEletronicoItemStatus: true,
+      quantity: true,
+      pickedQty: true,
+      invoicedQty: true,
     },
   });
-  if (allLinesReceivedForFinalize(items)) return;
-  throw new BadRequestException(finalizeNotAllReceivedMessage(items));
+  if (allLinesCompleteForManualFinalize(items)) return;
+  throw new BadRequestException(finalizeNotCompleteMessage(items));
 }
